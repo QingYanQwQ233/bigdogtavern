@@ -15,6 +15,7 @@ const LS_CHAT = 'rpg-airp:chat';
 const LS_CHAR = 'rpg-airp:char';
 const LS_THEME = 'rpg-airp:theme';
 const LS_LAYOUT = 'rpg-airp:layout';
+const LS_MODE = 'rpg-airp:mode';
 const LS_PROFILES = 'rpg-airp:profiles';
 const LS_CHARS = 'rpg-airp:chars';
 const LS_CURRENT_CHAR = 'rpg-airp:current-char';
@@ -79,6 +80,7 @@ let lorebooks = null; // { id: { name, entries: [] } }
 let userData = loadJSON(LS_USER, null); // { currentPreset, presets: {...}, memories: [] }
 let promptPresets = loadJSON(LS_PRESETS, {});
 let theme = localStorage.getItem(LS_THEME) || 'tavern';
+let mode = localStorage.getItem(LS_MODE) || 'tavern'; // 'tavern' 酒馆模式 | 'rpg' RPG 模式
 let sending = false;
 let cmEditingId = null;
 let wiEditingId = null;
@@ -138,6 +140,121 @@ function getGreeting() {
 }
 function curSession() { return sessions.find(s => s.id === currentSessionId) || null; }
 function curMessages() { const s = curSession(); return s ? s.messages : []; }
+
+/* ═══════════ RPG 状态（每会话独立） ═══════════ */
+
+/* 默认 RPG 状态：优先 _defaults.rpg.initial（数据外置），否则内置兜底 */
+function defaultRpgState() {
+  const init = (defaults && defaults.rpg && defaults.rpg.initial) || {};
+  return {
+    level: init.level || 1,
+    exp: init.exp || 0,
+    expNext: init.expNext || 100,
+    hp: init.hp || 20,
+    maxHp: init.maxHp || 20,
+    mp: init.mp || 5,
+    maxMp: init.maxMp || 5,
+    gold: init.gold || 0,
+    location: init.location || '旅店',
+    buffs: Array.isArray(init.buffs) ? init.buffs : [],
+    inventory: Array.isArray(init.inventory) ? init.inventory : [],
+    quests: Array.isArray(init.quests) ? init.quests : [],
+  };
+}
+
+/* 当前会话的 RPG 状态（惰性初始化，保存在 session.rpgState） */
+function curRpgState() {
+  const s = curSession();
+  if (!s || s.kind !== 'rpg') return null;
+  if (!s.rpgState) s.rpgState = defaultRpgState();
+  return s.rpgState;
+}
+
+/* 渲染 RPG 面板：顶栏（等级/金币/位置）、状态条（HP/MP/EXP）、背包、任务、角色摘要 */
+function renderRPG() {
+  const rs = curRpgState();
+  if (!rs) return;
+  const setT = (id, v) => { const el = $(id); if (el) el.textContent = v; };
+  const setW = (id, pct) => { const el = $(id); if (el) el.style.width = pct; };
+  setT('rpg-level', rs.level);
+  setT('rpg-gold', rs.gold);
+  setT('rpg-gold2', rs.gold);
+  setT('rpg-loc', rs.location || '—');
+  setT('rpg-hp-text', `${rs.hp}/${rs.maxHp}`);
+  setT('rpg-mp-text', `${rs.mp}/${rs.maxMp}`);
+  setT('rpg-exp-text', `${rs.exp}/${rs.expNext}`);
+  setW('rpg-hp-bar', rs.maxHp ? Math.max(0, Math.min(100, rs.hp / rs.maxHp * 100)) + '%' : '0%');
+  setW('rpg-mp-bar', rs.maxMp ? Math.max(0, Math.min(100, rs.mp / rs.maxMp * 100)) + '%' : '0%');
+  setW('rpg-exp-bar', rs.expNext ? Math.max(0, Math.min(100, rs.exp / rs.expNext * 100)) + '%' : '0%');
+  setT('rpg-buffs', rs.buffs && rs.buffs.length ? rs.buffs.join('、') : '—');
+  const inv = $('rpg-inventory');
+  if (inv) {
+    inv.innerHTML = rs.inventory.length
+      ? rs.inventory.map((i, idx) => `<div class="rpg-item"><span class="rpg-item-name">${esc(i.name)}</span> ×${i.count}<span class="rpg-del" data-kind="inv" data-idx="${idx}" title="删除">✕</span><div class="rpg-item-sub">${esc(i.desc || '')}</div></div>`).join('')
+      : '<p class="hint">（空）</p>';
+  }
+  const q = $('rpg-quests');
+  if (q) {
+    q.innerHTML = rs.quests.length
+      ? rs.quests.map((x, idx) => `<div class="rpg-item${x.status === 'done' ? ' done' : ''}" data-kind="quest" data-idx="${idx}" title="点击切换进行/完成"><span class="rpg-item-name">${esc(x.title)}</span> ${x.status === 'done' ? '✅' : '●'}<span class="rpg-del" data-kind="quest-del" data-idx="${idx}" title="删除">✕</span><div class="rpg-item-sub">${esc(x.desc || '')}</div></div>`).join('')
+      : '<p class="hint">（无）</p>';
+  }
+  const cs = $('rpg-char-summary');
+  const c = currentChar();
+  if (cs) {
+    cs.innerHTML = c
+      ? `<div class="rpg-item"><span class="rpg-item-name">${esc(c.name || '？？？')}</span><div class="rpg-item-sub">${esc([c.race, c.role].filter(Boolean).join(' · ') || '种族/身份待定')}</div></div>`
+      : '<p class="hint">未选择角色</p>';
+  }
+}
+
+/* 应用 AI 输出的 ```rpg``` JSON 状态变更；返回是否发生了变更 */
+function applyRpgUpdate(reply) {
+  if (mode !== 'rpg') return false;
+  const m = String(reply || '').match(/```rpg\s*([\s\S]*?)```/);
+  if (!m) return false;
+  let upd;
+  try { upd = JSON.parse(m[1]); } catch (e) { console.warn('[Tavern] rpg JSON 解析失败', e.message); return false; }
+  const rs = curRpgState();
+  if (!rs || typeof upd !== 'object') return false;
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  if (typeof upd.hp === 'number') rs.hp = clamp(rs.hp + upd.hp, 0, rs.maxHp);
+  if (typeof upd.mp === 'number') rs.mp = clamp(rs.mp + upd.mp, 0, rs.maxMp);
+  if (typeof upd.gold === 'number') rs.gold = Math.max(0, rs.gold + upd.gold);
+  if (typeof upd.level === 'number') rs.level = Math.max(1, rs.level + (upd.level || 0));
+  if (typeof upd.exp === 'number') rs.exp = Math.max(0, rs.exp + upd.exp);
+  if (typeof upd.location === 'string' && upd.location.trim()) rs.location = upd.location.trim();
+  if (Array.isArray(upd.buffs)) rs.buffs = upd.buffs;
+  if (Array.isArray(upd.inventory)) {
+    for (const it of upd.inventory) {
+      if (!it || !it.name) continue;
+      const count = (typeof it.count === 'number') ? it.count : 1;
+      const exist = rs.inventory.find(x => x.name === it.name);
+      if (it.add === false || count < 0) {
+        const remove = Math.abs(count);
+        if (exist) { exist.count -= remove; if (exist.count <= 0) rs.inventory = rs.inventory.filter(x => x !== exist); }
+      } else {
+        if (exist) exist.count += count;
+        else rs.inventory.push({ name: it.name, count, desc: it.desc || '' });
+      }
+    }
+  }
+  if (Array.isArray(upd.quests)) {
+    for (const qd of upd.quests) {
+      if (!qd || !qd.title) continue;
+      const exist = rs.quests.find(x => x.title === qd.title);
+      if (exist) {
+        if (qd.status) exist.status = qd.status;
+        if (qd.desc) exist.desc = qd.desc;
+      } else {
+        rs.quests.push({ id: uid(), title: qd.title, desc: qd.desc || '', status: qd.status || 'active' });
+      }
+    }
+  }
+  saveSessions();
+  renderRPG();
+  return true;
+}
 
 /* ─────────── Markdown 渲染（marked + DOMPurify 消毒） ───────────
  * 参考 Open WebUI：解析后必须消毒（AI / 用户内容不可信）
@@ -268,15 +385,21 @@ async function seedExamples(force) {
 
 function ensureSessions() {
   if (sessions && sessions.length) {
-    if (!currentSessionId || !sessions.find(s => s.id === currentSessionId)) {
-      currentSessionId = sessions[0].id;
+    // 迁移旧会话：无 kind → 酒馆模式
+    for (const s of sessions) if (!s.kind) s.kind = 'tavern';
+    // 当前会话必须属于当前模式，否则切到该模式最近的会话
+    const cur = sessions.find(s => s.id === currentSessionId);
+    if (!cur || cur.kind !== mode) {
+      const cand = sessions.filter(s => s.kind === mode);
+      currentSessionId = cand.length ? cand[0].id : null;
     }
+    saveSessions();
     return;
   }
   // 迁移旧单会话
   const oldMsgs = loadJSON(LS_CHAT, null);
   sessions = [{
-    id: uid(), name: '会话 1', charId: currentCharId,
+    id: uid(), name: '会话 1', charId: currentCharId, kind: 'tavern',
     messages: (oldMsgs && oldMsgs.length) ? oldMsgs : [],
     createdAt: Date.now(),
   }];
@@ -292,10 +415,10 @@ function newSession() {
   const greeting = getGreeting();
   if (greeting) {
     messages.push({ role: 'assistant', content: greeting, ts: Date.now() });
-  } else if (defaults.ui && defaults.ui.noGreeting) {
+  } else if (defaults && defaults.ui && defaults.ui.noGreeting) {
     messages.push({ role: 'system', content: defaults.ui.noGreeting, ts: Date.now() });
   }
-  sessions.unshift({ id: uid(), name, charId: currentCharId, messages, createdAt: Date.now() });
+  sessions.unshift({ id: uid(), name, charId: currentCharId, kind: mode, messages, createdAt: Date.now() });
   currentSessionId = sessions[0].id;
   saveSessions();
   renderSessions();
@@ -328,11 +451,11 @@ function renderSessions() {
   const nameEl = $('session-name');
   const s = curSession();
   if (nameEl) nameEl.textContent = s ? s.name : '—';
-  // 头部下拉
+  // 头部下拉（只列当前模式 kind 的会话）
   const ml = $('session-menu-list');
   if (ml) {
     ml.innerHTML = '';
-    for (const ses of sessions) {
+    for (const ses of sessions.filter(s => s.kind === mode)) {
       const el = document.createElement('div');
       el.className = 'sess-item' + (ses.id === currentSessionId ? ' active' : '');
       el.innerHTML = `<span>${esc(ses.name)}</span><span class="sess-btns"><span class="sess-x" data-act="rename" title="重命名">✎</span><span class="sess-x" data-act="del" title="删除">✕</span></span>`;
@@ -1103,6 +1226,25 @@ function buildPromptBlocks() {
   if (fi) fmtLines.push(typeof fi === 'string' ? fi : (fi.text || ''));
   if (prefs.formatCustom && prefs.formatCustom.trim()) fmtLines.push(prefs.formatCustom.trim());
   if (fmtLines.length) parts.push(fmtLines.join('\n'));
+  // RPG 模式：注入【RPG 状态】【背包】【任务】【位置】 + 状态变更输出协议
+  if (mode === 'rpg') {
+    const rs = curRpgState();
+    if (rs) {
+      const st = `等级 ${rs.level}（经验 ${rs.exp}/${rs.expNext}），HP ${rs.hp}/${rs.maxHp}，MP ${rs.mp}/${rs.maxMp}，金币 ${rs.gold}，当前位置：${rs.location}`
+        + (rs.buffs && rs.buffs.length ? `，状态效果：${rs.buffs.join('、')}` : '');
+      parts.push('【RPG 状态】' + st);
+      parts.push('【背包】' + (rs.inventory.length
+        ? rs.inventory.map(i => `${i.name}×${i.count}${i.desc ? `（${i.desc}）` : ''}`).join('、')
+        : '（空）'));
+      parts.push('【任务】' + (rs.quests.length
+        ? rs.quests.map(x => `${x.title}${x.status === 'done' ? '（已完成）' : ''}`).join('、')
+        : '（无）'));
+    }
+    // 状态变更输出协议（数据外置：defaults.rpg.stateInstruction，兜底内联）
+    const proto = (defaults && defaults.rpg && defaults.rpg.stateInstruction)
+      || '每次回复末尾另起一行输出 ```rpg``` 代码块，包含本次状态变更 JSON：{"hp":相对增减数字或null,"mp":相对增减或null,"gold":相对增减或null,"level":相对增减或null,"exp":相对增减或null,"location":"新位置或null","buffs":["状态效果"]或null,"inventory":[{"name":"道具名","count":数量,"add":true或false,"desc":"描述"}]或null,"quests":[{"title":"标题","desc":"内容","status":"active或done"}]或null}。正数增加、负数减少、null 不变；无变更时输出 {"hp":null}。除叙事正文与 ```rpg``` 块外不要输出其他内容。';
+    parts.push(proto);
+  }
   const system = parts.join('\n\n');
   const wi = buildWorldInfo();
   const history = curMessages().slice(-Math.max(1, settings.history || 20))
@@ -1598,6 +1740,7 @@ function renderEditBubble(m) {
 function renderMessages() {
   const chat = $('chat');
   chat.innerHTML = '';
+  if (mode === 'rpg') renderRPG(); // RPG 模式联动状态面板
   const msgs = curMessages();
   if (!msgs.length) {
     chat.innerHTML = `<div class="chat-empty"><div class="ce-icon">🐾</div><div class="ce-title">${esc(emptyTitle())}</div><div class="ce-desc">${esc(buildGuide())}</div></div>`;
@@ -2019,11 +2162,14 @@ async function requestReply() {
     console.debug('[Tavern] ← 响应', reply);
     if (cot) console.debug('[Tavern] 🧠 思维链', cot);
     removeTyping();
-    pushMessage('assistant', reply.trim(), cot ? { cot } : undefined);
+    // RPG 模式：应用 ```rpg``` 状态变更，并从显示文本剔除该块
+    applyRpgUpdate(reply);
+    const clean = String(reply || '').replace(/```rpg\s*[\s\S]*?```/g, '').trim();
+    pushMessage('assistant', clean, cot ? { cot } : undefined);
     // 文生图（测试）：回复完成后自动生图（异步，不阻塞对话）
     const ig = settings.imageGen;
     if (ig && ig.enabled && ig.auto && ig.baseUrl) {
-      generateImageFor(reply.trim()).catch(e => console.error('[Tavern] 文生图失败', e.message));
+      generateImageFor(clean).catch(e => console.error('[Tavern] 文生图失败', e.message));
     }
   } catch (err) {
     console.error('[Tavern] ✗ 请求失败', err.message);
@@ -2147,6 +2293,31 @@ function applyLayout() {
   document.body.dataset.layout = 'classic';
 }
 
+/* 模式：酒馆 / RPG（body[data-mode] 控制布局与渲染分支） */
+function applyMode(name) {
+  mode = (name === 'rpg') ? 'rpg' : 'tavern';
+  document.body.dataset.mode = mode;
+  localStorage.setItem(LS_MODE, mode);
+  const btn = $('btn-mode-switch');
+  if (btn) {
+    btn.querySelector('.icon').textContent = mode === 'rpg' ? '⚔' : '🍺';
+    btn.querySelector('.label').textContent = mode === 'rpg' ? '模式：RPG' : '模式：酒馆';
+  }
+  // 模式切换：会话按 kind 分流（见 ensureSessions/switchMode）
+  renderSessions();
+  renderMessages();
+}
+
+function switchMode() {
+  applyMode(mode === 'rpg' ? 'tavern' : 'rpg');
+  // 切换到新模式：确保当前会话属于新模式（没有就新建）
+  ensureSessions();
+  if (!curSession()) newSession();
+  renderSessions();
+  renderMessages();
+  renderQuickActions(); // 快捷行动预设随模式切换
+}
+
 /* 侧栏收起：inline style 直接控制 #app 列宽（绕开 WebView 对 grid !important / 动画的不可靠处理），resize 跨断点自动清理 */
 function applySidebarState() {
   const app = $('app');
@@ -2257,6 +2428,88 @@ async function aiGenWI() {
   }
 }
 
+/* ─────────── RPG 手动管理（背包 / 任务 / 快捷行动） ─────────── */
+
+function addRpgItem() {
+  const rs = curRpgState();
+  if (!rs) { alert('当前不是 RPG 会话'); return; }
+  const name = (prompt('道具名称：') || '').trim();
+  if (!name) return;
+  const n = parseInt(prompt('数量（默认 1）：', '1'), 10);
+  const count = isNaN(n) ? 1 : n;
+  const desc = (prompt('描述（可留空）：') || '').trim();
+  const exist = rs.inventory.find(i => i.name === name);
+  if (exist) exist.count += count;
+  else rs.inventory.push({ name, count, desc });
+  saveSessions(); renderRPG();
+}
+
+function addRpgQuest() {
+  const rs = curRpgState();
+  if (!rs) { alert('当前不是 RPG 会话'); return; }
+  const title = (prompt('任务标题：') || '').trim();
+  if (!title) return;
+  const desc = (prompt('任务内容（可留空）：') || '').trim();
+  rs.quests.push({ id: uid(), title, desc, status: 'active' });
+  saveSessions(); renderRPG();
+}
+
+function toggleRpgQuest(idx) {
+  const rs = curRpgState();
+  if (!rs || !rs.quests[idx]) return;
+  rs.quests[idx].status = rs.quests[idx].status === 'done' ? 'active' : 'done';
+  saveSessions(); renderRPG();
+}
+
+function removeRpgItem(idx) {
+  const rs = curRpgState();
+  if (!rs) return;
+  rs.inventory.splice(idx, 1);
+  saveSessions(); renderRPG();
+}
+
+function removeRpgQuest(idx) {
+  const rs = curRpgState();
+  if (!rs) return;
+  rs.quests.splice(idx, 1);
+  saveSessions(); renderRPG();
+}
+
+/* 酒馆模式快捷行动（保留原有） */
+const QUICK_TAVERN = [
+  { label: '🐾 摸摸头', action: '（轻轻摸了摸对方的头）' },
+  { label: '👀 观察四周', action: '（仔细观察四周的环境）' },
+  { label: '🤔 试探对方', action: '（试探性地）你怎么看这件事？' },
+  { label: '⚔ 保持戒备', action: '（警惕地后退一步，手按在武器上）' },
+];
+
+/* 快捷行动预设栏：RPG 模式用 defaults.rpg.actions，酒馆模式用原预设 */
+function renderQuickActions() {
+  const qa = $('quick-actions');
+  if (!qa) return;
+  const acts = (mode === 'rpg' && defaults && defaults.rpg && defaults.rpg.actions && defaults.rpg.actions.length)
+    ? defaults.rpg.actions
+    : QUICK_TAVERN;
+  qa.innerHTML = '';
+  for (const a of acts) {
+    const b = document.createElement('button');
+    b.className = 'chip';
+    b.textContent = a.label;
+    b.addEventListener('click', () => {
+      if (mode === 'rpg') { // RPG：点按直接发送动作
+        const input = $('input');
+        input.value = a.action;
+        sendMessage();
+      } else { // 酒馆：填入输入框供修改
+        const input = $('input');
+        input.value = input.value.trim() ? input.value.trimEnd() + '\n' + a.action : a.action;
+        input.focus();
+      }
+    });
+    qa.appendChild(b);
+  }
+}
+
 /* ─────────── 事件绑定 ─────────── */
 function bindEvents() {
   // 发送
@@ -2264,14 +2517,21 @@ function bindEvents() {
   $('input').addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   });
-  // 快捷行动
-  document.querySelectorAll('.chip').forEach(chip => {
-    chip.addEventListener('click', () => {
-      const input = $('input');
-      const act = chip.dataset.action;
-      input.value = input.value.trim() ? input.value.trimEnd() + '\n' + act : act;
-      input.focus();
-    });
+  // 快捷行动（按模式渲染）
+  renderQuickActions();
+  // RPG 功能区：背包/任务管理
+  $('btn-rpg-item').addEventListener('click', addRpgItem);
+  $('btn-rpg-quest').addEventListener('click', addRpgQuest);
+  const rpgInv = $('rpg-inventory');
+  if (rpgInv) rpgInv.addEventListener('click', e => {
+    const el = e.target;
+    if (el.dataset && el.dataset.kind === 'inv') removeRpgItem(parseInt(el.dataset.idx, 10));
+  });
+  const rpgQ = $('rpg-quests');
+  if (rpgQ) rpgQ.addEventListener('click', e => {
+    const el = e.target;
+    if (el.dataset && el.dataset.kind === 'quest-del') removeRpgQuest(parseInt(el.dataset.idx, 10));
+    else if (el.dataset && el.dataset.kind === 'quest') toggleRpgQuest(parseInt(el.dataset.idx, 10));
   });
   // 导航
   document.querySelectorAll('.nav-item[data-view]').forEach(b =>
@@ -2359,6 +2619,9 @@ function bindEvents() {
     }));
   // 设置
   document.querySelectorAll('.js-settings').forEach(b => b.addEventListener('click', openSettings));
+  // 模式切换：刷新快捷行动与 RPG 面板
+  $('btn-mode-switch').addEventListener('click', switchMode);
+  renderQuickActions();
   document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closeSettings));
   $('btn-test-image').addEventListener('click', testImageGen);
   $('settings-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeSettings(); });
@@ -2392,7 +2655,7 @@ function bindEvents() {
     const greeting = getGreeting();
     s.messages = greeting
       ? [{ role: 'assistant', content: greeting, ts: Date.now() }]
-      : (defaults.ui && defaults.ui.noGreeting
+      : (defaults && defaults.ui && defaults.ui.noGreeting
         ? [{ role: 'system', content: defaults.ui.noGreeting, ts: Date.now() }]
         : []);
     saveSessions(); renderMessages(); renderSessions();
@@ -2507,6 +2770,7 @@ async function init() {
   }
   ensureSessions();
   applyTheme(theme);
+  applyMode(mode);
   bindEvents();
   renderMessages();
   renderCharacter();

@@ -46,6 +46,31 @@
     "charPrompt": "你是一位角色卡设计助手。根据用户对角色的一句话描述，生成一张完整的角色卡。只输出 JSON，不要输出任何其他内容或解释。JSON 结构：{\"name\":\"角色名\",\"race\":\"种族\",\"role\":\"身份\",\"persona\":\"外貌与性格描述（50~120字）\",\"scenario\":\"当前场景（一句叙述性开场）\",\"firstMes\":\"开场白（含动作/神态描写与一句对白）\",\"tags\":\"标签,逗号分隔\"}",
     "lorePrompt": "你是一位奇幻世界设定撰写助手。根据用户对某设定的描述，生成一条世界书条目。只输出 JSON，不要输出任何其他内容或解释。JSON 结构：{\"title\":\"条目标题\",\"keys\":\"触发词,逗号分隔（尽量覆盖同义词）\",\"content\":\"设定内容（80~150字，具体、可注入上下文）\",\"constant\":false}"
   },
+  "rpg": {
+    "initial": {
+      "level": 1,
+      "exp": 0,
+      "expNext": 100,
+      "hp": 20,
+      "maxHp": 20,
+      "mp": 5,
+      "maxMp": 5,
+      "gold": 10,
+      "location": "旅店门口",
+      "buffs": [],
+      "inventory": [{ "name": "旧皮囊", "count": 1, "desc": "装水的旧皮囊，略显破旧" }],
+      "quests": [{ "title": "初入江湖", "desc": "向旅店老板打听附近的情况", "status": "active" }]
+    },
+    "actions": [
+      { "label": "探索四周", "action": "（仔细观察周围环境，寻找线索）" },
+      { "label": "前往下个地点", "action": "（动身前往最近的可去地点）" },
+      { "label": "与人交谈", "action": "（主动和附近的人搭话）" },
+      { "label": "进入战斗", "action": "（摆出戒备姿态，准备战斗）" },
+      { "label": "休息片刻", "action": "（找个安全的地方休息，恢复体力）" },
+      { "label": "查看背包", "action": "（清点背包里的物品）" }
+    ],
+    "stateInstruction": "每次回复末尾另起一行输出 ```rpg``` 代码块，包含本次状态变更 JSON：{\"hp\":相对增减数字或null,\"mp\":相对增减或null,\"gold\":相对增减或null,\"level\":相对增减或null,\"exp\":相对增减或null,\"location\":\"新位置或null\",\"buffs\":[\"状态效果\"]或null,\"inventory\":[{\"name\":\"道具名\",\"count\":数量,\"add\":true或false,\"desc\":\"描述\"}]或null,\"quests\":[{\"title\":\"标题\",\"desc\":\"内容\",\"status\":\"active或done\"}]或null}。正数增加、负数减少、null 不变；无变更时输出 {\"hp\":null}。除叙事正文与 ```rpg``` 块外不要输出其他内容。"
+  },
   "settings": {
     "preset": "",
     "baseUrl": "",

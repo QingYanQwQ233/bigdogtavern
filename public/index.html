@@ -28,6 +28,7 @@
         <button class="nav-item" data-view="memory"><span class="icon">🧠</span><span class="label">记忆</span></button>
       </nav>
       <div class="sidebar-footer">
+        <button class="nav-item api-entry" id="btn-mode-switch"><span class="icon">🍺</span><span class="label">模式：酒馆</span></button>
         <button class="nav-item api-entry js-settings"><span class="icon">🔮</span><span class="label">设置</span></button>
       </div>
     </aside>
@@ -52,12 +53,40 @@
           <div class="soul-line"><i id="hdr-relation" style="width:50%"></i></div>
         </div>
         <button class="ghost-btn" id="btn-clear-chat" title="清空当前对话">清空对话</button>
+        <div class="rpg-hdr" id="rpg-hdr-info">
+          <span class="rpg-hdr-chip">Lv.<span id="rpg-level">1</span></span>
+          <span class="rpg-hdr-chip">💰 <span id="rpg-gold">0</span></span>
+          <span class="rpg-hdr-chip">📍 <span id="rpg-loc">—</span></span>
+        </div>
         <div class="fm-wrap" id="floating-wrap">
           <button class="ghost-btn" id="floating-toggle" title="界面设置">🏮</button>
         </div>
       </header>
 
       <div id="chat" class="chat" aria-live="polite"></div>
+
+      <!-- ═══ RPG 模式功能区（默认隐藏，RPG 模式显示） ═══ -->
+      <aside id="rpg-left" class="rpg-panel">
+        <div class="rpg-panel-head">🧬 角色</div>
+        <div id="rpg-char-summary"></div>
+        <div class="rpg-panel-head" style="margin-top:10px">🎒 背包</div>
+        <div id="rpg-inventory" class="rpg-list"></div>
+        <button class="ghost-btn" id="btn-rpg-item" style="width:100%;margin-top:6px">＋ 添加道具</button>
+      </aside>
+      <aside id="rpg-right" class="rpg-panel">
+        <div class="rpg-panel-head">📜 任务</div>
+        <div id="rpg-quests" class="rpg-list"></div>
+        <button class="ghost-btn" id="btn-rpg-quest" style="width:100%;margin-top:6px">＋ 添加任务</button>
+        <div class="rpg-panel-head" style="margin-top:10px">🗺 地图</div>
+        <p class="hint" id="rpg-map">地图待世界观确定后设计（占位）。</p>
+      </aside>
+      <div id="rpg-status" class="rpg-status">
+        <div class="rpg-stat hp"><span>HP</span><div class="rpg-bar"><i id="rpg-hp-bar"></i></div><b id="rpg-hp-text">0/0</b></div>
+        <div class="rpg-stat mp"><span>MP</span><div class="rpg-bar"><i id="rpg-mp-bar"></i></div><b id="rpg-mp-text">0/0</b></div>
+        <div class="rpg-stat exp"><span>EXP</span><div class="rpg-bar"><i id="rpg-exp-bar"></i></div><b id="rpg-exp-text">0/0</b></div>
+        <div class="rpg-stat gold"><span>💰</span><b id="rpg-gold2">0</b></div>
+        <div class="rpg-stat buffs"><span>状态</span><span id="rpg-buffs" class="rpg-buffs">—</span></div>
+      </div>
 
       <footer class="composer">
         <div class="quick-actions" id="quick-actions">
