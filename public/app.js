@@ -994,7 +994,11 @@ async function callAPI(payload) {
   });
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) {
-    const msg = data?.error?.message || `HTTP ${resp.status}`;
+    // 错误兜底：json 解析失败时退回 text()（WebView/NanoHTTPD 兼容，保证错误一定可读）
+    let msg = data?.error?.message || data?.error || `HTTP ${resp.status}`;
+    if (!data?.error) {
+      try { const t = await resp.text(); if (t) msg = `HTTP ${resp.status}: ${t.slice(0, 300)}`; } catch {}
+    }
     throw new Error(msg);
   }
   return data;
