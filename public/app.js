@@ -212,6 +212,17 @@ function renderRPG() {
 /* 当前消息的 AI 回复选项（```rpg``` JSON options 字段） */
 let lastRpgOptions = null;
 
+/* AI 输出统一正则处理管线：```rpg``` JSON 状态应用（正则提取）→ 掷骰表达式自动掷骰（结果以 meta 用户消息进上下文）→ 返回剔除 rpg 块后的正文 */
+function processAIOutput(reply) {
+  const rolls = rollDiceIn(reply); // AI 输出中的骰子表达式（如 d20+5、2d6）→ 自动掷骰
+  for (const r of rolls) {
+    const detail = r.rolls.length > 1 ? `（${r.rolls.join(' + ')}${r.bonus ? (r.bonus >= 0 ? ' + ' + r.bonus : ' - ' + Math.abs(r.bonus)) : ''}）` : (r.bonus ? `（+${r.bonus}）` : '');
+    pushMessage('user', `🎲 掷骰 ${r.expr} = ${r.total} ${detail}`, { meta: true });
+  }
+  applyRpgUpdate(reply); // ```rpg``` 状态/物品/任务/位置/options 应用
+  return String(reply || '').replace(/```rpg\s*[\s\S]*?```/g, '').trim();
+}
+
 function applyRpgUpdate(reply) {
   if (mode !== 'rpg') return false;
   const m = String(reply || '').match(/```rpg\s*([\s\S]*?)```/);
@@ -223,6 +234,8 @@ function applyRpgUpdate(reply) {
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   if (typeof upd.hp === 'number') rs.hp = clamp(rs.hp + upd.hp, 0, rs.maxHp);
   if (typeof upd.mp === 'number') rs.mp = clamp(rs.mp + upd.mp, 0, rs.maxMp);
+  if (typeof upd.maxHp === 'number') { rs.maxHp = Math.max(1, rs.maxHp + upd.maxHp); rs.hp = Math.min(rs.hp, rs.maxHp); }
+  if (typeof upd.maxMp === 'number') { rs.maxMp = Math.max(1, rs.maxMp + upd.maxMp); rs.mp = Math.min(rs.mp, rs.maxMp); }
   if (typeof upd.gold === 'number') rs.gold = Math.max(0, rs.gold + upd.gold);
   if (typeof upd.level === 'number') rs.level = Math.max(1, rs.level + (upd.level || 0));
   if (typeof upd.exp === 'number') rs.exp = Math.max(0, rs.exp + upd.exp);
@@ -1858,18 +1871,18 @@ function renderMessages() {
       }
       continue;
     }
-    // 用户 / 系统消息
+    // 用户 / 系统消息（meta 消息：内部注入如掷骰结果，居中显示）
     const el = document.createElement('div');
-    el.className = 'msg ' + m.role;
-    if (m.role === 'user' && m._editing) {
+    el.className = 'msg ' + (m.meta ? 'system' : m.role);
+    if (m.role === 'user' && !m.meta && m._editing) {
       el.innerHTML = renderEditBubble(m);
       const sb = el.querySelector('[data-edit-save]');
       const cb = el.querySelector('[data-edit-cancel]');
       if (sb) sb.addEventListener('click', () => saveEdit(m));
       if (cb) cb.addEventListener('click', () => cancelEdit(m));
     } else {
-      const avatar = m.role === 'user' ? '<span>🧑</span>'
-        : (m.role === 'system' ? '<span>❖</span>' : PAW_SVG);
+      const avatar = (m.meta || m.role === 'system') ? '<span>❖</span>'
+        : (m.role === 'user' ? '<span>🧑</span>' : PAW_SVG);
       const { html, md } = renderBubble(m.content);
       el.innerHTML = `<div class="avatar">${avatar}</div><div class="bubble${md ? ' md' : ''}">${html}</div>`;
       attachMsgActions(el, m,
@@ -2212,9 +2225,8 @@ async function requestReply() {
     console.debug('[Tavern] ← 响应', reply);
     if (cot) console.debug('[Tavern] 🧠 思维链', cot);
     removeTyping();
-    // RPG 模式：应用 ```rpg``` 状态变更（含 options），并从显示文本剔除该块
-    applyRpgUpdate(reply);
-    const clean = String(reply || '').replace(/```rpg\s*[\s\S]*?```/g, '').trim();
+    // RPG 模式：统一正则处理（```rpg``` 状态/掷骰），剔除 rpg 块
+    const clean = processAIOutput(reply);
     const extra = {};
     if (cot) extra.cot = cot;
     if (lastRpgOptions && lastRpgOptions.length) { extra.options = lastRpgOptions; lastRpgOptions = null; }
@@ -2248,7 +2260,8 @@ async function sendMessage() {
   const rolls = rollDiceIn(text);
   for (const r of rolls) {
     const detail = r.rolls.length > 1 ? `（${r.rolls.join(' + ')}${r.bonus ? (r.bonus >= 0 ? ' + ' + r.bonus : ' - ' + Math.abs(r.bonus)) : ''}）` : (r.bonus ? `（+${r.bonus}）` : '');
-    pushMessage('system', `🎲 ${r.expr} = ${r.total} ${detail}`);
+    // 掷骰结果以 meta 用户消息注入：居中显示 + 进入 AI 上下文（AI 能基于结果推进）
+    pushMessage('user', `🎲 ${r.expr} = ${r.total} ${detail}`, { meta: true });
   }
   await requestReply();
 }
