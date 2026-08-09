@@ -12,7 +12,7 @@ import java.net.URL
 import java.net.URLDecoder
 
 /**
- * Tavern 内嵌服务器：移植自 server.js（零改动前端，页面与 /api/* 同源 http://127.0.0.1:3000）
+ * Tavern 内嵌服务器：移植自 server.js（零改动前端，页面与 /api/ 同源 http://127.0.0.1:3000）
  *
  * 端点：
  *   POST /api/chat         聊天代理（SSE 流式转发 /chat/completions）
@@ -21,7 +21,7 @@ import java.net.URLDecoder
  *   GET  /api/models       模型列表代理
  *   GET  /api/data/seed    返回 assets/data/_defaults.json（模板）
  *   GET/PUT /api/data/:type 读写 filesDir/data/（characters/presets/lorebooks/settings）
- *   其他                    静态资源（assets 根；/images/* → filesDir/images）
+ *   其他                    静态资源（assets 根；/images/ → filesDir/images）
  */
 class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { // 仅绑定回环，同机其他 App 无法访问
 
