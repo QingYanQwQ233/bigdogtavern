@@ -103,7 +103,7 @@ async function saveServerData(type, data) {
   try {
     const resp = await fetch('/api/data/' + type, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
       body: JSON.stringify(data),
     });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -989,7 +989,7 @@ function buildPayload({ test = false } = {}) {
 async function callAPI(payload) {
   const resp = await fetch('/api/chat', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
     body: JSON.stringify(payload),
   });
   const data = await resp.json().catch(() => ({}));
@@ -1007,7 +1007,7 @@ async function callAPI(payload) {
 async function callAPIStream(payload) {
   const resp = await fetch('/api/chat', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
     body: JSON.stringify(payload),
   });
   if (!resp.ok) {
@@ -1491,7 +1491,7 @@ async function callImageAPI(ig, prompt) {
   try {
     const res = await fetch('/api/image', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
       signal: ctrl.signal,
       body: JSON.stringify({ baseUrl: ig.baseUrl, apiKey: ig.apiKey, kind: ig.kind || 'openai', body: buildImageBody(ig, prompt) }),
     });
@@ -1516,7 +1516,7 @@ async function llmImagePrompt(ig, story) {
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
       signal: ctrl.signal,
       body: JSON.stringify({
         baseUrl: settings.baseUrl,
@@ -1547,7 +1547,7 @@ async function saveImageLocally(src) {
   if (src.startsWith('/images/')) return src; // 已是本地路径
   const res = await fetch('/api/image-save', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
     body: JSON.stringify(src.startsWith('data:') ? { b64: src } : { url: src }),
   });
   const data = await res.json().catch(() => ({}));
