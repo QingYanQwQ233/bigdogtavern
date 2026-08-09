@@ -1486,7 +1486,24 @@ function removeImagePending() {
   if (t) t.remove();
 }
 
-function buildImageBody(ig, prompt, refImage) {
+/* 图片转 data URI：本地相对路径先 fetch 再转（中转服务端无法访问我们的 /images/ 相对路径） */
+async function imageToDataUri(src) {
+  if (!src) return src;
+  if (src.startsWith('data:')) return src;
+  if (src.startsWith('http://') || src.startsWith('https://')) return src; // 绝对 URL 直接给中转
+  try {
+    const r = await fetch(src);
+    const blob = await r.blob();
+    return await new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result);
+      fr.onerror = rej;
+      fr.readAsDataURL(blob);
+    });
+  } catch (e) { return src; }
+}
+
+async function buildImageBody(ig, prompt, refImage) {
   // 约束后缀：无论提示词来源（LLM/剧情/手动）都自动附加，兽人禁人脸
   const fullPrompt = (prompt || '') + (ig.promptSuffix || '');
   const body = { prompt: fullPrompt };
@@ -1510,8 +1527,11 @@ function buildImageBody(ig, prompt, refImage) {
     if (ig.model) body.model = ig.model;
     if (ig.size) body.size = ig.size;
     body.n = 1;
-    // 形象参考：OpenAI 兼容中转尝试 input_image（部分中转支持；不支持时在设置里关闭「发送参考图」）
-    if (ig.refUse && refImage) body.input_image = refImage;
+    // 形象参考：OpenAI 兼容中转（chatgpt2api 等）generations 白名单丢弃未知字段，
+    // 参考图必须走 /images/edits（body.images 数组，服务端据此自动选端点）
+    if (ig.refUse && refImage) {
+      body.images = [await imageToDataUri(refImage)];
+    }
     // 不发送 response_format：dall-e 系列默认返回 url；gpt-image 系列不接受该参数、总是返回 b64（解析端已兼容两者）
   }
   return body;
@@ -1539,7 +1559,7 @@ async function callImageAPI(ig, prompt, refImage) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
       signal: ctrl.signal,
-      body: JSON.stringify({ baseUrl: ig.baseUrl, apiKey: ig.apiKey, kind: ig.kind || 'openai', body: buildImageBody(ig, prompt, refImage) }),
+      body: JSON.stringify({ baseUrl: ig.baseUrl, apiKey: ig.apiKey, kind: ig.kind || 'openai', body: await buildImageBody(ig, prompt, refImage) }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {

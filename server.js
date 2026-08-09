@@ -222,7 +222,9 @@ async function handleImage(req, res) {
   }
   const { baseUrl, apiKey, kind, body } = payload || {};
   if (!baseUrl || !body) return send(res, 400, '缺少 baseUrl 或 body');
-  const pathname = kind === 'sd' ? '/sdapi/v1/txt2img' : '/images/generations';
+  // kind=sd → img2img；openai 兼容：body 含 images（参考图）→ /images/edits，否则 /images/generations
+  const pathname = kind === 'sd' ? '/sdapi/v1/txt2img'
+    : (Array.isArray(body.images) && body.images.length ? '/images/edits' : '/images/generations');
   const url = baseUrl.replace(/\/+$/, '') + pathname;
   const headers = { 'Content-Type': 'application/json' };
   if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;

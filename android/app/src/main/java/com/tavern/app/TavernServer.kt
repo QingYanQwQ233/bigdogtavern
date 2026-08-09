@@ -140,7 +140,10 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
         val kind = body.optString("kind", "openai")
         val payload = body.optJSONObject("body") ?: return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "missing body"))
         if (baseUrl.isBlank()) return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "missing baseUrl"))
-        val path = if (kind == "sd") "/sdapi/v1/txt2img" else "/images/generations"
+        // kind=sd → img2img；openai 兼容：body 含 images（参考图）→ /images/edits，否则 /images/generations
+        val path = if (kind == "sd") "/sdapi/v1/txt2img"
+            else if (payload.has("images")) "/images/edits"
+            else "/images/generations"
         val conn = openUpstream(baseUrl, path, apiKey, payload.toString())
         val code = conn.responseCode
         val text = upstreamBody(conn).readBytes().toString(Charsets.UTF_8)
