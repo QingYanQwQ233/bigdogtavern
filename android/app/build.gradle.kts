@@ -17,8 +17,23 @@ android {
         versionName = (project.findProperty("vn") as String?) ?: "alpha-0.1.0"
     }
 
+    // 固定签名：tavern.p12 提交仓库，所有构建用同一 keystore（GitHub Actions 每次全新环境会生成不同
+    // debug keystore → 签名不一致 → 覆盖安装失败；固定后签名永远一致）
+    signingConfigs {
+        create("tavern") {
+            storeFile = file("tavern.p12")
+            storePassword = "tavern123"
+            keyAlias = "tavern"
+            keyPassword = "tavern123"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("tavern")
+        }
         release {
+            signingConfig = signingConfigs.getByName("tavern")
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
         }
