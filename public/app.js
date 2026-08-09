@@ -1531,6 +1531,9 @@ async function buildImageBody(ig, prompt, refImage) {
     // 参考图必须走 /images/edits（body.images 数组，服务端据此自动选端点）
     if (ig.refUse && refImage) {
       body.images = [await imageToDataUri(refImage)];
+      // 图生图引导：参考图 = 角色形象基准，生成「该角色在当前场景中」的画面；
+      // 明确禁止输出角色设计图/立绘（否则 gpt-image 会把参考图当设计对象重绘）
+      body.prompt = `Using the character in the reference image as the exact character design, show this same character acting in the following scene: ${fullPrompt} Do NOT output a character sheet, turnaround, or design diagram.`;
     }
     // 不发送 response_format：dall-e 系列默认返回 url；gpt-image 系列不接受该参数、总是返回 b64（解析端已兼容两者）
   }
