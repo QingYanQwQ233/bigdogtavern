@@ -101,33 +101,8 @@
       "inventory": [],
       "quests": []
     },
-    "actions": [
-      {
-        "label": "探索四周",
-        "action": "（仔细观察周围环境，寻找线索）"
-      },
-      {
-        "label": "前往下个地点",
-        "action": "（动身前往最近的可去地点）"
-      },
-      {
-        "label": "与人交谈",
-        "action": "（主动和附近的人搭话）"
-      },
-      {
-        "label": "进入战斗",
-        "action": "（摆出戒备姿态，准备战斗）"
-      },
-      {
-        "label": "休息片刻",
-        "action": "（找个安全的地方休息，恢复体力）"
-      },
-      {
-        "label": "查看背包",
-        "action": "（清点背包里的物品）"
-      }
-    ],
-    "stateInstruction": "每次回复末尾另起一行输出 ```rpg``` 代码块，包含本次状态变更 JSON：{\"hp\":相对增减数字或null,\"mp\":相对增减或null,\"gold\":相对增减或null,\"level\":相对增减或null,\"exp\":相对增减或null,\"location\":\"新位置或null\",\"buffs\":[\"状态效果\"]或null,\"inventory\":[{\"name\":\"道具名\",\"count\":数量,\"add\":true或false,\"desc\":\"描述\"}]或null,\"quests\":[{\"title\":\"标题\",\"desc\":\"内容\",\"status\":\"active或done\"}]或null,\"options\":[\"玩家可选的下一步行动1\",\"行动2\"]或null}。正数增加、负数减少、null 不变；无变更时输出 {\"hp\":null}。道具与任务必须由当前剧情合理产出（击败敌人掉落、NPC 委托等），禁止凭空添加。除叙事正文与 ```rpg``` 块外不要输出其他内容。"
+    "stateInstruction": "每次回复末尾另起一行输出 ```rpg``` 代码块，包含本次状态变更 JSON：{\"hp\":相对增减数字或null,\"mp\":相对增减或null,\"gold\":相对增减或null,\"level\":相对增减或null,\"exp\":相对增减或null,\"location\":\"新位置或null\",\"buffs\":[\"状态效果\"]或null,\"inventory\":[{\"name\":\"道具名\",\"count\":数量,\"add\":true或false,\"desc\":\"描述\"}]或null,\"quests\":[{\"title\":\"标题\",\"desc\":\"内容\",\"status\":\"active或done\"}]或null,\"options\":[\"玩家可选的下一步行动1\",\"行动2\"]或null}。正数增加、负数减少、null 不变；无变更时输出 {\"hp\":null}。道具与任务必须由当前剧情合理产出（击败敌人掉落、NPC 委托等），禁止凭空添加。除叙事正文与 ```rpg``` 块外不要输出其他内容。",
+    "noOptions": "（等待 AI 给出行动选项…可先描述你的行动）"
   },
   "settings": {
     "preset": "",

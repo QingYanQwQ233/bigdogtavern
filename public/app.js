@@ -268,8 +268,10 @@ function applyRpgUpdate(reply) {
     }
   }
   if (Array.isArray(upd.options)) lastRpgOptions = upd.options.filter(o => typeof o === 'string' && o.trim()).slice(0, 4);
+  else if (!upd.options) lastRpgOptions = null; // AI 未给新选项时清空（保持“当前可行动作”语义）
   saveSessions();
   renderRPG();
+  renderQuickActions(); // 快捷行动栏跟随 AI options 刷新
   return true;
 }
 
@@ -1856,19 +1858,7 @@ function renderMessages() {
         }
         chat.appendChild(el);
       });
-      // AI 回复选项（```rpg``` options → 可点击行动）
-      if (m.options && m.options.length) {
-        const optWrap = document.createElement('div');
-        optWrap.className = 'reply-options';
-        for (const o of m.options) {
-          const b = document.createElement('button');
-          b.className = 'chip';
-          b.textContent = o;
-          b.addEventListener('click', () => { $('input').value = o; sendMessage(); });
-          optWrap.appendChild(b);
-        }
-        chat.appendChild(optWrap);
-      }
+      // AI 回复选项已统一渲染在底部快捷行动栏（renderQuickActions），不再挂消息下方
       continue;
     }
     // 用户 / 系统消息（meta 消息：内部注入如掷骰结果，居中显示）
@@ -2539,28 +2529,40 @@ const QUICK_TAVERN = [
   { label: '⚔ 保持戒备', action: '（警惕地后退一步，手按在武器上）' },
 ];
 
-/* 快捷行动预设栏：RPG 模式用 defaults.rpg.actions，酒馆模式用原预设 */
+/* 快捷行动预设栏：RPG 模式 = AI 生成的 options（全 AI 驱动，点击即发送）；酒馆模式 = 原有预设 */
 function renderQuickActions() {
   const qa = $('quick-actions');
   if (!qa) return;
-  const acts = (mode === 'rpg' && defaults && defaults.rpg && defaults.rpg.actions && defaults.rpg.actions.length)
-    ? defaults.rpg.actions
-    : QUICK_TAVERN;
   qa.innerHTML = '';
-  for (const a of acts) {
+  if (mode === 'rpg') {
+    const opts = (lastRpgOptions && lastRpgOptions.length) ? lastRpgOptions : null;
+    if (opts) {
+      for (const o of opts) {
+        const b = document.createElement('button');
+        b.className = 'chip';
+        b.textContent = o;
+        b.addEventListener('click', () => { $('input').value = o; sendMessage(); });
+        qa.appendChild(b);
+      }
+    } else {
+      // 无 AI 选项时显示提示（数据外置 defaults.rpg.noOptions）
+      const hint = (defaults && defaults.rpg && defaults.rpg.noOptions) || '（等待 AI 给出行动选项…）';
+      const s = document.createElement('span');
+      s.className = 'quick-hint';
+      s.textContent = hint;
+      qa.appendChild(s);
+    }
+    return;
+  }
+  // 酒馆模式：原有预设
+  for (const a of QUICK_TAVERN) {
     const b = document.createElement('button');
     b.className = 'chip';
     b.textContent = a.label;
     b.addEventListener('click', () => {
-      if (mode === 'rpg') { // RPG：点按直接发送动作
-        const input = $('input');
-        input.value = a.action;
-        sendMessage();
-      } else { // 酒馆：填入输入框供修改
-        const input = $('input');
-        input.value = input.value.trim() ? input.value.trimEnd() + '\n' + a.action : a.action;
-        input.focus();
-      }
+      const input = $('input');
+      input.value = input.value.trim() ? input.value.trimEnd() + '\n' + a.action : a.action;
+      input.focus();
     });
     qa.appendChild(b);
   }

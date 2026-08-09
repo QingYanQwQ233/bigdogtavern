@@ -270,14 +270,11 @@ body[data-mode="rpg"] #rpg-status { display: flex; grid-area: status; }
 .rpg-stat.exp .rpg-bar i { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
 .rpg-buffs { color: var(--text); font-size: 12px; }
 
-/* AI 回复选项（```rpg``` options → 可点击行动） */
-.reply-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 2px 0 8px 46px; /* 与气泡对齐（头像 34px + 间距） */
+.quick-hint {
+  color: var(--muted);
+  font-size: 12.5px;
+  padding: 4px 2px;
 }
-.reply-options .chip { cursor: pointer; }
 
 /* 移动端：RPG 单列，左右栏隐藏 */
 @media (max-width: 960px) {
