@@ -70,6 +70,10 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
         val conn = url.openConnection() as HttpURLConnection
         conn.connectTimeout = 60_000
         conn.readTimeout = 120_000
+        // 所有请求属性必须在任何可能触发连接的操作之前设置！
+        // 写 body（outputStream）会隐式 connect()，之后再 setRequestProperty 会抛
+        // "Cannot set request property after connection is made" → 500
+        if (apiKey.isNotBlank()) conn.setRequestProperty("Authorization", "Bearer $apiKey")
         if (body != null) {
             conn.requestMethod = "POST"
             conn.doOutput = true
@@ -78,7 +82,6 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
         } else {
             conn.requestMethod = "GET"
         }
-        if (apiKey.isNotBlank()) conn.setRequestProperty("Authorization", "Bearer $apiKey")
         return conn
     }
 
