@@ -39,8 +39,8 @@ jobs:
       - name: Build APK
         run: |
           cd android
-          # versionCode = commit 数（每次 push 递增）；versionName = alpha-0.1.<运行序号>（每次构建迭代）
-          VCODE=$(git rev-list --count HEAD)
+          # versionCode / versionName 都用 GitHub 全局运行序号（仓库级递增；git rev-list 在 fetch-depth=1 下恒为 1，不可用）
+          VCODE=${{ github.run_number }}
           VNAME="alpha-0.1.${{ github.run_number }}"
           echo "versionCode=$VCODE versionName=$VNAME"
           gradle assembleDebug --no-daemon -Pvc=$VCODE -Pvn=$VNAME
