@@ -250,6 +250,8 @@ body {
 
 /* ── 对话头部 ── */
 .chat-header {
+  position: relative; /* 建立层级：头部（含会话下拉 z-45）整体高于消息区，杜绝下拉被聊天文字压住 */
+  z-index: 30;
   display: flex;
   align-items: center;
   gap: 14px;

@@ -2147,13 +2147,27 @@ function applyLayout() {
   document.body.dataset.layout = 'classic';
 }
 
+/* 侧栏收起：inline style 直接控制 #app 列宽（绕开 WebView 对 grid !important / 动画的不可靠处理），resize 跨断点自动清理 */
+function applySidebarState() {
+  const app = $('app');
+  if (!app) return;
+  const hidden = document.body.classList.contains('sidebar-hidden');
+  if (window.innerWidth >= 961) {
+    app.style.gridTemplateColumns = hidden ? '1fr' : '196px 1fr';
+    app.style.transition = 'none'; // 列宽立即切换（侧栏自身的淡出动画保留）
+  } else {
+    app.style.gridTemplateColumns = '';
+    app.style.transition = '';
+    document.body.classList.remove('sidebar-hidden');
+  }
+}
+
 
 /* ─────────── 手机导航抽屉 ─────────── */
 function openNavDrawer() { const d = $('nav-drawer'); if (d) d.classList.add('open'); }
 function closeNavDrawer() { const d = $('nav-drawer'); if (d) d.classList.remove('open'); }
 
 /* ─────────── AI 生成（角色卡 / 世界书条目） ─────────── */
-
 /* 调用对话 API 生成，返回解析后的对象 */
 async function aiGenerate(instruction, desc) {
   if (!settings.baseUrl) throw new Error('请先配置 API（设置 → 连接）');
@@ -2267,10 +2281,12 @@ function bindEvents() {
     e.stopPropagation();
     if (window.innerWidth >= 961) {
       document.body.classList.toggle('sidebar-hidden');
+      applySidebarState();
     } else {
       openNavDrawer();
     }
   });
+  window.addEventListener('resize', applySidebarState);
   $('btn-nav-drawer-close').addEventListener('click', closeNavDrawer);
   const nd = $('nav-drawer');
   const ndm = nd && nd.querySelector('.nd-mask');
