@@ -1309,6 +1309,13 @@ function buildPromptBlocks() {
   const history = curMessages().slice(-Math.max(1, settings.history || 20))
     .filter(m => m.role === 'user' || m.role === 'assistant') // 图片消息不进对话上下文
     .map(m => ({ role: m.role, content: m.content }));
+  // RPG：history 最前注入示例回合（in-context few-shot，模型跟着模仿完整输出格式）
+  if (mode === 'rpg' && defaults && defaults.rpg && defaults.rpg.exampleTurn) {
+    const ex = defaults.rpg.exampleTurn;
+    if (ex.user && ex.assistant) {
+      history.unshift({ role: 'user', content: ex.user }, { role: 'assistant', content: ex.assistant });
+    }
+  }
   const post = (char && char.postHistory && char.postHistory.trim())
     || (preset && preset.postHistory && preset.postHistory.trim())
     || settings.postHistory || '';

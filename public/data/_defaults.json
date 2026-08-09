@@ -102,7 +102,11 @@
       "quests": []
     },
     "stateInstruction": "⚠️ 强制要求：每次回复必须以 ```rpg``` 代码块结尾，options 字段必填 2~4 个玩家可执行的行动选项（即使状态无变化也必须给出）。\n```rpg 代码块内 JSON：{\"options\":[\"行动选项1\",\"行动选项2\"],\"hp\":相对增减数字或null,\"maxHp\":相对增减或null,\"mp\":相对增减或null,\"maxMp\":相对增减或null,\"gold\":相对增减或null,\"level\":相对增减或null,\"exp\":相对增减或null,\"location\":\"新位置或null\",\"buffs\":[\"状态效果\"]或null,\"inventory\":[{\"name\":\"道具名\",\"count\":数量,\"add\":true或false,\"desc\":\"描述\"}]或null,\"quests\":[{\"title\":\"标题\",\"desc\":\"内容\",\"status\":\"active或done\"}]或null}。\n正数增加、负数减少、null 不变；无变更时输出 {\"options\":[\"行动选项1\",\"行动选项2\"],\"hp\":null}。\n道具与任务必须由当前剧情合理产出（掉落、NPC 委托等），禁止凭空添加。除叙事正文与 ```rpg``` 块外不要输出其他内容。",
-    "noOptions": "（等待 AI 给出行动选项…可先描述你的行动）"
+    "noOptions": "（等待 AI 给出行动选项…可先描述你的行动）",
+    "exampleTurn": {
+      "user": "我沿着泥泞的小径前行，看到一头灰毛野狼挡住去路。",
+      "assistant": "你沿着泥泞的小径前行，两侧的灌木丛沙沙作响，空气中弥漫着潮湿的泥土气息。忽然，一头灰毛野狼从树后窜出，呲着牙挡住了去路。\n（狼的喉咙里发出低沉的呜咽）“这里……是我的地盘。”\n```rpg\n{\"options\":[\"拔剑迎战野狼\",\"绕路避开，继续赶路\",\"掷 d20 试探野狼的敌意\"],\"hp\":-3,\"gold\":5,\"location\":\"荒野小径\",\"inventory\":[{\"name\":\"野狼獠牙\",\"count\":1,\"add\":true}],\"quests\":[{\"title\":\"穿过荒野\",\"desc\":\"穿过荒野到达下一个村庄\",\"status\":\"active\"}]}\n```"
+    }
   },
   "settings": {
     "preset": "",
