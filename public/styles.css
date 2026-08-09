@@ -152,8 +152,8 @@ body {
   grid-template-columns: 1fr; /* 单列：侧栏 fixed 覆盖层，main 用 margin 补偿（动画可靠） */
   height: 100vh;
 }
-/* 主区：内容右移给侧栏让位（margin 动画全浏览器可靠） */
-.main { width: 100%; margin-left: 0; transition: margin-left 0.25s ease; }
+/* 主区：内容右移给侧栏让位（margin+width 同步过渡，总宽恒为 100% → 无抽搐） */
+.main { width: 100%; margin-left: 0; transition: margin-left 0.25s ease, width 0.25s ease; }
 
 /* ── 桌面（≥961px）：侧栏滑入 + main 让位；手机/平板一律抽屉导航 ── */
 @media (min-width: 961px) {
