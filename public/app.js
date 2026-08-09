@@ -209,6 +209,9 @@ function renderRPG() {
 }
 
 /* 应用 AI 输出的 ```rpg``` JSON 状态变更；返回是否发生了变更 */
+/* 当前消息的 AI 回复选项（```rpg``` JSON options 字段） */
+let lastRpgOptions = null;
+
 function applyRpgUpdate(reply) {
   if (mode !== 'rpg') return false;
   const m = String(reply || '').match(/```rpg\s*([\s\S]*?)```/);
@@ -251,9 +254,27 @@ function applyRpgUpdate(reply) {
       }
     }
   }
+  if (Array.isArray(upd.options)) lastRpgOptions = upd.options.filter(o => typeof o === 'string' && o.trim()).slice(0, 4);
   saveSessions();
   renderRPG();
   return true;
+}
+
+/* ─────────── 掷骰（D&D 风格：d20+5 / 2d6-1 自动掷骰） ─────────── */
+const DICE_RE = /(\d*)d(\d+)([+-]\d+)?/gi;
+function rollDiceIn(text) {
+  const results = [];
+  String(text || '').replace(DICE_RE, (m, cnt, die, mod) => {
+    const n = Math.min(parseInt(cnt, 10) || 1, 100);
+    const d = parseInt(die, 10) || 1;
+    const bonus = mod ? parseInt(mod, 10) : 0;
+    const rolls = [];
+    for (let i = 0; i < n; i++) rolls.push(1 + Math.floor(Math.random() * d));
+    const sum = rolls.reduce((a, b) => a + b, 0);
+    results.push({ expr: m, rolls, bonus, total: sum + bonus });
+    return m;
+  });
+  return results;
 }
 
 /* ─────────── Markdown 渲染（marked + DOMPurify 消毒） ───────────
@@ -414,7 +435,7 @@ function newSession() {
   const messages = [];
   const greeting = getGreeting();
   if (greeting) {
-    messages.push({ role: 'assistant', content: greeting, ts: Date.now() });
+    messages.push({ role: 'assistant', content: greeting, ts: Date.now(), full: true }); // 开场白整段气泡渲染
   } else if (defaults && defaults.ui && defaults.ui.noGreeting) {
     messages.push({ role: 'system', content: defaults.ui.noGreeting, ts: Date.now() });
   }
@@ -1775,7 +1796,7 @@ function renderMessages() {
         cotEl.innerHTML = `<div class="nar-icon">🧠</div><div class="bubble"><details class="cot"><summary>🧠 思维链</summary><pre>${esc(m.cot)}</pre></details></div>`;
         chat.appendChild(cotEl);
       }
-      const segs = splitNarration(m.content);
+      const segs = m.full ? [{ type: 'dialogue', text: m.content }] : splitNarration(m.content);
       segs.forEach((seg, si) => {
         const el = document.createElement('div');
         let html;
@@ -1806,6 +1827,19 @@ function renderMessages() {
         }
         chat.appendChild(el);
       });
+      // AI 回复选项（```rpg``` options → 可点击行动）
+      if (m.options && m.options.length) {
+        const optWrap = document.createElement('div');
+        optWrap.className = 'reply-options';
+        for (const o of m.options) {
+          const b = document.createElement('button');
+          b.className = 'chip';
+          b.textContent = o;
+          b.addEventListener('click', () => { $('input').value = o; sendMessage(); });
+          optWrap.appendChild(b);
+        }
+        chat.appendChild(optWrap);
+      }
       continue;
     }
     // 用户 / 系统消息
@@ -2162,10 +2196,13 @@ async function requestReply() {
     console.debug('[Tavern] ← 响应', reply);
     if (cot) console.debug('[Tavern] 🧠 思维链', cot);
     removeTyping();
-    // RPG 模式：应用 ```rpg``` 状态变更，并从显示文本剔除该块
+    // RPG 模式：应用 ```rpg``` 状态变更（含 options），并从显示文本剔除该块
     applyRpgUpdate(reply);
     const clean = String(reply || '').replace(/```rpg\s*[\s\S]*?```/g, '').trim();
-    pushMessage('assistant', clean, cot ? { cot } : undefined);
+    const extra = {};
+    if (cot) extra.cot = cot;
+    if (lastRpgOptions && lastRpgOptions.length) { extra.options = lastRpgOptions; lastRpgOptions = null; }
+    pushMessage('assistant', clean, extra);
     // 文生图（测试）：回复完成后自动生图（异步，不阻塞对话）
     const ig = settings.imageGen;
     if (ig && ig.enabled && ig.auto && ig.baseUrl) {
@@ -2191,6 +2228,12 @@ async function sendMessage() {
   if (!text) return;
   input.value = '';
   pushMessage('user', text);
+  // 掷骰：玩家输入含 d20+5 / 2d6-1 → 自动掷骰并显示结果（不进 AI 上下文）
+  const rolls = rollDiceIn(text);
+  for (const r of rolls) {
+    const detail = r.rolls.length > 1 ? `（${r.rolls.join(' + ')}${r.bonus ? (r.bonus >= 0 ? ' + ' + r.bonus : ' - ' + Math.abs(r.bonus)) : ''}）` : (r.bonus ? `（+${r.bonus}）` : '');
+    pushMessage('system', `🎲 ${r.expr} = ${r.total} ${detail}`);
+  }
   await requestReply();
 }
 
@@ -2317,22 +2360,6 @@ function switchMode() {
   renderMessages();
   renderQuickActions(); // 快捷行动预设随模式切换
 }
-
-/* 侧栏收起：inline style 直接控制 #app 列宽（绕开 WebView 对 grid !important / 动画的不可靠处理），resize 跨断点自动清理 */
-function applySidebarState() {
-  const app = $('app');
-  if (!app) return;
-  const hidden = document.body.classList.contains('sidebar-hidden');
-  if (window.innerWidth >= 961) {
-    app.style.gridTemplateColumns = hidden ? '1fr' : '196px 1fr';
-    app.style.transition = 'none'; // 列宽立即切换（侧栏自身的淡出动画保留）
-  } else {
-    app.style.gridTemplateColumns = '';
-    app.style.transition = '';
-    document.body.classList.remove('sidebar-hidden');
-  }
-}
-
 
 /* ─────────── 手机导航抽屉 ─────────── */
 function openNavDrawer() { const d = $('nav-drawer'); if (d) d.classList.add('open'); }
@@ -2540,13 +2567,11 @@ function bindEvents() {
   $('btn-nav-drawer').addEventListener('click', e => {
     e.stopPropagation();
     if (window.innerWidth >= 961) {
-      document.body.classList.toggle('sidebar-hidden');
-      applySidebarState();
+      document.body.classList.toggle('sidebar-hidden'); // 侧栏滑出 + main 回满宽（CSS transform/margin 动画，可靠无抽搐）
     } else {
       openNavDrawer();
     }
   });
-  window.addEventListener('resize', applySidebarState);
   $('btn-nav-drawer-close').addEventListener('click', closeNavDrawer);
   const nd = $('nav-drawer');
   const ndm = nd && nd.querySelector('.nd-mask');
@@ -2654,7 +2679,7 @@ function bindEvents() {
     // 清空后重新加载开场白（getGreeting：char → preset → settings）
     const greeting = getGreeting();
     s.messages = greeting
-      ? [{ role: 'assistant', content: greeting, ts: Date.now() }]
+      ? [{ role: 'assistant', content: greeting, ts: Date.now(), full: true }] // 开场白整段气泡
       : (defaults && defaults.ui && defaults.ui.noGreeting
         ? [{ role: 'system', content: defaults.ui.noGreeting, ts: Date.now() }]
         : []);

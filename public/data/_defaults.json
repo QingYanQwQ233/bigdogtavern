@@ -58,8 +58,8 @@
       "gold": 10,
       "location": "旅店门口",
       "buffs": [],
-      "inventory": [{ "name": "旧皮囊", "count": 1, "desc": "装水的旧皮囊，略显破旧" }],
-      "quests": [{ "title": "初入江湖", "desc": "向旅店老板打听附近的情况", "status": "active" }]
+      "inventory": [],
+      "quests": []
     },
     "actions": [
       { "label": "探索四周", "action": "（仔细观察周围环境，寻找线索）" },
@@ -69,7 +69,7 @@
       { "label": "休息片刻", "action": "（找个安全的地方休息，恢复体力）" },
       { "label": "查看背包", "action": "（清点背包里的物品）" }
     ],
-    "stateInstruction": "每次回复末尾另起一行输出 ```rpg``` 代码块，包含本次状态变更 JSON：{\"hp\":相对增减数字或null,\"mp\":相对增减或null,\"gold\":相对增减或null,\"level\":相对增减或null,\"exp\":相对增减或null,\"location\":\"新位置或null\",\"buffs\":[\"状态效果\"]或null,\"inventory\":[{\"name\":\"道具名\",\"count\":数量,\"add\":true或false,\"desc\":\"描述\"}]或null,\"quests\":[{\"title\":\"标题\",\"desc\":\"内容\",\"status\":\"active或done\"}]或null}。正数增加、负数减少、null 不变；无变更时输出 {\"hp\":null}。除叙事正文与 ```rpg``` 块外不要输出其他内容。"
+    "stateInstruction": "每次回复末尾另起一行输出 ```rpg``` 代码块，包含本次状态变更 JSON：{\"hp\":相对增减数字或null,\"mp\":相对增减或null,\"gold\":相对增减或null,\"level\":相对增减或null,\"exp\":相对增减或null,\"location\":\"新位置或null\",\"buffs\":[\"状态效果\"]或null,\"inventory\":[{\"name\":\"道具名\",\"count\":数量,\"add\":true或false,\"desc\":\"描述\"}]或null,\"quests\":[{\"title\":\"标题\",\"desc\":\"内容\",\"status\":\"active或done\"}]或null,\"options\":[\"玩家可选的下一步行动1\",\"行动2\"]或null}。正数增加、负数减少、null 不变；无变更时输出 {\"hp\":null}。道具与任务必须由当前剧情合理产出（击败敌人掉落、NPC 委托等），禁止凭空添加。除叙事正文与 ```rpg``` 块外不要输出其他内容。"
   },
   "settings": {
     "preset": "",

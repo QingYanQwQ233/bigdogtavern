@@ -149,30 +149,28 @@ body {
 
 #app {
   display: grid;
-  grid-template-columns: 1fr; /* 移动优先：默认单栏（侧栏仅在 ≥961px 出现） */
+  grid-template-columns: 1fr; /* 单列：侧栏 fixed 覆盖层，main 用 margin 补偿（动画可靠） */
   height: 100vh;
-  transition: grid-template-columns 0.3s ease;
 }
+/* 主区：内容右移给侧栏让位（margin 动画全浏览器可靠） */
+.main { width: 100%; margin-left: 0; transition: margin-left 0.25s ease; }
 
-/* ── 桌面（≥961px）：侧栏 + 对话两栏；手机/平板一律抽屉导航 ── */
+/* ── 桌面（≥961px）：侧栏滑入 + main 让位；手机/平板一律抽屉导航 ── */
 @media (min-width: 961px) {
-  body[data-layout="classic"] #app { grid-template-columns: 196px 1fr; }
-  body[data-layout="classic"] .sidebar { grid-column: 1; grid-row: 1; display: flex; }
-  body[data-layout="classic"] .main { grid-column: 2; grid-row: 1; }
-  body[data-layout="classic"] .char-mgr { inset: 0 0 0 196px; }
-  /* 桌面汉堡常显：点击收起/展开侧栏 */
+  body[data-layout="classic"] .sidebar { transform: translateX(0); }
+  body[data-layout="classic"] .main { margin-left: 196px; }
+  /* 侧栏收起态：滑出 + main 回满宽（无抽搐、无空块） */
+  body.sidebar-hidden .sidebar { transform: translateX(-100%); }
+  body.sidebar-hidden .main { margin-left: 0; }
+  body.sidebar-hidden .char-mgr { left: 0; }
+  /* 桌面汉堡常显 */
   #btn-nav-drawer { display: inline-flex; }
   #nav-drawer { display: none !important; } /* 桌面不出现抽屉 */
-  /* 侧栏收起态（body.sidebar-hidden，桌面汉堡切换）：列宽立即切 1fr，侧栏淡出滑走（透明盖在 main 上，无空块） */
-  body.sidebar-hidden body[data-layout="classic"] #app { grid-template-columns: 1fr !important; }
-  body.sidebar-hidden .sidebar {
-    opacity: 0 !important;
-    pointer-events: none !important;
-    transform: translateX(-24px);
-  }
-  body.sidebar-hidden body[data-layout="classic"] .main { grid-column: 1 !important; }
-  body.sidebar-hidden body[data-layout="classic"] .char-mgr { inset: 0 !important; }
 }
+
+/* 管理页（角色/提示词/世界书/记忆）：fixed 覆盖层，left 随侧栏联动 */
+.char-mgr { position: fixed; top: 0; bottom: 0; left: 196px; right: 0; transition: left 0.25s ease; }
+@media (max-width: 960px) { .char-mgr { left: 0; } }
 
 /* ═══════════════════ RPG 模式布局 ═══════════════════ */
 /* 默认隐藏 RPG 专属元素（酒馆模式不显示） */
@@ -272,6 +270,15 @@ body[data-mode="rpg"] #rpg-status { display: flex; grid-area: status; }
 .rpg-stat.exp .rpg-bar i { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
 .rpg-buffs { color: var(--text); font-size: 12px; }
 
+/* AI 回复选项（```rpg``` options → 可点击行动） */
+.reply-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 2px 0 8px 46px; /* 与气泡对齐（头像 34px + 间距） */
+}
+.reply-options .chip { cursor: pointer; }
+
 /* 移动端：RPG 单列，左右栏隐藏 */
 @media (max-width: 960px) {
   body[data-mode="rpg"] .main {
@@ -289,15 +296,20 @@ body[data-mode="rpg"] #rpg-status { display: flex; grid-area: status; }
 /* ═══════════════════ 通用组件 ═══════════════════ */
 
 .sidebar {
-  display: none; /* 移动优先：默认隐藏，桌面 ≥961px 时由媒体查询恢复为 flex */
-  background: linear-gradient(180deg, var(--panel), var(--bg-0)); /* 完全实色：杜绝气泡透字 */
+  /* 移动优先：fixed 覆盖层 + 滑出隐藏；桌面 ≥961px 滑入展开 */
+  position: fixed;
+  left: 0; top: 0; bottom: 0;
+  width: 196px;
+  z-index: 40; /* 高于 chat-header(30)，侧栏覆盖层不被主区内容压住 */
+  transform: translateX(-100%);
+  display: flex;
   flex-direction: column;
   padding: 16px 14px;
   gap: 6px;
-  transition: background 0.4s ease, opacity 0.25s ease, transform 0.25s ease;
+  background: linear-gradient(180deg, var(--panel), var(--bg-0)); /* 完全实色：杜绝气泡透字 */
+  border-right: 1px solid var(--line);
+  transition: transform 0.25s ease, background 0.4s ease;
 }
-/* 菜单栏/侧栏层级高于聊天内容：气泡(0) < 侧栏(20) < 下拉(45) < 弹窗(50) < 终端(100) */
-.sidebar { border-right: 1px solid var(--line); position: relative; z-index: 20; }
 
 /* ── logo / 导航 ── */
 .logo { display: flex; align-items: center; gap: 8px; padding: 2px 4px 0; }
