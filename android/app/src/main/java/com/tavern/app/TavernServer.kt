@@ -111,7 +111,15 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
         val payload = body.optJSONObject("body") ?: return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "missing body"))
         if (baseUrl.isBlank()) return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "missing baseUrl"))
         val conn = openUpstream(baseUrl, "/chat/completions", apiKey, payload.toString())
-        val status = Response.Status.lookup(conn.responseCode) ?: Response.Status.INTERNAL_ERROR
+        val code = conn.responseCode
+        // 上游非 2xx：把上游正文包进 JSON，前端才能看到具体错误（否则只显示 "HTTP 500" 无从诊断）
+        if (code !in 200..299) {
+            val errBody = upstreamBody(conn).readBytes().toString(Charsets.UTF_8)
+            return newFixedLengthResponse(Response.Status.lookup(code) ?: Response.Status.INTERNAL_ERROR,
+                "application/json; charset=utf-8",
+                JSONObject().put("error", JSONObject().put("message", "上游 HTTP $code: ${errBody.take(400)}")).toString())
+        }
+        val status = Response.Status.lookup(code) ?: Response.Status.INTERNAL_ERROR
         val contentType = conn.contentType ?: "application/json"
         val mime = if (contentType.contains("event-stream")) "text/event-stream; charset=utf-8" else "$contentType; charset=utf-8"
         // chunked + InputStream：WebView 逐块接收，SSE 流式打字效果保留
@@ -129,8 +137,14 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
         if (baseUrl.isBlank()) return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "missing baseUrl"))
         val path = if (kind == "sd") "/sdapi/v1/txt2img" else "/images/generations"
         val conn = openUpstream(baseUrl, path, apiKey, payload.toString())
+        val code = conn.responseCode
         val text = upstreamBody(conn).readBytes().toString(Charsets.UTF_8)
-        return newFixedLengthResponse(Response.Status.lookup(conn.responseCode) ?: Response.Status.INTERNAL_ERROR,
+        if (code !in 200..299) {
+            return newFixedLengthResponse(Response.Status.lookup(code) ?: Response.Status.INTERNAL_ERROR,
+                "application/json; charset=utf-8",
+                JSONObject().put("error", JSONObject().put("message", "上游 HTTP $code: ${text.take(300)}")).toString())
+        }
+        return newFixedLengthResponse(Response.Status.lookup(code) ?: Response.Status.INTERNAL_ERROR,
             "application/json; charset=utf-8", text)
     }
 
@@ -167,8 +181,14 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
         val baseUrl = session.headers["x-base-url"] ?: return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "missing X-Base-Url"))
         val apiKey = session.headers["x-api-key"] ?: ""
         val conn = openUpstream(baseUrl, "/models", apiKey, null)
+        val code = conn.responseCode
         val text = upstreamBody(conn).readBytes().toString(Charsets.UTF_8)
-        return newFixedLengthResponse(Response.Status.lookup(conn.responseCode) ?: Response.Status.INTERNAL_ERROR,
+        if (code !in 200..299) {
+            return newFixedLengthResponse(Response.Status.lookup(code) ?: Response.Status.INTERNAL_ERROR,
+                "application/json; charset=utf-8",
+                JSONObject().put("error", JSONObject().put("message", "上游 HTTP $code: ${text.take(300)}")).toString())
+        }
+        return newFixedLengthResponse(Response.Status.lookup(code) ?: Response.Status.INTERNAL_ERROR,
             "application/json; charset=utf-8", text)
     }
 
