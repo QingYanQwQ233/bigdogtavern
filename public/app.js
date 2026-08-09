@@ -1379,6 +1379,90 @@ function importSettingsFromFile(file) {
 }
 
 /* ─────────── 聊天渲染 ─────────── */
+
+/* 消息操作按钮（编辑/删除/重生成/复制） */
+function attachMsgActions(el, m, opts) {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg-actions';
+  const btns = opts || {};
+  if (btns.regen) {
+    const b = document.createElement('button');
+    b.className = 'ma-btn'; b.title = '重新生成'; b.textContent = '🔄';
+    b.addEventListener('click', (e) => { e.stopPropagation(); regenAssistant(m); });
+    wrap.appendChild(b);
+  }
+  if (btns.edit) {
+    const b = document.createElement('button');
+    b.className = 'ma-btn'; b.title = '编辑'; b.textContent = '✏️';
+    b.addEventListener('click', (e) => { e.stopPropagation(); editMessage(m); });
+    wrap.appendChild(b);
+  }
+  if (btns.copy) {
+    const b = document.createElement('button');
+    b.className = 'ma-btn'; b.title = '复制'; b.textContent = '⧉';
+    b.addEventListener('click', (e) => { e.stopPropagation(); copyMessage(m); });
+    wrap.appendChild(b);
+  }
+  if (btns.del) {
+    const b = document.createElement('button');
+    b.className = 'ma-btn'; b.title = '删除'; b.textContent = '🗑';
+    b.addEventListener('click', (e) => { e.stopPropagation(); deleteMessage(m); });
+    wrap.appendChild(b);
+  }
+  if (wrap.children.length) el.appendChild(wrap);
+}
+
+/* 消息操作实现 */
+function editMessage(m) {
+  m._editing = true;
+  renderMessages();
+  const ta = $('edit-msg');
+  if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+}
+function saveEdit(m) {
+  const ta = $('edit-msg');
+  if (ta) m.content = ta.value;
+  delete m._editing;
+  saveSessions();
+  renderMessages();
+}
+function cancelEdit(m) {
+  delete m._editing;
+  renderMessages();
+}
+function deleteMessage(m) {
+  const s = curSession();
+  if (!s) return;
+  const i = s.messages.indexOf(m);
+  if (i < 0) return;
+  if (!confirm('删除这条消息？')) return;
+  s.messages.splice(i, 1);
+  saveSessions();
+  renderMessages();
+}
+function copyMessage(m) {
+  const text = m.content || '';
+  (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject(new Error('no clipboard')))
+    .then(() => { /* 复制成功 */ })
+    .catch(() => { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); });
+}
+/* 重新生成：删除该条 assistant 及之后，用现有历史重新请求 */
+async function regenAssistant(m) {
+  const s = curSession();
+  if (!s || sending) return;
+  const i = s.messages.indexOf(m);
+  if (i < 0 || s.messages[i].role !== 'assistant') return;
+  s.messages = s.messages.slice(0, i);
+  saveSessions();
+  renderMessages();
+  await requestReply();
+}
+
+/* 编辑模式渲染：消息内容替换为 textarea */
+function renderEditBubble(m) {
+  return `<div class="bubble edit-bubble"><textarea id="edit-msg" rows="4">${esc(m.content)}</textarea><div class="edit-actions"><button class="btn gold small" data-edit-save>保存</button><button class="ghost-btn small" data-edit-cancel>取消</button></div></div>`;
+}
+
 function renderMessages() {
   const chat = $('chat');
   chat.innerHTML = '';
@@ -1403,6 +1487,7 @@ function renderMessages() {
       }
       const btn = imgEl.querySelector('.regen-btn');
       if (btn) btn.addEventListener('click', () => regenImage(m));
+      attachMsgActions(imgEl, m, { copy: true, del: true });
       chat.appendChild(imgEl);
       continue;
     }
@@ -1416,15 +1501,33 @@ function renderMessages() {
         chat.appendChild(cotEl);
       }
       const segs = splitNarration(m.content);
-      segs.forEach((seg) => {
+      segs.forEach((seg, si) => {
         const el = document.createElement('div');
-        const { html, md } = renderBubble(seg.type === 'dialogue' ? seg.text.slice(1, -1) : seg.text);
-        if (seg.type === 'narration') {
-          el.className = 'msg narration';
-          el.innerHTML = `<div class="nar-icon">✦</div><div class="bubble${md ? ' md' : ''}">${html}</div>`;
-        } else {
+        let html;
+        if (m._editing) {
           el.className = 'msg assistant';
-          el.innerHTML = `<div class="avatar">${PAW_SVG}</div><div class="bubble${md ? ' md' : ''}">${html}</div>`;
+          el.innerHTML = renderEditBubble(m);
+        } else {
+          const { html: h, md } = renderBubble(seg.type === 'dialogue' ? seg.text.slice(1, -1) : seg.text);
+          html = h;
+          if (seg.type === 'narration') {
+            el.className = 'msg narration';
+            el.innerHTML = `<div class="nar-icon">✦</div><div class="bubble${md ? ' md' : ''}">${html}</div>`;
+          } else {
+            el.className = 'msg assistant';
+            el.innerHTML = `<div class="avatar">${PAW_SVG}</div><div class="bubble${md ? ' md' : ''}">${html}</div>`;
+          }
+        }
+        // 操作按钮只挂在第一段（整条消息共享操作）
+        if (si === 0) {
+          if (m._editing) {
+            const sb = el.querySelector('[data-edit-save]');
+            const cb = el.querySelector('[data-edit-cancel]');
+            if (sb) sb.addEventListener('click', () => saveEdit(m));
+            if (cb) cb.addEventListener('click', () => cancelEdit(m));
+          } else {
+            attachMsgActions(el, m, { regen: true, edit: true, copy: true, del: true });
+          }
         }
         chat.appendChild(el);
       });
@@ -1433,10 +1536,22 @@ function renderMessages() {
     // 用户 / 系统消息
     const el = document.createElement('div');
     el.className = 'msg ' + m.role;
-    const avatar = m.role === 'user' ? '<span>🧑</span>'
-      : (m.role === 'system' ? '<span>❖</span>' : PAW_SVG);
-    const { html, md } = renderBubble(m.content);
-    el.innerHTML = `<div class="avatar">${avatar}</div><div class="bubble${md ? ' md' : ''}">${html}</div>`;
+    if (m.role === 'user' && m._editing) {
+      el.innerHTML = renderEditBubble(m);
+      const sb = el.querySelector('[data-edit-save]');
+      const cb = el.querySelector('[data-edit-cancel]');
+      if (sb) sb.addEventListener('click', () => saveEdit(m));
+      if (cb) cb.addEventListener('click', () => cancelEdit(m));
+    } else {
+      const avatar = m.role === 'user' ? '<span>🧑</span>'
+        : (m.role === 'system' ? '<span>❖</span>' : PAW_SVG);
+      const { html, md } = renderBubble(m.content);
+      el.innerHTML = `<div class="avatar">${avatar}</div><div class="bubble${md ? ' md' : ''}">${html}</div>`;
+      attachMsgActions(el, m,
+        m.role === 'user' ? { edit: true, copy: true, del: true }
+        : m.role === 'system' ? { copy: true, del: true }
+        : { edit: true, copy: true, del: true });
+    }
     chat.appendChild(el);
   }
   chat.scrollTop = chat.scrollHeight;
@@ -1734,14 +1849,9 @@ async function regenImage(msg) {
   }
 }
 
-async function sendMessage() {
+/* 核心请求：用当前历史请求一次回复（发送消息 / 重新生成共用） */
+async function requestReply() {
   if (sending) return;
-  const input = $('input');
-  const text = input.value.trim();
-  if (!text) return;
-  input.value = '';
-  pushMessage('user', text);
-
   sending = true;
   $('btn-send').disabled = true;
   addTyping();
@@ -1790,8 +1900,19 @@ async function sendMessage() {
   } finally {
     sending = false;
     $('btn-send').disabled = false;
-    input.focus();
+    const input = $('input');
+    if (input) input.focus();
   }
+}
+
+async function sendMessage() {
+  if (sending) return;
+  const input = $('input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  pushMessage('user', text);
+  await requestReply();
 }
 
 /* ─────────── 视图切换 ─────────── */
