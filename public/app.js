@@ -127,6 +127,15 @@ function esc(s) {
 }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 function currentChar() { return characters.find(c => c.id === currentCharId) || null; }
+
+/* 开场白兜底链：char.firstMes → preset.firstMes → settings.firstMes（新会话 / 清空聊天共用） */
+function getGreeting() {
+  const char = currentChar();
+  const preset = promptPresets[(char && char.presetName)] || promptPresets[prefs.currentPreset] || promptPresets[GLOBAL_PRESET_KEY] || null;
+  return (char && char.firstMes && char.firstMes.trim())
+    || (preset && preset.firstMes && preset.firstMes.trim())
+    || settings.firstMes || '';
+}
 function curSession() { return sessions.find(s => s.id === currentSessionId) || null; }
 function curMessages() { const s = curSession(); return s ? s.messages : []; }
 
@@ -277,15 +286,14 @@ function ensureSessions() {
 
 function newSession() {
   const char = currentChar();
-  const preset = promptPresets[(char && char.presetName)] || promptPresets[prefs.currentPreset] || promptPresets[GLOBAL_PRESET_KEY] || null;
   const defaultName = '会话 ' + (sessions.length + 1);
   const name = (prompt('新会话名称：', defaultName) || defaultName).trim() || defaultName;
   const messages = [];
-  const greeting = (char && char.firstMes && char.firstMes.trim())
-    || (preset && preset.firstMes && preset.firstMes.trim())
-    || settings.firstMes || '';
+  const greeting = getGreeting();
   if (greeting) {
     messages.push({ role: 'assistant', content: greeting, ts: Date.now() });
+  } else if (defaults.ui && defaults.ui.noGreeting) {
+    messages.push({ role: 'system', content: defaults.ui.noGreeting, ts: Date.now() });
   }
   sessions.unshift({ id: uid(), name, charId: currentCharId, messages, createdAt: Date.now() });
   currentSessionId = sessions[0].id;
@@ -2262,13 +2270,13 @@ function bindEvents() {
     if (!confirm('确定清空当前对话？将重新加载开场白。')) return;
     const s = curSession();
     if (!s) return;
-    // 清空后重新加载开场白（char.firstMes → preset.firstMes → settings.firstMes，同新会话逻辑）
-    const char = currentChar();
-    const preset = promptPresets[(char && char.presetName)] || promptPresets[prefs.currentPreset] || promptPresets[GLOBAL_PRESET_KEY] || null;
-    const greeting = (char && char.firstMes && char.firstMes.trim())
-      || (preset && preset.firstMes && preset.firstMes.trim())
-      || settings.firstMes || '';
-    s.messages = greeting ? [{ role: 'assistant', content: greeting, ts: Date.now() }] : [];
+    // 清空后重新加载开场白（getGreeting：char → preset → settings）
+    const greeting = getGreeting();
+    s.messages = greeting
+      ? [{ role: 'assistant', content: greeting, ts: Date.now() }]
+      : (defaults.ui && defaults.ui.noGreeting
+        ? [{ role: 'system', content: defaults.ui.noGreeting, ts: Date.now() }]
+        : []);
     saveSessions(); renderMessages(); renderSessions();
   });
   // 文件导入（配置 / 角色卡）
