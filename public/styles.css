@@ -158,10 +158,10 @@ body {
 /* ── 桌面（≥961px）：侧栏滑入 + main 让位；手机/平板一律抽屉导航 ── */
 @media (min-width: 961px) {
   body[data-layout="classic"] .sidebar { transform: translateX(0); }
-  body[data-layout="classic"] .main { margin-left: 196px; }
+  body[data-layout="classic"] .main { margin-left: 196px; width: calc(100% - 196px); } /* width 需扣除侧栏占位，否则右侧溢出被裁 */
   /* 侧栏收起态：滑出 + main 回满宽（无抽搐、无空块） */
   body.sidebar-hidden .sidebar { transform: translateX(-100%); }
-  body.sidebar-hidden .main { margin-left: 0; }
+  body.sidebar-hidden .main { margin-left: 0; width: 100%; }
   body.sidebar-hidden .char-mgr { left: 0; }
   /* 桌面汉堡常显 */
   #btn-nav-drawer { display: inline-flex; }
