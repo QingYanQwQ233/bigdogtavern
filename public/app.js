@@ -1894,10 +1894,11 @@ async function generateImageFor(story) {
       try { prompt = await llmImagePrompt(ig, story); }
       catch (e) { console.warn('[Tavern] LLM 提示词生成失败，回退用剧情文本:', e.message); prompt = story; }
     }
-    // 角色形象统一：把角色外貌描述注入提示词（对纯文生图 API 是形象统一的主要手段）
-    if (char && (char.race || char.persona)) {
+    // 角色形象 + 当前场景统一：把角色外貌与场景描述注入提示词（图生图与对话场景一致）
+    if (char) {
       const look = [char.race, char.persona].filter(Boolean).join('，').slice(0, 150);
-      prompt = `角色形象：${char.name || ''}（${look}），保持一致的形象设定。${prompt}`;
+      const scene = (char.scenario && char.scenario.trim()) ? `当前场景：${char.scenario.trim()}` : '';
+      prompt = `角色形象：${char.name || ''}（${look}）。${scene}保持一致的形象设定。${prompt}`;
     }
     console.info('[Tavern] 🖼 生图提示词', prompt.slice(0, 120),
       '| 参考图:', refImage ? ('有(' + refImage.slice(0, 40) + ')') : '无',
@@ -2258,9 +2259,17 @@ function bindEvents() {
   $('btn-profile-del').addEventListener('click', profileDelete);
   // 清空对话
   $('btn-clear-chat').addEventListener('click', () => {
-    if (!confirm('确定清空当前对话？')) return;
+    if (!confirm('确定清空当前对话？将重新加载开场白。')) return;
     const s = curSession();
-    if (s) { s.messages = []; saveSessions(); renderMessages(); renderSessions(); }
+    if (!s) return;
+    // 清空后重新加载开场白（char.firstMes → preset.firstMes → settings.firstMes，同新会话逻辑）
+    const char = currentChar();
+    const preset = promptPresets[(char && char.presetName)] || promptPresets[prefs.currentPreset] || promptPresets[GLOBAL_PRESET_KEY] || null;
+    const greeting = (char && char.firstMes && char.firstMes.trim())
+      || (preset && preset.firstMes && preset.firstMes.trim())
+      || settings.firstMes || '';
+    s.messages = greeting ? [{ role: 'assistant', content: greeting, ts: Date.now() }] : [];
+    saveSessions(); renderMessages(); renderSessions();
   });
   // 文件导入（配置 / 角色卡）
   const cfgFileInput = document.createElement('input');
