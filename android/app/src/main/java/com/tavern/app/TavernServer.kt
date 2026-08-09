@@ -101,7 +101,7 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
 
     private fun json(res: Response.Status, obj: JSONObject): Response =
         // 禁用 gzip：NanoHTTPD 默认对 json 启用 gzip+chunked，WebView fetch 在错误路径上解压失败 → body 读不到
-        newFixedLengthResponse(res, "application/json; charset=utf-8", obj.toString()).also { it.setUseGzip(false) }
+        newFixedLengthResponse(res, "application/json; charset=utf-8", obj.toString()).also { it.setGzipEncoding(false) }
 
     /* ---------- /api/chat：SSE 流式转发 ---------- */
 
@@ -119,13 +119,13 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
             return newFixedLengthResponse(Response.Status.lookup(code) ?: Response.Status.INTERNAL_ERROR,
                 "application/json; charset=utf-8",
                 JSONObject().put("error", JSONObject().put("message", "上游 HTTP $code: ${errBody.take(400)}")).toString())
-                .also { it.setUseGzip(false) }
+                .also { it.setGzipEncoding(false) }
         }
         val status = Response.Status.lookup(code) ?: Response.Status.INTERNAL_ERROR
         val contentType = conn.contentType ?: "application/json"
         val mime = if (contentType.contains("event-stream")) "text/event-stream; charset=utf-8" else "$contentType; charset=utf-8"
         // chunked + InputStream：WebView 逐块接收，SSE 流式打字效果保留（必须禁 gzip，否则流被压缩破坏）
-        return newChunkedResponse(status, mime, upstreamBody(conn)).also { it.setUseGzip(false) }
+        return newChunkedResponse(status, mime, upstreamBody(conn)).also { it.setGzipEncoding(false) }
     }
 
     /* ---------- /api/image：文生图代理 ---------- */
@@ -145,10 +145,10 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
             return newFixedLengthResponse(Response.Status.lookup(code) ?: Response.Status.INTERNAL_ERROR,
                 "application/json; charset=utf-8",
                 JSONObject().put("error", JSONObject().put("message", "上游 HTTP $code: ${text.take(300)}")).toString())
-                .also { it.setUseGzip(false) }
+                .also { it.setGzipEncoding(false) }
         }
         return newFixedLengthResponse(Response.Status.lookup(code) ?: Response.Status.INTERNAL_ERROR,
-            "application/json; charset=utf-8", text).also { it.setUseGzip(false) }
+            "application/json; charset=utf-8", text).also { it.setGzipEncoding(false) }
     }
 
     /* ---------- /api/image-save：图片落盘 ---------- */
@@ -190,10 +190,10 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
             return newFixedLengthResponse(Response.Status.lookup(code) ?: Response.Status.INTERNAL_ERROR,
                 "application/json; charset=utf-8",
                 JSONObject().put("error", JSONObject().put("message", "上游 HTTP $code: ${text.take(300)}")).toString())
-                .also { it.setUseGzip(false) }
+                .also { it.setGzipEncoding(false) }
         }
         return newFixedLengthResponse(Response.Status.lookup(code) ?: Response.Status.INTERNAL_ERROR,
-            "application/json; charset=utf-8", text).also { it.setUseGzip(false) }
+            "application/json; charset=utf-8", text).also { it.setGzipEncoding(false) }
     }
 
     /* ---------- /api/data/:type ---------- */
