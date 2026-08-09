@@ -1661,7 +1661,10 @@ async function generateImageFor(story) {
       const look = [char.race, char.persona].filter(Boolean).join('，').slice(0, 150);
       prompt = `角色形象：${char.name || ''}（${look}），保持一致的形象设定。${prompt}`;
     }
-    console.info('[Tavern] 🖼 生图提示词', prompt.slice(0, 120));
+    console.info('[Tavern] 🖼 生图提示词', prompt.slice(0, 120),
+      '| 参考图:', refImage ? ('有(' + refImage.slice(0, 40) + ')') : '无',
+      '| refUse:', ig.refUse,
+      '| 端点:', (ig.refUse && refImage) ? (ig.kind === 'sd' ? 'img2img' : '/images/edits') : (ig.kind === 'sd' ? 'txt2img' : '/images/generations'));
     const src = await callImageAPI(ig, prompt, refImage);
     removeImagePending();
     let local = src;
