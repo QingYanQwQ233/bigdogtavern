@@ -2392,13 +2392,22 @@ function applyMode(name) {
 }
 
 function switchMode() {
-  applyMode(mode === 'rpg' ? 'tavern' : 'rpg');
+  const next = mode === 'rpg' ? 'tavern' : 'rpg';
+  applyMode(next);
+  // 自动切换当前预设到对应模式的默认（用户之后可手动改）
+  const defaultPreset = next === 'rpg' ? 'RPG 叙事引擎（示例）' : 'RP 基础（示例）';
+  if (promptPresets[defaultPreset]) {
+    prefs.currentPreset = defaultPreset;
+    saveJSON(LS_PREFS, prefs);
+  }
   // 切换到新模式：确保当前会话属于新模式（没有就新建）
   ensureSessions();
   if (!curSession()) newSession();
   renderSessions();
   renderMessages();
   renderQuickActions(); // 快捷行动预设随模式切换
+  renderPGList(); // 提示词页「当前预设」高亮/下拉刷新
+  renderBindSelects(); // 角色绑定预设下拉刷新
 }
 
 /* ─────────── 手机导航抽屉 ─────────── */
