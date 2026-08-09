@@ -1,0 +1,16 @@
+# 前端运行时数据（含 API key）——绝不提交
+public/data/*.json
+!public/data/_defaults.json
+
+# Android 构建产物
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/app/src/main/assets/
+
+# 工具
+*.exe
+
+# Reasonix 内部工作文件
+.reasonix/
