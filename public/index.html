@@ -41,6 +41,7 @@
     <!-- ═══ 主区：对话 ═══ -->
     <main class="main">
       <header class="chat-header">
+        <button class="ghost-btn" id="btn-nav-drawer" title="菜单" aria-label="打开导航">☰</button>
         <div class="session-wrap">
           <button class="ghost-btn" id="btn-session" title="切换 / 管理会话">📂 <span id="session-name">会话 1</span> ▾</button>
           <div id="session-menu" class="dropdown hidden">
@@ -203,6 +204,24 @@
         </div>
       </div>
       <p class="hint" style="margin-top:10px">示例：触发词「酒馆」→ 内容「酒馆名叫“断牙之角”，老板是一只独眼的老狼。」</p>
+    </div>
+  </div>
+
+  <!-- ═══ 手机导航抽屉（仅 ≤960px 使用，侧栏在手机隐藏） ═══ -->
+  <div id="nav-drawer">
+    <div class="nd-mask"></div>
+    <div class="nd-panel">
+      <div class="nd-head">
+        <span class="logo-name">Tavern</span>
+        <button class="ghost-btn" id="btn-nav-drawer-close" title="关闭">✕</button>
+      </div>
+      <nav class="nd-nav">
+        <button class="nav-item active" data-view="chat"><span class="icon">❖</span><span class="label">对话</span></button>
+        <button class="nav-item" data-view="chars"><span class="icon">🐾</span><span class="label">角色</span></button>
+        <button class="nav-item" data-view="prompts"><span class="icon">✍</span><span class="label">提示词</span></button>
+        <button class="nav-item" data-view="lore"><span class="icon">📖</span><span class="label">世界书</span></button>
+        <button class="nav-item api-entry js-settings"><span class="icon">🔮</span><span class="label">设置</span></button>
+      </nav>
     </div>
   </div>
 

@@ -1706,6 +1706,7 @@ async function sendMessage() {
 const VIEW_PLACEHOLDER = {};
 
 function switchView(name) {
+  closeNavDrawer(); // 手机抽屉：切换视图后自动收起
   document.querySelectorAll('.nav-item[data-view]').forEach(b =>
     b.classList.toggle('active', b.dataset.view === name));
   ['char-mgr', 'prompt-mgr', 'lore-mgr'].forEach(id => $(id).classList.add('hidden'));
@@ -1794,6 +1795,10 @@ function applyLayout() {
 }
 
 
+/* ─────────── 手机导航抽屉 ─────────── */
+function openNavDrawer() { const d = $('nav-drawer'); if (d) d.classList.add('open'); }
+function closeNavDrawer() { const d = $('nav-drawer'); if (d) d.classList.remove('open'); }
+
 /* ─────────── 事件绑定 ─────────── */
 function bindEvents() {
   // 发送
@@ -1813,6 +1818,12 @@ function bindEvents() {
   // 导航
   document.querySelectorAll('.nav-item[data-view]').forEach(b =>
     b.addEventListener('click', () => switchView(b.dataset.view)));
+  // 手机导航抽屉
+  $('btn-nav-drawer').addEventListener('click', e => { e.stopPropagation(); openNavDrawer(); });
+  $('btn-nav-drawer-close').addEventListener('click', closeNavDrawer);
+  const nd = $('nav-drawer');
+  const ndm = nd && nd.querySelector('.nd-mask');
+  if (ndm) ndm.addEventListener('click', closeNavDrawer);
   // 会话
   $('btn-session').addEventListener('click', e => {
     e.stopPropagation();
