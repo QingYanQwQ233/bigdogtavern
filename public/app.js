@@ -213,7 +213,7 @@ function renderRPG() {
 let lastRpgOptions = null;
 
 /* RPG 任务定义兜底（仅当「RPG 叙事引擎」预设被删除时使用；正常内容在预设 JSON 里可编辑） */
-const RPG_TASK_FALLBACK = '你是一位 AI 驱动的互动角色扮演（RPG）叙事引擎。每次回复必须完成三件事：1）叙事——以互动小说作者视角输出场景（环境/动作/神态），角色对白用“ ”包裹，旁白不混对白；2）状态——HP/MP/金币/道具/任务/位置变化通过回复末尾 ```rpg``` 代码块输出，道具任务必须来自剧情产出；3）选项——必须给出 2~4 个具体可执行的玩家行动选项（options），禁止“继续”类空泛表述。输出结构：先叙事正文，再另起一行 ```rpg``` JSON 代码块。';
+const RPG_TASK_FALLBACK = '你就是这个幻想世界的化身（地下城主/DM）——不是作者，你就是世界本身，玩家遇到的所有角色都由你扮演，玩家始终以“你”称呼。每次回复必须完成三件事：1）世界与叙事——直接描述场景（环境/动作/神态），NPC 对白用“ ”包裹，旁白不混对白，绝不以“作者”口吻自称；2）状态——HP/MP/金币/道具/任务/位置变化通过回复末尾 ```rpg``` 代码块输出，道具任务必须来自剧情产出；3）选项——必须给出 2~4 个具体可执行的玩家行动选项（options），禁止“继续”类空泛表述。输出结构：先叙事正文，再另起一行 ```rpg``` JSON 代码块。';
 
 /* AI 输出统一正则处理管线：```rpg``` JSON 状态应用（正则提取）→ 掷骰表达式自动掷骰（结果以 meta 用户消息进上下文）→ 返回剔除 rpg 块后的正文 */
 function processAIOutput(reply) {
@@ -1240,12 +1240,18 @@ function buildPromptBlocks() {
   const char = currentChar();
   const preset = promptPresets[(char && char.presetName)] || promptPresets[prefs.currentPreset] || promptPresets[GLOBAL_PRESET_KEY] || null;
   const parts = [];
-  // System Prompt（身份定位在前：作者视角，再注入角色素材）
+  // RPG 预设（DM/世界身份，提示词栏可编辑）；仅 RPG 模式使用
+  const rpgPresetInst = (mode === 'rpg' && promptPresets['RPG 叙事引擎（示例）']
+    && promptPresets['RPG 叙事引擎（示例）'].systemPrompt
+    && promptPresets['RPG 叙事引擎（示例）'].systemPrompt.trim()) || '';
+  // System Prompt：
+  //  - 酒馆：角色卡 systemPrompt → 所选预设（writer 等）→ 全局 settings
+  //  - RPG：角色卡 systemPrompt（保留角色个性）→ RPG 预设（DM/世界身份）；不注入 writer 预设，避免身份混淆
   const inst = (char && char.systemPrompt && char.systemPrompt.trim())
-    || (preset && preset.systemPrompt && preset.systemPrompt.trim())
-    || settings.systemPrompt
+    || (mode === 'rpg' ? rpgPresetInst : ((preset && preset.systemPrompt && preset.systemPrompt.trim()) || settings.systemPrompt || ''))
     || '';
   parts.push(inst);
+
   // 角色卡信息
   if (char) {
     const descLines = [];
@@ -1284,9 +1290,10 @@ function buildPromptBlocks() {
   // RPG 模式：注入【任务】定义（来自 RPG 预设，提示词栏可编辑）+【RPG 状态】+ 强化协议
   if (mode === 'rpg') {
     // 任务定义：优先取「RPG 叙事引擎」预设的 systemPrompt（用户可在提示词栏编辑）；删了则用内联兜底
+    // inst 已是 RPG 预设（DM 身份）时不重复注入
     const rpgPreset = promptPresets['RPG 叙事引擎（示例）'];
     const task = (rpgPreset && rpgPreset.systemPrompt && rpgPreset.systemPrompt.trim()) || RPG_TASK_FALLBACK;
-    if (task) parts.push('【任务】' + task);
+    if (task && inst !== task) parts.push('【任务】' + task);
     const rs = curRpgState();
     if (rs) {
       const st = `等级 ${rs.level}（经验 ${rs.exp}/${rs.expNext}），HP ${rs.hp}/${rs.maxHp}，MP ${rs.mp}/${rs.maxMp}，金币 ${rs.gold}，当前位置：${rs.location}`
