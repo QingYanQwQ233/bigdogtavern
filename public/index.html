@@ -123,7 +123,15 @@
         <div class="field"><label for="cm-preset">绑定提示词预设 <span class="hint-inline">system_prompt 为空时使用</span></label><select id="cm-preset"></select></div>
         <div class="field"><label for="cm-lore">绑定世界书 <span class="hint-inline">仅与该角色对话时生效</span></label><select id="cm-lore"></select></div>
       </div>
-      <div class="field"><label for="cm-ref-image">形象参考图（文生图统一形象）<span class="hint-inline">填图片 URL 或 /images/xxx.png；生图时自动注入角色形象描述</span></label><input id="cm-ref-image" placeholder="/images/xxx.png 或 https://..." /></div>
+      <div class="field">
+        <label for="cm-ref-image">形象参考图（文生图统一形象）<span class="hint-inline">点「导入图片」从本地选择；或手动填 URL</span></label>
+        <div class="row-inline">
+          <input id="cm-ref-image" placeholder="/images/xxx.png 或 https://..." />
+          <button class="ghost-btn" id="btn-import-ref">📁 导入图片</button>
+        </div>
+        <img id="cm-ref-preview" class="ref-preview hidden" alt="参考图预览" />
+        <input type="file" id="cm-ref-file" accept="image/*" class="hidden" />
+      </div>
       <div class="field"><label for="cm-tags">标签（tags，逗号分隔）</label><input id="cm-tags" /></div>
       <div class="cm-edit-actions">
         <button class="btn gold" id="cm-save">保存角色</button>

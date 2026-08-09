@@ -451,7 +451,40 @@ function selectCharForEdit(id) {
   $('cm-preset').value = c.presetName || '';
   $('cm-lore').value = c.loreId || '';
   $('cm-ref-image').value = c.refImage || '';
+  updateRefPreview(c.refImage || '');
   $('cm-tags').value = c.tags || '';
+}
+
+/* 参考图预览：有图显示，无图隐藏 */
+function updateRefPreview(src) {
+  const img = $('cm-ref-preview');
+  if (!img) return;
+  if (src) { img.src = src; img.classList.remove('hidden'); }
+  else img.classList.add('hidden');
+}
+
+/* 导入本地图片 → 上传到 server → 填入参考图 */
+function importRefImage(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      const res = await fetch('/api/image-save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        body: JSON.stringify({ b64: reader.result }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.path) throw new Error('上传失败: ' + (data.error || res.status));
+      $('cm-ref-image').value = data.path;
+      updateRefPreview(data.path);
+      saveCharFromEditor(); // 立即保存到当前编辑的角色
+    } catch (err) {
+      console.error('[Tavern] 参考图导入失败:', err.message);
+      alert('❌ 参考图导入失败：' + err.message);
+    }
+  };
+  reader.readAsDataURL(file);
 }
 
 function newCharEditor() {
@@ -1857,6 +1890,9 @@ function bindEvents() {
   const nd = $('nav-drawer');
   const ndm = nd && nd.querySelector('.nd-mask');
   if (ndm) ndm.addEventListener('click', closeNavDrawer);
+  // 形象参考图导入
+  $('btn-import-ref').addEventListener('click', () => { const f = $('cm-ref-file'); if (f) f.click(); });
+  $('cm-ref-file').addEventListener('change', (e) => { importRefImage(e.target.files && e.target.files[0]); e.target.value = ''; });
   // 会话
   $('btn-session').addEventListener('click', e => {
     e.stopPropagation();

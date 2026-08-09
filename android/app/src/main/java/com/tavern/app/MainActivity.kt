@@ -1,7 +1,10 @@
 package com.tavern.app
 
 import android.app.Activity
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -15,6 +18,8 @@ class MainActivity : Activity() {
 
     private lateinit var server: TavernServer
     private lateinit var webView: WebView
+    private var filePathCallback: ValueCallback<Array<Uri>>? = null
+    private val FILE_CHOOSER_REQ = 1001
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,14 +43,31 @@ class MainActivity : Activity() {
         // → 会导致 ≥961px 判定成立、侧栏误显示
         webView.settings.useWideViewPort = true
         webView.settings.loadWithOverviewMode = true
-        webView.webChromeClient = WebChromeClient()
+        webView.webChromeClient = object : WebChromeClient() {
+            // 文件选择器：<input type="file"> 必须实现此回调，否则点击无效（导入形象参考图依赖）
+            override fun onShowFileChooser(
+                webView: WebView,
+                filePathCallback: ValueCallback<Array<Uri>>,
+                fileChooserParams: FileChooserParams
+            ): Boolean {
+                this@MainActivity.filePathCallback?.onReceiveValue(null)
+                this@MainActivity.filePathCallback = filePathCallback
+                try {
+                    startActivityForResult(fileChooserParams.createIntent(), FILE_CHOOSER_REQ)
+                } catch (e: Exception) {
+                    this@MainActivity.filePathCallback = null
+                    return false
+                }
+                return true
+            }
+        }
         webView.webViewClient = object : WebViewClient() {
             // 外部链接（非本地服务）移交系统浏览器，避免塞进 WebView
             override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
                 if (url.startsWith("http://127.0.0.1:3000") || url.startsWith("http://localhost:3000")) return false
                 if (url.startsWith("http://") || url.startsWith("https://")) {
                     try {
-                        startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                     } catch (e: Exception) { /* 无浏览器可打开时忽略 */ }
                     return true
                 }
@@ -54,6 +76,23 @@ class MainActivity : Activity() {
         }
         setContentView(webView)
         webView.loadUrl("http://127.0.0.1:3000/")
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == FILE_CHOOSER_REQ) {
+            if (filePathCallback == null) {
+                super.onActivityResult(requestCode, resultCode, data)
+                return
+            }
+            val results: Array<Uri>? = if (resultCode == Activity.RESULT_OK && data != null && data.data != null) {
+                arrayOf(data.data!!)
+            } else null
+            filePathCallback?.onReceiveValue(results)
+            filePathCallback = null
+        } else {
+            super.onActivityResult(requestCode, resultCode, data)
+        }
     }
 
     override fun onBackPressed() {

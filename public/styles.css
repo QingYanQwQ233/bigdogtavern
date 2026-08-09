@@ -815,6 +815,17 @@ textarea#input:focus {
 .nd-nav .nav-item { width: 100%; justify-content: flex-start; padding: 11px 12px; font-size: 14px; }
 .nd-nav .nav-item.active::before { left: 0; right: auto; top: 8px; bottom: 8px; width: 3px; border-radius: 3px; }
 
+/* 形象参考图预览 */
+.ref-preview {
+  margin-top: 8px;
+  max-width: 140px;
+  max-height: 140px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  object-fit: contain;
+  display: block;
+}
+
 /* ── 界面控制（版本 / 色调 / 设置，位于对话头部，避免遮挡输入区） ── */
 .fm-wrap { position: relative; margin-left: 4px; }
 #floating-toggle { font-size: 14px; padding: 6px 10px; white-space: nowrap; }
