@@ -21,7 +21,7 @@ const DATA_DIR = path.join(PUBLIC_DIR, 'data');
 // --api-only：只暴露 /api/*（无网页），供公网纯 API 场景
 const API_ONLY = process.argv.includes('--api-only');
 
-const DATA_TYPES = ['characters', 'presets', 'lorebooks', 'settings'];
+const DATA_TYPES = ['characters', 'presets', 'lorebooks', 'settings', 'user'];
 const DEFAULTS_PATH = path.join(DATA_DIR, '_defaults.json');
 
 /* 默认模板：从 public/data/_defaults.json 读取（唯一数据源，代码不写死内容） */
@@ -32,6 +32,7 @@ function loadDefaults() {
     return {
       characters: Array.isArray(d.characters) ? d.characters : [],
       presets: (d.presets && typeof d.presets === 'object') ? d.presets : {},
+      user: (d.user && typeof d.user === 'object') ? d.user : { presets: {}, memories: [] },
       lorebooks: (d.lorebooks && typeof d.lorebooks === 'object') ? d.lorebooks : { default: { name: '默认世界书', entries: [] } },
       settings: (d.settings && typeof d.settings === 'object') ? d.settings : {},
       prefs: (d.prefs && typeof d.prefs === 'object') ? d.prefs : {},

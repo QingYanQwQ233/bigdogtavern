@@ -28,6 +28,19 @@
     "emptyGuideWithChar": "当前角色：{name}（{role}）。开始你们的对话吧。",
     "emptyGuide": "开始你的故事吧。点左侧「角色」创建角色卡，或在上方「🏮」配置 API。"
   },
+  "user": {
+    "currentPreset": "default",
+    "presets": {
+      "default": {
+        "name": "旅人",
+        "race": "",
+        "role": "",
+        "persona": "",
+        "notes": ""
+      }
+    },
+    "memories": []
+  },
   "settings": {
     "preset": "",
     "baseUrl": "",

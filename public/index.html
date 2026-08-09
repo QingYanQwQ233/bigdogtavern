@@ -32,6 +32,7 @@
         <button class="nav-item" data-view="chars"><span class="icon">🐾</span><span class="label">角色</span></button>
         <button class="nav-item" data-view="prompts"><span class="icon">✍</span><span class="label">提示词</span></button>
         <button class="nav-item" data-view="lore"><span class="icon">📖</span><span class="label">世界书</span></button>
+        <button class="nav-item" data-view="memory"><span class="icon">🧠</span><span class="label">记忆</span></button>
       </nav>
       <div class="sidebar-footer">
         <button class="nav-item api-entry js-settings"><span class="icon">🔮</span><span class="label">设置</span></button>
@@ -216,6 +217,37 @@
     </div>
   </div>
 
+  <!-- ═══ 记忆 / 玩家设定页 ═══ -->
+  <div id="memory-mgr" class="char-mgr hidden">
+    <div class="cm-side">
+      <div class="cm-head">🧠 玩家设定</div>
+      <div class="field"><label for="um-preset">当前预设</label><select id="um-preset"></select></div>
+      <div class="field"><label for="um-name">名字</label><input id="um-name" placeholder="旅人" /></div>
+      <div class="field"><label for="um-race">种族</label><input id="um-race" placeholder="人类 / 猫族…" /></div>
+      <div class="field"><label for="um-role">身份</label><input id="um-role" placeholder="冒险者 / 旅商…" /></div>
+      <div class="field"><label for="um-persona">外貌 / 背景 / 偏好</label><textarea id="um-persona" rows="4"></textarea></div>
+      <div class="field"><label for="um-notes">备注（仅本地记录，不注入）</label><textarea id="um-notes" rows="2"></textarea></div>
+      <div class="wi-actions">
+        <button class="btn gold small" id="um-save">💾 保存设定</button>
+        <button class="ghost-btn" id="um-save-new">另存预设</button>
+        <button class="ghost-btn" id="um-del">删除预设</button>
+      </div>
+      <p class="hint">玩家设定会以【玩家设定】段注入 System Prompt，AI 据此称呼/对待你。</p>
+    </div>
+    <div class="cm-edit">
+      <div class="cm-head">💭 记忆条目（自动注入上下文）</div>
+      <div class="field">
+        <label for="mem-input">新记忆</label>
+        <div class="row-inline">
+          <input id="mem-input" placeholder="例如：玩家喜欢麦酒，讨厌雨天" />
+          <button class="btn gold small" id="mem-add">＋ 添加</button>
+        </div>
+      </div>
+      <div class="field"><label>已有记忆（点击可编辑，✕ 删除）</label><div id="mem-list" class="wi-list"></div></div>
+      <p class="hint">记忆注入在【玩家设定】之后，帮助 AI 记住长期设定与剧情进展。可编辑内容、单独启用/停用。</p>
+    </div>
+  </div>
+
   <!-- ═══ 手机导航抽屉（仅 ≤960px 使用，侧栏在手机隐藏） ═══ -->
   <div id="nav-drawer">
     <div class="nd-mask"></div>
@@ -229,6 +261,7 @@
         <button class="nav-item" data-view="chars"><span class="icon">🐾</span><span class="label">角色</span></button>
         <button class="nav-item" data-view="prompts"><span class="icon">✍</span><span class="label">提示词</span></button>
         <button class="nav-item" data-view="lore"><span class="icon">📖</span><span class="label">世界书</span></button>
+        <button class="nav-item" data-view="memory"><span class="icon">🧠</span><span class="label">记忆</span></button>
         <button class="nav-item api-entry js-settings"><span class="icon">🔮</span><span class="label">设置</span></button>
       </nav>
     </div>

@@ -20,6 +20,7 @@ const LS_CHARS = 'rpg-airp:chars';
 const LS_CURRENT_CHAR = 'rpg-airp:current-char';
 const LS_SESSIONS = 'rpg-airp:sessions';
 const LS_LORE = 'rpg-airp:lore';
+const LS_USER = 'rpg-airp:user';
 const LS_PRESETS = 'rpg-airp:prompt-presets';
 const LS_PREFS = 'rpg-airp:prefs';
 const GLOBAL_PRESET_KEY = '__global__'; // 全局默认提示词 = presets.json 固定键（与普通预设同构，含 modules）
@@ -75,6 +76,7 @@ let currentCharId = localStorage.getItem(LS_CURRENT_CHAR);
 let sessions = loadJSON(LS_SESSIONS, null);
 let currentSessionId = null;
 let lorebooks = null; // { id: { name, entries: [] } }
+let userData = loadJSON(LS_USER, null); // { currentPreset, presets: {...}, memories: [] }
 let promptPresets = loadJSON(LS_PRESETS, {});
 let theme = localStorage.getItem(LS_THEME) || 'tavern';
 let sending = false;
@@ -606,6 +608,114 @@ function importCharFromText(text) {
 
 function currentLB() { return (lorebooks && lorebooks[lbEditingId]) || null; }
 
+/* ─────────── 记忆 / 玩家设定 ─────────── */
+function ensureUserData() {
+  if (userData && userData.presets) return;
+  userData = { currentPreset: 'default', presets: { default: { name: '旅人', race: '', role: '', persona: '', notes: '' } }, memories: [] };
+}
+function saveUserData() {
+  ensureUserData();
+  saveJSON(LS_USER, userData);
+  saveServerData('user', userData);
+}
+function currentUserPreset() {
+  ensureUserData();
+  return userData.presets[userData.currentPreset] || Object.values(userData.presets)[0] || userData.presets.default;
+}
+function renderUserPresets() {
+  const sel = $('um-preset');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = '';
+  for (const name of Object.keys(userData.presets)) {
+    const o = document.createElement('option');
+    o.value = name; o.textContent = name;
+    sel.appendChild(o);
+  }
+  if (cur && userData.presets[cur]) sel.value = cur;
+  else sel.value = userData.currentPreset || Object.keys(userData.presets)[0] || '';
+}
+function fillUserForm() {
+  const p = currentUserPreset();
+  $('um-preset').value = userData.currentPreset || '';
+  $('um-name').value = p.name || '';
+  $('um-race').value = p.race || '';
+  $('um-role').value = p.role || '';
+  $('um-persona').value = p.persona || '';
+  $('um-notes').value = p.notes || '';
+  renderUserPresets();
+}
+function readUserForm() {
+  const p = currentUserPreset();
+  p.name = $('um-name').value;
+  p.race = $('um-race').value;
+  p.role = $('um-role').value;
+  p.persona = $('um-persona').value;
+  p.notes = $('um-notes').value;
+}
+function saveUserForm() {
+  readUserForm();
+  saveUserData();
+  alert('✅ 玩家设定已保存');
+}
+function saveUserAsNew() {
+  readUserForm();
+  const name = prompt('预设名称：', '设定 ' + (Object.keys(userData.presets).length + 1));
+  if (!name || !name.trim()) return;
+  userData.presets[name.trim()] = JSON.parse(JSON.stringify(currentUserPreset()));
+  userData.currentPreset = name.trim();
+  saveUserData();
+  fillUserForm();
+}
+function deleteUserPreset() {
+  const name = userData.currentPreset;
+  if (!name || name === 'default') { alert('默认预设不可删除'); return; }
+  if (!confirm(`删除预设「${name}」？`)) return;
+  delete userData.presets[name];
+  userData.currentPreset = 'default';
+  saveUserData();
+  fillUserForm();
+}
+
+/* 记忆条目 */
+function renderMemList() {
+  const list = $('mem-list');
+  if (!list) return;
+  list.innerHTML = '';
+  const mems = userData.memories || [];
+  if (!mems.length) { list.innerHTML = '<div class="hint">尚无记忆 —— 在上面输入一条。</div>'; return; }
+  mems.forEach((m, i) => {
+    const el = document.createElement('div');
+    el.className = 'wi-item' + (m.enabled === false ? ' mem-off' : '');
+    el.innerHTML = `<span class="wi-title-wrap">${m.enabled === false ? '🚫 ' : '💭 '}${esc(m.content)}</span><span class="wi-const" data-mi="${i}" title="启用/停用">${m.enabled === false ? '🔓' : '🔒'}</span><span class="wi-const" data-di="${i}" title="删除">✕</span>`;
+    el.addEventListener('click', (ev) => {
+      if (ev.target.dataset && ev.target.dataset.di !== undefined) { mems.splice(parseInt(ev.target.dataset.di, 10), 1); saveUserData(); renderMemList(); return; }
+      if (ev.target.dataset && ev.target.dataset.mi !== undefined) {
+        const idx = parseInt(ev.target.dataset.mi, 10);
+        mems[idx].enabled = mems[idx].enabled === false ? true : false;
+        saveUserData(); renderMemList(); return;
+      }
+      // 点击编辑
+      const edit = prompt('编辑记忆：', m.content);
+      if (edit === null) return;
+      m.content = edit.trim();
+      if (!m.content) { mems.splice(i, 1); }
+      saveUserData(); renderMemList();
+    });
+    list.appendChild(el);
+  });
+}
+function addMemory() {
+  const input = $('mem-input');
+  const text = input.value.trim();
+  if (!text) return;
+  userData.memories = userData.memories || [];
+  userData.memories.push({ id: uid(), content: text, enabled: true, ts: Date.now() });
+  input.value = '';
+  saveUserData();
+  renderMemList();
+}
+
 /* 世界书条目 id 兜底：种子数据无 id，统一补齐（渲染高亮/加载/保存/删除都依赖 id） */
 function ensureEntryIds() {
   if (!lorebooks) return;
@@ -958,6 +1068,19 @@ function buildPromptBlocks() {
     if (char.persona && char.persona.trim()) descLines.push('外貌与性格：' + char.persona.trim());
     if (char.scenario && char.scenario.trim()) descLines.push('当前场景：' + char.scenario.trim());
     if (descLines.length) parts.push('【角色卡】\n' + descLines.join('\n'));
+  }
+  // 玩家设定（user persona）：描述「你」这个玩家/扮演者
+  if (userData) {
+    const up = currentUserPreset();
+    const uLines = [];
+    if (up.name && up.name.trim()) uLines.push('名字：' + up.name.trim());
+    if (up.race && up.race.trim()) uLines.push('种族：' + up.race.trim());
+    if (up.role && up.role.trim()) uLines.push('身份：' + up.role.trim());
+    if (up.persona && up.persona.trim()) uLines.push('外貌 / 背景 / 偏好：' + up.persona.trim());
+    if (uLines.length) parts.push('【玩家设定】\n' + uLines.join('\n'));
+    // 记忆条目（启用的注入）
+    const mems = (userData.memories || []).filter(m => m.enabled !== false && m.content && m.content.trim());
+    if (mems.length) parts.push('【记忆】\n' + mems.map(m => '- ' + m.content.trim()).join('\n'));
   }
   // 预设模块（受 SillyTavern prompts 启发：可开关的提示词条目）
   if (preset && preset.modules) {
@@ -1922,7 +2045,7 @@ function switchView(name) {
   closeNavDrawer(); // 手机抽屉：切换视图后自动收起
   document.querySelectorAll('.nav-item[data-view]').forEach(b =>
     b.classList.toggle('active', b.dataset.view === name));
-  ['char-mgr', 'prompt-mgr', 'lore-mgr'].forEach(id => $(id).classList.add('hidden'));
+  ['char-mgr', 'prompt-mgr', 'lore-mgr', 'memory-mgr'].forEach(id => $(id).classList.add('hidden'));
   if (name === 'chat') return;
   if (name === 'chars') {
     renderBindSelects();
@@ -1944,6 +2067,13 @@ function switchView(name) {
     $('lb-whole-word').checked = !!prefs.wiWholeWord;
     renderLBList();
     renderWIList();
+    return;
+  }
+  if (name === 'memory') {
+    $('memory-mgr').classList.remove('hidden');
+    ensureUserData();
+    fillUserForm();
+    renderMemList();
     return;
   }
 }
@@ -2040,6 +2170,13 @@ function bindEvents() {
   // 形象参考图导入
   $('btn-import-ref').addEventListener('click', () => { const f = $('cm-ref-file'); if (f) f.click(); });
   $('cm-ref-file').addEventListener('change', (e) => { importRefImage(e.target.files && e.target.files[0]); e.target.value = ''; });
+  // 记忆 / 玩家设定
+  $('um-preset').addEventListener('change', () => { userData.currentPreset = $('um-preset').value; fillUserForm(); saveUserData(); });
+  $('um-save').addEventListener('click', saveUserForm);
+  $('um-save-new').addEventListener('click', saveUserAsNew);
+  $('um-del').addEventListener('click', deleteUserPreset);
+  $('mem-add').addEventListener('click', addMemory);
+  $('mem-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') addMemory(); });
   // 会话
   $('btn-session').addEventListener('click', e => {
     e.stopPropagation();
@@ -2198,15 +2335,17 @@ async function init() {
   prefs = { ...(defaults.prefs || {}), ...prefs };
 
   // 从 server 加载 JSON 数据（失败回退本地缓存）
-  const [chars, presets, lore, s] = await Promise.all([
+  const [chars, presets, lore, s, u] = await Promise.all([
     loadServerData('characters'),
     loadServerData('presets'),
     loadServerData('lorebooks'),
     loadServerData('settings'),
+    loadServerData('user'),
   ]);
   if (chars && Array.isArray(chars)) characters = chars;
   if (presets && typeof presets === 'object') promptPresets = presets;
   if (lore && typeof lore === 'object') lorebooks = lore;
+  if (u && typeof u === 'object' && u.presets) userData = u;
   if (s && typeof s === 'object') settings = { ...DEFAULT_SETTINGS, ...s };
 
   renderProviderOptions();
