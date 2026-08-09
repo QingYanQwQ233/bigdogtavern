@@ -212,6 +212,9 @@ function renderRPG() {
 /* 当前消息的 AI 回复选项（```rpg``` JSON options 字段） */
 let lastRpgOptions = null;
 
+/* RPG 任务定义兜底（仅当「RPG 叙事引擎」预设被删除时使用；正常内容在预设 JSON 里可编辑） */
+const RPG_TASK_FALLBACK = '你是一位 AI 驱动的互动角色扮演（RPG）叙事引擎。每次回复：1）以互动小说作者视角输出叙事，对白用引号；2）状态/数值/道具/任务变化通过回复末尾 ```rpg``` 代码块输出；3）必须给出 2~4 个玩家可执行的行动选项（options 字段），具体贴合处境。先输出叙事正文，再输出 ```rpg``` JSON 代码块。';
+
 /* AI 输出统一正则处理管线：```rpg``` JSON 状态应用（正则提取）→ 掷骰表达式自动掷骰（结果以 meta 用户消息进上下文）→ 返回剔除 rpg 块后的正文 */
 function processAIOutput(reply) {
   const rolls = rollDiceIn(reply); // AI 输出中的骰子表达式（如 d20+5、2d6）→ 自动掷骰
@@ -1278,10 +1281,11 @@ function buildPromptBlocks() {
   if (fi) fmtLines.push(typeof fi === 'string' ? fi : (fi.text || ''));
   if (prefs.formatCustom && prefs.formatCustom.trim()) fmtLines.push(prefs.formatCustom.trim());
   if (fmtLines.length) parts.push(fmtLines.join('\n'));
-  // RPG 模式：注入【任务】定义（AI 职责 + options 必填 + few-shot）+【RPG 状态】+ 输出协议
+  // RPG 模式：注入【任务】定义（来自 RPG 预设，提示词栏可编辑）+【RPG 状态】+ 强化协议
   if (mode === 'rpg') {
-    // 任务定义（数据外置 defaults.rpg.taskPrompt）：明确 AI 是叙事/状态/选项三合一引擎
-    const task = (defaults && defaults.rpg && defaults.rpg.taskPrompt) || '';
+    // 任务定义：优先取「RPG 叙事引擎」预设的 systemPrompt（用户可在提示词栏编辑）；删了则用内联兜底
+    const rpgPreset = promptPresets['RPG 叙事引擎（示例）'];
+    const task = (rpgPreset && rpgPreset.systemPrompt && rpgPreset.systemPrompt.trim()) || RPG_TASK_FALLBACK;
     if (task) parts.push('【任务】' + task);
     const rs = curRpgState();
     if (rs) {
