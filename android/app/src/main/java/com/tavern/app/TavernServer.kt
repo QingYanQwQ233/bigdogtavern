@@ -151,11 +151,11 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
                 val conn = URL(url).openConnection() as HttpURLConnection
                 conn.connectTimeout = 30_000
                 conn.readTimeout = 60_000
-                if (conn.responseCode !in 200..299) return json(Response.Status.BAD_GATEWAY, JSONObject().put("error", "download failed HTTP ${conn.responseCode}"))
+                if (conn.responseCode !in 200..299) return json(Response.Status.INTERNAL_ERROR, JSONObject().put("error", "download failed HTTP ${conn.responseCode}"))
                 FileOutputStream(target).use { conn.inputStream.copyTo(it) }
             }
         } catch (e: Exception) {
-            return json(Response.Status.BAD_GATEWAY, JSONObject().put("error", "save failed: ${e.message}"))
+            return json(Response.Status.INTERNAL_ERROR, JSONObject().put("error", "save failed: ${e.message}"))
         }
         return json(Response.Status.OK, JSONObject().put("path", "/images/$name"))
     }
@@ -224,14 +224,14 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
                 return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "Bad Request")
             }
             val f = File(imgDir, name)
-            if (f.exists()) return newFixedLengthResponse(Response.Status.OK, mimeOf(f.name), f.inputStream())
+            if (f.exists()) return newFixedLengthResponse(Response.Status.OK, mimeOf(f.name), f.inputStream(), f.length())
             return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Not Found")
         }
         val assetPath = if (uri == "/" || uri == "") "index.html" else uri.removePrefix("/")
         val mime = mimeOf(assetPath)
         return try {
             val stream: InputStream = ctx.assets.open(assetPath)
-            newFixedLengthResponse(Response.Status.OK, mime, stream)
+            newFixedLengthResponse(Response.Status.OK, mime, stream, stream.available().toLong())
         } catch (e: Exception) {
             newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Not Found")
         }
