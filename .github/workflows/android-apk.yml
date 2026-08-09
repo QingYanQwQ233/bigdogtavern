@@ -39,10 +39,11 @@ jobs:
       - name: Build APK
         run: |
           cd android
-          # versionCode = commit 数（每次 push 递增）；versionName 语义版本
+          # versionCode = commit 数（每次 push 递增）；versionName = alpha-0.1.<运行序号>（每次构建迭代）
           VCODE=$(git rev-list --count HEAD)
-          echo "versionCode=$VCODE versionName=alpha-0.1.0"
-          gradle assembleDebug --no-daemon -Pvc=$VCODE -Pvn=alpha-0.1.0
+          VNAME="alpha-0.1.${{ github.run_number }}"
+          echo "versionCode=$VCODE versionName=$VNAME"
+          gradle assembleDebug --no-daemon -Pvc=$VCODE -Pvn=$VNAME
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

@@ -12,7 +12,7 @@ android {
         minSdk = 24
         targetSdk = 34
         // 版本控制：versionCode 由构建时 -Pvc 传入（= git commit 数，每次构建递增，避免覆盖安装冲突）；
-        // versionName 语义化，从 alpha-0.1.0 开始
+        // versionName 语义化迭代：alpha-0.1.<构建序号>（由 -Pvn 传入）
         versionCode = (project.findProperty("vc") as String?)?.toIntOrNull() ?: 1
         versionName = (project.findProperty("vn") as String?) ?: "alpha-0.1.0"
     }
