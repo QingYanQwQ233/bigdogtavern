@@ -1278,8 +1278,11 @@ function buildPromptBlocks() {
   if (fi) fmtLines.push(typeof fi === 'string' ? fi : (fi.text || ''));
   if (prefs.formatCustom && prefs.formatCustom.trim()) fmtLines.push(prefs.formatCustom.trim());
   if (fmtLines.length) parts.push(fmtLines.join('\n'));
-  // RPG 模式：注入【RPG 状态】【背包】【任务】【位置】 + 状态变更输出协议
+  // RPG 模式：注入【任务】定义（AI 职责 + options 必填 + few-shot）+【RPG 状态】+ 输出协议
   if (mode === 'rpg') {
+    // 任务定义（数据外置 defaults.rpg.taskPrompt）：明确 AI 是叙事/状态/选项三合一引擎
+    const task = (defaults && defaults.rpg && defaults.rpg.taskPrompt) || '';
+    if (task) parts.push('【任务】' + task);
     const rs = curRpgState();
     if (rs) {
       const st = `等级 ${rs.level}（经验 ${rs.exp}/${rs.expNext}），HP ${rs.hp}/${rs.maxHp}，MP ${rs.mp}/${rs.maxMp}，金币 ${rs.gold}，当前位置：${rs.location}`
@@ -1294,7 +1297,7 @@ function buildPromptBlocks() {
     }
     // 状态变更输出协议（数据外置：defaults.rpg.stateInstruction，兜底内联）
     const proto = (defaults && defaults.rpg && defaults.rpg.stateInstruction)
-      || '每次回复末尾另起一行输出 ```rpg``` 代码块，包含本次状态变更 JSON：{"hp":相对增减数字或null,"mp":相对增减或null,"gold":相对增减或null,"level":相对增减或null,"exp":相对增减或null,"location":"新位置或null","buffs":["状态效果"]或null,"inventory":[{"name":"道具名","count":数量,"add":true或false,"desc":"描述"}]或null,"quests":[{"title":"标题","desc":"内容","status":"active或done"}]或null}。正数增加、负数减少、null 不变；无变更时输出 {"hp":null}。除叙事正文与 ```rpg``` 块外不要输出其他内容。';
+      || '每次回复末尾另起一行输出 ```rpg``` 代码块，包含本次状态变更 JSON：{"hp":相对增减数字或null,"mp":相对增减或null,"gold":相对增减或null,"level":相对增减或null,"exp":相对增减或null,"location":"新位置或null","buffs":["状态效果"]或null,"inventory":[{"name":"道具名","count":数量,"add":true或false,"desc":"描述"}]或null,"quests":[{"title":"标题","desc":"内容","status":"active或done"}]或null,"options":["行动选项1","行动选项2"]}。正数增加、负数减少、null 不变；无变更时输出 {"hp":null,"options":["行动选项1","行动选项2"]}。options 必填（2~4 个玩家可执行的行动选项）；道具与任务必须由当前剧情合理产出（掉落、NPC 委托等），禁止凭空添加。除叙事正文与 ```rpg``` 块外不要输出其他内容。';
     parts.push(proto);
   }
   const system = parts.join('\n\n');
