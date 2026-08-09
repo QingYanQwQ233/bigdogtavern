@@ -292,22 +292,38 @@ function renderBubble(content) {
   return { html: esc(content), md: false };
 }
 
-/* 拆分对白 / 旁白：引号（“ ” 「 」 『 』 " "）内 → 对白，其余 → 旁白 */
+/* 拆分旁白 / 对白（SillyTavern 语义：引号=对白、星号/括号动作=旁白、其余=叙述）
+ * 状态机实现：支持嵌套引号（「他说“你好”」）、同族配对（“”「」『』" " ' '）、
+ * 不成对引号整体回退为旁白；多段对白自然分段。 */
 function splitNarration(text) {
+  const OPEN = { '“': '”', '"': '"', '「': '」', '『': '』', '‘': '’', "'": "'" };
   const segs = [];
-  const re = /[“"「『]([^”"」』]{1,300}?)[”"」』]/g;
-  let last = 0, m;
-  while ((m = re.exec(text))) {
-    if (m.index > last) {
-      const t = text.slice(last, m.index);
-      if (t.trim()) segs.push({ type: 'narration', text: t });
+  let cur = '';
+  const stack = []; // 引号栈（期望的闭符）
+  const flush = (type) => {
+    if (cur.trim()) segs.push({ type, text: cur });
+    cur = '';
+  };
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (stack.length) {
+      // 引号内：继续累积，匹配到闭符出栈
+      cur += ch;
+      if (ch === stack[stack.length - 1]) stack.pop();
+      if (!stack.length) flush('dialogue');
+    } else if (OPEN[ch] !== undefined) {
+      // 开引号：先落旁白，再入栈开始对白
+      flush('narration');
+      stack.push(OPEN[ch]);
+      cur += ch;
+    } else {
+      cur += ch;
     }
-    segs.push({ type: 'dialogue', text: m[0] });
-    last = m.index + m[0].length;
   }
-  if (last < text.length) {
-    const t = text.slice(last);
-    if (t.trim()) segs.push({ type: 'narration', text: t });
+  // 未闭合的引号内容追加到旁白（LLM 输出不成对时保持可读、不产生碎段）
+  if (stack.length) {
+    if (segs.length && segs[segs.length - 1].type === 'narration') segs[segs.length - 1].text += cur;
+    else if (cur.trim()) segs.push({ type: 'narration', text: cur });
   }
   if (!segs.length) segs.push({ type: 'narration', text });
   return segs;
@@ -435,7 +451,7 @@ function newSession() {
   const messages = [];
   const greeting = getGreeting();
   if (greeting) {
-    messages.push({ role: 'assistant', content: greeting, ts: Date.now(), full: true }); // 开场白整段气泡渲染
+    messages.push({ role: 'assistant', content: greeting, ts: Date.now() }); // 开场白：正常走旁白/对白拆分
   } else if (defaults && defaults.ui && defaults.ui.noGreeting) {
     messages.push({ role: 'system', content: defaults.ui.noGreeting, ts: Date.now() });
   }
@@ -1796,7 +1812,7 @@ function renderMessages() {
         cotEl.innerHTML = `<div class="nar-icon">🧠</div><div class="bubble"><details class="cot"><summary>🧠 思维链</summary><pre>${esc(m.cot)}</pre></details></div>`;
         chat.appendChild(cotEl);
       }
-      const segs = m.full ? [{ type: 'dialogue', text: m.content }] : splitNarration(m.content);
+      const segs = splitNarration(m.content);
       segs.forEach((seg, si) => {
         const el = document.createElement('div');
         let html;
@@ -2679,7 +2695,7 @@ function bindEvents() {
     // 清空后重新加载开场白（getGreeting：char → preset → settings）
     const greeting = getGreeting();
     s.messages = greeting
-      ? [{ role: 'assistant', content: greeting, ts: Date.now(), full: true }] // 开场白整段气泡
+      ? [{ role: 'assistant', content: greeting, ts: Date.now() }] // 开场白：正常拆分旁白/对白
       : (defaults && defaults.ui && defaults.ui.noGreeting
         ? [{ role: 'system', content: defaults.ui.noGreeting, ts: Date.now() }]
         : []);
