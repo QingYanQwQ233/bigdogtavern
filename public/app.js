@@ -2809,6 +2809,18 @@ async function init() {
   if (u && typeof u === 'object' && u.presets) userData = u;
   if (s && typeof s === 'object') settings = { ...DEFAULT_SETTINGS, ...s };
 
+  // 迁移：_defaults 新增的示例预设自动并入（不覆盖用户已修改的同名预设）
+  if (defaults && defaults.presets && typeof defaults.presets === 'object') {
+    let changed = false;
+    for (const k of Object.keys(defaults.presets)) {
+      if (promptPresets[k] === undefined) {
+        promptPresets[k] = defaults.presets[k];
+        changed = true;
+      }
+    }
+    if (changed) savePresets();
+  }
+
   renderProviderOptions();
   renderFormatOptions();
 
