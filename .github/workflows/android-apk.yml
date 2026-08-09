@@ -30,7 +30,7 @@ jobs:
           mkdir -p android/app/src/main/assets/data
           # 前端资源（明确列出；绝不复制 public/data/ 下的运行时文件——含用户 API key）
           cp public/index.html public/styles.css public/app.js \
-             public/manifest.json public/sw.js public/favicon.svg \
+             public/manifest.json public/sw.js public/favicon.png \
              android/app/src/main/assets/
           cp -r public/vendor public/icons android/app/src/main/assets/
           # 仅模板数据（_defaults.json），运行时文件由 App 首次启动生成
