@@ -59,6 +59,8 @@
       "negativeSuffix": ", human face, human head, realistic human, human skin, photo",
       "promptSource": "llm",
       "auto": false,
+      "refUse": false,
+      "refStrength": 0.5,
       "promptInstruction": "你是一位文生图提示词工程师。根据玩家提供的剧情/场景，输出一段英文图像生成提示词（奇幻/动漫风格，包含主体、动作、场景、氛围、画风关键词），只输出提示词本身，不要解释或额外文字。"
     }
   },

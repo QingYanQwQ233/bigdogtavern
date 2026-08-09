@@ -123,6 +123,7 @@
         <div class="field"><label for="cm-preset">绑定提示词预设 <span class="hint-inline">system_prompt 为空时使用</span></label><select id="cm-preset"></select></div>
         <div class="field"><label for="cm-lore">绑定世界书 <span class="hint-inline">仅与该角色对话时生效</span></label><select id="cm-lore"></select></div>
       </div>
+      <div class="field"><label for="cm-ref-image">形象参考图（文生图统一形象）<span class="hint-inline">填图片 URL 或 /images/xxx.png；生图时自动注入角色形象描述</span></label><input id="cm-ref-image" placeholder="/images/xxx.png 或 https://..." /></div>
       <div class="field"><label for="cm-tags">标签（tags，逗号分隔）</label><input id="cm-tags" /></div>
       <div class="cm-edit-actions">
         <button class="btn gold" id="cm-save">保存角色</button>
@@ -458,6 +459,16 @@
             <div class="field">
               <label for="ig-auto">回复后自动生图</label>
               <label class="switch"><input id="ig-auto" type="checkbox" /><span class="slider"></span></label>
+            </div>
+          </div>
+          <div class="field row2">
+            <div class="field">
+              <label for="ig-ref-use">发送参考图 <span class="hint-inline">SD 走 img2img；OpenAI 系尝试 input_image（不支持则关闭）</span></label>
+              <label class="switch"><input id="ig-ref-use" type="checkbox" /><span class="slider"></span></label>
+            </div>
+            <div class="field">
+              <label for="ig-ref-strength">参考强度 <span class="hint-inline">SD 重绘幅度，低=更贴近参考图</span></label>
+              <input id="ig-ref-strength" type="number" min="0" max="1" step="0.05" value="0.5" />
             </div>
           </div>
           <div class="field">

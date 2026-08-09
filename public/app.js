@@ -450,13 +450,14 @@ function selectCharForEdit(id) {
   $('cm-post').value = c.postHistory || '';
   $('cm-preset').value = c.presetName || '';
   $('cm-lore').value = c.loreId || '';
+  $('cm-ref-image').value = c.refImage || '';
   $('cm-tags').value = c.tags || '';
 }
 
 function newCharEditor() {
   cmEditingId = null;
   $('cm-edit-title').textContent = '新建角色';
-  ['cm-name', 'cm-race', 'cm-role', 'cm-persona', 'cm-scenario', 'cm-first-mes', 'cm-system', 'cm-post', 'cm-tags']
+  ['cm-name', 'cm-race', 'cm-role', 'cm-persona', 'cm-scenario', 'cm-first-mes', 'cm-system', 'cm-post', 'cm-ref-image', 'cm-tags']
     .forEach(id => { $(id).value = ''; });
 }
 
@@ -472,6 +473,7 @@ function saveCharFromEditor() {
     postHistory: $('cm-post').value,
     presetName: $('cm-preset').value || '',
     loreId: $('cm-lore').value || '',
+    refImage: $('cm-ref-image').value.trim(),
     tags: $('cm-tags').value.trim(),
   };
   if (cmEditingId) {
@@ -1213,6 +1215,8 @@ function fillSettingsForm() {
   $('ig-negative-suffix').value = ig.negativeSuffix || '';
   $('ig-prompt-source').value = ig.promptSource || 'llm';
   $('ig-auto').checked = !!ig.auto;
+  $('ig-ref-use').checked = !!ig.refUse;
+  $('ig-ref-strength').value = ig.refStrength || 0.5;
   $('ig-prompt-instr').value = ig.promptInstruction || '';
 }
 
@@ -1250,6 +1254,8 @@ function readSettingsForm() {
   ig.negativeSuffix = $('ig-negative-suffix').value;
   ig.promptSource = $('ig-prompt-source').value;
   ig.auto = $('ig-auto').checked;
+  ig.refUse = $('ig-ref-use').checked;
+  ig.refStrength = parseFloat($('ig-ref-strength').value) || 0.5;
   ig.promptInstruction = $('ig-prompt-instr').value;
   saveSettings();
   saveJSON(LS_PREFS, prefs);
@@ -1447,7 +1453,7 @@ function removeImagePending() {
   if (t) t.remove();
 }
 
-function buildImageBody(ig, prompt) {
+function buildImageBody(ig, prompt, refImage) {
   // 约束后缀：无论提示词来源（LLM/剧情/手动）都自动附加，兽人禁人脸
   const fullPrompt = (prompt || '') + (ig.promptSuffix || '');
   const body = { prompt: fullPrompt };
@@ -1462,10 +1468,17 @@ function buildImageBody(ig, prompt) {
       .map(s => s.replace(/^,\s*/, '').trim()).filter(Boolean).join(', ');
     if (neg) body.negative_prompt = neg;
     body.seed = -1;
+    // 形象参考：SD 走 img2img（低重绘幅度 → 形象延续）
+    if (ig.refUse && refImage) {
+      body.init_images = [refImage];
+      body.denoising_strength = ig.refStrength || 0.5;
+    }
   } else {
     if (ig.model) body.model = ig.model;
     if (ig.size) body.size = ig.size;
     body.n = 1;
+    // 形象参考：OpenAI 兼容中转尝试 input_image（部分中转支持；不支持时在设置里关闭「发送参考图」）
+    if (ig.refUse && refImage) body.input_image = refImage;
     // 不发送 response_format：dall-e 系列默认返回 url；gpt-image 系列不接受该参数、总是返回 b64（解析端已兼容两者）
   }
   return body;
@@ -1483,8 +1496,8 @@ function parseImageSrc(data) {
   return null;
 }
 
-/* 生图请求（120s 超时防挂起） */
-async function callImageAPI(ig, prompt) {
+/* 生图请求（120s 超时防挂起）；refImage = 角色形象参考图 */
+async function callImageAPI(ig, prompt, refImage) {
   if (!ig.baseUrl) throw new Error('请先在 设置 → 文生图 中填写 Base URL');
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 120000);
@@ -1493,7 +1506,7 @@ async function callImageAPI(ig, prompt) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
       signal: ctrl.signal,
-      body: JSON.stringify({ baseUrl: ig.baseUrl, apiKey: ig.apiKey, kind: ig.kind || 'openai', body: buildImageBody(ig, prompt) }),
+      body: JSON.stringify({ baseUrl: ig.baseUrl, apiKey: ig.apiKey, kind: ig.kind || 'openai', body: buildImageBody(ig, prompt, refImage) }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -1578,6 +1591,8 @@ async function generateImageFor(story) {
   if (status) status.textContent = '⏳ 正在生成图片…';
   addImagePending(); // 聊天栏占位提示：开始生图
   try {
+    const char = currentChar();
+    const refImage = (char && char.refImage) ? char.refImage : null;
     let prompt;
     if (ig.promptSource === 'story') {
       prompt = story;
@@ -1585,8 +1600,13 @@ async function generateImageFor(story) {
       try { prompt = await llmImagePrompt(ig, story); }
       catch (e) { console.warn('[Tavern] LLM 提示词生成失败，回退用剧情文本:', e.message); prompt = story; }
     }
+    // 角色形象统一：把角色外貌描述注入提示词（对纯文生图 API 是形象统一的主要手段）
+    if (char && (char.race || char.persona)) {
+      const look = [char.race, char.persona].filter(Boolean).join('，').slice(0, 150);
+      prompt = `角色形象：${char.name || ''}（${look}），保持一致的形象设定。${prompt}`;
+    }
     console.info('[Tavern] 🖼 生图提示词', prompt.slice(0, 120));
-    const src = await callImageAPI(ig, prompt);
+    const src = await callImageAPI(ig, prompt, refImage);
     removeImagePending();
     let local = src;
     try { local = await saveImageLocally(src); } // 存本地，刷新不丢
@@ -1609,7 +1629,15 @@ async function testImageGen() {
   if (status) status.textContent = '⏳ 正在生成测试图…';
   addImagePending();
   try {
-    const src = await callImageAPI(ig, prompt);
+    const char = currentChar();
+    const refImage = (char && char.refImage) ? char.refImage : null;
+    // 测试按钮同样注入当前角色形象描述
+    let p = prompt;
+    if (char && (char.race || char.persona)) {
+      const look = [char.race, char.persona].filter(Boolean).join('，').slice(0, 150);
+      p = `角色形象：${char.name || ''}（${look}），保持一致的形象设定。${p}`;
+    }
+    const src = await callImageAPI(ig, p, refImage);
     removeImagePending();
     if (status) status.textContent = '✅ 成功（见聊天栏）';
     let local = src;
@@ -1630,7 +1658,8 @@ async function regenImage(msg) {
   if (!msg.imgPrompt) { pushMessage('system', '⚠️ 该图片没有提示词记录（旧消息），无法重新生成'); return; }
   addImagePending();
   try {
-    const src = await callImageAPI(ig, msg.imgPrompt);
+    const refImage = (currentChar() && currentChar().refImage) ? currentChar().refImage : null;
+    const src = await callImageAPI(ig, msg.imgPrompt, refImage);
     removeImagePending();
     let local = src;
     try { local = await saveImageLocally(src); }
