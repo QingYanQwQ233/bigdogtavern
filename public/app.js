@@ -25,7 +25,7 @@ const LS_PRESETS = 'rpg-airp:prompt-presets';
 const LS_PREFS = 'rpg-airp:prefs';
 const GLOBAL_PRESET_KEY = '__global__'; // 全局默认提示词 = presets.json 固定键（与普通预设同构，含 modules）
 
-const PAW_SVG = `<svg class="mini-crest" viewBox="0 0 100 100" aria-hidden="true"><ellipse cx="50" cy="64" rx="20" ry="15"/><ellipse cx="28" cy="38" rx="10" ry="13"/><ellipse cx="46" cy="25" rx="9" ry="13"/><ellipse cx="66" cy="30" rx="9" ry="13"/><ellipse cx="76" cy="49" rx="8" ry="11"/></svg>`;
+const PAW_SVG = '<span class="avatar-mark">✦</span>';
 
 /* 风格主题（色调）——UI 设计配置，保留在代码（驱动 CSS 变量） */
 const THEMES = {
@@ -502,6 +502,7 @@ function newCharEditor() {
   $('cm-edit-title').textContent = '新建角色';
   ['cm-name', 'cm-race', 'cm-role', 'cm-persona', 'cm-scenario', 'cm-first-mes', 'cm-system', 'cm-post', 'cm-ref-image', 'cm-tags']
     .forEach(id => { $(id).value = ''; });
+  updateRefPreview(''); // 清空参考图预览（新建角色不复用上个角色的图）
 }
 
 function saveCharFromEditor() {
@@ -2261,8 +2262,15 @@ function bindEvents() {
   // 导航
   document.querySelectorAll('.nav-item[data-view]').forEach(b =>
     b.addEventListener('click', () => switchView(b.dataset.view)));
-  // 手机导航抽屉
-  $('btn-nav-drawer').addEventListener('click', e => { e.stopPropagation(); openNavDrawer(); });
+  // 手机导航抽屉 / 桌面侧栏收起（≥961px 时切换侧栏显隐，否则开抽屉）
+  $('btn-nav-drawer').addEventListener('click', e => {
+    e.stopPropagation();
+    if (window.innerWidth >= 961) {
+      document.body.classList.toggle('sidebar-hidden');
+    } else {
+      openNavDrawer();
+    }
+  });
   $('btn-nav-drawer-close').addEventListener('click', closeNavDrawer);
   const nd = $('nav-drawer');
   const ndm = nd && nd.querySelector('.nd-mask');

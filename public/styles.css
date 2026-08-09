@@ -160,8 +160,18 @@ body {
   body[data-layout="classic"] .sidebar { grid-column: 1; grid-row: 1; display: flex; }
   body[data-layout="classic"] .main { grid-column: 2; grid-row: 1; }
   body[data-layout="classic"] .char-mgr { inset: 0 0 0 196px; }
-  #btn-nav-drawer { display: none; }       /* 桌面无汉堡 */
+  /* 桌面汉堡常显：点击收起/展开侧栏 */
+  #btn-nav-drawer { display: inline-flex; }
   #nav-drawer { display: none !important; } /* 桌面不出现抽屉 */
+  /* 侧栏收起态（body.sidebar-hidden，桌面汉堡切换）：列宽立即切 1fr，侧栏淡出滑走（透明盖在 main 上，无空块） */
+  body.sidebar-hidden body[data-layout="classic"] #app { grid-template-columns: 1fr !important; }
+  body.sidebar-hidden .sidebar {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    transform: translateX(-24px);
+  }
+  body.sidebar-hidden body[data-layout="classic"] .main { grid-column: 1 !important; }
+  body.sidebar-hidden body[data-layout="classic"] .char-mgr { inset: 0 !important; }
 }
 
 /* ═══════════════════ 通用组件 ═══════════════════ */
@@ -172,7 +182,7 @@ body {
   flex-direction: column;
   padding: 16px 14px;
   gap: 6px;
-  transition: background 0.4s ease;
+  transition: background 0.4s ease, opacity 0.25s ease, transform 0.25s ease;
 }
 /* 菜单栏/侧栏层级高于聊天内容：气泡(0) < 侧栏(20) < 下拉(45) < 弹窗(50) < 终端(100) */
 .sidebar { border-right: 1px solid var(--line); position: relative; z-index: 20; }
@@ -1291,8 +1301,9 @@ body[data-theme="vibrancy"] .dropdown { box-shadow: none; }
   .msg.narration .bubble { font-size: 14px; }
   .regen-btn { font-size: 11.5px; padding: 3px 8px; }
   .lightbox img { max-width: 96vw; max-height: 94vh; }
-  /* 移动端无 hover：消息操作按钮常显（右上角横向小按钮） */
-  .msg-actions { opacity: 0.6; transform: none; right: 2px; top: 2px; flex-direction: row; }
-  .msg.user .msg-actions { left: auto; right: 2px; transform: none; }
-  .ma-btn { width: 22px; height: 22px; font-size: 11px; background: rgba(var(--panel-rgb), 0.85); }
+  /* 移动端无 hover：消息操作按钮常显（气泡下方横排，不遮文字） */
+  .msg-actions { opacity: 0.65; transform: none; right: 0; top: auto; bottom: -24px; flex-direction: row; }
+  .msg.user .msg-actions { left: auto; right: 0; transform: none; }
+  .ma-btn { width: 22px; height: 22px; font-size: 11px; background: var(--panel); }
+  .msg-actions { background: transparent; padding: 2px; }
 }
