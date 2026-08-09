@@ -110,6 +110,13 @@
         <span id="cm-edit-title">编辑角色</span>
         <button class="ghost-btn" data-back-chat>回到对话</button>
       </div>
+      <div class="field">
+        <label for="cm-ai-desc">✨ AI 生成角色卡 <span class="hint-inline">一句话描述，自动填入下方表单</span></label>
+        <div class="row-inline">
+          <input id="cm-ai-desc" placeholder="例如：傲娇的猫娘旅店老板娘" />
+          <button class="btn gold small" id="btn-ai-char">✨ 生成</button>
+        </div>
+      </div>
       <div class="field row2">
         <div class="field"><label for="cm-name">名字</label><input id="cm-name" /></div>
         <div class="field"><label for="cm-race">种族</label><input id="cm-race" /></div>
@@ -200,6 +207,13 @@
       </div>
       <div class="field"><label for="wi-title">条目（触发词命中注入，keys 支持 /正则/）</label><div id="wi-list" class="wi-list"></div></div>
       <div class="wi-edit">
+        <div class="field">
+          <label for="wi-ai-desc">✨ AI 生成条目 <span class="hint-inline">一句话描述设定，自动填入下方</span></label>
+          <div class="row-inline">
+            <input id="wi-ai-desc" placeholder="例如：北方沉睡古龙的龙之谷" />
+            <button class="btn gold small" id="btn-ai-wi">✨ 生成</button>
+          </div>
+        </div>
         <div class="field row2">
           <div class="field"><label for="wi-title">标题</label><input id="wi-title" /></div>
           <div class="field"><label for="wi-order">顺序 <span class="hint-inline">大者后插入</span></label><input id="wi-order" type="number" value="100" /></div>

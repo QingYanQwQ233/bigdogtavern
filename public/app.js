@@ -2151,6 +2151,97 @@ function applyLayout() {
 function openNavDrawer() { const d = $('nav-drawer'); if (d) d.classList.add('open'); }
 function closeNavDrawer() { const d = $('nav-drawer'); if (d) d.classList.remove('open'); }
 
+/* ─────────── AI 生成（角色卡 / 世界书条目） ─────────── */
+
+/* 调用对话 API 生成，返回解析后的对象 */
+async function aiGenerate(instruction, desc) {
+  if (!settings.baseUrl) throw new Error('请先配置 API（设置 → 连接）');
+  const res = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({
+      baseUrl: settings.baseUrl,
+      apiKey: settings.apiKey,
+      body: {
+        model: settings.model || 'default',
+        messages: [
+          { role: 'system', content: instruction },
+          { role: 'user', content: desc },
+        ],
+        temperature: 0.7,
+        max_tokens: 900,
+        stream: false,
+      },
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.choices || !data.choices[0]) {
+    throw new Error('生成失败：' + ((data.error && data.error.message) || ('HTTP ' + res.status)));
+  }
+  return parseLLMJson(data.choices[0].message.content);
+}
+
+/* 容错解析 LLM 输出的 JSON（容忍 ```json 围栏 / 前后杂文） */
+function parseLLMJson(text) {
+  let t = String(text || '').trim();
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) t = fence[1].trim();
+  const start = t.indexOf('{');
+  const end = t.lastIndexOf('}');
+  if (start >= 0 && end > start) t = t.slice(start, end + 1);
+  return JSON.parse(t);
+}
+
+/* 生成角色卡 → 填入编辑表单（用户确认后保存） */
+async function aiGenChar() {
+  const desc = $('cm-ai-desc').value.trim();
+  if (!desc) { alert('先描述你想要的角色，例如：傲娇的猫娘旅店老板娘'); return; }
+  const gen = defaults.gen || {};
+  if (!gen.charPrompt) { alert('未配置生成指令（_defaults.json → gen.charPrompt）'); return; }
+  const btn = $('btn-ai-char');
+  btn.disabled = true; btn.textContent = '生成中…';
+  try {
+    const obj = await aiGenerate(gen.charPrompt, desc);
+    if (obj.name) $('cm-name').value = obj.name;
+    if (obj.race) $('cm-race').value = obj.race;
+    if (obj.role) $('cm-role').value = obj.role;
+    if (obj.persona) $('cm-persona').value = obj.persona;
+    if (obj.scenario) $('cm-scenario').value = obj.scenario;
+    if (obj.firstMes) $('cm-first-mes').value = obj.firstMes;
+    if (obj.tags) $('cm-tags').value = obj.tags;
+    alert('✅ 已生成并填入表单 —— 检查后点「保存」');
+  } catch (err) {
+    console.error('[Tavern] AI 生成角色卡失败:', err.message);
+    alert('❌ ' + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = '✨ 生成';
+  }
+}
+
+/* 生成世界书条目 → 填入条目编辑器（用户确认后保存） */
+async function aiGenWI() {
+  const desc = $('wi-ai-desc').value.trim();
+  if (!desc) { alert('先描述要生成的设定，例如：北方沉睡古龙的龙之谷'); return; }
+  const gen = defaults.gen || {};
+  if (!gen.lorePrompt) { alert('未配置生成指令（_defaults.json → gen.lorePrompt）'); return; }
+  const btn = $('btn-ai-wi');
+  btn.disabled = true; btn.textContent = '生成中…';
+  try {
+    const obj = await aiGenerate(gen.lorePrompt, desc);
+    $('wi-title').value = obj.title || '';
+    $('wi-keys').value = obj.keys || '';
+    $('wi-content').value = obj.content || '';
+    $('wi-order').value = 100;
+    $('wi-constant').checked = !!obj.constant;
+    alert('✅ 已生成并填入 —— 检查后点「保存条目」');
+  } catch (err) {
+    console.error('[Tavern] AI 生成世界书失败:', err.message);
+    alert('❌ ' + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = '✨ 生成';
+  }
+}
+
 /* ─────────── 事件绑定 ─────────── */
 function bindEvents() {
   // 发送
@@ -2186,6 +2277,9 @@ function bindEvents() {
   $('um-del').addEventListener('click', deleteUserPreset);
   $('mem-add').addEventListener('click', addMemory);
   $('mem-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') addMemory(); });
+  // AI 生成
+  $('btn-ai-char').addEventListener('click', aiGenChar);
+  $('btn-ai-wi').addEventListener('click', aiGenWI);
   // 会话
   $('btn-session').addEventListener('click', e => {
     e.stopPropagation();

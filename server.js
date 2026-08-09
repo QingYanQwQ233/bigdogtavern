@@ -39,6 +39,7 @@ function loadDefaults() {
       format: (d.format && typeof d.format === 'object') ? d.format : {},
       providers: Array.isArray(d.providers) ? d.providers : [],
       ui: (d.ui && typeof d.ui === 'object') ? d.ui : {},
+      gen: (d.gen && typeof d.gen === 'object') ? d.gen : {},
     };
   } catch (e) {
     console.warn('[data] 读取 _defaults.json 失败（用空结构兜底）:', e.message);
