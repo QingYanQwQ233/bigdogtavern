@@ -11,8 +11,10 @@ android {
         applicationId = "com.tavern.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        // 版本控制：versionCode 由构建时 -Pvc 传入（= git commit 数，每次构建递增，避免覆盖安装冲突）；
+        // versionName 语义化，从 alpha-0.1.0 开始
+        versionCode = (project.findProperty("vc") as String?)?.toIntOrNull() ?: 1
+        versionName = (project.findProperty("vn") as String?) ?: "alpha-0.1.0"
     }
 
     buildTypes {

@@ -34,6 +34,10 @@ class MainActivity : Activity() {
         webView.settings.databaseEnabled = true
         webView.settings.allowFileAccess = false
         webView.settings.mediaPlaybackRequiresUserGesture = false
+        // 视口：让 viewport meta（width=device-width）生效，否则 WebView 默认按 980px 宽渲染
+        // → 会导致 ≥961px 判定成立、侧栏误显示
+        webView.settings.useWideViewPort = true
+        webView.settings.loadWithOverviewMode = true
         webView.webChromeClient = WebChromeClient()
         webView.webViewClient = object : WebViewClient() {
             // 外部链接（非本地服务）移交系统浏览器，避免塞进 WebView
