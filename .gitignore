@@ -14,3 +14,7 @@ android/app/src/main/assets/
 
 # Reasonix 内部工作文件
 .reasonix/
+
+# 测试图片与上传包
+public/images/
+*.zip
