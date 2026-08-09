@@ -10,6 +10,7 @@ import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLDecoder
+import java.util.HashMap
 
 /**
  * Tavern 内嵌服务器：移植自 server.js（零改动前端，页面与 /api/ 同源 http://127.0.0.1:3000）
@@ -45,23 +46,23 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
                 else -> serveStatic(uri)
             }
         } catch (e: Exception) {
-            newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "server error: ${e.message}")
+            // 以 JSON 返回具体错误，前端能直接展示便于诊断
+            json(Response.Status.INTERNAL_ERROR, JSONObject().put("error", "server error: ${e.message}"))
         }
     }
 
     /* ---------- 工具 ---------- */
 
     private fun readBody(session: IHTTPSession): String {
-        val len = session.headers["content-length"]?.toIntOrNull() ?: 0
-        if (len <= 0) return ""
-        val buf = ByteArray(len)
-        var off = 0
-        while (off < len) {
-            val r = session.inputStream.read(buf, off, len - off)
-            if (r < 0) break
-            off += r
+        // NanoHTTPD 标准方式：parseBody 把请求体解析到 files["postData"]。
+        // 直接读 session.inputStream 在 NanoHTTPD 下不可靠（body 可能读不到 → JSON 解析失败 → 500）。
+        return try {
+            val files = HashMap<String, String>()
+            session.parseBody(files)
+            files["postData"] ?: ""
+        } catch (e: Exception) {
+            ""
         }
-        return String(buf, 0, off, Charsets.UTF_8)
     }
 
     private fun openUpstream(baseUrl: String, path: String, apiKey: String, body: String?): HttpURLConnection {
