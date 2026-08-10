@@ -2092,20 +2092,46 @@ async function saveImageLocally(src) {
   return data.path;
 }
 
-/* 点击图片放大查看（lightbox） */
+/* 点击图片放大查看（lightbox）：点遮罩关闭，点图片切换 适应窗口 / 原始尺寸（可滚动） */
 let lightboxEl = null;
 function openLightbox(src) {
   if (!lightboxEl) {
     lightboxEl = document.createElement('div');
     lightboxEl.className = 'lightbox hidden';
     lightboxEl.innerHTML = '<img alt="大图" />';
-    lightboxEl.addEventListener('click', closeLightbox);
+    lightboxEl.addEventListener('click', (e) => {
+      if (e.target === lightboxEl) { closeLightbox(); return; } // 点遮罩关闭
+      const img = lightboxEl.querySelector('img');              // 点图片切换缩放
+      img.classList.toggle('zoomed');
+      img.classList.remove('fit');
+      lightboxEl.scrollTop = 0;
+    });
     document.body.appendChild(lightboxEl);
   }
-  lightboxEl.querySelector('img').src = src;
+  const img = lightboxEl.querySelector('img');
+  img.src = src;
+  img.classList.remove('zoomed');
+  img.classList.add('fit');
+  lightboxEl.scrollTop = 0;
   lightboxEl.classList.remove('hidden');
 }
 function closeLightbox() { if (lightboxEl) lightboxEl.classList.add('hidden'); }
+
+/* 地图查看大图：AI 美化图直接放大；算法底图以更高像素重渲（数据不变）后放大 */
+function zoomMap() {
+  const beauty = $('map-beauty');
+  let src = null;
+  if (beauty && !beauty.hidden && $('map-beauty-img').src) {
+    src = $('map-beauty-img').src;
+  } else {
+    const rs = curRpgState();
+    if (!rs || !rs.mapData || !window.MapGen) return;
+    const c = document.createElement('canvas');
+    window.MapGen.renderWorldMap(c, rs.mapData, { pixelSize: 12 }); // 高清重渲（128×12=1536px）
+    src = c.toDataURL('image/png');
+  }
+  if (src) openLightbox(src);
+}
 
 /* 生图并作为图片消息上屏 */
 async function generateImageFor(story) {
@@ -2570,7 +2596,7 @@ function curMapData() {
   const rs = curRpgState();
   if (!rs) return null;
   if (!rs.mapData) {
-    rs.mapData = (window.MapGen ? window.MapGen.generateWorldMap(Date.now() % 2147483647, { size: 96, regionCount: 8 }) : null);
+    rs.mapData = (window.MapGen ? window.MapGen.generateWorldMap(Date.now() % 2147483647, { size: 128, regionCount: 8 }) : null);
     saveSessions();
   }
   return rs.mapData;
@@ -2633,7 +2659,7 @@ function mapCanvasClick(e) {
 function mapRegenerate() {
   const rs = curRpgState();
   if (!rs) return;
-  rs.mapData = window.MapGen.generateWorldMap(Date.now() % 2147483647, { size: 96, regionCount: 8 });
+  rs.mapData = window.MapGen.generateWorldMap(Date.now() % 2147483647, { size: 128, regionCount: 8 });
   delete rs.mapImage;
   saveSessions();
   renderMap();
@@ -2771,6 +2797,7 @@ function bindEvents() {
   // 世界地图：生成/美化/点击
   $('btn-map-gen').addEventListener('click', mapRegenerate);
   $('btn-map-beautify').addEventListener('click', mapBeautify);
+  $('btn-map-zoom').addEventListener('click', zoomMap);
   const mapCanvas = $('map-canvas');
   if (mapCanvas) mapCanvas.addEventListener('click', mapCanvasClick);
   const mapBeautyImg = $('map-beauty-img');
