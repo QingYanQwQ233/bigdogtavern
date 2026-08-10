@@ -2776,6 +2776,21 @@ function mapRegenerate() {
   if (info) info.innerHTML = '<span class="hint">✅ 已生成新世界，数据层已更新（区域/路径点/邻接）</span>';
 }
 
+/* AI 美化提示词：携带地图数据约束（区域数/biome 列表/区域明细），让 AI 遵循原图群系不破坏 */
+function buildBeautifyPrompt(map) {
+  const biomes = [...new Set(map.regions.map(r => r.biome))].join('、');
+  const regionDetails = map.regions.map(r => r.biome + '「' + r.name + '」').join('，');
+  return 'Beautify this procedurally generated fantasy world map into a beautiful hand-drawn cartography style map. '
+    + 'Keep the landmass shapes and landmark positions exactly as they are. '
+    + 'This is a single-region map with ' + map.regions.length + ' regions whose biomes are: ' + biomes + '. '
+    + 'Preserve each region\'s color area and biome exactly as in the reference image — do not merge or split regions, do not change or invent biomes. '
+    + 'Region details: ' + regionDetails + '. '
+    + 'Add mountains, forests, rivers, coastline details and a compass rose. '
+    + 'Do NOT add any text, labels, place names or town names anywhere. '
+    + 'Do NOT draw region boundary lines, borders, or any connection lines between regions — blend the region color areas softly into the terrain. '
+    + 'Fantasy cartography, parchment color palette, clean and quiet.';
+}
+
 /* AI 美化（三步法第②③步）：底图 dataURL → gpt-image /images/edits → 美化图 + 数据层不变 */
 async function mapBeautify() {
   if (!window.MapGen) return;
@@ -2802,7 +2817,7 @@ async function mapBeautify() {
         body: {
           model: ig.model || 'gpt-image-2',
           size: ig.size || '1024x1024',
-          prompt: 'Beautify this procedurally generated fantasy world map into a beautiful hand-drawn cartography style map. Keep the landmass shapes and landmark positions exactly as they are. Add mountains, forests, rivers, coastline details and a compass rose. Do NOT add any text, labels, place names or town names anywhere. Do NOT draw region boundary lines, borders, or any connection lines between regions — blend the region color areas softly into the terrain. Fantasy cartography, parchment color palette, clean and quiet.',
+          prompt: buildBeautifyPrompt(map),
           images: [dataUrl],
         },
       }),

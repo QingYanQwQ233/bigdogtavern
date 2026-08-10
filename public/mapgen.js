@@ -130,6 +130,15 @@
     TROPICAL_RAIN_FOREST: '热带雨林', TROPICAL_SEASONAL_FOREST: '季雨林',
     COAST: '海岸',
   };
+  // 单地区图：细碎群系合并成 5 大类（地图清爽，AI 美化不易破坏原图）
+  const BIOME_MERGE = {
+    '海岸': '海岸',
+    '草原': '草原', '灌木地': '草原', '荒原': '草原',
+    '森林': '森林', '落叶林': '森林', '针叶林': '森林', '季雨林': '森林', '热带雨林': '森林', '温带雨林': '森林',
+    '荒野': '荒野', '沙漠': '荒野', '温带荒漠': '荒野', '焦土': '荒野',
+    '雪原': '雪原', '冰原': '雪原', '冻原': '雪原',
+    '湿地': '湿地', '沼泽': '湿地', '湖泽': '湿地',
+  };
 
   /* 现成算法 mapgen2：多边形地形（海岸/河流/biome/邻接全现成）
    * 适配为自研同款数据形状（region/point/adjacency/grid），渲染层复用 */
@@ -141,7 +150,6 @@
     const N = mesh.numRegions;
     const size = opts.size || 128;
     const scale = 1000 / size; // mapgen2 逻辑坐标 0..1000 → 像素网格
-    const MIN_CELL = opts.minCell || 8; // 胞腔最小像素数（剔除边缘碎胞腔，避免 1~2px 碎片区域）
 
     // 一次全顶点归属：每像素 → 最近顶点（含水域顶点），据此区分海洋(0)/陆地(区域 id)
     // 顶点数可达 1022，区域可超 255 → 网格用 Uint16Array（Uint8Array 溢出会 256→0）
@@ -171,6 +179,12 @@
       const k = landIndexOf.get(vi);
       if (k !== undefined) cellCount[k]++;
     }
+    // 单地区图：按目标区域数（regionCount）定胞腔阈值——取胞腔大小降序第 regionCount 个为阈值，
+    // 只保留 target 个大胞腔区域（≈“一张地区图”而不是全世界），小胞腔像素自动归属最近的大区域
+    const target = Math.max(4, Math.min(24, opts.regionCount || 8));
+    const sortedCells = cellCount.slice().sort((a, b) => b - a);
+    let MIN_CELL = sortedCells[Math.min(target - 1, sortedCells.length - 1)];
+    if (MIN_CELL < 8) MIN_CELL = 8; // 保底：避免阈值过小又变回碎片
     // 保留胞腔 ≥ MIN_CELL 的顶点 → 重编区域 id
     const regionIdOf = new Map();
     const regions = [];
@@ -179,7 +193,7 @@
       const vi = landVerts[k];
       const id = regions.length + 1;
       regionIdOf.set(vi, id);
-      const biome = BIOME_ZH[map.biome_r[vi]] || '未知';
+      const biome = BIOME_MERGE[BIOME_ZH[map.biome_r[vi]]] || '未知';
       regions.push({
         id, name: biome + '·区域 ' + id, biome,
         seedX: Math.max(0, Math.min(size - 1, Math.round(mesh.x_of_r(vi) / scale))),
@@ -187,22 +201,32 @@
         vertex: vi,
       });
     }
-    // 网格：水像素 = 0（最近顶点是水域），陆地像素 = 最近陆地顶点的区域 id
+    // 网格：水像素 = 0（最近顶点是水域）；陆地像素 = 最近保留区域的 id（被剔除的小胞腔归属最近大区域，大陆完整）
     const grid = new Uint16Array(size * size);
     for (let i = 0; i < size * size; i++) {
       const vi = nearest[i];
-      grid[i] = map.water_r[vi] ? 0 : (regionIdOf.get(vi) || 0);
+      if (map.water_r[vi]) { grid[i] = 0; continue; }
+      const direct = regionIdOf.get(vi);
+      if (direct !== undefined) { grid[i] = direct; continue; }
+      // 被剔除的陆地像素 → 最近保留区域
+      const lx = ((i % size) + 0.5) * scale, ly = (((i / size) | 0) + 0.5) * scale;
+      let best = 0, bestD = Infinity;
+      for (const r of regions) {
+        const dx = mesh.x_of_r(r.vertex) - lx, dy = mesh.y_of_r(r.vertex) - ly;
+        const d = dx * dx + dy * dy;
+        if (d < bestD) { bestD = d; best = r.id; }
+      }
+      grid[i] = best;
     }
-    // 邻接（保留区域间，经顶点邻接）
+    // 邻接：按网格像素邻接检测（反映视觉可达性；单地区图区域间真实相邻）
     const adjSet = new Set();
     const adjacency = [];
-    for (const r of regions) {
-      const nbs = mesh.r_around_r(r.vertex, []);
-      for (const nv of nbs) {
-        const b = regionIdOf.get(nv);
-        if (!b || b === r.id) continue;
-        const key = r.id < b ? r.id + '-' + b : b + '-' + r.id;
-        if (!adjSet.has(key)) { adjSet.add(key); adjacency.push([r.id, b]); }
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const a = grid[y * size + x];
+        if (!a) continue;
+        if (x + 1 < size) { const b = grid[y * size + x + 1]; if (b && b !== a) { const key = a < b ? a + '-' + b : b + '-' + a; if (!adjSet.has(key)) { adjSet.add(key); adjacency.push([a, b]); } } }
+        if (y + 1 < size) { const b = grid[(y + 1) * size + x]; if (b && b !== a) { const key = a < b ? a + '-' + b : b + '-' + a; if (!adjSet.has(key)) { adjSet.add(key); adjacency.push([a, b]); } } }
       }
     }
     // 城镇：保留区域按顶点度（枢纽）取前 6
