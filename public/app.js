@@ -2098,11 +2098,20 @@ function openLightbox(src, caption) {
   if (!lightboxEl) {
     lightboxEl = document.createElement('div');
     lightboxEl.className = 'lightbox hidden';
-    lightboxEl.innerHTML = '<div class="lightbox-cap" hidden></div><img alt="大图" />';
+    lightboxEl.innerHTML = '<div class="lightbox-tools">'
+      + '<button class="lb-btn" data-act="fit">🖼 适应窗口</button>'
+      + '<button class="lb-btn" data-act="orig">🔍 原始尺寸</button>'
+      + '<span class="lb-hint">或点击图片切换</span>'
+      + '</div>'
+      + '<div class="lightbox-cap" hidden></div>'
+      + '<img alt="大图" />';
     lightboxEl.addEventListener('click', (e) => {
+      const act = e.target.dataset && e.target.dataset.act;
+      const img = lightboxEl.querySelector('img');
+      if (act === 'fit') { img.classList.remove('zoomed'); img.classList.add('fit'); lightboxEl.scrollTop = 0; return; }
+      if (act === 'orig') { img.classList.add('zoomed'); img.classList.remove('fit'); lightboxEl.scrollTop = 0; return; }
       if (e.target === lightboxEl) { closeLightbox(); return; } // 点遮罩关闭
-      const img = lightboxEl.querySelector('img');              // 点图片切换缩放
-      img.classList.toggle('zoomed');
+      img.classList.toggle('zoomed'); // 点图片切换缩放
       img.classList.remove('fit');
       lightboxEl.scrollTop = 0;
     });
@@ -2119,19 +2128,25 @@ function openLightbox(src, caption) {
 }
 function closeLightbox() { if (lightboxEl) lightboxEl.classList.add('hidden'); }
 
-/* 地图查看大图：AI 美化图直接放大；算法底图以更高像素重渲（数据不变）后放大；
- * 标题取 map-info 当前内容首行（点击地图时 = 所点区域/地点信息） */
+/* 地图查看原图：优先当前可见源（窗口美化图 → 预览美化图 → 窗口画布 → 预览画布 → 高清重渲），
+ * 无 mapData 也不静默失效；标题取 mm-info 当前内容首行 */
 function zoomMap() {
-  const beauty = $('map-beauty');
   let src = null;
-  if (beauty && !beauty.hidden && $('map-beauty-img').src) {
-    src = $('map-beauty-img').src;
-  } else {
+  const mmBeauty = $('mm-beauty'), mmImg = $('mm-beauty-img');
+  const beauty = $('map-beauty'), bImg = $('map-beauty-img');
+  if (mmBeauty && !mmBeauty.hidden && mmImg && mmImg.src) src = mmImg.src;
+  else if (beauty && !beauty.hidden && bImg && bImg.src) src = bImg.src;
+  if (!src) {
     const rs = curRpgState();
-    if (!rs || !rs.mapData || !window.MapGen) return;
-    const c = document.createElement('canvas');
-    window.MapGen.renderWorldMap(c, rs.mapData, { pixelSize: 12 }); // 高清重渲（128×12=1536px）
-    src = c.toDataURL('image/png');
+    const map = (rs && rs.mapData) || null;
+    const canvas = $('mm-canvas') || $('map-canvas');
+    if (map && window.MapGen) {
+      const c = document.createElement('canvas');
+      window.MapGen.renderWorldMap(c, map, { pixelSize: 12 }); // 高清重渲（128×12=1536px）
+      src = c.toDataURL('image/png');
+    } else if (canvas && canvas.toDataURL) {
+      src = canvas.toDataURL('image/png'); // 兜底：直接取当前画布
+    }
   }
   const info = $('mm-info');
   const caption = info && info.innerText ? info.innerText.split('\n')[0].trim() : '';
@@ -2670,13 +2685,15 @@ function mapCanvasClick(e) {
   const info = $('mm-info');
   if (!info) return;
   if (!hit || hit.kind === 'ocean') {
-    info.innerHTML = '<span class="hint">（浩瀚的海洋，尚无定居点）</span>';
+    info.innerHTML = '<span class="hint">（浩瀚的海洋，尚无定居点）</span>'
+      + '<div><button class="ghost-btn small" id="mm-view-orig">🔍 查看原图</button></div>';
     return;
   }
   if (hit.kind === 'point') {
     const p = hit.point;
     info.innerHTML = `<div class="map-info-title">📍 ${esc(p.name)} <span class="tag">${esc(p.type)}</span></div>`
-      + `<div class="map-info-desc">${esc(p.desc)}</div>`;
+      + `<div class="map-info-desc">${esc(p.desc)}</div>`
+      + '<div><button class="ghost-btn small" id="mm-view-orig">🔍 查看原图</button></div>';
     return;
   }
   const r = map.regions[hit.region - 1];
@@ -2687,7 +2704,8 @@ function mapCanvasClick(e) {
   const pts = map.points.filter(p => p.regionId === r.id);
   info.innerHTML = `<div class="map-info-title">🗺 ${esc(r.name)} <span class="tag">${esc(r.biome)}</span></div>`
     + `<div class="map-info-desc">${esc(r.name)}的${esc(r.biome)}地带${neighbors.length ? '，可前往：' + esc(neighbors.join('、')) : ''}</div>`
-    + (pts.length ? `<div class="map-info-desc">${pts.map(p => '📍 ' + esc(p.name) + '（' + esc(p.type) + '）').join('　')}</div>` : '');
+    + (pts.length ? `<div class="map-info-desc">${pts.map(p => '📍 ' + esc(p.name) + '（' + esc(p.type) + '）').join('　')}</div>` : '')
+    + '<div><button class="ghost-btn small" id="mm-view-orig">🔍 查看原图</button></div>';
 }
 
 /* 重新生成：换 seed，清美化图，重建数据层（逻辑坐标全变） */
@@ -2847,6 +2865,11 @@ function bindEvents() {
   $('mm-close').addEventListener('click', closeMapModal);
   const mmModal = $('map-modal');
   if (mmModal) mmModal.addEventListener('click', (e) => { if (e.target === mmModal) closeMapModal(); });
+  // 信息条内「查看原图」按钮（事件委托，innerHTML 重建后仍有效）
+  const mmInfoEl = $('mm-info');
+  if (mmInfoEl) mmInfoEl.addEventListener('click', (e) => {
+    if (e.target && e.target.id === 'mm-view-orig') zoomMap();
+  });
   const rpgInv = $('rpg-inventory');
   if (rpgInv) rpgInv.addEventListener('click', e => {
     const el = e.target;

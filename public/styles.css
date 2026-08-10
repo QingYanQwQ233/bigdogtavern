@@ -580,6 +580,32 @@ body[data-theme="washi"] #map-canvas { image-rendering: auto; }
   z-index: 1;
   pointer-events: none;
 }
+.lightbox-tools {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 6px 12px;
+  border-radius: 999px;
+  z-index: 1;
+}
+.lb-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: #fff;
+  font-size: 12px;
+  font-family: var(--font-body);
+  padding: 4px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.lb-btn:hover { background: rgba(255, 255, 255, 0.15); border-color: #fff; }
+.lb-hint { color: rgba(255, 255, 255, 0.6); font-size: 12px; }
 .lightbox img.zoomed {
   max-width: none;
   max-height: none;
