@@ -118,27 +118,73 @@
   }
 
   /* ---------- 生成 ---------- */
-  const BIOMES = ['平原', '森林', '山地', '湿地', '丘陵', '荒原'];
+  /* 生物群系 6 大类（assignClimate 输出；渲染按连续色图，标签供 AI 上下文/命名） */
+  const BIOMES = ['海岸', '草原', '森林', '荒野', '雪原', '湿地'];
 
-  /* mapgen2（Red Blob Games，Apache-2.0）生物群系 → 中文 */
-  const BIOME_ZH = {
-    OCEAN: '海洋', LAKE: '湖泽', BEACH: '海岸', GLACIER: '冰原', MARSH: '沼泽',
-    ICE: '冰原', SNOW: '雪原', TUNDRA: '冻原', BARE: '荒原', SCORCHED: '焦土',
-    TAIGA: '针叶林', SHRUBLAND: '灌木地', TEMPERATE_DESERT: '温带荒漠',
-    GRASSLAND: '草原', TEMPERATE_RAIN_FOREST: '温带雨林',
-    TEMPERATE_DECIDUOUS_FOREST: '落叶林', SUBTROPICAL_DESERT: '沙漠',
-    TROPICAL_RAIN_FOREST: '热带雨林', TROPICAL_SEASONAL_FOREST: '季雨林',
-    COAST: '海岸',
-  };
-  // 单地区图：细碎群系合并成 5 大类（地图清爽，AI 美化不易破坏原图）
-  const BIOME_MERGE = {
-    '海岸': '海岸',
-    '草原': '草原', '灌木地': '草原', '荒原': '草原',
-    '森林': '森林', '落叶林': '森林', '针叶林': '森林', '季雨林': '森林', '热带雨林': '森林', '温带雨林': '森林',
-    '荒野': '荒野', '沙漠': '荒野', '温带荒漠': '荒野', '焦土': '荒野',
-    '雪原': '雪原', '冰原': '雪原', '冻原': '雪原',
-    '湿地': '湿地', '沼泽': '湿地', '湖泽': '湿地',
-  };
+  /* ═══ 气候与生物群系（mapgen4 思路：连续过渡，告别随机色块） ═══
+   * elevation 现成（mapgen2 平滑区域均值）；moisture = 到水域的 BFS 距离场（天然空间连续，
+   * 取代噪声 + 分位数重分配——后者人为拉大相邻湿度差导致跳变）；
+   * biome = 6 大类连续表（相邻档位是相邻类）；color = elevation×moisture 连续色图（HSL），
+   * 同 (e,m) 邻近的区域颜色相近 → 视觉渐变无跳变。 */
+  function hslToRgb(h, s, l) {
+    const f = (n) => {
+      const k = (n + h * 12) % 12;
+      const a = s * Math.min(l, 1 - l);
+      return Math.round(255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
+    };
+    return [f(0), f(8), f(4)];
+  }
+  function colorAt(e, m) {
+    const hue = 40 + 85 * m;       // 干=黄 40° → 湿=绿 125°
+    const sat = 55 - 30 * e;       // 低地饱和 → 高山褪色
+    const light = 26 + 48 * e;     // 低暗 → 高山亮（混白≈雪）
+    return hslToRgb(hue / 360, sat / 100, light / 100);
+  }
+  function biomeAt(e, m) {
+    if (e < 0.22) return '海岸';
+    if (e >= 0.85) return '雪原';
+    if (m < 0.32) return '荒野';            // 干旱带：低地荒漠 / 高地荒山
+    if (m < 0.62) return e < 0.65 ? '草原' : '森林'; // 中湿：低地草原 → 高地针叶
+    return e < 0.42 ? '湿地' : '森林';      // 湿润：低地湿地 → 森林
+  }
+  function assignClimate(regions, mesh, map, regionIdOf) {
+    const N = mesh.numRegions;
+    // 1) BFS 距离场：从水域顶点沿多边形邻接扩散（0=海岸，越内陆越大）
+    const dist = new Float32Array(N).fill(-1);
+    const q = [];
+    for (let vi = 0; vi < N; vi++) if (map.water_r[vi]) { dist[vi] = 0; q.push(vi); }
+    let head = 0;
+    while (head < q.length) {
+      const vi = q[head++];
+      const nbs = mesh.r_around_r(vi, []);
+      for (const nv of nbs) if (dist[nv] < 0) { dist[nv] = dist[vi] + 1; q.push(nv); }
+    }
+    let maxDist = 1;
+    for (const r of regions) maxDist = Math.max(maxDist, dist[r.vertex]);
+    for (const r of regions) {
+      r.elevation = Math.max(0, Math.min(1, map.elevation_r[r.vertex] || 0));
+      r.moisture = dist[r.vertex] >= 0 ? Math.min(1, dist[r.vertex] / maxDist) : 0;
+    }
+    // 2) 邻域平滑：elevation 与 moisture 各一次（同气候带成片，消除单点突变）
+    for (const r of regions) {
+      const nbs = mesh.r_around_r(r.vertex, []);
+      let es = 0, ms = 0, cnt = 0;
+      for (const nv of nbs) {
+        const rr = regionIdOf.get(nv);
+        if (rr !== undefined) { es += regions[rr - 1].elevation; ms += regions[rr - 1].moisture; cnt++; }
+      }
+      if (cnt) {
+        r.elevation = (r.elevation + es / cnt) / 2;
+        r.moisture = (r.moisture + ms / cnt) / 2;
+      }
+    }
+    // 3) biome 标签 + 连续色
+    for (const r of regions) {
+      r.biome = biomeAt(r.elevation, r.moisture);
+      r.color = colorAt(r.elevation, r.moisture);
+      r.name = r.biome + '·区域 ' + r.id;
+    }
+  }
 
   /* 现成算法 mapgen2：多边形地形（海岸/河流/biome/邻接全现成）
    * 适配为自研同款数据形状（region/point/adjacency/grid），渲染层复用 */
@@ -193,14 +239,15 @@
       const vi = landVerts[k];
       const id = regions.length + 1;
       regionIdOf.set(vi, id);
-      const biome = BIOME_MERGE[BIOME_ZH[map.biome_r[vi]]] || '未知';
       regions.push({
-        id, name: biome + '·区域 ' + id, biome,
+        id, name: '区域 ' + id, biome: '',
         seedX: Math.max(0, Math.min(size - 1, Math.round(mesh.x_of_r(vi) / scale))),
         seedY: Math.max(0, Math.min(size - 1, Math.round(mesh.y_of_r(vi) / scale))),
         vertex: vi,
       });
     }
+    // 气候分配：elevation + moisture(BFS 距离场) → biome 6 大类 + 连续色（过渡自然）
+    assignClimate(regions, mesh, map, regionIdOf);
     // 网格：水像素 = 0（最近顶点是水域）；陆地像素 = 最近保留区域的 id（被剔除的小胞腔归属最近大区域，大陆完整）
     const grid = new Uint16Array(size * size);
     for (let i = 0; i < size * size; i++) {
@@ -468,21 +515,15 @@
       if (!removed) break;
     }
 
-    // 3) 区域元数据（biome 与地形一致：按种子海拔分档，告别随机）+ 路径点
-    const biomeAt = (x, y) => {
-      const h = scores[y * size + x];
-      const roll = rng();
-      if (h > 0.66) return roll < 0.7 ? '山地' : '荒原';
-      if (h > 0.54) return roll < 0.65 ? '丘陵' : '森林';
-      if (h > 0.44) return roll < 0.6 ? '森林' : '丘陵';
-      return roll < 0.55 ? '平原' : '湿地';
-    };
+    // 3) 区域元数据（biome 与地形一致：按种子海拔+统一连续表，告别随机）+ 路径点
     const regions = seeds.map((s, i) => {
-      const biome = biomeAt(s.x, s.y);
+      const h = scores[s.y * size + s.x];
+      const biome = biomeAt(h, 0.5);
       return {
         id: i + 1,
         name: biome + '·区域 ' + (i + 1),
         biome,
+        color: colorAt(h, 0.5),
         seedX: s.x, seedY: s.y,
       };
     });
@@ -562,13 +603,24 @@
     // 海洋
     ctx.fillStyle = opts.ocean || '#2c4a6e';
     ctx.fillRect(0, 0, W, W);
-    // 陆地（区域色 + 细噪声纹理）
+    // 陆地：像素级连续色（用区域质心 seedX/seedY 反距离加权混合 region.color → 地形渐变，
+    // 相邻区域颜色自然过渡，告别“随机色块拼图”；数据层 regions/adjacency 不变）
+    const regs = map.regions || [];
     for (let y = 0; y < map.size; y++) {
       for (let x = 0; x < map.size; x++) {
         const g = map.grid[y * map.size + x];
         if (!g) continue;
-        ctx.fillStyle = PALETTE[(g - 1) % PALETTE.length];
-        ctx.fillRect(x * px, y * px, px, px);
+        let rr = 0, gg = 0, bb = 0, wSum = 0;
+        for (const reg of regs) {
+          if (!reg.color) continue;
+          const dx = reg.seedX - x, dy = reg.seedY - y;
+          const w = 1 / (dx * dx + dy * dy + 4);
+          rr += reg.color[0] * w; gg += reg.color[1] * w; bb += reg.color[2] * w; wSum += w;
+        }
+        if (wSum) {
+          ctx.fillStyle = `rgb(${Math.round(rr / wSum)},${Math.round(gg / wSum)},${Math.round(bb / wSum)})`;
+          ctx.fillRect(x * px, y * px, px, px);
+        }
       }
     }
     // 区域边界分隔线已移除（不需要块与块之间的线，靠色块颜色区分）
