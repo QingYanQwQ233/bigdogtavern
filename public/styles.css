@@ -563,6 +563,23 @@ body[data-theme="washi"] #map-canvas { image-rendering: auto; }
   cursor: zoom-in;
   transition: max-width 0.15s ease, max-height 0.15s ease;
 }
+.lightbox-cap {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  max-width: 80vw;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  z-index: 1;
+  pointer-events: none;
+}
 .lightbox img.zoomed {
   max-width: none;
   max-height: none;

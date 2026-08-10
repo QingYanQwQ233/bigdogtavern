@@ -2094,11 +2094,11 @@ async function saveImageLocally(src) {
 
 /* 点击图片放大查看（lightbox）：点遮罩关闭，点图片切换 适应窗口 / 原始尺寸（可滚动） */
 let lightboxEl = null;
-function openLightbox(src) {
+function openLightbox(src, caption) {
   if (!lightboxEl) {
     lightboxEl = document.createElement('div');
     lightboxEl.className = 'lightbox hidden';
-    lightboxEl.innerHTML = '<img alt="大图" />';
+    lightboxEl.innerHTML = '<div class="lightbox-cap" hidden></div><img alt="大图" />';
     lightboxEl.addEventListener('click', (e) => {
       if (e.target === lightboxEl) { closeLightbox(); return; } // 点遮罩关闭
       const img = lightboxEl.querySelector('img');              // 点图片切换缩放
@@ -2112,12 +2112,15 @@ function openLightbox(src) {
   img.src = src;
   img.classList.remove('zoomed');
   img.classList.add('fit');
+  const cap = lightboxEl.querySelector('.lightbox-cap');
+  if (cap) { cap.textContent = caption || ''; cap.hidden = !caption; }
   lightboxEl.scrollTop = 0;
   lightboxEl.classList.remove('hidden');
 }
 function closeLightbox() { if (lightboxEl) lightboxEl.classList.add('hidden'); }
 
-/* 地图查看大图：AI 美化图直接放大；算法底图以更高像素重渲（数据不变）后放大 */
+/* 地图查看大图：AI 美化图直接放大；算法底图以更高像素重渲（数据不变）后放大；
+ * 标题取 map-info 当前内容首行（点击地图时 = 所点区域/地点信息） */
 function zoomMap() {
   const beauty = $('map-beauty');
   let src = null;
@@ -2130,7 +2133,9 @@ function zoomMap() {
     window.MapGen.renderWorldMap(c, rs.mapData, { pixelSize: 12 }); // 高清重渲（128×12=1536px）
     src = c.toDataURL('image/png');
   }
-  if (src) openLightbox(src);
+  const info = $('map-info');
+  const caption = info && info.innerText ? info.innerText.split('\n')[0].trim() : '';
+  if (src) openLightbox(src, caption);
 }
 
 /* 生图并作为图片消息上屏 */
@@ -2636,12 +2641,14 @@ function mapCanvasClick(e) {
   if (!info) return;
   if (!hit || hit.kind === 'ocean') {
     info.innerHTML = '<span class="hint">（浩瀚的海洋，尚无定居点）</span>';
+    zoomMap(); // 点击即放大查看
     return;
   }
   if (hit.kind === 'point') {
     const p = hit.point;
     info.innerHTML = `<div class="map-info-title">📍 ${esc(p.name)} <span class="tag">${esc(p.type)}</span></div>`
       + `<div class="map-info-desc">${esc(p.desc)}</div>`;
+    zoomMap();
     return;
   }
   const r = map.regions[hit.region - 1];
@@ -2653,6 +2660,7 @@ function mapCanvasClick(e) {
   info.innerHTML = `<div class="map-info-title">🗺 ${esc(r.name)} <span class="tag">${esc(r.biome)}</span></div>`
     + `<div class="map-info-desc">${esc(r.name)}的${esc(r.biome)}地带${neighbors.length ? '，可前往：' + esc(neighbors.join('、')) : ''}</div>`
     + (pts.length ? `<div class="map-info-desc">${pts.map(p => '📍 ' + esc(p.name) + '（' + esc(p.type) + '）').join('　')}</div>` : '');
+  zoomMap(); // 点击即放大查看
 }
 
 /* 重新生成：换 seed，清美化图，重建数据层（逻辑坐标全变） */
