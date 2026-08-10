@@ -485,6 +485,40 @@ body[data-mode="rpg"] #rpg-status { display: flex; grid-area: status; }
   0%, 100% { opacity: 0.55; }
   50% { opacity: 1; }
 }
+/* ═══ 世界地图（RPG 右栏） ═══ */
+.rpg-map-wrap { display: flex; flex-direction: column; gap: 8px; }
+.rpg-map-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.rpg-map-title { font-family: var(--font-display); font-size: 13px; color: var(--accent); letter-spacing: 1px; }
+.rpg-map-btns { display: flex; gap: 6px; }
+#map-canvas {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #2c4a6e;
+  cursor: pointer;
+  image-rendering: pixelated;
+}
+.rpg-map-beauty img {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.rpg-map-info {
+  min-height: 46px;
+  padding: 8px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+.map-info-title { font-weight: 700; color: var(--text); margin-bottom: 2px; }
+.map-info-title .tag { font-weight: 400; font-size: 11px; color: var(--accent); margin-left: 6px; }
+.map-info-desc { color: var(--muted); }
+body[data-theme="washi"] #map-canvas { image-rendering: auto; }
 .msg.image-msg .img-fail {
   color: var(--muted);
   font-size: 12.5px;

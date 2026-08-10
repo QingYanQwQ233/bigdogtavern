@@ -206,6 +206,7 @@ function renderRPG() {
       ? `<div class="rpg-item"><span class="rpg-item-name">${esc(c.name || '？？？')}</span><div class="rpg-item-sub">${esc([c.race, c.role].filter(Boolean).join(' · ') || '种族/身份待定')}</div></div>`
       : '<p class="hint">未选择角色</p>';
   }
+  renderMap(); // 世界地图（数据层 + 美化图显示）
 }
 
 /* 应用 AI 输出的 ```rpg``` JSON 状态变更；返回是否发生了变更 */
@@ -1305,6 +1306,9 @@ function buildPromptBlocks() {
       parts.push('【任务】' + (rs.quests.length
         ? rs.quests.map(x => `${x.title}${x.status === 'done' ? '（已完成）' : ''}`).join('、')
         : '（无）'));
+      // 世界地图数据（三步法：数据层注入保障叙事正确性）
+      const mapCtx = buildMapContext();
+      if (mapCtx) parts.push(mapCtx);
     }
     // 状态变更输出协议（数据外置：defaults.rpg.stateInstruction，兜底内联）
     const proto = (defaults && defaults.rpg && defaults.rpg.stateInstruction)
@@ -2559,6 +2563,160 @@ const QUICK_TAVERN = [
   { label: '⚔ 保持戒备', action: '（警惕地后退一步，手按在武器上）' },
 ];
 
+/* ═══════════ 世界地图系统（三步法 demo：算法生成 + 数据层 + AI 美化 + 上下文注入） ═══════════ */
+/* 地图数据存会话 rpgState.mapData（JSON 数据层）+ rpgState.mapImage（AI 美化图本地路径） */
+
+function curMapData() {
+  const rs = curRpgState();
+  if (!rs) return null;
+  if (!rs.mapData) {
+    rs.mapData = (window.MapGen ? window.MapGen.generateWorldMap(Date.now() % 2147483647, { size: 96, regionCount: 8 }) : null);
+    saveSessions();
+  }
+  return rs.mapData;
+}
+
+/* 渲染：有美化图显示美化图（数据层不变），否则渲染算法底图 */
+function renderMap() {
+  const canvas = $('map-canvas');
+  if (!canvas || !window.MapGen) return;
+  const rs = curRpgState();
+  const map = curMapData();
+  if (!map) return;
+  const beauty = $('map-beauty');
+  const img = $('map-beauty-img');
+  if (rs.mapImage) {
+    canvas.style.display = 'none';
+    beauty.hidden = false;
+    img.src = rs.mapImage;
+  } else {
+    beauty.hidden = true;
+    canvas.style.display = 'block';
+    window.MapGen.renderWorldMap(canvas, map, { pixelSize: 10 });
+  }
+}
+
+/* 点击命中（canvas / 美化图共用）：DOM 坐标 → 网格坐标 → mapHit */
+function mapCanvasClick(e) {
+  const el = e.currentTarget;
+  const rect = el.getBoundingClientRect();
+  const px = (e.clientX - rect.left) / rect.width;
+  const py = (e.clientY - rect.top) / rect.height;
+  const map = curMapData();
+  if (!map) return;
+  const gx = Math.floor(px * map.size), gy = Math.floor(py * map.size);
+  const hit = window.MapGen.mapHit(map, gx, gy);
+  const info = $('map-info');
+  if (!info) return;
+  if (!hit || hit.kind === 'ocean') {
+    info.innerHTML = '<span class="hint">（浩瀚的海洋，尚无定居点）</span>';
+    return;
+  }
+  if (hit.kind === 'point') {
+    const p = hit.point;
+    info.innerHTML = `<div class="map-info-title">📍 ${esc(p.name)} <span class="tag">${esc(p.type)}</span></div>`
+      + `<div class="map-info-desc">${esc(p.desc)}</div>`;
+    return;
+  }
+  const r = map.regions[hit.region - 1];
+  if (!r) return;
+  const neighbors = map.adjacency
+    .filter(([a, b]) => a === r.id || b === r.id)
+    .map(([a, b]) => map.regions[(a === r.id ? b : a) - 1].name);
+  const pts = map.points.filter(p => p.regionId === r.id);
+  info.innerHTML = `<div class="map-info-title">🗺 ${esc(r.name)} <span class="tag">${esc(r.biome)}</span></div>`
+    + `<div class="map-info-desc">${esc(r.name)}的${esc(r.biome)}地带${neighbors.length ? '，可前往：' + esc(neighbors.join('、')) : ''}</div>`
+    + (pts.length ? `<div class="map-info-desc">${pts.map(p => '📍 ' + esc(p.name) + '（' + esc(p.type) + '）').join('　')}</div>` : '');
+}
+
+/* 重新生成：换 seed，清美化图，重建数据层（逻辑坐标全变） */
+function mapRegenerate() {
+  const rs = curRpgState();
+  if (!rs) return;
+  rs.mapData = window.MapGen.generateWorldMap(Date.now() % 2147483647, { size: 96, regionCount: 8 });
+  delete rs.mapImage;
+  saveSessions();
+  renderMap();
+  const info = $('map-info');
+  if (info) info.innerHTML = '<span class="hint">已生成新世界，数据层已更新（区域/路径点/邻接）</span>';
+}
+
+/* AI 美化（三步法第②③步）：底图 dataURL → gpt-image /images/edits → 美化图 + 数据层不变 */
+async function mapBeautify() {
+  if (!window.MapGen) return;
+  const rs = curRpgState();
+  const map = curMapData();
+  if (!map) return;
+  const canvas = $('map-canvas');
+  if (!canvas) return;
+  const ig = (settings && settings.imageGen) || {};
+  if (!ig.baseUrl) {
+    alert('请先在 设置 → 文生图 中配置 Base URL（gpt-image 反代）');
+    return;
+  }
+  const status = $('map-info');
+  if (status) status.innerHTML = '<span class="hint">⏳ AI 美化中…（底图已作为参考图上传）</span>';
+  const dataUrl = canvas.toDataURL('image/png');
+  try {
+    const res = await fetch('/api/image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({
+        baseUrl: ig.baseUrl, apiKey: ig.apiKey || '', kind: 'openai',
+        body: {
+          model: ig.model || 'gpt-image-2',
+          size: ig.size || '1024x1024',
+          prompt: 'Beautify this procedurally generated fantasy world map into a beautiful hand-drawn cartography style map. Keep the landmass shapes, region boundaries and landmark positions exactly as they are. Add mountains, forests, rivers, coastline details, a compass rose and elegant labels. Fantasy cartography, parchment color palette.',
+          images: [dataUrl],
+        },
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = (data.error && (data.error.message || data.error)) || ('生图 API 返回 ' + res.status);
+      throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+    }
+    const src = parseImageSrc(data);
+    if (!src) throw new Error('响应中没有图片字段');
+    const local = await saveImageLocally(src);
+    rs.mapImage = local || src;
+    saveSessions();
+    renderMap();
+    if (status) status.innerHTML = '<span class="hint">✅ 美化完成 —— 数据层（区域/路径点/邻接）保持不变，点击仍有效</span>';
+  } catch (err) {
+    console.error('[Tavern] 地图美化失败', err.message);
+    if (status) status.innerHTML = `<span class="hint">❌ 地图美化失败：${esc(err.message)}</span>`;
+  }
+}
+
+/* 地图数据注入 AI 上下文（保障叙事：区域/可达性/当前位置/地标） */
+function buildMapContext() {
+  if (mode !== 'rpg') return '';
+  const map = curMapData();
+  if (!map || !map.regions) return '';
+  const rs = curRpgState();
+  // 当前区域：location 含「区域 N」→ N；否则按名称模糊匹配
+  const locText = (rs && rs.location) || '';
+  const m = /区域\s*(\d+)/.exec(locText);
+  let cur = m ? map.regions.find(r => r.id === parseInt(m[1], 10)) : null;
+  if (!cur) cur = map.regions.find(r => r.name === locText) || null;
+  const lines = [];
+  lines.push('【地图】当前世界是一张算法生成的地图，共 ' + map.regions.length + ' 个区域。'
+    + '玩家当前位置：' + (cur ? cur.name + '（' + cur.biome + '）' : (locText || '未知')) + '。');
+  lines.push('区域与可达性：');
+  for (const r of map.regions) {
+    const nb = map.adjacency
+      .filter(([a, b]) => a === r.id || b === r.id)
+      .map(([a, b]) => map.regions[(a === r.id ? b : a) - 1].name);
+    lines.push('· ' + r.name + '（' + r.biome + '）' + (nb.length ? ' — 可前往：' + nb.join('、') : '（孤立）'));
+  }
+  const pts = map.points.slice(0, 12);
+  lines.push('地标：');
+  lines.push('· ' + pts.map(p => p.type + '「' + p.name + '」（' + map.regions[p.regionId - 1].name + '）').join('　'));
+  lines.push('（玩家移动时，请让 location 使用区域名，如「区域 3」；叙事应遵循区域可达性）');
+  return lines.join('\n');
+}
+
 /* 快捷行动预设栏：RPG 模式 = AI 生成的 options（全 AI 驱动，点击即发送）；酒馆模式 = 原有预设 */
 function renderQuickActions() {
   const qa = $('quick-actions');
@@ -2610,6 +2768,13 @@ function bindEvents() {
   // RPG 功能区：背包/任务管理
   $('btn-rpg-item').addEventListener('click', addRpgItem);
   $('btn-rpg-quest').addEventListener('click', addRpgQuest);
+  // 世界地图：生成/美化/点击
+  $('btn-map-gen').addEventListener('click', mapRegenerate);
+  $('btn-map-beautify').addEventListener('click', mapBeautify);
+  const mapCanvas = $('map-canvas');
+  if (mapCanvas) mapCanvas.addEventListener('click', mapCanvasClick);
+  const mapBeautyImg = $('map-beauty-img');
+  if (mapBeautyImg) mapBeautyImg.addEventListener('click', mapCanvasClick);
   const rpgInv = $('rpg-inventory');
   if (rpgInv) rpgInv.addEventListener('click', e => {
     const el = e.target;

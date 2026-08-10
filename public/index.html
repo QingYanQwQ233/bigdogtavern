@@ -78,7 +78,19 @@
         <div id="rpg-quests" class="rpg-list"></div>
         <button class="ghost-btn" id="btn-rpg-quest" style="width:100%;margin-top:6px">＋ 添加任务</button>
         <div class="rpg-panel-head" style="margin-top:10px">🗺 地图</div>
-        <p class="hint" id="rpg-map">地图待世界观确定后设计（占位）。</p>
+        <div class="rpg-map-wrap">
+          <div class="rpg-map-head">
+            <span class="rpg-map-title">🗺 世界地图</span>
+            <span class="rpg-map-btns">
+              <button class="ghost-btn small" id="btn-map-gen">🔄 重新生成</button>
+              <button class="btn gold small" id="btn-map-beautify">✨ AI 美化</button>
+            </span>
+          </div>
+          <canvas id="map-canvas"></canvas>
+          <div class="rpg-map-beauty" id="map-beauty" hidden><img id="map-beauty-img" alt="AI 美化后的世界地图" /></div>
+          <div class="rpg-map-info" id="map-info"><span class="hint">点击地图查看区域 / 地点信息</span></div>
+          <p class="hint">地图由算法生成（数据层 JSON + 像素网格），数据已注入 AI 上下文保障叙事；「AI 美化」用 gpt-image 把底图转为手绘风格，数据层不变。</p>
+        </div>
       </aside>
       <div id="rpg-status" class="rpg-status">
         <div class="rpg-stat hp"><span>HP</span><div class="rpg-bar"><i id="rpg-hp-bar"></i></div><b id="rpg-hp-text">0/0</b></div>
@@ -554,7 +566,8 @@
 
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
-  <script src="app.js?v=20260809b"></script>
+  <script src="mapgen.js?v=20260810"></script>
+  <script src="app.js?v=20260810a"></script>
   <script>
     // PWA：注册 service worker（仅 HTTPS / localhost 生效，套壳 APK 可用）
     if ('serviceWorker' in navigator) {
