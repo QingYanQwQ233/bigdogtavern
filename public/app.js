@@ -2767,7 +2767,7 @@ async function mapBeautify() {
         body: {
           model: ig.model || 'gpt-image-2',
           size: ig.size || '1024x1024',
-          prompt: 'Beautify this procedurally generated fantasy world map into a beautiful hand-drawn cartography style map. Keep the landmass shapes, region boundaries and landmark positions exactly as they are. Add mountains, forests, rivers, coastline details, a compass rose and elegant labels. Fantasy cartography, parchment color palette.',
+          prompt: 'Beautify this procedurally generated fantasy world map into a beautiful hand-drawn cartography style map. Keep the landmass shapes and landmark positions exactly as they are. Add mountains, forests, rivers, coastline details and a compass rose. Do NOT add any text, labels, place names or town names anywhere. Do NOT draw region boundary lines, borders, or any connection lines between regions — blend the region color areas softly into the terrain. Fantasy cartography, parchment color palette, clean and quiet.',
           images: [dataUrl],
         },
       }),
