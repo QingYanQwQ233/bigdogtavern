@@ -121,6 +121,19 @@
   /* 生物群系 6 大类（assignClimate 输出；渲染按连续色图，标签供 AI 上下文/命名） */
   const BIOMES = ['海岸', '草原', '森林', '荒野', '雪原', '湿地'];
 
+  /* biome 高对比色板（色相拉开：海洋蓝/海岸沙黄/草原亮绿/森林深绿/荒野橙棕/湿地蓝绿/雪原白） */
+  const BIOME_COLOR = {
+    '海洋': [29, 78, 137],
+    '海岸': [217, 178, 106],
+    '草原': [143, 209, 79],
+    '森林': [31, 90, 46],
+    '荒野': [201, 138, 61],
+    '湿地': [31, 127, 159],
+    '雪原': [232, 238, 242],
+    '未知': [140, 140, 140],
+  };
+  function biomeColor(biome) { return BIOME_COLOR[biome] || BIOME_COLOR['未知']; }
+
   /* ═══ 气候与生物群系（mapgen4 思路：连续过渡，告别随机色块） ═══
    * elevation 现成（mapgen2 平滑区域均值）；moisture = 到水域的 BFS 距离场（天然空间连续，
    * 取代噪声 + 分位数重分配——后者人为拉大相邻湿度差导致跳变）；
@@ -178,10 +191,10 @@
         r.moisture = (r.moisture + ms / cnt) / 2;
       }
     }
-    // 3) biome 标签 + 连续色
+    // 3) biome 标签 + 高对比色（biome 专属色板，色相拉开；告别连续色图导致的低对比）
     for (const r of regions) {
       r.biome = biomeAt(r.elevation, r.moisture);
-      r.color = colorAt(r.elevation, r.moisture);
+      r.color = biomeColor(r.biome);
       r.name = r.biome + '·区域 ' + r.id;
     }
   }
@@ -516,14 +529,15 @@
     }
 
     // 3) 区域元数据（biome 与地形一致：按种子海拔+统一连续表，告别随机）+ 路径点
-    const regions = seeds.map((s, i) => {
+  /* 区域元数据（biome 与地形一致：按种子海拔+统一连续表，告别随机）+ 路径点 */
+  const regions = seeds.map((s, i) => {
       const h = scores[s.y * size + s.x];
       const biome = biomeAt(h, 0.5);
       return {
         id: i + 1,
         name: biome + '·区域 ' + (i + 1),
         biome,
-        color: colorAt(h, 0.5),
+        color: biomeColor(biome),
         seedX: s.x, seedY: s.y,
       };
     });
@@ -635,7 +649,7 @@
         ctx.strokeStyle = 'rgba(255,255,255,0.85)';
         ctx.lineWidth = 1;
         for (let k = -1; k <= 1; k++) {
-          const mx = r.seedX * px + px / 2 + k * s * 1.1, my = r.seedY * px + px / 2;
+          const mx = r.seedX * px + px / 2 + s * 1.6 + k * s * 1.1, my = r.seedY * px + px / 2;
           ctx.beginPath();
           ctx.moveTo(mx - s, my + s * 0.55);
           ctx.lineTo(mx - s * 0.4, my - s * 0.6);
@@ -655,7 +669,7 @@
         ctx.strokeStyle = 'rgba(255,255,255,0.8)';
         ctx.lineWidth = 1;
         for (let k = -1; k <= 1; k++) {
-          const tx = r.seedX * px + px / 2 + k * s2 * 1.3, ty = r.seedY * px + px / 2;
+          const tx = r.seedX * px + px / 2 + s2 * 1.8 + k * s2 * 1.3, ty = r.seedY * px + px / 2;
           ctx.beginPath();
           ctx.moveTo(tx - s2, ty + s2 * 0.2);
           ctx.lineTo(tx, ty - s2 * 0.9);
@@ -673,13 +687,28 @@
         ctx.strokeStyle = '#3a6a8a';
         ctx.lineWidth = 1.5;
         for (let k = -1; k <= 1; k++) {
-          const wx = r.seedX * px + px / 2 + k * s3 * 1.2, wy = r.seedY * px + px / 2;
+          const wx = r.seedX * px + px / 2 + s3 * 2.0 + k * s3 * 1.2, wy = r.seedY * px + px / 2;
           ctx.beginPath();
           for (let i = 0; i <= 2; i++) {
             ctx.arc(wx + i * s3 * 0.8 - s3 * 0.8, wy + (k % 2) * 2, s3 * 0.5, 0.3, Math.PI - 0.3);
           }
           ctx.stroke();
         }
+      }
+    }
+    // 区域名标注：plain（展示图浅色小字）/ bold（参考图白字黑描边大字，确定区域）
+    if (opts.labels !== false && map.regions.length) {
+      const fontPx = opts.labels === 'bold' ? Math.max(11, Math.round(px * 2.4)) : Math.max(6, Math.round(px * 1.1));
+      ctx.font = `bold ${fontPx}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineWidth = opts.labels === 'bold' ? Math.max(2.5, fontPx * 0.2) : 1;
+      for (const r of map.regions) {
+        const cx = r.seedX * px + px / 2, cy = r.seedY * px + px / 2;
+        ctx.strokeStyle = opts.labels === 'bold' ? 'rgba(0,0,0,0.9)' : 'rgba(0,0,0,0.55)';
+        ctx.strokeText(r.biome, cx, cy);
+        ctx.fillStyle = opts.labels === 'bold' ? '#ffffff' : 'rgba(255,255,255,0.92)';
+        ctx.fillText(r.biome, cx, cy);
       }
     }
     // 路径点

@@ -2158,7 +2158,7 @@ function showMapRef() {
   const rs = curRpgState();
   if (!rs || !rs.mapData || !window.MapGen) return;
   const c = document.createElement('canvas');
-  window.MapGen.renderWorldMap(c, rs.mapData, { pixelSize: 12, markers: true });
+  window.MapGen.renderWorldMap(c, rs.mapData, { pixelSize: 12, markers: true, labels: 'bold' });
   openLightbox(c.toDataURL('image/png'), '生图参考图（标注：山脉/森林/湿地）');
 }
 
@@ -2794,13 +2794,15 @@ function buildBeautifyPrompt(map) {
     + 'This is a single-region map with ' + map.regions.length + ' regions whose biomes are: ' + biomes + '. '
     + 'Preserve each region\'s color area and biome exactly as in the reference image — do not merge or split regions, do not change or invent biomes. '
     + 'Region details: ' + regionDetails + '. '
-    + 'IMPORTANT: the reference image contains terrain marker symbols (this is a labeled reference map): '
+    + 'IMPORTANT: the reference image is a labeled reference map: '
+    + 'thin boundary lines mark region borders, text labels show each region\'s biome name (e.g. 森林/草原), '
     + 'ridge mountain symbols = mountains, tree symbols = forest, wavy lines = wetland, blue = water. '
+    + 'Use the boundary lines to know exactly where each region starts and ends, and use the text labels to know its terrain type. '
     + 'Draw realistic mountains, forests and wetlands in exactly the areas where the corresponding symbols appear, '
-    + 'and replace each marker symbol with actual terrain — do not keep the symbols in the final image. '
+    + 'and replace every annotation (boundary lines, text labels, marker symbols) with actual terrain — do not keep any of them in the final image. '
+    + 'Keep each region\'s color area and biome as the reference, blending softly at borders. '
     + 'Add coastline details, rivers and a compass rose. '
-    + 'Do NOT add any text, labels, place names or town names anywhere. '
-    + 'Do NOT draw region boundary lines, borders, or any connection lines between regions — blend the region color areas softly into the terrain. '
+    + 'Do NOT add any new text, labels, place names or town names. '
     + 'Fantasy cartography, parchment color palette, clean and quiet.';
 }
 
@@ -2819,7 +2821,7 @@ async function mapBeautify() {
   const status = $('mm-info');
   if (status) status.innerHTML = '<span class="hint">⏳ AI 美化中…（标注版参考图已上传）</span>';
   const refCanvas = document.createElement('canvas');
-  window.MapGen.renderWorldMap(refCanvas, map, { pixelSize: 12, markers: true }); // 参考图：明确标注山脉/森林/湿地
+  window.MapGen.renderWorldMap(refCanvas, map, { pixelSize: 12, markers: true, labels: 'bold' }); // 参考图：标注边界线+文字+地形符号
   const dataUrl = refCanvas.toDataURL('image/png');
   try {
     const res = await fetch('/api/image', {
