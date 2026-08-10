@@ -2133,7 +2133,7 @@ function zoomMap() {
     window.MapGen.renderWorldMap(c, rs.mapData, { pixelSize: 12 }); // 高清重渲（128×12=1536px）
     src = c.toDataURL('image/png');
   }
-  const info = $('map-info');
+  const info = $('mm-info');
   const caption = info && info.innerText ? info.innerText.split('\n')[0].trim() : '';
   if (src) openLightbox(src, caption);
 }
@@ -2607,27 +2607,57 @@ function curMapData() {
   return rs.mapData;
 }
 
-/* 渲染：有美化图显示美化图（数据层不变），否则渲染算法底图 */
+/* 渲染：小预览（缩略） + 地图窗口（若打开，高清） */
 function renderMap() {
   const canvas = $('map-canvas');
   if (!canvas || !window.MapGen) return;
   const rs = curRpgState();
   const map = curMapData();
   if (!map) return;
-  const beauty = $('map-beauty');
-  const img = $('map-beauty-img');
   if (rs.mapImage) {
     canvas.style.display = 'none';
-    beauty.hidden = false;
-    img.src = rs.mapImage;
+    $('map-beauty').hidden = false;
+    $('map-beauty-img').src = rs.mapImage;
   } else {
-    beauty.hidden = true;
+    $('map-beauty').hidden = true;
     canvas.style.display = 'block';
-    window.MapGen.renderWorldMap(canvas, map, { pixelSize: 10 });
+    window.MapGen.renderWorldMap(canvas, map, { pixelSize: 6 });
+  }
+  renderMapModal();
+}
+
+/* 地图窗口渲染（打开时刷新窗口内画布 / 美化图） */
+function renderMapModal() {
+  const modal = $('map-modal');
+  if (!modal || modal.classList.contains('hidden')) return;
+  const canvas = $('mm-canvas');
+  if (!canvas || !window.MapGen) return;
+  const rs = curRpgState();
+  const map = curMapData();
+  if (!map) return;
+  if (rs.mapImage) {
+    canvas.style.display = 'none';
+    $('mm-beauty').hidden = false;
+    $('mm-beauty-img').src = rs.mapImage;
+  } else {
+    $('mm-beauty').hidden = true;
+    canvas.style.display = 'block';
+    window.MapGen.renderWorldMap(canvas, map, { pixelSize: 12 }); // 窗口内高清
   }
 }
 
-/* 点击命中（canvas / 美化图共用）：DOM 坐标 → 网格坐标 → mapHit */
+function openMapModal() {
+  const modal = $('map-modal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  renderMapModal();
+}
+function closeMapModal() {
+  const modal = $('map-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+/* 点击命中（地图窗口内 canvas / 美化图共用）：DOM 坐标 → 网格坐标 → mapHit，信息显示在窗口底部 */
 function mapCanvasClick(e) {
   const el = e.currentTarget;
   const rect = el.getBoundingClientRect();
@@ -2637,18 +2667,16 @@ function mapCanvasClick(e) {
   if (!map) return;
   const gx = Math.floor(px * map.size), gy = Math.floor(py * map.size);
   const hit = window.MapGen.mapHit(map, gx, gy);
-  const info = $('map-info');
+  const info = $('mm-info');
   if (!info) return;
   if (!hit || hit.kind === 'ocean') {
     info.innerHTML = '<span class="hint">（浩瀚的海洋，尚无定居点）</span>';
-    zoomMap(); // 点击即放大查看
     return;
   }
   if (hit.kind === 'point') {
     const p = hit.point;
     info.innerHTML = `<div class="map-info-title">📍 ${esc(p.name)} <span class="tag">${esc(p.type)}</span></div>`
       + `<div class="map-info-desc">${esc(p.desc)}</div>`;
-    zoomMap();
     return;
   }
   const r = map.regions[hit.region - 1];
@@ -2660,7 +2688,6 @@ function mapCanvasClick(e) {
   info.innerHTML = `<div class="map-info-title">🗺 ${esc(r.name)} <span class="tag">${esc(r.biome)}</span></div>`
     + `<div class="map-info-desc">${esc(r.name)}的${esc(r.biome)}地带${neighbors.length ? '，可前往：' + esc(neighbors.join('、')) : ''}</div>`
     + (pts.length ? `<div class="map-info-desc">${pts.map(p => '📍 ' + esc(p.name) + '（' + esc(p.type) + '）').join('　')}</div>` : '');
-  zoomMap(); // 点击即放大查看
 }
 
 /* 重新生成：换 seed，清美化图，重建数据层（逻辑坐标全变） */
@@ -2670,9 +2697,9 @@ function mapRegenerate() {
   rs.mapData = window.MapGen.generateWorldMap(Date.now() % 2147483647, { size: 128, regionCount: 8 });
   delete rs.mapImage;
   saveSessions();
-  renderMap();
-  const info = $('map-info');
-  if (info) info.innerHTML = '<span class="hint">已生成新世界，数据层已更新（区域/路径点/邻接）</span>';
+  renderMap(); // 小预览 + 窗口同步刷新
+  const info = $('mm-info');
+  if (info) info.innerHTML = '<span class="hint">✅ 已生成新世界，数据层已更新（区域/路径点/邻接）</span>';
 }
 
 /* AI 美化（三步法第②③步）：底图 dataURL → gpt-image /images/edits → 美化图 + 数据层不变 */
@@ -2681,14 +2708,15 @@ async function mapBeautify() {
   const rs = curRpgState();
   const map = curMapData();
   if (!map) return;
-  const canvas = $('map-canvas');
+  const modalOpen = $('map-modal') && !$('map-modal').classList.contains('hidden');
+  const canvas = (modalOpen && $('mm-canvas')) || $('map-canvas');
   if (!canvas) return;
   const ig = (settings && settings.imageGen) || {};
   if (!ig.baseUrl) {
     alert('请先在 设置 → 文生图 中配置 Base URL（gpt-image 反代）');
     return;
   }
-  const status = $('map-info');
+  const status = $('mm-info');
   if (status) status.innerHTML = '<span class="hint">⏳ AI 美化中…（底图已作为参考图上传）</span>';
   const dataUrl = canvas.toDataURL('image/png');
   try {
@@ -2803,13 +2831,22 @@ function bindEvents() {
   $('btn-rpg-item').addEventListener('click', addRpgItem);
   $('btn-rpg-quest').addEventListener('click', addRpgQuest);
   // 世界地图：生成/美化/点击
-  $('btn-map-gen').addEventListener('click', mapRegenerate);
-  $('btn-map-beautify').addEventListener('click', mapBeautify);
-  $('btn-map-zoom').addEventListener('click', zoomMap);
+  // 小预览 → 打开地图窗口（功能全部在窗口内）
   const mapCanvas = $('map-canvas');
-  if (mapCanvas) mapCanvas.addEventListener('click', mapCanvasClick);
+  if (mapCanvas) mapCanvas.addEventListener('click', openMapModal);
   const mapBeautyImg = $('map-beauty-img');
-  if (mapBeautyImg) mapBeautyImg.addEventListener('click', mapCanvasClick);
+  if (mapBeautyImg) mapBeautyImg.addEventListener('click', openMapModal);
+  // 地图窗口
+  const mmCanvas = $('mm-canvas');
+  if (mmCanvas) mmCanvas.addEventListener('click', mapCanvasClick);
+  const mmBeautyImg = $('mm-beauty-img');
+  if (mmBeautyImg) mmBeautyImg.addEventListener('click', mapCanvasClick);
+  $('mm-zoom').addEventListener('click', zoomMap);
+  $('mm-gen').addEventListener('click', mapRegenerate);
+  $('mm-beautify').addEventListener('click', mapBeautify);
+  $('mm-close').addEventListener('click', closeMapModal);
+  const mmModal = $('map-modal');
+  if (mmModal) mmModal.addEventListener('click', (e) => { if (e.target === mmModal) closeMapModal(); });
   const rpgInv = $('rpg-inventory');
   if (rpgInv) rpgInv.addEventListener('click', e => {
     const el = e.target;

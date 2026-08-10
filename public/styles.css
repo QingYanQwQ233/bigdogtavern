@@ -1064,6 +1064,80 @@ textarea#input:focus {
   display: block;
 }
 
+/* ═══ 地图窗口（点击地图打开，功能集中于此） ═══ */
+.map-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 150; /* 高于侧栏/面板，低于 lightbox(200) */
+  background: var(--scrim);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.map-modal.hidden { display: none; }
+.map-modal-box {
+  width: min(94vw, 940px);
+  height: min(92vh, 780px);
+  background: linear-gradient(170deg, var(--panel-2), var(--panel) 60%, var(--bg-0));
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  padding: 14px;
+  gap: 10px;
+}
+.map-modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.map-modal-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.map-modal-body canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.map-modal-beauty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.map-modal-beauty img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.map-modal-info {
+  min-height: 42px;
+  padding: 4px 2px;
+  font-size: 13px;
+}
+@media (max-width: 640px) {
+  .map-modal { padding: 8px; }
+  .map-modal-box { width: 100vw; height: 94vh; border-radius: 10px; }
+  .map-modal-head .rpg-map-btns { gap: 4px; }
+}
+
 /* ── 界面控制（版本 / 色调 / 设置，位于对话头部，避免遮挡输入区） ── */
 .fm-wrap { position: relative; margin-left: 4px; }
 #floating-toggle { font-size: 14px; padding: 6px 10px; white-space: nowrap; }

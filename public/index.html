@@ -80,17 +80,11 @@
         <div class="rpg-panel-head" style="margin-top:10px">🗺 地图</div>
         <div class="rpg-map-wrap">
           <div class="rpg-map-head">
-            <span class="rpg-map-title">🗺 世界地图</span>
-            <span class="rpg-map-btns">
-              <button class="ghost-btn small" id="btn-map-zoom">🔍 查看大图</button>
-              <button class="ghost-btn small" id="btn-map-gen">🔄 重新生成</button>
-              <button class="btn gold small" id="btn-map-beautify">✨ AI 美化</button>
-            </span>
+            <span class="rpg-map-title">🗺 世界地图 <span class="tag">点击打开</span></span>
           </div>
           <canvas id="map-canvas"></canvas>
-          <div class="rpg-map-beauty" id="map-beauty" hidden><img id="map-beauty-img" alt="AI 美化后的世界地图" /></div>
-          <div class="rpg-map-info" id="map-info"><span class="hint">点击地图查看区域 / 地点信息</span></div>
-          <p class="hint">地图由算法生成（数据层 JSON + 像素网格），数据已注入 AI 上下文保障叙事；「AI 美化」用 gpt-image 把底图转为手绘风格，数据层不变。</p>
+          <div class="rpg-map-beauty" id="map-beauty" hidden><img id="map-beauty-img" alt="AI 美化后的世界地图（点击打开）" /></div>
+          <p class="hint">点击地图打开地图窗口：重新生成 / AI 美化 / 查看大图 / 区域信息。</p>
         </div>
       </aside>
       <div id="rpg-status" class="rpg-status">
@@ -299,6 +293,26 @@
         <button class="nav-item" data-view="memory"><span class="icon">🧠</span><span class="label">记忆</span></button>
         <button class="nav-item api-entry js-settings"><span class="icon">🔮</span><span class="label">设置</span></button>
       </nav>
+    </div>
+  </div>
+
+  <!-- ═══ 地图窗口（点击地图打开，功能集中于此） ═══ -->
+  <div id="map-modal" class="map-modal hidden">
+    <div class="map-modal-box">
+      <div class="map-modal-head">
+        <span class="rpg-map-title">🗺 世界地图</span>
+        <span class="rpg-map-btns">
+          <button class="ghost-btn small" id="mm-zoom">🔍 查看大图</button>
+          <button class="ghost-btn small" id="mm-gen">🔄 重新生成</button>
+          <button class="btn gold small" id="mm-beautify">✨ AI 美化</button>
+          <button class="ghost-btn small" id="mm-close">✕ 关闭</button>
+        </span>
+      </div>
+      <div class="map-modal-body">
+        <canvas id="mm-canvas"></canvas>
+        <div class="map-modal-beauty" id="mm-beauty" hidden><img id="mm-beauty-img" alt="美化后的世界地图" /></div>
+      </div>
+      <div class="map-modal-info" id="mm-info"><span class="hint">点击地图查看区域 / 地点信息；「查看大图」可放大到原始尺寸</span></div>
     </div>
   </div>
 
