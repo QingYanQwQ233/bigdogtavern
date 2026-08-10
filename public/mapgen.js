@@ -547,28 +547,8 @@
         ctx.fillRect(x * px, y * px, px, px);
       }
     }
-    // 区域边界（白线）
-    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-    ctx.lineWidth = 1;
-    for (let y = 0; y < map.size - 1; y++) {
-      for (let x = 0; x < map.size - 1; x++) {
-        const a = map.grid[y * map.size + x], b = map.grid[y * map.size + x + 1];
-        const c = map.grid[(y + 1) * map.size + x];
-        if (a && b && a !== b) { ctx.beginPath(); ctx.moveTo((x + 1) * px, y * px); ctx.lineTo((x + 1) * px, (y + 1) * px); ctx.stroke(); }
-        if (a && c && a !== c) { ctx.beginPath(); ctx.moveTo(x * px, (y + 1) * px); ctx.lineTo((x + 1) * px, (y + 1) * px); ctx.stroke(); }
-      }
-    }
-    // 区域间连接（淡线）
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-    ctx.lineWidth = 1;
-    for (const [a, b] of map.adjacency) {
-      const ra = map.regions[a - 1], rb = map.regions[b - 1];
-      if (!ra || !rb) continue;
-      ctx.beginPath();
-      ctx.moveTo(ra.seedX * px + px / 2, ra.seedY * px + px / 2);
-      ctx.lineTo(rb.seedX * px + px / 2, rb.seedY * px + px / 2);
-      ctx.stroke();
-    }
+    // 区域边界分隔线已移除（不需要块与块之间的线，靠色块颜色区分）
+    // 区域间连接线已移除（用户不需要联系线，保持干净）
     // 路径点
     for (const p of map.points) {
       const cx = p.x * px + px / 2, cy = p.y * px + px / 2;

@@ -2153,6 +2153,41 @@ function zoomMap() {
   if (src) openLightbox(src, caption);
 }
 
+/* 地图数据 JSON 查看：结构化导出（区域/路径点/邻接/网格统计），不包含全量 grid */
+let lastMapJson = '';
+function buildMapJson() {
+  const rs = curRpgState();
+  const map = rs && rs.mapData;
+  if (!map) return null;
+  let land = 0, ocean = 0;
+  for (let i = 0; i < map.grid.length; i++) { if (map.grid[i]) land++; else ocean++; }
+  return {
+    engine: map.engine, seed: map.seed, size: map.size,
+    regions: map.regions.map(r => ({ id: r.id, name: r.name, biome: r.biome, seedX: r.seedX, seedY: r.seedY })),
+    points: map.points.map(p => ({ name: p.name, type: p.type, x: p.x, y: p.y, regionId: p.regionId, desc: p.desc })),
+    adjacency: map.adjacency,
+    gridStats: { landPx: land, oceanPx: ocean, total: map.size * map.size, regions: map.regions.length },
+  };
+}
+function showMapJson() {
+  const data = buildMapJson();
+  if (!data) return;
+  lastMapJson = JSON.stringify(data, null, 2);
+  const pre = $('map-json-content');
+  if (pre) pre.textContent = lastMapJson;
+  const mj = $('map-json-modal');
+  if (mj) mj.classList.remove('hidden');
+}
+function copyMapJson() {
+  const data = buildMapJson();
+  const txt = data ? JSON.stringify(data, null, 2) : lastMapJson;
+  if (!txt) return;
+  navigator.clipboard.writeText(txt).then(
+    () => alert('✅ 地图数据 JSON 已复制'),
+    () => alert('复制失败（浏览器剪贴板权限）')
+  );
+}
+
 /* 生图并作为图片消息上屏 */
 async function generateImageFor(story) {
   const ig = igSettings();
@@ -2882,11 +2917,19 @@ function bindEvents() {
   if (mmBeautyImg) mmBeautyImg.addEventListener('click', mapCanvasClick);
   $('mm-toggle').addEventListener('click', toggleMapView);
   $('mm-zoom').addEventListener('click', zoomMap);
+  $('mm-json').addEventListener('click', showMapJson);
   $('mm-gen').addEventListener('click', mapRegenerate);
   $('mm-beautify').addEventListener('click', mapBeautify);
   $('mm-close').addEventListener('click', closeMapModal);
   const mmModal = $('map-modal');
   if (mmModal) mmModal.addEventListener('click', (e) => { if (e.target === mmModal) closeMapModal(); });
+  // 地图数据 JSON 查看
+  const mjModal = $('map-json-modal');
+  if (mjModal) mjModal.addEventListener('click', (e) => { if (e.target === mjModal) mjModal.classList.add('hidden'); });
+  const mjCopy = $('mm-json-copy');
+  if (mjCopy) mjCopy.addEventListener('click', copyMapJson);
+  const mjClose = $('mm-json-close');
+  if (mjClose) mjClose.addEventListener('click', () => { if (mjModal) mjModal.classList.add('hidden'); });
   // 信息条内「查看原图」按钮（事件委托，innerHTML 重建后仍有效）
   const mmInfoEl = $('mm-info');
   if (mmInfoEl) mmInfoEl.addEventListener('click', (e) => {

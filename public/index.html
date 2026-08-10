@@ -304,6 +304,7 @@
         <span class="rpg-map-btns">
           <button class="ghost-btn small" id="mm-toggle">🖼 原始底图</button>
           <button class="ghost-btn small" id="mm-zoom">🔍 查看大图</button>
+          <button class="ghost-btn small" id="mm-json">📋 数据</button>
           <button class="ghost-btn small" id="mm-gen">🔄 重新生成</button>
           <button class="btn gold small" id="mm-beautify">✨ AI 美化</button>
           <button class="ghost-btn small" id="mm-close">✕ 关闭</button>
@@ -314,6 +315,20 @@
         <div class="map-modal-beauty" id="mm-beauty" hidden><img id="mm-beauty-img" alt="美化后的世界地图" /></div>
       </div>
       <div class="map-modal-info" id="mm-info"><span class="hint">点击地图查看区域 / 地点信息；「查看大图」可放大到原始尺寸</span></div>
+    </div>
+  </div>
+
+  <!-- ═══ 地图数据 JSON 查看（📋 数据） ═══ -->
+  <div id="map-json-modal" class="map-modal hidden">
+    <div class="map-modal-box">
+      <div class="map-modal-head">
+        <span class="rpg-map-title">📋 地图数据 JSON</span>
+        <span class="rpg-map-btns">
+          <button class="ghost-btn small" id="mm-json-copy">📄 复制</button>
+          <button class="ghost-btn small" id="mm-json-close">✕ 关闭</button>
+        </span>
+      </div>
+      <pre class="map-json-pre" id="map-json-content"></pre>
     </div>
   </div>
 
