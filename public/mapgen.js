@@ -23,9 +23,9 @@
     };
   };
 
-  /* 平滑 value noise（1 个八度） */
-  const makeNoise = (rng, size) => {
-    const cell = 8; // 网格单元
+  /* 平滑 value noise（1 个八度）；cell 为网格单元（越小越高频） */
+  const makeNoise = (rng, size, cell) => {
+    cell = cell || 8;
     const gs = Math.ceil(size / cell) + 2;
     const g = [];
     for (let i = 0; i < gs * gs; i++) g.push(rng());
@@ -41,6 +41,42 @@
     return at;
   };
 
+  /* fbm：octaves 叠加（频率×2、振幅×0.5），归一化到 0..1
+   * 采样坐标按 size 周期 wrap——高频 octave 不越出噪声网格（否则 NaN） */
+  const fbm = (n, x, y, octaves, size) => {
+    let amp = 0.5, freq = 1, sum = 0, norm = 0;
+    for (let i = 0; i < octaves; i++) {
+      const sx = ((x * freq) % size + size) % size;
+      const sy = ((y * freq) % size + size) % size;
+      sum += n(sx, sy) * amp;
+      norm += amp;
+      amp *= 0.5;
+      freq *= 2;
+    }
+    return sum / norm;
+  };
+
+  /* 海岸线去噪：多数邻点规则（mewo2 思路）——填小洞、去碎岛、去锯齿 */
+  const denoise = (land, size) => {
+    const out = new Uint8Array(size * size);
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        let n = 0, t = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (!dx && !dy) continue;
+            const nx = x + dx, ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= size || ny >= size) continue;
+            t++;
+            if (land[ny * size + nx]) n++;
+          }
+        }
+        out[y * size + x] = (n * 2 >= t) ? 1 : 0;
+      }
+    }
+    return out;
+  };
+
   const dist2 = (ax, ay, bx, by) => (ax - bx) * (ax - bx) + (ay - by) * (ay - by);
 
   /* ---------- 生成 ---------- */
@@ -50,23 +86,43 @@
     opts = opts || {};
     const size = opts.size || 96;          // 网格边长
     const regionCount = opts.regionCount || 8;
-    const landRatio = opts.landRatio || 0.58;
+    const landRatio = opts.landRatio ?? 0.55;      // 目标陆地占比（分位数精确控制）
+    const warpStrength = opts.warpStrength ?? 0.18; // domain warp 强度（相对 size）
+    const coastSmooth = opts.coastSmooth ?? 2;      // 海岸去噪迭代次数
+    const octaves = opts.octaves || 3;              // fbm 层数
     const rng = mulberry32(seed);
 
-    // 1) 高度场（2 个八度）+ 边缘衰减 → 大陆掩码
-    const n1 = makeNoise(rng, size), n2 = makeNoise(rng, size * 2);
-    const land = new Uint8Array(size * size);
-    let landPixels = 0;
+    // 1) 大陆掩码：fbm + domain warp + 边缘衰减 → 分位数阈值 → 海岸去噪
+    const nBase = makeNoise(rng, size); // 主地形（cell 8）
+    const wA = makeNoise(rng, size, Math.max(8, size >> 3)); // 低频 warp 场 A
+    const wB = makeNoise(rng, size, Math.max(8, size >> 3)); // 低频 warp 场 B
+    const clamp = (v) => v < 0 ? 0 : (v > size - 1 ? size - 1 : v);
+    const scores = new Float64Array(size * size);
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
-        const h = n1(x, y) * 0.7 + n2(x * 2, y * 2) * 0.3;
+        // domain warp：两个低频场扭曲采样坐标 → 海岸线自然
+        const offX = (wA(x, y) - 0.5) * 2 * warpStrength * size;
+        const offY = (wB(x, y) - 0.5) * 2 * warpStrength * size;
+        const h = fbm(nBase, clamp(x + offX), clamp(y + offY), octaves, size);
         // 边缘衰减：中心更容易成陆地 → 大陆块
         const cx = x / (size - 1) - 0.5, cy = y / (size - 1) - 0.5;
         const falloff = 1 - Math.min(1, Math.sqrt(cx * cx + cy * cy) * 1.6);
-        const v = h * 0.55 + falloff * 0.45;
-        if (v > 1 - landRatio) { land[y * size + x] = 1; landPixels++; }
+        scores[y * size + x] = h * 0.55 + falloff * 0.45;
       }
     }
+    // redistribute：分位数阈值 → 精确控制海陆比
+    const sorted = Array.from(scores).sort((a, b) => a - b);
+    const thr = sorted[Math.floor(sorted.length * (1 - landRatio))];
+    let land = new Uint8Array(size * size);
+    let landPixels = 0;
+    for (let i = 0; i < size * size; i++) {
+      if (scores[i] > thr) { land[i] = 1; landPixels++; }
+    }
+    if (!landPixels) land[size * size >> 1] = 1; // 兜底
+    // 海岸线去噪：填小洞 / 去碎岛 / 去锯齿
+    for (let it = 0; it < coastSmooth; it++) land = denoise(land, size);
+    landPixels = 0;
+    for (let i = 0; i < size * size; i++) if (land[i]) landPixels++;
     if (!landPixels) land[size * size >> 1] = 1; // 兜底
 
     // 2) 区域划分：陆地随机撒种子（拒绝过近）→ voronoi
@@ -78,9 +134,10 @@
       if (seeds.some(s => dist2(s.x, s.y, sx, sy) < (size / regionCount) * (size / regionCount) * 0.55)) continue;
       seeds.push({ x: sx, y: sy });
     }
-    // 确保种子落在陆地；若不足则用已有种子邻域补
+    // 确保种子落在陆地；若不足则用已有种子邻域补（seeds 为空时以地图中心为基准）
+    const center = { x: size >> 1, y: size >> 1 };
     for (let i = seeds.length; i < regionCount && i < 20; i++) {
-      const s = seeds[(i - 1) % seeds.length];
+      const s = seeds.length ? seeds[(i - 1) % seeds.length] : center;
       for (let r = 1; r < size / 2; r++) {
         let placed = false;
         for (let dy = -r; dy <= r && !placed; dy++) for (let dx = -r; dx <= r; dx++) {
