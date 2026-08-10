@@ -625,6 +625,63 @@
     }
     // 区域边界分隔线已移除（不需要块与块之间的线，靠色块颜色区分）
     // 区域间连接线已移除（用户不需要联系线，保持干净）
+    // 地形标记（仅生图参考图使用：明确山脉/森林/湿地，模型不靠颜色猜；展示图不传 markers）
+    if (opts.markers && map.regions.length) {
+      const s = Math.max(4, Math.round(px * 1.1)); // 符号尺寸
+      for (const r of map.regions) {
+        if (typeof r.elevation !== 'number' || r.elevation < 0.62) continue;
+        // 山脉：连脊山形符号（三峰），深棕 + 白描边醒目
+        ctx.fillStyle = '#5a4632';
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth = 1;
+        for (let k = -1; k <= 1; k++) {
+          const mx = r.seedX * px + px / 2 + k * s * 1.1, my = r.seedY * px + px / 2;
+          ctx.beginPath();
+          ctx.moveTo(mx - s, my + s * 0.55);
+          ctx.lineTo(mx - s * 0.4, my - s * 0.6);
+          ctx.lineTo(mx, my + s * 0.1);
+          ctx.lineTo(mx + s * 0.4, my - s * 0.6);
+          ctx.lineTo(mx + s, my + s * 0.55);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+      }
+      for (const r of map.regions) {
+        if (r.biome !== '森林') continue;
+        // 森林：树形（三角树冠 + 树干），深绿
+        const s2 = Math.max(3, Math.round(px * 0.8));
+        ctx.fillStyle = '#2e4a2a';
+        ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+        ctx.lineWidth = 1;
+        for (let k = -1; k <= 1; k++) {
+          const tx = r.seedX * px + px / 2 + k * s2 * 1.3, ty = r.seedY * px + px / 2;
+          ctx.beginPath();
+          ctx.moveTo(tx - s2, ty + s2 * 0.2);
+          ctx.lineTo(tx, ty - s2 * 0.9);
+          ctx.lineTo(tx + s2, ty + s2 * 0.2);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+          ctx.fillRect(tx - s2 * 0.15, ty + s2 * 0.2, s2 * 0.3, s2 * 0.35); // 树干
+        }
+      }
+      for (const r of map.regions) {
+        if (r.biome !== '湿地') continue;
+        // 湿地：波纹线，浅蓝
+        const s3 = Math.max(3, Math.round(px * 0.7));
+        ctx.strokeStyle = '#3a6a8a';
+        ctx.lineWidth = 1.5;
+        for (let k = -1; k <= 1; k++) {
+          const wx = r.seedX * px + px / 2 + k * s3 * 1.2, wy = r.seedY * px + px / 2;
+          ctx.beginPath();
+          for (let i = 0; i <= 2; i++) {
+            ctx.arc(wx + i * s3 * 0.8 - s3 * 0.8, wy + (k % 2) * 2, s3 * 0.5, 0.3, Math.PI - 0.3);
+          }
+          ctx.stroke();
+        }
+      }
+    }
     // 路径点
     for (const p of map.points) {
       const cx = p.x * px + px / 2, cy = p.y * px + px / 2;

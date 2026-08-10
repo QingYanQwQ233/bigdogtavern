@@ -2153,6 +2153,15 @@ function zoomMap() {
   if (src) openLightbox(src, caption);
 }
 
+/* 查看生图参考图（带地形标记：山脉▲/森林树/湿地波纹）——用于确认 AI 收到的标注图 */
+function showMapRef() {
+  const rs = curRpgState();
+  if (!rs || !rs.mapData || !window.MapGen) return;
+  const c = document.createElement('canvas');
+  window.MapGen.renderWorldMap(c, rs.mapData, { pixelSize: 12, markers: true });
+  openLightbox(c.toDataURL('image/png'), '生图参考图（标注：山脉/森林/湿地）');
+}
+
 /* 地图数据 JSON 查看：结构化导出（区域/路径点/邻接/网格统计），不包含全量 grid */
 let lastMapJson = '';
 function buildMapJson() {
@@ -2785,29 +2794,33 @@ function buildBeautifyPrompt(map) {
     + 'This is a single-region map with ' + map.regions.length + ' regions whose biomes are: ' + biomes + '. '
     + 'Preserve each region\'s color area and biome exactly as in the reference image — do not merge or split regions, do not change or invent biomes. '
     + 'Region details: ' + regionDetails + '. '
-    + 'Add mountains, forests, rivers, coastline details and a compass rose. '
+    + 'IMPORTANT: the reference image contains terrain marker symbols (this is a labeled reference map): '
+    + 'ridge mountain symbols = mountains, tree symbols = forest, wavy lines = wetland, blue = water. '
+    + 'Draw realistic mountains, forests and wetlands in exactly the areas where the corresponding symbols appear, '
+    + 'and replace each marker symbol with actual terrain — do not keep the symbols in the final image. '
+    + 'Add coastline details, rivers and a compass rose. '
     + 'Do NOT add any text, labels, place names or town names anywhere. '
     + 'Do NOT draw region boundary lines, borders, or any connection lines between regions — blend the region color areas softly into the terrain. '
     + 'Fantasy cartography, parchment color palette, clean and quiet.';
 }
 
-/* AI 美化（三步法第②③步）：底图 dataURL → gpt-image /images/edits → 美化图 + 数据层不变 */
+/* AI 美化（三步法第②③步）：独立渲染【带地形标记的参考图】（展示图无标记，参考图标山脉/森林/湿地）
+ * → gpt-image /images/edits → 美化图 + 数据层不变 */
 async function mapBeautify() {
   if (!window.MapGen) return;
   const rs = curRpgState();
   const map = curMapData();
   if (!map) return;
-  const modalOpen = $('map-modal') && !$('map-modal').classList.contains('hidden');
-  const canvas = (modalOpen && $('mm-canvas')) || $('map-canvas');
-  if (!canvas) return;
   const ig = (settings && settings.imageGen) || {};
   if (!ig.baseUrl) {
     alert('请先在 设置 → 文生图 中配置 Base URL（gpt-image 反代）');
     return;
   }
   const status = $('mm-info');
-  if (status) status.innerHTML = '<span class="hint">⏳ AI 美化中…（底图已作为参考图上传）</span>';
-  const dataUrl = canvas.toDataURL('image/png');
+  if (status) status.innerHTML = '<span class="hint">⏳ AI 美化中…（标注版参考图已上传）</span>';
+  const refCanvas = document.createElement('canvas');
+  window.MapGen.renderWorldMap(refCanvas, map, { pixelSize: 12, markers: true }); // 参考图：明确标注山脉/森林/湿地
+  const dataUrl = refCanvas.toDataURL('image/png');
   try {
     const res = await fetch('/api/image', {
       method: 'POST',
@@ -2938,6 +2951,8 @@ function bindEvents() {
   $('mm-close').addEventListener('click', closeMapModal);
   const mmModal = $('map-modal');
   if (mmModal) mmModal.addEventListener('click', (e) => { if (e.target === mmModal) closeMapModal(); });
+  const btnRef = $('mm-view-ref');
+  if (btnRef) btnRef.addEventListener('click', showMapRef);
   // 地图数据 JSON 查看
   const mjModal = $('map-json-modal');
   if (mjModal) mjModal.addEventListener('click', (e) => { if (e.target === mjModal) mjModal.classList.add('hidden'); });
