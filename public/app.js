@@ -2641,6 +2641,8 @@ function renderMap() {
   renderMapModal();
 }
 
+let mmShowOriginal = false; // 地图窗口：true = 显示美化前的算法原图，false = 显示 AI 美化图
+
 /* 地图窗口渲染（打开时刷新窗口内画布 / 美化图） */
 function renderMapModal() {
   const modal = $('map-modal');
@@ -2650,20 +2652,39 @@ function renderMapModal() {
   const rs = curRpgState();
   const map = curMapData();
   if (!map) return;
-  if (rs.mapImage) {
+  const toggle = $('mm-toggle');
+  const hasImage = !!rs.mapImage;
+  if (toggle) toggle.style.display = hasImage ? '' : 'none'; // 无美化图时切换按钮隐藏
+  const showOriginal = !hasImage || mmShowOriginal;
+  if (!showOriginal) {
     canvas.style.display = 'none';
     $('mm-beauty').hidden = false;
     $('mm-beauty-img').src = rs.mapImage;
+    if (toggle) toggle.textContent = '🖼 原始底图';
   } else {
     $('mm-beauty').hidden = true;
     canvas.style.display = 'block';
     window.MapGen.renderWorldMap(canvas, map, { pixelSize: 12 }); // 窗口内高清
+    if (toggle) toggle.textContent = hasImage ? '✨ 美化图' : '✨ AI 美化';
+  }
+}
+
+/* 切换 美化图 / 美化前的算法原图 */
+function toggleMapView() {
+  mmShowOriginal = !mmShowOriginal;
+  renderMapModal();
+  const info = $('mm-info');
+  if (info) {
+    info.innerHTML = mmShowOriginal
+      ? '<span class="hint">🖼 正在查看美化前的算法原图（数据层不变，点击地图可查看区域 / 地点信息）</span>'
+      : '<span class="hint">✨ 已切回 AI 美化图</span>';
   }
 }
 
 function openMapModal() {
   const modal = $('map-modal');
   if (!modal) return;
+  mmShowOriginal = false; // 每次打开默认显示美化图（如有）
   modal.classList.remove('hidden');
   renderMapModal();
 }
@@ -2859,6 +2880,7 @@ function bindEvents() {
   if (mmCanvas) mmCanvas.addEventListener('click', mapCanvasClick);
   const mmBeautyImg = $('mm-beauty-img');
   if (mmBeautyImg) mmBeautyImg.addEventListener('click', mapCanvasClick);
+  $('mm-toggle').addEventListener('click', toggleMapView);
   $('mm-zoom').addEventListener('click', zoomMap);
   $('mm-gen').addEventListener('click', mapRegenerate);
   $('mm-beautify').addEventListener('click', mapBeautify);
