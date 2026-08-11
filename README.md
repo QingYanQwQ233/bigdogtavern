@@ -3,6 +3,7 @@
 福瑞（furry）异世界 × AI 角色扮演 × AI 驱动 RPG 的前端框架 demo。
 
 **双模式**：🍺 酒馆模式（AI RP 聊天）+ ⚔ RPG 模式（AI 驱动冒险）——同一套数据基建，两种玩法形态。
+**世界地图**：🗺 算法生成 + 数据层 + AI 美化 + 上下文注入（RPG 模式右栏，可重新生成 / AI 作画 / 查看数据）。
 世界观与角色设定仍未确定，所有设定性文字均为**占位**；提示词与预设数据全部外置可编辑。
 
 ## 快速开始
@@ -30,7 +31,7 @@ node server.js
 
 ## ⚔ RPG 模式（AI 驱动冒险）
 
-**布局**：顶栏（角色 / Lv / 金币 / 位置）· 左栏（角色面板 + 背包）· 中央 AI 叙事流 · 右栏（任务 + 地图占位）· 底栏（HP/MP/EXP 状态条 + 快捷行动 + 输入）
+**布局**：顶栏（角色 / Lv / 金币 / 位置）· 左栏（角色面板 + 背包）· 中央 AI 叙事流 · 右栏（任务 + 世界地图）· 底栏（HP/MP/EXP 状态条 + 快捷行动 + 输入）
 
 **一切由 AI 驱动**（AI 输出 → 正则处理 → 自动执行）：
 
@@ -46,13 +47,45 @@ node server.js
 - **每会话独立状态**：`session.rpgState` 持久化，切换会话恢复各自进度
 - **禁止凭空添加**：道具/任务必须由剧情产出（掉落、NPC 委托等）
 
+## 🗺 世界地图系统（AI 协作生成）
+
+三步法：**算法生成 → 数据层 → AI 美化**，地图数据同时注入 AI 上下文参与叙事。
+
+### 算法生成（`public/mapgen.js`）
+
+- 优先使用 `vendor/mapgen2.bundle.js`（Red Blob Games mapgen2，Apache-2.0，bundle 含 Delaunator / Poisson / Simplex），加载失败自动回退自研噪声 + Voronoi 实现（`generateViaOwn`）
+- **单地区图**：区域数按 `regionCount` 目标收敛（默认约 8-14 个大区域），被剔除的小胞腔归属最近的保留区域（大陆完整、邻接真实）
+- 输出：`{size, regions[], points[], grid(Uint16Array), adjacency, engine, seed}`——`grid` 用 **Uint16Array**（区域 >255 不会溢出）
+- **biome 6 大类**：海岸 / 草原 / 森林 / 荒野 / 雪原 / 湿地——`elevation` 取 mapgen2 均值、`moisture` 用「到水域的 BFS 距离场」（天然空间连续）+ 各一次邻域平滑；**高对比色板**（跨 biome 边界色差 127-179，色块可辨）
+
+### 渲染（`renderWorldMap`）
+
+- 像素级**反距离加权混合**区域颜色 → 地形渐变（告别色块拼图，数据层不变）
+- 区域边界地形符号：山脉 ▲ / 森林树形 / 湿地波纹（白描边）；两种文字模式：参考图大字 biome 标注 / 展示图浅色小字区域名
+
+### 地图窗口（点击地图预览打开）
+
+- 功能集中：**重新生成 / ✨ AI 美化 / 🏷 参考图 / 📋 数据（JSON 一键复制）/ 🔍 大图 / 关闭**
+- 窗口内点击区域 → 显示区域/地点信息（预览图仅作入口）
+- 有美化图时可切换「🖼 原始底图 ⇄ ✨ 美化图」对比查看
+
+### AI 美化（`mapBeautify`）
+
+- 独立渲染**标注参考图**（地形符号 + biome 大字标注）→ `POST /api/image`（edits 接口）→ 替换为真实地形插画
+- 提示词携带地图约束（`regionCount` / biome 列表 / 区域明细），并要求：不写任何文字、不画边界线与连接线、按原图群系替换为真实地形
+
+### 上下文注入
+
+- 地图数据（区域 / 可达性 / 当前位置 / 地标）注入 RPG system；AI 输出协议中 `location` 支持「区域 N」与地图联动
+
 ## 预设与数据外置（不写死）
 
 所有可编辑内容在 `public/data/_defaults.json`（新环境自动初始化），运行时数据存 `public/data/*.json`：
 
 - `presets`：提示词预设——「RP 基础（示例）」（酒馆 writer 身份）、**「RPG 叙事引擎（示例）」**（DM 身份 + 正反例，可在「提示词」页直接编辑）
-- `rpg`：初始状态 / 输出协议（stateInstruction）/ 行动选项空提示 / 示例回合（exampleTurn）
+- `rpg`：初始状态 / 输出协议（stateInstruction）/ 行动选项空提示 / 示例回合（exampleTurn，few-shot 注入 history 最前）
 - `gen`：AI 生成角色卡 / 世界书条目的指令
+- `user`：玩家设定（外形 / 背景 / 偏好）+ 记忆条目
 - 切换模式自动切换当前预设（RPG → RPG 叙事引擎；酒馆 → RP 基础）
 
 ## 文生图（测试功能，默认关闭）
@@ -81,15 +114,19 @@ node server.js
 ## 项目结构
 
 ```
-server.js                     # 本地服务器：静态服务 + /api/chat + /api/image + /api/data 代理（零依赖）
+server.js                     # 本地服务器：静态服务 + /api/chat + /api/image + /api/image-save + /api/models + /api/data 代理（零依赖）
 public/
-  index.html                  # 双模式布局（酒馆三区 / RPG 五区）+ 设置弹窗 + 管理页
+  index.html                  # 双模式布局（酒馆三区 / RPG 五区）+ 设置弹窗 + 管理页 + 地图窗口
   styles.css                  # 语义化 CSS 变量 + 5 套色调（含 macOS 毛玻璃）+ 双模式布局
-  app.js                      # 前端逻辑：模式/会话/角色/预设/世界书/记忆/生图/RPG 状态机/掷骰
-  data/_defaults.json         # 模板数据（预设/世界书/角色/rpg 协议/生成指令）
+  app.js                      # 前端逻辑：模式/会话/角色/预设/世界书/记忆/生图/RPG 状态机/掷骰/地图窗口/AI 美化
+  mapgen.js                   # 世界地图：mapgen2 适配 + 自研 fallback + 渲染 + biome 气候
+  manifest.json + sw.js       # PWA（离线壳）
+  data/_defaults.json         # 模板数据（预设/世界书/角色/rpg 协议/生成指令/UI 文案）
   data/*.json                 # 运行时数据（本地生成，不入库）
-  vendor/                     # marked + DOMPurify（本地依赖，零网络）
+  vendor/                     # marked + DOMPurify + mapgen2.bundle（本地依赖，零网络）
 android/                      # WebView 套壳工程（NanoHTTPD 内嵌服务器）
+docs/                         # 架构与数据结构文档（data-structure.md / android-apk.md）
+scripts/                      # 辅助脚本（图标生成 / 打包上传 zip）
 .github/workflows/android-apk.yml  # push 自动构建 APK
 ```
 
@@ -102,8 +139,10 @@ android/                      # WebView 套壳工程（NanoHTTPD 内嵌服务器
 - [x] AI 生成角色卡与世界书条目
 - [x] 旁白/对白状态机拆分、消息编辑/重生成/复制
 - [x] 文生图（openai / SD 双格式）、PWA、Android 套壳
+- [x] 世界地图系统（mapgen2 算法 + 单地区图 + biome 气候 + AI 美化 + 地图窗口 + 上下文注入）
 - [ ] 世界观 / 角色设定（全部占位）
-- [ ] 地图系统（RPG 右栏占位）
+- [ ] 地图参数可视化调节（landRatio / regionCount 等 biome 配置暴露到 UI）
+- [ ] 地图生成调优（海岸占比偏大、山脉偏少）
 - [ ] 短期 / 长期记忆分层
 - [ ] 风格定稿（5 套色调对比中）
 
