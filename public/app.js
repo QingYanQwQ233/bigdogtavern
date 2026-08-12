@@ -2102,8 +2102,13 @@ function deleteWI() {
 function buildWorldInfo() {
   const char = currentChar();
   const sources = [];
-  if (prefs.activeLoreId && lorebooks && lorebooks[prefs.activeLoreId]) {
-    sources.push(...lorebooks[prefs.activeLoreId].entries);
+  const worldLoreIds = worldModeActive()
+    ? (Array.isArray(currentWorldCard()?.lorebookIds) && currentWorldCard().lorebookIds.length
+      ? currentWorldCard().lorebookIds
+      : ['default'])
+    : (prefs.activeLoreId ? [prefs.activeLoreId] : []);
+  for (const loreId of [...new Set(worldLoreIds)]) {
+    if (lorebooks && lorebooks[loreId] && Array.isArray(lorebooks[loreId].entries)) sources.push(...lorebooks[loreId].entries);
   }
   if (!worldModeActive() && char && char.loreId && lorebooks && lorebooks[char.loreId] && char.loreId !== prefs.activeLoreId) {
     sources.push(...lorebooks[char.loreId].entries);

@@ -91,6 +91,30 @@ vm.runInContext(`
       currentWorldSave.npcStates['npc-local'].knowledge = ['见过玩家', 'vault-secret'];
       return buildRpgPromptPart();
     })(),
+    worldLoreTrace: (() => {
+      lorebooks = {
+        'lore-a': { entries: [{ id: 'shared-a', keys: 'shared-key', content: 'WORLD_A_LORE' }] },
+        'lore-b': { entries: [{ id: 'shared-b', keys: 'shared-key', content: 'WORLD_B_LORE' }] },
+      };
+      prefs.wiScanDepth = 20;
+      worldCards = [
+        { id: 'world-a', version: 1, title: 'World A', lorebookIds: ['lore-a'], locations: [{ id: 'a-start', name: 'A Start' }], npcs: [{ id: 'npc-a-twin', name: 'Twin', role: 'WORLD_A_NPC', locationId: 'a-start' }] },
+        { id: 'world-b', version: 1, title: 'World B', lorebookIds: ['lore-b'], locations: [{ id: 'b-start', name: 'B Start' }], npcs: [{ id: 'npc-b-twin', name: 'Twin', role: 'WORLD_B_NPC', locationId: 'b-start' }] },
+      ];
+      const makeSave = (id, worldId, locationId, npcId, generatedName) => ({
+        id, worldId, worldVersion: 1, opening: '', turns: [{ role: 'user', content: 'shared-key' }],
+        party: { memberIds: [], leaderId: null },
+        npcStates: { [npcId]: { locationId, relation: {}, knowledge: [], status: [] } },
+        generatedEntities: { npcs: { ['save:' + id + ':npc:1']: { id: 'save:' + id + ':npc:1', kind: 'npc', name: generatedName, role: generatedName, locationId } } },
+        state: { locationId, stats: {}, inventory: [], quests: [] },
+      });
+      prefs.activeLoreId = 'lore-a';
+      currentWorldId = 'world-a'; currentWorldSaveId = 'save-a'; currentWorldSave = makeSave('save-a', 'world-a', 'a-start', 'npc-a-twin', 'SAVE_A_NPC');
+      const a = buildPromptBlocks().system;
+      currentWorldId = 'world-b'; currentWorldSaveId = 'save-b'; currentWorldSave = makeSave('save-b', 'world-b', 'b-start', 'npc-b-twin', 'SAVE_B_NPC');
+      const b = buildPromptBlocks().system;
+      return { a, b };
+    })(),
     converted: convertSTPresetData({
       temperature: 0.8,
       prompts: [
@@ -122,6 +146,16 @@ assert.doesNotMatch(context.check.worldPrompt, /Generated Remote/);
 assert.doesNotMatch(context.check.worldPrompt, /npc-remote/);
 assert.doesNotMatch(context.check.hiddenSecretPrompt, /隐藏宝库位于北墙之后/);
 assert.match(context.check.unlockedSecretPrompt, /隐藏宝库位于北墙之后/);
+assert.match(context.check.worldLoreTrace.a, /WORLD_A_LORE/);
+assert.doesNotMatch(context.check.worldLoreTrace.a, /WORLD_B_LORE/);
+assert.match(context.check.worldLoreTrace.a, /WORLD_A_NPC/);
+assert.match(context.check.worldLoreTrace.a, /SAVE_A_NPC/);
+assert.doesNotMatch(context.check.worldLoreTrace.a, /WORLD_B_NPC|SAVE_B_NPC/);
+assert.match(context.check.worldLoreTrace.b, /WORLD_B_LORE/);
+assert.doesNotMatch(context.check.worldLoreTrace.b, /WORLD_A_LORE/);
+assert.match(context.check.worldLoreTrace.b, /WORLD_B_NPC/);
+assert.match(context.check.worldLoreTrace.b, /SAVE_B_NPC/);
+assert.doesNotMatch(context.check.worldLoreTrace.b, /WORLD_A_NPC|SAVE_A_NPC/);
 assert.match(context.check.blocks.system, /与 旅人 合作/);
 assert.match(context.check.blocks.system, /保持轻快/);
 assert.strictEqual((context.check.blocks.system.match(/月港终年有雾/g) || []).length, 1);
