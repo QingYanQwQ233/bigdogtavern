@@ -70,11 +70,19 @@ vm.runInContext(`
         id: 'world-aurora', version: 1, title: 'Aurora', locations: [{ id: 'wolf-tooth-inn', name: 'Inn' }],
         npcs: [
           { id: 'npc-party', name: 'Party NPC', role: 'ally', locationId: 'far-away' },
-          { id: 'npc-local', name: 'Local NPC', role: 'innkeeper', locationId: 'wolf-tooth-inn' },
+          { id: 'npc-local', name: 'Local NPC', role: 'innkeeper', locationId: 'wolf-tooth-inn', secrets: [{ id: 'vault-secret', content: '隐藏宝库位于北墙之后' }] },
           { id: 'npc-quest', name: 'Quest NPC', role: 'quest giver', locationId: 'far-away' },
           { id: 'npc-remote', name: 'Remote NPC', role: 'stranger', locationId: 'far-away' },
         ],
       }];
+      return buildRpgPromptPart();
+    })(),
+    hiddenSecretPrompt: (() => {
+      currentWorldSave.npcStates['npc-local'].knowledge = ['见过玩家'];
+      return buildRpgPromptPart();
+    })(),
+    unlockedSecretPrompt: (() => {
+      currentWorldSave.npcStates['npc-local'].knowledge = ['见过玩家', 'vault-secret'];
       return buildRpgPromptPart();
     })(),
     converted: convertSTPresetData({
@@ -104,6 +112,8 @@ assert.match(context.check.worldPrompt, /npc-party/);
 assert.match(context.check.worldPrompt, /npc-local/);
 assert.match(context.check.worldPrompt, /npc-quest/);
 assert.doesNotMatch(context.check.worldPrompt, /npc-remote/);
+assert.doesNotMatch(context.check.hiddenSecretPrompt, /隐藏宝库位于北墙之后/);
+assert.match(context.check.unlockedSecretPrompt, /隐藏宝库位于北墙之后/);
 assert.match(context.check.blocks.system, /与 旅人 合作/);
 assert.match(context.check.blocks.system, /保持轻快/);
 assert.strictEqual((context.check.blocks.system.match(/月港终年有雾/g) || []).length, 1);

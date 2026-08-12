@@ -162,8 +162,8 @@
 
 ### 5.3 NPC 与临时角色
 
-- `WorldNPC`：世界卡引用的长期角色，保存身份、人格、语言、认知边界与静态资料。
-- `npcStates[npcId]`：该 NPC 在此存档中的动态事实。好感、位置、已知线索、队伍状态都在这里。
+- `WorldNPC`：世界卡引用的长期角色，保存身份、人格、语言、认知边界与静态资料。作用域 Prompt 只读取公开字段；`secrets: [{ id, content }]` 只有在当前存档 `npcStates[npcId].knowledge` 持有对应 ID 时才解锁。
+- `npcStates[npcId]`：该 NPC 在此存档中的动态事实。好感、位置、已知线索、队伍状态都在这里；这些状态只对当前 `saveId` 有效。
 - AI 临时生成的路人进入 `WorldSave.generatedEntities.npcs`，只对该存档可见；只有用户执行“收录到世界”时才创建稳定 `npcId` 与世界定义资料。
 
 世界卡可预定义物品和任务模板。AI 需要创造新道具、任务、路人或临时地点时，只能提出 `createEntity` 候选；校验器为其生成 `save:*` 稳定 ID 并写入 `WorldSave.generatedEntities`。因此开放生成仍是“此存档的事实”，不会污染世界卡、其他存档或全局角色库。

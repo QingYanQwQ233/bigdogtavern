@@ -2187,6 +2187,16 @@ function worldNpcLocationIds(npc) {
   return ids.filter(id => typeof id === 'string' && id.trim()).map(id => id.trim());
 }
 
+function worldNpcVisibleSecretText(npc, npcState) {
+  const knowledge = new Set(Array.isArray(npcState?.knowledge) ? npcState.knowledge.filter(item => typeof item === 'string').map(item => item.trim()) : []);
+  const secrets = Array.isArray(npc?.secrets) ? npc.secrets : [];
+  return secrets
+    .filter(secret => secret && typeof secret === 'object')
+    .map(secret => ({ id: typeof secret.id === 'string' ? secret.id.trim() : '', content: typeof secret.content === 'string' ? secret.content.trim() : '' }))
+    .filter(secret => secret.id && secret.content && knowledge.has(secret.id))
+    .map(secret => `${secret.id}：${secret.content}`);
+}
+
 function buildWorldNpcPromptPart() {
   if (!worldModeActive()) return '';
   const world = currentWorldCard();
@@ -2213,18 +2223,20 @@ function buildWorldNpcPromptPart() {
     const id = npc.id.trim();
     const npcState = npcStates[id] || {};
     const fields = [`ID：${id}`, `名称：${npc.name || id}`];
-    for (const key of ['role', 'description', 'persona', 'personality', 'scenario', 'publicFacts', 'goals']) {
+    for (const key of ['role', 'description', 'persona', 'personality', 'appearance', 'speechStyle', 'publicFacts', 'publicGoals']) {
       const value = npc[key];
       if (Array.isArray(value) && value.length) fields.push(`${key}：${value.join('；')}`);
       else if (typeof value === 'string' && value.trim()) fields.push(`${key}：${value.trim()}`);
     }
+    const visibleSecrets = worldNpcVisibleSecretText(npc, npcState);
+    if (visibleSecrets.length) fields.push(`当前存档已解锁秘密（仅使用这些）：${visibleSecrets.join('；')}`);
     if (npcState.locationId) fields.push(`当前存档位置：${npcState.locationId}`);
     if (npcState.relation && Object.keys(npcState.relation).length) fields.push(`当前存档关系：${JSON.stringify(npcState.relation)}`);
     if (Array.isArray(npcState.knowledge) && npcState.knowledge.length) fields.push(`当前存档已知事实：${npcState.knowledge.join('；')}`);
     if (Array.isArray(npcState.status) && npcState.status.length) fields.push(`当前存档状态：${npcState.status.join('；')}`);
     return fields.join('\n');
   });
-  return '【当前作用域 NPC】\n只允许引用以下 NPC；未列出的世界 NPC 不在本回合上下文中。\n' + sections.join('\n\n');
+  return '【当前作用域 NPC】\n只允许引用以下 NPC；未列出的世界 NPC 不在本回合上下文中。静态资料仅代表公开信息；不得臆测未注入的秘密。NPC 只能使用公共资料、本存档已知事实和已解锁秘密，不得读取其他存档或其他 NPC 的知识。\n' + sections.join('\n\n');
 }
 
 function buildRpgPromptPart() {
