@@ -54,8 +54,27 @@ vm.runInContext(`
       mode = 'rpg';
       currentWorldId = 'world-aurora';
       currentWorldSaveId = 'save-world';
-      currentWorldSave = { id: 'save-world', worldId: 'world-aurora', state: { locationId: 'wolf-tooth-inn', stats: {}, inventory: [], quests: [] }, turns: [], opening: '' };
-      worldCards = [{ id: 'world-aurora', version: 1, title: 'Aurora', locations: [{ id: 'wolf-tooth-inn', name: 'Inn' }] }];
+      currentWorldSave = {
+        id: 'save-world', worldId: 'world-aurora',
+        party: { memberIds: ['npc-party'], leaderId: 'pc-player' },
+        state: { locationId: 'wolf-tooth-inn', stats: {}, inventory: [], quests: [{ questId: 'quest-1', npcIds: ['npc-quest'] }] },
+        npcStates: {
+          'npc-party': { locationId: 'far-away', relation: { trust: 2 }, knowledge: [], status: [] },
+          'npc-local': { locationId: 'wolf-tooth-inn', relation: {}, knowledge: ['见过玩家'], status: [] },
+          'npc-quest': { locationId: 'far-away', relation: {}, knowledge: [], status: ['waiting'] },
+          'npc-remote': { locationId: 'far-away', relation: {}, knowledge: [], status: [] },
+        },
+        turns: [], opening: '',
+      };
+      worldCards = [{
+        id: 'world-aurora', version: 1, title: 'Aurora', locations: [{ id: 'wolf-tooth-inn', name: 'Inn' }],
+        npcs: [
+          { id: 'npc-party', name: 'Party NPC', role: 'ally', locationId: 'far-away' },
+          { id: 'npc-local', name: 'Local NPC', role: 'innkeeper', locationId: 'wolf-tooth-inn' },
+          { id: 'npc-quest', name: 'Quest NPC', role: 'quest giver', locationId: 'far-away' },
+          { id: 'npc-remote', name: 'Remote NPC', role: 'stranger', locationId: 'far-away' },
+        ],
+      }];
       return buildRpgPromptPart();
     })(),
     converted: convertSTPresetData({
@@ -81,6 +100,10 @@ assert.strictEqual(context.check.explicitGlobal, '');
 assert.match(context.check.blocks.system, /你是 夏瑾 的叙事者/);
 assert.match(context.check.worldPrompt, /state\.locationId/);
 assert.match(context.check.worldPrompt, /wolf-tooth-inn/);
+assert.match(context.check.worldPrompt, /npc-party/);
+assert.match(context.check.worldPrompt, /npc-local/);
+assert.match(context.check.worldPrompt, /npc-quest/);
+assert.doesNotMatch(context.check.worldPrompt, /npc-remote/);
 assert.match(context.check.blocks.system, /与 旅人 合作/);
 assert.match(context.check.blocks.system, /保持轻快/);
 assert.strictEqual((context.check.blocks.system.match(/月港终年有雾/g) || []).length, 1);

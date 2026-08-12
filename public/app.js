@@ -2162,6 +2162,71 @@ function buildFormatPromptPart() {
   return lines.filter(Boolean).join('\n');
 }
 
+function worldNpcQuestIds(quest) {
+  if (!quest || typeof quest !== 'object') return [];
+  const ids = [];
+  for (const key of ['npcId', 'giverNpcId', 'targetNpcId', 'actorNpcId']) {
+    if (typeof quest[key] === 'string') ids.push(quest[key]);
+  }
+  for (const key of ['npcIds', 'relatedNpcIds', 'participantNpcIds']) {
+    if (Array.isArray(quest[key])) ids.push(...quest[key]);
+  }
+  if (Array.isArray(quest.objectives)) {
+    for (const objective of quest.objectives) {
+      if (objective && typeof objective.npcId === 'string') ids.push(objective.npcId);
+    }
+  }
+  return ids.filter(id => id.trim()).map(id => id.trim());
+}
+
+function worldNpcLocationIds(npc) {
+  if (!npc || typeof npc !== 'object') return [];
+  const ids = [];
+  if (typeof npc.locationId === 'string') ids.push(npc.locationId);
+  if (Array.isArray(npc.locationIds)) ids.push(...npc.locationIds);
+  return ids.filter(id => typeof id === 'string' && id.trim()).map(id => id.trim());
+}
+
+function buildWorldNpcPromptPart() {
+  if (!worldModeActive()) return '';
+  const world = currentWorldCard();
+  const save = currentWorldSave;
+  const definitions = Array.isArray(world?.npcs)
+    ? world.npcs.filter(npc => npc && typeof npc.id === 'string' && npc.id.trim())
+    : [];
+  if (!definitions.length) return '';
+  const state = save.state || {};
+  const currentLocationId = typeof state.locationId === 'string' ? state.locationId : '';
+  const partyIds = new Set(Array.isArray(save.party?.memberIds) ? save.party.memberIds.filter(id => typeof id === 'string') : []);
+  const questIds = new Set((Array.isArray(state.quests) ? state.quests : []).flatMap(worldNpcQuestIds));
+  const npcStates = save.npcStates && typeof save.npcStates === 'object' ? save.npcStates : {};
+  const selected = definitions.filter(npc => {
+    const id = npc.id.trim();
+    const npcState = npcStates[id];
+    return partyIds.has(id)
+      || questIds.has(id)
+      || (npcState && npcState.locationId === currentLocationId)
+      || worldNpcLocationIds(npc).includes(currentLocationId);
+  });
+  if (!selected.length) return '';
+  const sections = selected.map(npc => {
+    const id = npc.id.trim();
+    const npcState = npcStates[id] || {};
+    const fields = [`ID：${id}`, `名称：${npc.name || id}`];
+    for (const key of ['role', 'description', 'persona', 'personality', 'scenario', 'publicFacts', 'goals']) {
+      const value = npc[key];
+      if (Array.isArray(value) && value.length) fields.push(`${key}：${value.join('；')}`);
+      else if (typeof value === 'string' && value.trim()) fields.push(`${key}：${value.trim()}`);
+    }
+    if (npcState.locationId) fields.push(`当前存档位置：${npcState.locationId}`);
+    if (npcState.relation && Object.keys(npcState.relation).length) fields.push(`当前存档关系：${JSON.stringify(npcState.relation)}`);
+    if (Array.isArray(npcState.knowledge) && npcState.knowledge.length) fields.push(`当前存档已知事实：${npcState.knowledge.join('；')}`);
+    if (Array.isArray(npcState.status) && npcState.status.length) fields.push(`当前存档状态：${npcState.status.join('；')}`);
+    return fields.join('\n');
+  });
+  return '【当前作用域 NPC】\n只允许引用以下 NPC；未列出的世界 NPC 不在本回合上下文中。\n' + sections.join('\n\n');
+}
+
 function buildRpgPromptPart() {
   if (mode !== 'rpg') return '';
   const parts = [];
@@ -2181,11 +2246,13 @@ function buildRpgPromptPart() {
         `世界：${world.title || world.id}（v${world.version || 1}）`,
         world.summary || '',
         '位置协议：state.locationId 与 NPC locationId 只能使用已登记的稳定 locationId；地点名称只用于叙事，不得写入状态。',
-        world.locations?.length ? '已登记地点：' + world.locations.map(x => `${x.name || x.id}（${x.type || '地点'}）`).join('、') : '',
+        world.locations?.length ? '已登记地点：' + world.locations.map(x => `${x.name || x.id}（id: ${x.id}；${x.type || '地点'}）`).join('、') : '',
         currentWorldSave.opening ? '开局：' + currentWorldSave.opening : '',
       ].filter(Boolean).join('\n'));
       const player = currentWorldSave.player?.snapshot;
       if (player) parts.unshift('【世界存档中的玩家快照】\n' + Object.entries(player).filter(([k, v]) => k !== 'profileFields' && v != null && String(v).trim()).map(([k, v]) => `${k}：${typeof v === 'object' ? JSON.stringify(v) : v}`).join('\n'));
+      const npcPrompt = buildWorldNpcPromptPart();
+      if (npcPrompt) parts.push(npcPrompt);
     }
   }
   parts.push((defaults?.rpg?.stateInstruction) || '每次回复末尾输出包含 options 的 ```rpg``` JSON 状态块。');

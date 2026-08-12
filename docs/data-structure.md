@@ -83,7 +83,7 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 ```
 
 世界卡是可复用的静态定义，不保存某个玩家的回合、背包或地图图片。W1 暂不提供世界卡写接口，内容来自 `_defaults.json.worlds` 初始化的 `worlds.json`。
-其中 `locations[].id` 是世界内稳定的地点主键；`start.locationId`、`WorldSave.state.locationId` 和 `npcStates[*].locationId` 只能引用当前世界已登记的 ID，地点名称只用于展示与叙事。
+其中 `locations[].id` 是世界内稳定的地点主键；`start.locationId`、`WorldSave.state.locationId` 和 `npcStates[*].locationId` 只能引用当前世界已登记的 ID，地点名称只用于展示与叙事。RPG Prompt 只注入当前地点 NPC、队伍成员和当前任务引用的 NPC；未命中的世界 NPC 不进入上下文。
 
 ### 世界存档 WorldSave（saves/<saveId>.json）
 
