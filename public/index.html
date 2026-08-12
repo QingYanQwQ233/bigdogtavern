@@ -643,6 +643,66 @@
     </div>
   </div>
 
+  <!-- ═══ 世界库：W1 世界卡 → 世界存档 ═══ -->
+  <div id="world-mgr" class="char-mgr world-mgr hidden">
+    <div class="cm-side world-side">
+      <div class="cm-head">世界库</div>
+      <p class="world-kicker">选择一个世界，建立独立存档。</p>
+      <div id="world-list" class="cm-list" aria-label="世界卡列表"></div>
+      <button class="ghost-btn" id="world-refresh" type="button" style="width:100%;margin-top:8px">↻ 刷新世界库</button>
+      <button class="ghost-btn" id="world-legacy-chat" type="button" style="width:100%;margin-top:6px">回到旧 RPG 对话</button>
+    </div>
+    <div class="cm-edit world-edit">
+      <div class="cm-edit-head">
+        <span id="world-edit-title">选择一个世界</span>
+        <button class="ghost-btn" id="world-close" type="button">关闭</button>
+      </div>
+      <div id="world-empty" class="world-empty">
+        <div class="world-empty-mark" aria-hidden="true">✧</div>
+        <h2>从一张世界卡开始</h2>
+        <p>世界卡保存可复用的地点、规则与角色定义；每次游玩都会创建一份独立世界存档。</p>
+      </div>
+      <section id="world-detail" class="world-detail hidden" aria-live="polite">
+        <div class="world-hero">
+          <div class="world-hero-mark" aria-hidden="true">✦</div>
+          <div class="world-hero-copy">
+            <p class="world-eyebrow">WORLD CARD <span id="world-version"></span></p>
+            <h1 id="world-title"></h1>
+            <p id="world-summary" class="world-summary"></p>
+            <div id="world-tags" class="world-tags"></div>
+          </div>
+        </div>
+        <div id="world-facts" class="world-facts"></div>
+        <form id="world-save-form" class="world-save-form">
+          <div class="world-section-head">
+            <div>
+              <h2>建立新存档</h2>
+              <p>存档会独立保存你的进度、地图和叙事记录。</p>
+            </div>
+            <span class="world-lock" aria-label="当前阶段只支持新建和打开">🔒 W1</span>
+          </div>
+          <label for="world-save-name">存档名称</label>
+          <div class="world-save-row">
+            <input id="world-save-name" name="worldSaveName" type="text" maxlength="120" autocomplete="off" placeholder="例如：第一次踏入极光大陆…" required />
+            <button id="world-save-create" class="btn gold" type="submit">创建存档</button>
+          </div>
+          <p id="world-error" class="world-error" aria-live="polite"></p>
+        </form>
+        <section class="world-saves">
+          <div class="world-section-head">
+            <div>
+              <h2>已有存档</h2>
+              <p>只显示属于当前世界卡的存档。</p>
+            </div>
+            <span id="world-save-count" class="world-count">0 份</span>
+          </div>
+          <div id="world-save-list" class="world-save-list"></div>
+        </section>
+        <div id="world-open-status" class="world-open-status" aria-live="polite"></div>
+      </section>
+    </div>
+  </div>
+
   <dialog id="debug-panel" class="debug-panel" aria-labelledby="debug-title">
     <header class="debug-head">
       <div>

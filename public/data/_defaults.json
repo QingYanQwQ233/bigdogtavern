@@ -457,5 +457,58 @@
         }
       ]
     }
-  }
+  },
+  "worlds": [
+    {
+      "schemaVersion": 1,
+      "id": "world-aurora",
+      "version": 1,
+      "title": "极光大陆",
+      "summary": "福瑞种族共存的日式西幻大陆，从断牙之角开始你的第一段旅程。",
+      "coverImage": "",
+      "tags": ["日式西幻", "福瑞", "开放世界"],
+      "start": {
+        "locationId": "wolf-tooth-inn",
+        "opening": "雨幕笼罩着断牙之角。炉火、湿木与远方山风交织成一段等待被写下的旅程。",
+        "playerTemplateId": null,
+        "playerTemplate": {
+          "name": "未命名冒险者",
+          "race": "待定",
+          "role": "旅人",
+          "profileFields": []
+        },
+        "initialState": {
+          "stats": {
+            "level": 1,
+            "exp": 0,
+            "expNext": 100,
+            "hp": 20,
+            "maxHp": 20,
+            "mp": 5,
+            "maxMp": 5,
+            "gold": 10,
+            "buffs": []
+          },
+          "inventory": [],
+          "quests": []
+        }
+      },
+      "lorebookIds": [],
+      "rpgPresetName": "RPG 叙事引擎（示例）",
+      "npcIds": [],
+      "factionIds": [],
+      "itemIds": [],
+      "questTemplateIds": [],
+      "locations": [
+        { "id": "wolf-tooth-inn", "name": "断牙之角", "type": "inn" }
+      ],
+      "map": {
+        "strategy": "perSave",
+        "baseMapId": null,
+        "generation": { "seed": 12345, "size": 128, "regionCount": 10 }
+      },
+      "ui": { "layout": "world-desk" },
+      "source": { "format": "native", "rawAssetRef": null }
+    }
+  ]
 }

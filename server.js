@@ -17,11 +17,14 @@ const path = require('path');
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const DATA_DIR = path.join(PUBLIC_DIR, 'data');
+const DATA_DIR = process.env.TAVERN_DATA_DIR
+  ? path.resolve(process.env.TAVERN_DATA_DIR)
+  : path.join(PUBLIC_DIR, 'data');
+const SAVES_DIR = path.join(DATA_DIR, 'saves');
 // --api-only：只暴露 /api/*（无网页），供公网纯 API 场景
 const API_ONLY = process.argv.includes('--api-only');
 
-const DATA_TYPES = ['characters', 'presets', 'lorebooks', 'settings', 'user'];
+const DATA_TYPES = ['characters', 'presets', 'lorebooks', 'settings', 'user', 'worlds'];
 const DEFAULTS_PATH = path.join(DATA_DIR, '_defaults.json');
 
 /* 默认模板：从 public/data/_defaults.json 读取（唯一数据源，代码不写死内容） */
@@ -41,10 +44,11 @@ function loadDefaults() {
       ui: (d.ui && typeof d.ui === 'object') ? d.ui : {},
       gen: (d.gen && typeof d.gen === 'object') ? d.gen : {},
       rpg: (d.rpg && typeof d.rpg === 'object') ? d.rpg : {},
+      worlds: Array.isArray(d.worlds) ? d.worlds : [],
     };
   } catch (e) {
     console.warn('[data] 读取 _defaults.json 失败（用空结构兜底）:', e.message);
-    return { characters: [], presets: {}, lorebooks: { default: { name: '默认世界书', entries: [] } }, settings: {}, prefs: {}, format: {}, providers: [], ui: {} };
+    return { characters: [], presets: {}, lorebooks: { default: { name: '默认世界书', entries: [] } }, settings: {}, prefs: {}, format: {}, providers: [], ui: {}, worlds: [] };
   }
 }
 
@@ -52,6 +56,7 @@ function loadDefaults() {
 async function ensureDataFiles() {
   const defaults = loadDefaults();
   try { await fs.promises.mkdir(DATA_DIR, { recursive: true }); } catch {}
+  try { await fs.promises.mkdir(SAVES_DIR, { recursive: true }); } catch {}
   for (const type of DATA_TYPES) {
     const fp = path.join(DATA_DIR, type + '.json');
     try { await fs.promises.access(fp); }
@@ -64,9 +69,211 @@ async function ensureDataFiles() {
   }
 }
 
+const SAFE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+
+function isSafeId(value) {
+  return typeof value === 'string' && SAFE_ID_RE.test(value);
+}
+
+function savePath(saveId) {
+  if (!isSafeId(saveId)) return null;
+  return path.join(SAVES_DIR, saveId + '.json');
+}
+
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+async function readJsonBody(req, maxBytes = 256 * 1024) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > maxBytes) throw Object.assign(new Error('请求体过大'), { code: 'PAYLOAD_TOO_LARGE' });
+    chunks.push(chunk);
+  }
+  const raw = Buffer.concat(chunks).toString('utf-8');
+  try { return JSON.parse(raw); }
+  catch { throw Object.assign(new Error('无效的 JSON'), { code: 'BAD_JSON' }); }
+}
+
+async function writeJsonAtomic(filePath, value) {
+  const dir = path.dirname(filePath);
+  const tmp = path.join(dir, '.' + path.basename(filePath) + '.' + process.pid + '.' + Date.now().toString(36) + '.tmp');
+  try {
+    await fs.promises.writeFile(tmp, JSON.stringify(value, null, 2) + '\n', 'utf-8');
+    await fs.promises.rename(tmp, filePath);
+  } catch (err) {
+    try { await fs.promises.unlink(tmp); } catch {}
+    throw err;
+  }
+}
+
+async function loadWorlds() {
+  const raw = await fs.promises.readFile(path.join(DATA_DIR, 'worlds.json'), 'utf-8');
+  const worlds = JSON.parse(raw);
+  if (!Array.isArray(worlds)) throw new Error('worlds.json 必须是数组');
+  return worlds;
+}
+
+function worldSummary(world, saveCount = 0) {
+  return {
+    id: world.id,
+    version: world.version,
+    title: world.title || world.id,
+    summary: world.summary || '',
+    coverImage: world.coverImage || '',
+    tags: Array.isArray(world.tags) ? world.tags : [],
+    locationCount: Array.isArray(world.locations) ? world.locations.length : 0,
+    npcCount: Array.isArray(world.npcIds) ? world.npcIds.length : 0,
+    saveCount,
+  };
+}
+
+function saveSummary(save) {
+  return {
+    id: save.id,
+    name: save.name,
+    worldId: save.worldId,
+    worldVersion: save.worldVersion,
+    createdAt: save.createdAt,
+    updatedAt: save.updatedAt,
+    revision: save.revision,
+    locationId: save.state && save.state.locationId || null,
+  };
+}
+
+async function listWorldSaveFiles(worldId) {
+  const names = await fs.promises.readdir(SAVES_DIR);
+  const result = [];
+  for (const name of names) {
+    if (!name.endsWith('.json') || name.startsWith('.')) continue;
+    const id = name.slice(0, -5);
+    if (!isSafeId(id)) continue;
+    const raw = await fs.promises.readFile(path.join(SAVES_DIR, name), 'utf-8');
+    const save = JSON.parse(raw);
+    if (!save || save.id !== id) throw new Error('存档文件 ID 不一致：' + name);
+    if (!worldId || save.worldId === worldId) result.push(saveSummary(save));
+  }
+  result.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  return result;
+}
+
+function newSaveId() {
+  return 'save-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+}
+
+async function handleWorldsGet(req, res) {
+  try {
+    const worlds = await loadWorlds();
+    const saves = await listWorldSaveFiles();
+    const counts = new Map();
+    for (const save of saves) counts.set(save.worldId, (counts.get(save.worldId) || 0) + 1);
+    send(res, 200, JSON.stringify(worlds.map(w => worldSummary(w, counts.get(w.id) || 0))), 'application/json; charset=utf-8');
+  } catch (err) {
+    console.error('[worlds] 读取失败:', err.message);
+    send(res, 500, JSON.stringify({ error: '世界卡读取失败: ' + err.message }), 'application/json');
+  }
+}
+
+async function handleWorldSavesList(req, res, worldId) {
+  if (worldId && !isSafeId(worldId)) return send(res, 400, JSON.stringify({ error: '无效的 worldId' }), 'application/json');
+  try {
+    const saves = await listWorldSaveFiles(worldId || '');
+    send(res, 200, JSON.stringify(saves), 'application/json; charset=utf-8');
+  } catch (err) {
+    console.error('[world-saves] 列表失败:', err.message);
+    send(res, 500, JSON.stringify({ error: '存档列表读取失败: ' + err.message }), 'application/json');
+  }
+}
+
+async function handleWorldSaveGet(req, res, saveId) {
+  const fp = savePath(saveId);
+  if (!fp) return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json');
+  try {
+    const raw = await fs.promises.readFile(fp, 'utf-8');
+    const save = JSON.parse(raw);
+    if (!save || save.id !== saveId) throw new Error('存档文件 ID 不一致');
+    send(res, 200, raw, 'application/json; charset=utf-8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return send(res, 404, JSON.stringify({ error: '存档不存在' }), 'application/json');
+    console.error('[world-saves] 读取失败:', err.message);
+    send(res, 500, JSON.stringify({ error: '存档读取失败: ' + err.message }), 'application/json');
+  }
+}
+
+async function handleWorldSaveCreate(req, res) {
+  let payload;
+  try { payload = await readJsonBody(req, 64 * 1024); }
+  catch (err) {
+    const status = err.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400;
+    return send(res, status, JSON.stringify({ error: err.message }), 'application/json');
+  }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return send(res, 400, JSON.stringify({ error: '请求必须是 JSON 对象' }), 'application/json');
+  const worldId = String(payload.worldId || '');
+  if (!isSafeId(worldId)) return send(res, 400, JSON.stringify({ error: '无效的 worldId' }), 'application/json');
+  let worlds;
+  try { worlds = await loadWorlds(); }
+  catch (err) { return send(res, 500, JSON.stringify({ error: '世界卡读取失败: ' + err.message }), 'application/json'); }
+  const world = worlds.find(w => w && w.id === worldId);
+  if (!world) return send(res, 404, JSON.stringify({ error: '世界卡不存在' }), 'application/json');
+  const worldVersion = Number(payload.worldVersion ?? world.version);
+  if (!Number.isInteger(worldVersion) || worldVersion !== Number(world.version)) return send(res, 409, JSON.stringify({ error: '世界卡版本已变化，请重新打开世界库' }), 'application/json');
+  if (typeof payload.name !== 'string') return send(res, 400, JSON.stringify({ error: '存档名称必须是字符串' }), 'application/json');
+  const name = payload.name.trim();
+  if (!name || name.length > 120) return send(res, 400, JSON.stringify({ error: '存档名称不能为空且不能超过 120 个字符' }), 'application/json');
+
+  const id = newSaveId();
+  const now = Date.now();
+  const start = world.start && typeof world.start === 'object' ? world.start : {};
+  const initial = start.initialState && typeof start.initialState === 'object' ? start.initialState : {};
+  const stats = initial.stats && typeof initial.stats === 'object' ? cloneJson(initial.stats) : {};
+  const player = start.playerTemplate && typeof start.playerTemplate === 'object' ? cloneJson(start.playerTemplate) : { name: '未命名冒险者', race: '待定', role: '旅人', profileFields: [] };
+  const playerId = String(start.playerTemplateId || ('pc-' + id));
+  const save = {
+    schemaVersion: 1,
+    id,
+    name,
+    worldId,
+    worldVersion,
+    createdAt: now,
+    updatedAt: now,
+    revision: 0,
+    player: { characterId: playerId, snapshot: player },
+    party: { memberIds: [playerId], leaderId: playerId },
+    state: {
+      locationId: start.locationId || null,
+      stats,
+      inventory: Array.isArray(initial.inventory) ? cloneJson(initial.inventory) : [],
+      quests: Array.isArray(initial.quests) ? cloneJson(initial.quests) : [],
+      map: {
+        strategy: world.map && world.map.strategy || 'perSave',
+        baseMapId: world.map && world.map.baseMapId || null,
+        data: null,
+        imagePath: null,
+        discoveredLocationIds: start.locationId ? [start.locationId] : [],
+        markers: [],
+      },
+    },
+    opening: String(start.opening || ''),
+    turns: [],
+    receipts: [],
+    generatedEntities: {},
+    migrationHistory: [],
+  };
+  try {
+    await fs.promises.mkdir(SAVES_DIR, { recursive: true });
+    await writeJsonAtomic(savePath(id), save);
+    send(res, 201, JSON.stringify(save), 'application/json; charset=utf-8');
+  } catch (err) {
+    console.error('[world-saves] 创建失败:', err.message);
+    send(res, 500, JSON.stringify({ error: '存档创建失败: ' + err.message }), 'application/json');
+  }
+}
+
 /** GET /api/data/:type → 返回 JSON 文件内容 */
 async function handleDataGet(req, res, type) {
-  if (!DATA_TYPES.includes(type)) return send(res, 400, '未知数据类型');
+  if (!DATA_TYPES.includes(type) || type === 'worlds') return send(res, 400, '未知数据类型');
   const fp = path.join(DATA_DIR, type + '.json');
   try {
     const data = await fs.promises.readFile(fp, 'utf-8');
@@ -79,7 +286,7 @@ async function handleDataGet(req, res, type) {
 
 /** PUT /api/data/:type → 覆盖写入 JSON 文件 */
 async function handleDataPut(req, res, type) {
-  if (!DATA_TYPES.includes(type)) return send(res, 400, '未知数据类型');
+  if (!DATA_TYPES.includes(type) || type === 'worlds') return send(res, 405, JSON.stringify({ error: '世界卡只能通过世界 API 读取，当前阶段不支持编辑' }), 'application/json');
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
   const raw = Buffer.concat(chunks).toString('utf-8');
@@ -120,8 +327,14 @@ function send(res, status, body, type = 'text/plain; charset=utf-8') {
 }
 
 async function serveStatic(req, res, pathname) {
-  let filePath = path.join(PUBLIC_DIR, pathname === '/' ? 'index.html' : pathname);
-  if (!filePath.startsWith(PUBLIC_DIR)) return send(res, 403, 'Forbidden');
+  let decodedPath;
+  try { decodedPath = decodeURIComponent(pathname); }
+  catch { return send(res, 400, 'Bad Request'); }
+  if (decodedPath === '/data' || decodedPath.startsWith('/data/')) return send(res, 403, 'Forbidden');
+  const root = path.resolve(PUBLIC_DIR);
+  const filePath = path.resolve(root, decodedPath === '/' ? 'index.html' : '.' + decodedPath);
+  const relative = path.relative(root, filePath);
+  if (relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) return send(res, 403, 'Forbidden');
   try {
     const data = await fs.promises.readFile(filePath);
     const ext = path.extname(filePath).toLowerCase();
@@ -289,6 +502,19 @@ const server = http.createServer((req, res) => {
   if (req.method === 'POST' && url.pathname === '/api/image') return handleImage(req, res);
   if (req.method === 'POST' && url.pathname === '/api/image-save') return handleImageSave(req, res);
   if (req.method === 'GET' && url.pathname === '/api/models') return handleModels(req, res);
+  if (req.method === 'GET' && url.pathname === '/api/worlds') return handleWorldsGet(req, res);
+  const worldSaveListMatch = url.pathname.match(/^\/api\/world-saves\/?$/);
+  if (worldSaveListMatch) {
+    if (req.method === 'GET') return handleWorldSavesList(req, res, url.searchParams.get('worldId') || '');
+    if (req.method === 'POST') return handleWorldSaveCreate(req, res);
+  }
+  const worldSaveMatch = url.pathname.match(/^\/api\/world-saves\/([^/]+)\/?$/);
+  if (worldSaveMatch && req.method === 'GET') {
+    let saveId;
+    try { saveId = decodeURIComponent(worldSaveMatch[1]); }
+    catch { return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json'); }
+    return handleWorldSaveGet(req, res, saveId);
+  }
   // 数据读写：/api/data/:type
   const dataMatch = url.pathname.match(/^\/api\/data\/(\w+)$/);
   if (dataMatch) {
@@ -307,12 +533,31 @@ const server = http.createServer((req, res) => {
   send(res, 405, 'Method Not Allowed');
 });
 
-server.listen(PORT, async () => {
+async function startServer(port = PORT) {
   await ensureDataFiles();
-  console.log('──────────────────────────────────────────');
-  console.log('  Tavern · AI RP 框架演示');
-  console.log(`  打开: http://localhost:${PORT}`);
-  console.log(`  静态目录: ${PUBLIC_DIR}`);
-  console.log(`  数据目录: ${DATA_DIR}`);
-  console.log('──────────────────────────────────────────');
-});
+  return new Promise((resolve, reject) => {
+    const onError = err => { server.off('listening', onListening); reject(err); };
+    const onListening = () => { server.off('error', onError); resolve(server); };
+    server.once('error', onError);
+    server.once('listening', onListening);
+    server.listen(port);
+  });
+}
+
+if (require.main === module) {
+  startServer().then(() => {
+    const address = server.address();
+    const actualPort = address && typeof address === 'object' ? address.port : PORT;
+    console.log('──────────────────────────────────────────');
+    console.log('  Tavern · AI RP 框架演示');
+    console.log(`  打开: http://localhost:${actualPort}`);
+    console.log(`  静态目录: ${PUBLIC_DIR}`);
+    console.log(`  数据目录: ${DATA_DIR}`);
+    console.log('──────────────────────────────────────────');
+  }).catch(err => {
+    console.error('[server] 启动失败:', err.message);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = { server, startServer, ensureDataFiles, DATA_DIR, SAVES_DIR };

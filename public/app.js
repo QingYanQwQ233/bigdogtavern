@@ -23,6 +23,8 @@ const LS_LORE = 'rpg-airp:lore';
 const LS_USER = 'rpg-airp:user';
 const LS_PRESETS = 'rpg-airp:prompt-presets';
 const LS_PREFS = 'rpg-airp:prefs';
+const LS_CURRENT_WORLD = 'rpg-airp:current-world';
+const LS_CURRENT_WORLD_SAVE = 'rpg-airp:current-world-save';
 const GLOBAL_PRESET_KEY = '__global__';
 const PRESET_SCHEMA_VERSION = 2;
 const PRESET_MARKERS = [
@@ -95,6 +97,12 @@ let currentSessionId = null;
 let lorebooks = null; // { id: { name, entries: [] } }
 let userData = loadJSON(LS_USER, null); // { currentPreset, presets: {...}, memories: [] }
 let promptPresets = loadJSON(LS_PRESETS, {});
+let worldCards = [];
+let currentWorldId = localStorage.getItem(LS_CURRENT_WORLD) || null;
+let currentWorldSaveId = localStorage.getItem(LS_CURRENT_WORLD_SAVE) || null;
+let currentWorldSave = null;
+let worldSavesByWorld = new Map();
+let worldLoadToken = 0;
 let theme = localStorage.getItem(LS_THEME) || 'tavern';
 let mode = localStorage.getItem(LS_MODE) || 'tavern'; // 'tavern' 酒馆模式 | 'rpg' RPG 模式
 let sending = false;
@@ -149,6 +157,198 @@ function esc(s) {
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 function currentChar() { return characters.find(c => c.id === currentCharId) || null; }
 function sessionMatches(s) { return !!s && s.charId === currentCharId && s.kind === mode; }
+
+/* ─────────── 世界库 / 世界存档（W1：只负责归属与创建，不接 AI 回合） ─────────── */
+function worldCardById(id) { return worldCards.find(w => w.id === id) || null; }
+function currentWorldCard() { return worldCardById(currentWorldId); }
+function formatWorldDate(ts) {
+  if (!ts) return '时间未知';
+  try { return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(ts)); }
+  catch { return new Date(ts).toLocaleString(); }
+}
+function worldApiError(data, fallback) {
+  return data && typeof data.error === 'string' ? data.error : fallback;
+}
+async function loadWorldCards() {
+  const res = await fetch('/api/worlds');
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(worldApiError(data, '世界卡读取失败（HTTP ' + res.status + '）'));
+  worldCards = Array.isArray(data) ? data : [];
+  if (!worldCardById(currentWorldId)) {
+    currentWorldId = worldCards[0] ? worldCards[0].id : null;
+    localStorage.setItem(LS_CURRENT_WORLD, currentWorldId || '');
+  }
+  return worldCards;
+}
+async function loadWorldSaves(worldId) {
+  if (!worldId) return [];
+  const res = await fetch('/api/world-saves?worldId=' + encodeURIComponent(worldId));
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(worldApiError(data, '存档列表读取失败（HTTP ' + res.status + '）'));
+  const saves = Array.isArray(data) ? data : [];
+  worldSavesByWorld.set(worldId, saves);
+  return saves;
+}
+async function openWorldSave(saveId, expectedToken = worldLoadToken) {
+  const res = await fetch('/api/world-saves/' + encodeURIComponent(saveId));
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(worldApiError(data, '存档读取失败（HTTP ' + res.status + '）'));
+  if (!data || data.id !== saveId) throw new Error('存档响应缺少稳定 ID');
+  if (expectedToken !== worldLoadToken) return null;
+  currentWorldSave = data;
+  currentWorldSaveId = data.id;
+  currentWorldId = data.worldId;
+  localStorage.setItem(LS_CURRENT_WORLD, currentWorldId);
+  localStorage.setItem(LS_CURRENT_WORLD_SAVE, currentWorldSaveId);
+  renderWorldDetail();
+  return currentWorldSave;
+}
+async function createWorldSave(name) {
+  const world = currentWorldCard();
+  if (!world) throw new Error('请先选择一个世界卡');
+  const res = await fetch('/api/world-saves', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({ worldId: world.id, worldVersion: world.version, name }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(worldApiError(data, '存档创建失败（HTTP ' + res.status + '）'));
+  currentWorldSave = data;
+  currentWorldSaveId = data.id;
+  localStorage.setItem(LS_CURRENT_WORLD, data.worldId);
+  localStorage.setItem(LS_CURRENT_WORLD_SAVE, data.id);
+  await loadWorldSaves(data.worldId);
+  await loadWorldCards();
+  renderWorldList();
+  renderWorldDetail();
+  return data;
+}
+function renderWorldList() {
+  const list = $('world-list');
+  if (!list) return;
+  if (!worldCards.length) {
+    list.innerHTML = '<div class="hint">还没有可用的世界卡。</div>';
+    return;
+  }
+  list.innerHTML = worldCards.map(world => {
+    const active = world.id === currentWorldId ? ' active' : '';
+    const saves = worldSavesByWorld.get(world.id) || [];
+    return `<button class="world-item${active}" type="button" data-world-id="${esc(world.id)}">
+      <span class="world-item-title">${esc(world.title || world.id)}</span>
+      <span class="world-item-summary">${esc(world.summary || '尚无简介')}</span>
+      <span class="world-item-meta"><span>v${esc(world.version)}</span><span>${saves.length || world.saveCount || 0} 份存档</span></span>
+    </button>`;
+  }).join('');
+  list.querySelectorAll('[data-world-id]').forEach(el => el.addEventListener('click', async () => {
+    const token = ++worldLoadToken;
+    const id = el.dataset.worldId;
+    if (!worldCardById(id)) return;
+    currentWorldId = id;
+    localStorage.setItem(LS_CURRENT_WORLD, id);
+    currentWorldSave = null;
+    currentWorldSaveId = null;
+    localStorage.removeItem(LS_CURRENT_WORLD_SAVE);
+    renderWorldList();
+    try {
+      await loadWorldSaves(id);
+      if (token !== worldLoadToken) return;
+      renderWorldDetail(); renderWorldList();
+    } catch (err) {
+      if (token !== worldLoadToken) return;
+      showWorldError(err.message); renderWorldDetail();
+    }
+  }));
+}
+function showWorldError(message) {
+  const el = $('world-error');
+  if (el) el.textContent = message || '';
+}
+function renderWorldDetail() {
+  const empty = $('world-empty');
+  const detail = $('world-detail');
+  const world = currentWorldCard();
+  if (!empty || !detail) return;
+  if (!world) {
+    empty.classList.remove('hidden');
+    detail.classList.add('hidden');
+    $('world-edit-title').textContent = '选择一个世界';
+    return;
+  }
+  empty.classList.add('hidden');
+  detail.classList.remove('hidden');
+  $('world-edit-title').textContent = world.title || world.id;
+  $('world-version').textContent = 'v' + (world.version ?? 1);
+  $('world-title').textContent = world.title || world.id;
+  $('world-summary').textContent = world.summary || '尚无世界简介。';
+  $('world-tags').innerHTML = (Array.isArray(world.tags) && world.tags.length ? world.tags : ['未分类'])
+    .map(tag => `<span class="world-tag">${esc(tag)}</span>`).join('');
+  const facts = [
+    [world.locationCount || 0, '已登记地点'],
+    [world.npcCount || 0, '世界角色'],
+    [worldSavesByWorld.get(world.id)?.length || world.saveCount || 0, '独立存档'],
+  ];
+  $('world-facts').innerHTML = facts.map(([value, label]) => `<div class="world-fact"><b>${esc(value)}</b><span>${esc(label)}</span></div>`).join('');
+  showWorldError('');
+  const saves = worldSavesByWorld.get(world.id) || [];
+  $('world-save-count').textContent = saves.length + ' 份';
+  const list = $('world-save-list');
+  list.innerHTML = saves.length ? saves.map(save => `<div class="world-save-card${save.id === currentWorldSaveId ? ' active' : ''}">
+    <div class="world-save-main"><span class="world-save-name">${esc(save.name)}</span><span class="world-save-meta">${esc(save.locationId || '未定位')} · revision ${esc(save.revision)} · ${esc(formatWorldDate(save.updatedAt))}</span></div>
+    <button class="ghost-btn small" type="button" data-open-save="${esc(save.id)}">${save.id === currentWorldSaveId ? '已打开' : '打开存档'}</button>
+  </div>`).join('') : '<p class="hint">这个世界还没有存档，先创建一份吧。</p>';
+  list.querySelectorAll('[data-open-save]').forEach(btn => btn.addEventListener('click', async () => {
+    const token = worldLoadToken;
+    btn.disabled = true;
+    const old = btn.textContent;
+    btn.textContent = '读取中…';
+    try {
+      const opened = await openWorldSave(btn.dataset.openSave, token);
+      if (!opened || token !== worldLoadToken) return;
+      const status = $('world-open-status');
+      if (status) status.textContent = `已打开「${currentWorldSave.name}」——世界桌面将在下一阶段接入；当前存档 ID：${currentWorldSave.id}`;
+    } catch (err) { showWorldError(err.message); }
+    finally { btn.disabled = false; btn.textContent = old; }
+  }));
+  if (currentWorldSave && currentWorldSave.worldId === world.id) {
+    const status = $('world-open-status');
+    if (status) status.textContent = `已打开「${currentWorldSave.name}」——世界桌面将在下一阶段接入；当前存档 ID：${currentWorldSave.id}`;
+  }
+}
+async function loadWorldLibraryData() {
+  const token = ++worldLoadToken;
+  try {
+    await loadWorldCards();
+    if (token !== worldLoadToken) return false;
+    await Promise.all(worldCards.map(world => loadWorldSaves(world.id)));
+    if (token !== worldLoadToken) return false;
+    if (currentWorldSaveId) {
+      try { await openWorldSave(currentWorldSaveId); }
+      catch { currentWorldSave = null; currentWorldSaveId = null; localStorage.removeItem(LS_CURRENT_WORLD_SAVE); }
+    }
+    if (token !== worldLoadToken) return false;
+    renderWorldList();
+    renderWorldDetail();
+    return true;
+  } catch (err) {
+    if (token !== worldLoadToken) return false;
+    worldCards = [];
+    renderWorldList();
+    renderWorldDetail();
+    showWorldError(err.message);
+    return false;
+  }
+}
+function openWorldLibrary() {
+  const mgr = $('world-mgr');
+  if (!mgr) return;
+  mgr.classList.remove('hidden');
+  loadWorldLibraryData();
+}
+function closeWorldLibrary() {
+  worldLoadToken++;
+  const mgr = $('world-mgr');
+  if (mgr) mgr.classList.add('hidden');
+}
 
 /* 开场白兜底链：char.firstMes → preset.firstMes → settings.firstMes（新会话 / 清空聊天共用） */
 function getGreeting() {
@@ -2998,7 +3198,8 @@ function switchView(name) {
   renderDebugTerminal();
   document.querySelectorAll('.nav-item[data-view]').forEach(b =>
     b.classList.toggle('active', b.dataset.view === name));
-  ['char-mgr', 'prompt-mgr', 'lore-mgr', 'memory-mgr'].forEach(id => $(id).classList.add('hidden'));
+  ['char-mgr', 'prompt-mgr', 'lore-mgr', 'memory-mgr', 'world-mgr'].forEach(id => { const el = $(id); if (el) el.classList.add('hidden'); });
+  if (name === 'worlds') { openWorldLibrary(); return; }
   if (name === 'chat') return;
   if (name === 'chars') {
     renderBindSelects();
@@ -3105,6 +3306,8 @@ function applyMode(name) {
   // 模式切换：会话按 charId + kind 双重分流
   renderSessions();
   renderMessages();
+  if (mode === 'rpg') openWorldLibrary();
+  else closeWorldLibrary();
 }
 
 function switchMode() {
@@ -3767,6 +3970,41 @@ function bindEvents() {
   // 模式切换：刷新快捷行动与 RPG 面板
   $('btn-mode-switch').addEventListener('click', switchMode);
   renderQuickActions();
+  // 世界库：W1 只建立 / 打开存档，不改变旧 RPG 回合链
+  $('world-refresh').addEventListener('click', async () => {
+    const btn = $('world-refresh');
+    const old = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '刷新中…';
+    await loadWorldLibraryData();
+    btn.disabled = false;
+    btn.textContent = old;
+  });
+  $('world-save-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const input = $('world-save-name');
+    const btn = $('world-save-create');
+    const name = input.value.trim();
+    showWorldError('');
+    if (!name) { showWorldError('请填写存档名称。'); input.focus(); return; }
+    const old = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '创建中…';
+    try {
+      await createWorldSave(name);
+      input.value = '';
+      const status = $('world-open-status');
+      if (status) status.textContent = `已创建并打开「${currentWorldSave.name}」——世界桌面将在下一阶段接入；当前存档 ID：${currentWorldSave.id}`;
+    } catch (err) {
+      showWorldError(err.message);
+      input.focus();
+    } finally {
+      btn.disabled = false;
+      btn.textContent = old;
+    }
+  });
+  $('world-legacy-chat').addEventListener('click', () => { closeWorldLibrary(); switchView('chat'); });
+  $('world-close').addEventListener('click', () => { closeWorldLibrary(); switchView('chat'); });
   document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closeSettings));
   $('btn-test-image').addEventListener('click', testImageGen);
   $('settings-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeSettings(); });

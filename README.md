@@ -20,6 +20,8 @@ node server.js
 3. 点「获取」从上游拉模型列表，「测试连接」验证后保存
 4. 侧栏底部「模式：酒馆 ⇄ 模式：RPG」切换玩法
 
+RPG 模式当前先进入「世界库」：世界卡来自 JSON，可创建/打开彼此独立的世界存档。世界桌面、AI 回合和旧 RPG 会话迁移按路线图分阶段接入，当前切片不会改写旧 `sessions`。
+
 ## 🍺 酒馆模式（AI 角色扮演聊天）
 
 - **角色卡**：多角色创建/编辑；AI 按“一句话定角色 → 动态基本信息表 → 完整 JSON 角色卡”三步生成；支持 Character Card V1/V2 JSON 导入导出
@@ -47,7 +49,7 @@ RPG 的末尾控制块只在 RPG 模式解析；流式生成时不会显示未�
 
 - **DM 身份**：RPG 模式下 AI 是"世界的化身 / 地下城主"，直接扮演所有 NPC、称呼玩家为"你"，禁止以"作者"口吻自称（含反例约束）
 - **正反示例**：预设内置 1 个完整正例 + 4 个反例（缺选项 / 空泛选项 / 凭空物品 / 对白混旁白），并在对话历史最前注入示例回合（in-context few-shot）
-- **每会话独立状态**：`session.rpgState` 持久化，切换会话恢复各自进度
+- **兼容路径**：旧 RPG 会话仍以 `session.rpgState` 持久化；新世界存档使用服务端 `WorldSave`，两条路径暂不互相迁移
 - **禁止凭空添加**：道具/任务必须由剧情产出（掉落、NPC 委托等）
 
 ## 🗺 世界地图系统（AI 协作生成）
@@ -118,15 +120,16 @@ RPG 的末尾控制块只在 RPG 模式解析；流式生成时不会显示未�
 ## 项目结构
 
 ```
-server.js                     # 本地服务器：静态服务 + /api/chat + /api/image + /api/image-save + /api/models + /api/data 代理（零依赖）
+server.js                     # 本地服务器：静态服务 + /api/chat + /api/image + /api/image-save + /api/models + /api/data + /api/worlds + /api/world-saves（零依赖）
 public/
-  index.html                  # 双模式布局（酒馆三区 / RPG 五区）+ 设置弹窗 + 管理页 + 地图窗口
+  index.html                  # 双模式布局（酒馆三区 / RPG 五区）+ 设置弹窗 + 角色/世界库 + 地图窗口
   styles.css                  # 语义化 CSS 变量 + 5 套色调（含 macOS 毛玻璃）+ 双模式布局
   app.js                      # 前端逻辑：模式/会话/角色/预设/世界书/记忆/生图/RPG 状态机/掷骰/地图窗口/AI 美化
   mapgen.js                   # 世界地图：mapgen2 适配 + 自研 fallback + 渲染 + biome 气候
   manifest.json + sw.js       # PWA（离线壳）
-  data/_defaults.json         # 模板数据（预设/世界书/角色/rpg 协议/生成指令/UI 文案）
+  data/_defaults.json         # 模板数据（预设/世界书/角色/世界卡/rpg 协议/生成指令/UI 文案）
   data/*.json                 # 运行时数据（本地生成，不入库）
+  data/saves/*.json           # WorldSave 运行时存档（本地生成，不入库）
   vendor/                     # marked + DOMPurify + mapgen2.bundle（本地依赖，零网络）
 android/                      # WebView 套壳工程（NanoHTTPD 内嵌服务器）
 docs/                         # 架构与数据结构文档（data-structure.md / android-apk.md）
@@ -144,6 +147,10 @@ scripts/                      # 辅助脚本（图标生成 / 打包上传 zip�
 - [x] 旁白/对白状态机拆分、消息编辑/重生成/复制
 - [x] 文生图（openai / SD 双格式）、PWA、Android 套壳
 - [x] 世界地图系统（mapgen2 算法 + 单地区图 + biome 气候 + AI 美化 + 地图窗口 + 上下文注入）
+- [x] W1 世界卡 → 独立世界存档（创建 / 列表 / 打开 / 刷新恢复）
+- [ ] W2 世界存档时间线、状态、地图和图片正式接管 RPG 主链路
+- [ ] W3 世界回合候选校验、revision 原子提交与幂等回执
+- [ ] W6 旧 RPG 会话只读预览与显式迁移
 - [ ] 世界观 / 角色设定（全部占位）
 - [ ] 地图参数可视化调节（landRatio / regionCount 等 biome 配置暴露到 UI）
 - [ ] 地图生成调优（海岸占比偏大、山脉偏少）

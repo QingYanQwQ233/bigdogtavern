@@ -1,6 +1,7 @@
 # 前端运行时数据（含 API key）——绝不提交
 public/data/*.json
 !public/data/_defaults.json
+public/data/saves/
 
 # Android 构建产物
 android/.gradle/

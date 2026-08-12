@@ -11,13 +11,17 @@ public/data/
   characters.json  ← 用户角色库（数组）
   presets.json     ← 提示词预设（对象，key=预设名）
   lorebooks.json   ← 世界书集合（对象，key=世界书 id）
+  worlds.json      ← 世界卡运行时库（数组；来源为 _defaults.json.worlds）
   settings.json    ← 全局连接设置（平铺对象）
+
+  saves/<saveId>.json ← 世界存档（WorldSave；服务端按存档独立读写）
 
 localStorage（前缀 rpg-airp:）→ server JSON 的离线缓存，server 为权威源
   settings / prefs / profiles / chars / current-char / sessions / lore / prompt-presets / theme
+  current-world / current-world-save（只保存最近打开的 ID，不保存正式世界状态）
 ```
 
-## 二、_defaults.json（唯一数据源）的 8 个段
+## 二、_defaults.json（唯一数据源）的 9 个段
 
 | 段 | 结构 | 用途 |
 |---|---|---|
@@ -29,11 +33,21 @@ localStorage（前缀 rpg-airp:）→ server JSON 的离线缓存，server 为�
 | `gen` | `{charFields,charBasicPrompt,charFullPrompt,lorePrompt}` | AI 三步生成角色卡与世界书条目；基本信息栏目由 JSON 动态渲染 |
 | `characters` | 数组，示例角色 | characters.json 初始内容 |
 | `lorebooks` | `{id:{name,entries[]}}` | lorebooks.json 初始内容 |
+| `worlds` | `[{id,version,title,start,...}]` | worlds.json 初始内容；W1 世界卡目录 |
 | `presets` | `{预设名:{version,mode,firstMes,prompts[],promptOrder[]}}` | presets.json 初始内容；旧结构启动时迁移 |
 
 ## 三、核心数据结构
 
 ### 数据所有权
+
+当前正式路径分成两个闭环：
+
+```text
+酒馆：角色卡 → ChatSession → 酒馆 Prompt → 对话历史
+世界：WorldCard → WorldSave → 世界 Prompt → 回合 / 状态 / 地图 / NPC
+```
+
+W1 已实现世界卡目录到空存档的创建、列表和打开；世界桌面、AI 回合和旧 RPG 会话迁移仍属于后续阶段。世界卡由 `worldId + worldVersion` 定位，动态事实只由 `saveId + revision` 定位。浏览器 localStorage 只记住最近 ID，服务端 JSON 才是正式世界存档的权威来源。
 
 运行时数据按 `角色卡 → 会话` 隔离：会话以 `charId + kind` 归属到一个角色的一种模式；消息、AI 行动选项、RPG 状态、背包、任务、地图数据与美化图都只能从当前会话读取。切换角色或模式时，只切换到相同 `charId + kind` 的会话；不存在时创建独立会话并加载该角色的开场白。
 
@@ -50,6 +64,41 @@ localStorage（前缀 rpg-airp:）→ server JSON 的离线缓存，server 为�
 消息显示也按 `kind` 分流：酒馆模式保留引号对白/旁白拆分；RPG 模式把 AI 正文作为一条连续叙事渲染，不按引号生成气泡。末尾 ` ```rpg ```` 控制块只由 RPG 会话解析，不进入正文或酒馆消息。
 
 AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最终请求体和原始响应；不写入 `session`、localStorage 或 server JSON，刷新页面即清空。请求视图不包含单独传给代理的 `apiKey`。
+
+### 世界卡 worlds[]（worlds.json）
+
+```js
+{
+  id: 'world-aurora', version: 1, title: '极光大陆', summary: '…', tags: ['…'],
+  start: {
+    locationId: 'wolf-tooth-inn', opening: '…',
+    playerTemplateId: null, playerTemplate: { name: '未命名冒险者', ... },
+    initialState: { stats: { level: 1, hp: 100, mp: 50, ... }, inventory: [], quests: [] }
+  },
+  lorebookIds: [], rpgPresetName: 'RPG 叙事引擎（示例）',
+  locations: [], npcs: [], factions: [], items: [], quests: [],
+  map: { strategy: 'perSave', generation: { seed, size, regionCount } },
+  ui: { layout: 'world-desktop', source: 'json' }
+}
+```
+
+世界卡是可复用的静态定义，不保存某个玩家的回合、背包或地图图片。W1 暂不提供世界卡写接口，内容来自 `_defaults.json.worlds` 初始化的 `worlds.json`。
+
+### 世界存档 WorldSave（saves/<saveId>.json）
+
+```js
+{
+  id, worldId, worldVersion, name, createdAt, updatedAt,
+  schemaVersion: 1, revision: 0,
+  player: { templateId, snapshot }, party: [],
+  state: { stats, inventory: [], quests: [], locationId },
+  map: { data: null, imagePath: null },
+  opening: { text, shown: false },
+  turns: [], receipts: [], generatedEntities: [], migrationHistory: []
+}
+```
+
+创建时由服务端从当前 `WorldCard.start` 复制玩家快照和初始状态；客户端不能提交文件路径或自行指定 `saveId`。W1 只创建空 `turns`，W2 才把叙事、状态、地图和图片逐步接入 `WorldSave`。
 
 ### 角色卡 characters[]（characters.json）
 ```js
@@ -157,6 +206,12 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 | `GET /api/models` | 模型列表代理（读 X-Base-Url / X-Api-Key 头） |
 | `GET /api/data/seed` | 返回 _defaults.json 全量（深拷贝） |
 | `GET/PUT /api/data/:type` | 读写 characters / presets / lorebooks / settings |
+| `GET /api/worlds` | 返回世界卡摘要与每个世界的存档数量 |
+| `GET /api/world-saves?worldId=<worldId>` | 列出指定世界的存档摘要 |
+| `POST /api/world-saves` | 按世界卡创建一个独立空存档；服务端分配 `saveId` |
+| `GET /api/world-saves/<saveId>` | 读取一个完整 WorldSave |
+
+运行时 JSON 不通过静态文件直接暴露：`/data/` 路径拒绝读取，世界卡和存档只能通过上述 API 访问。
 
 ## 七、文生图（测试功能）
 
