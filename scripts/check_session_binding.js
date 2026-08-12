@@ -80,4 +80,20 @@ vm.runInContext(`
 `, context);
 assert.deepStrictEqual(JSON.parse(JSON.stringify(context.processed.options)), ['掷 d20 观察']);
 assert.strictEqual(context.pushed.length, 0);
+
+vm.runInContext(`
+  debugTraces.clear(); renderDebugTerminal = () => {};
+  const first = sessions[0];
+  const second = { id: 'other-trace', charId: 'b', kind: 'rpg', messages: [] };
+  setDebugTrace(first, { input: 'first input', output: 'first output' });
+  setDebugTrace(second, { input: 'second input' });
+  globalThis.traceCheck = {
+    first: debugTraces.get(first.id),
+    second: debugTraces.get(second.id),
+    persisted: JSON.stringify(sessions).includes('first input'),
+  };
+`, context);
+assert.strictEqual(context.traceCheck.first.output, 'first output');
+assert.strictEqual(context.traceCheck.second.input, 'second input');
+assert.strictEqual(context.traceCheck.persisted, false);
 console.log('session binding check passed');

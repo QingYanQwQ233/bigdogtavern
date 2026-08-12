@@ -7,7 +7,7 @@
   <link rel="manifest" href="manifest.json" />
   <title>Tavern · AI RP 框架演示</title>
   <link rel="icon" type="image/png" href="favicon.png" />
-  <link rel="stylesheet" href="styles.css?v=20260812" />
+  <link rel="stylesheet" href="styles.css?v=20260812b" />
 </head>
 <body data-theme="tavern" data-layout="classic">
   <canvas id="bg-fx" aria-hidden="true"></canvas>
@@ -58,6 +58,7 @@
           <span class="rpg-hdr-chip">💰 <span id="rpg-gold">0</span></span>
           <span class="rpg-hdr-chip">📍 <span id="rpg-loc">—</span></span>
         </div>
+        <button class="ghost-btn" id="btn-debug" type="button" aria-controls="debug-panel" aria-expanded="false">⌘ 终端</button>
         <div class="fm-wrap" id="floating-wrap">
           <button class="ghost-btn" id="floating-toggle" title="界面设置">🏮</button>
         </div>
@@ -620,12 +621,36 @@
     </div>
   </div>
 
+  <section id="debug-panel" class="debug-panel hidden" aria-label="AI 调试终端">
+    <header class="debug-head">
+      <div>
+        <strong>AI 往返终端</strong>
+        <span id="debug-scope">当前会话 · 暂无记录</span>
+      </div>
+      <div class="debug-actions">
+        <button class="ghost-btn small" id="debug-copy" type="button">复制全部</button>
+        <button class="ghost-btn small" id="debug-clear" type="button">清空</button>
+        <button class="ghost-btn small" id="debug-close" type="button" aria-label="关闭 AI 调试终端">关闭</button>
+      </div>
+    </header>
+    <div class="debug-body">
+      <section class="debug-stream" aria-labelledby="debug-input-title">
+        <h2 id="debug-input-title"><span class="debug-direction input">INPUT</span> 发送给 AI</h2>
+        <pre id="debug-input">尚未向 AI 发送请求。</pre>
+      </section>
+      <section class="debug-stream" aria-labelledby="debug-output-title">
+        <h2 id="debug-output-title"><span class="debug-direction output">OUTPUT</span> AI 原始输出</h2>
+        <pre id="debug-output">尚未收到 AI 响应。</pre>
+      </section>
+    </div>
+  </section>
+
 
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
   <script src="vendor/mapgen2.bundle.js"></script>
   <script src="mapgen.js?v=20260810"></script>
-  <script src="app.js?v=20260812"></script>
+  <script src="app.js?v=20260812b"></script>
   <script>
     // PWA：注册 service worker（仅 HTTPS / localhost 生效，套壳 APK 可用）
     if ('serviceWorker' in navigator) {

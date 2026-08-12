@@ -82,6 +82,7 @@ let promptPresets = loadJSON(LS_PRESETS, {});
 let theme = localStorage.getItem(LS_THEME) || 'tavern';
 let mode = localStorage.getItem(LS_MODE) || 'tavern'; // 'tavern' 酒馆模式 | 'rpg' RPG 模式
 let sending = false;
+const debugTraces = new Map(); // 仅内存、按 session.id 隔离，不把完整 Prompt 写入存档
 let cmEditingId = null;
 let cmCreating = false;
 let wiEditingId = null;
@@ -1864,7 +1865,52 @@ function updateApiStatusFromSettings() {
   setApiStatus(`已接上：${s.baseUrl} · ${who}`);
 }
 
-/* ─────────── 调试终端已移除：请求 / 响应日志输出到浏览器控制台 ─────────── */
+/* ─────────── 调试终端：当前会话最近一次 AI 输入 / 原始输出 ─────────── */
+function setDebugTrace(session, patch) {
+  if (!session) return;
+  debugTraces.set(session.id, { ...(debugTraces.get(session.id) || {}), ...patch });
+  if (session === curSession()) renderDebugTerminal();
+}
+
+function renderDebugTerminal() {
+  const session = curSession();
+  const trace = session && debugTraces.get(session.id);
+  const scope = $('debug-scope');
+  if (!scope) return;
+  scope.textContent = session
+    ? `${currentChar()?.name || '未命名角色'} · ${session.kind === 'rpg' ? 'RPG' : '酒馆'} · ${session.name}${trace?.status ? ` · ${trace.status}` : ''}`
+    : '当前会话 · 暂无记录';
+  $('debug-input').textContent = trace?.input || '尚未向 AI 发送请求。';
+  $('debug-output').textContent = trace?.output || '尚未收到 AI 响应。';
+}
+
+function openDebugTerminal() {
+  $('debug-panel').classList.remove('hidden');
+  $('btn-debug').setAttribute('aria-expanded', 'true');
+  renderDebugTerminal();
+  $('debug-close').focus();
+}
+
+function closeDebugTerminal() {
+  $('debug-panel').classList.add('hidden');
+  $('btn-debug').setAttribute('aria-expanded', 'false');
+  $('btn-debug').focus();
+}
+
+function clearDebugTerminal() {
+  const session = curSession();
+  if (session) debugTraces.delete(session.id);
+  renderDebugTerminal();
+}
+
+function copyDebugTerminal() {
+  const session = curSession();
+  const trace = session && debugTraces.get(session.id);
+  if (!trace) return;
+  const text = `INPUT\n${trace.input || ''}\n\nOUTPUT\n${trace.output || ''}`;
+  (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject(new Error('no clipboard')))
+    .catch(() => { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); });
+}
 
 async function testConnection() {
   const out = $('test-result');
@@ -2008,6 +2054,7 @@ function renderEditBubble(m, className = 'bubble edit-bubble') {
 
 function renderMessages() {
   const chat = $('chat');
+  renderDebugTerminal();
   chat.innerHTML = '';
   if (mode === 'rpg') renderRPG(); // RPG 模式联动状态面板
   const msgs = curMessages();
@@ -2516,6 +2563,11 @@ async function requestReply() {
   let cot = '';
   try {
     const payload = buildPayload();
+    setDebugTrace(targetSession, {
+      status: '请求中',
+      input: JSON.stringify({ endpoint: payload.baseUrl + '/chat/completions', ...payload.body }, null, 2),
+      output: '等待 AI 响应…',
+    });
     // 请求 / 响应日志输出到浏览器控制台
     console.debug('[Tavern] → 请求', payload.baseUrl + '/chat/completions', {
       model: payload.body.model,
@@ -2541,8 +2593,13 @@ async function requestReply() {
         : '模型未返回内容（请检查模型名与 API 是否匹配；请求详情见浏览器控制台）';
       throw new Error(msg);
     }
+    setDebugTrace(targetSession, {
+      status: '已完成',
+      output: cot ? `${reply}\n\n[reasoning_content]\n${cot}` : String(reply),
+    });
     // 请求期间可能切换角色 / 模式 / 会话；迟到响应不得写入新的当前会话。
     if (curSession() !== targetSession) {
+      setDebugTrace(targetSession, { status: '已完成（响应因切换会话未写入历史）' });
       console.warn('[Tavern] 会话已切换，已丢弃原会话的迟到响应');
       removeTyping();
       return;
@@ -2565,6 +2622,7 @@ async function requestReply() {
   } catch (err) {
     console.error('[Tavern] ✗ 请求失败', err.message);
     removeTyping();
+    setDebugTrace(targetSession, { status: '失败', output: `ERROR\n${err.message}` });
     if (curSession() === targetSession) pushMessage('system', `⚠️ 请求失败：${err.message}`);
     setApiStatus(`最近一次请求失败：${err.message}`, true);
   } finally {
@@ -2597,6 +2655,7 @@ const VIEW_PLACEHOLDER = {};
 
 function switchView(name) {
   closeNavDrawer(); // 手机抽屉：切换视图后自动收起
+  renderDebugTerminal();
   document.querySelectorAll('.nav-item[data-view]').forEach(b =>
     b.classList.toggle('active', b.dataset.view === name));
   ['char-mgr', 'prompt-mgr', 'lore-mgr', 'memory-mgr'].forEach(id => $(id).classList.add('hidden'));
@@ -3339,6 +3398,11 @@ function bindEvents() {
     }));
   // 设置
   document.querySelectorAll('.js-settings').forEach(b => b.addEventListener('click', openSettings));
+  $('btn-debug').addEventListener('click', () => $('debug-panel').classList.contains('hidden') ? openDebugTerminal() : closeDebugTerminal());
+  $('debug-close').addEventListener('click', closeDebugTerminal);
+  $('debug-clear').addEventListener('click', clearDebugTerminal);
+  $('debug-copy').addEventListener('click', copyDebugTerminal);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('debug-panel').classList.contains('hidden')) closeDebugTerminal(); });
   // 模式切换：刷新快捷行动与 RPG 面板
   $('btn-mode-switch').addEventListener('click', switchMode);
   renderQuickActions();

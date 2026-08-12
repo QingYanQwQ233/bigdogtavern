@@ -49,6 +49,8 @@ localStorage（前缀 rpg-airp:）→ server JSON 的离线缓存，server 为�
 
 消息显示也按 `kind` 分流：酒馆模式保留引号对白/旁白拆分；RPG 模式把 AI 正文作为一条连续叙事渲染，不按引号生成气泡。末尾 ` ```rpg ```` 控制块只由 RPG 会话解析，不进入正文或酒馆消息。
 
+AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最终请求体和原始响应；不写入 `session`、localStorage 或 server JSON，刷新页面即清空。请求视图不包含单独传给代理的 `apiKey`。
+
 ### 角色卡 characters[]（characters.json）
 ```js
 {
