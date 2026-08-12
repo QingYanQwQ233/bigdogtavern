@@ -735,6 +735,26 @@
             <input id="world-draft-lorebooks" name="worldDraftLorebooks" maxlength="1000" placeholder="default, lore-aurora" spellcheck="false" />
           </div>
         </div>
+        <section class="world-draft-collection" aria-labelledby="world-draft-locations-title">
+          <div class="world-draft-collection-head">
+            <div>
+              <h3 id="world-draft-locations-title">地点</h3>
+              <p>声明式地点会成为地图、位置状态与提示词的稳定引用。</p>
+            </div>
+            <button class="ghost-btn small" id="world-draft-add-location" type="button">＋地点</button>
+          </div>
+          <div id="world-draft-locations" class="world-draft-collection-list"></div>
+        </section>
+        <section class="world-draft-collection" aria-labelledby="world-draft-npcs-title">
+          <div class="world-draft-collection-head">
+            <div>
+              <h3 id="world-draft-npcs-title">NPC</h3>
+              <p>NPC 只保存结构化资料；秘密字段会在编辑时保留，不在列表中暴露。</p>
+            </div>
+            <button class="ghost-btn small" id="world-draft-add-npc" type="button">＋NPC</button>
+          </div>
+          <div id="world-draft-npcs" class="world-draft-collection-list"></div>
+        </section>
         <p id="world-draft-status" class="world-draft-status" role="status" aria-live="polite"></p>
       </div>
       <footer class="world-draft-actions">

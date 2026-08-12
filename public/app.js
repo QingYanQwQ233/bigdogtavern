@@ -368,12 +368,120 @@ function setWorldDraftStatus(message, kind = '') {
 function splitWorldDraftList(value) {
   return [...new Set(String(value || '').split(',').map(item => item.trim()).filter(Boolean))];
 }
+function worldDraftLocationTemplate(location, index) {
+  return `<article class="world-draft-entry world-draft-location" data-index="${index}">
+    <div class="world-draft-entry-head"><strong>地点 ${index + 1}</strong><button class="ghost-btn small danger" type="button" data-remove-location>删除</button></div>
+    <div class="world-draft-entry-grid">
+      <label class="field"><span>ID</span><input data-location-id value="${esc(location.id || '')}" maxlength="64" spellcheck="false" required /></label>
+      <label class="field"><span>名称</span><input data-location-name value="${esc(location.name || '')}" maxlength="200" required /></label>
+      <label class="field"><span>类型</span><input data-location-type value="${esc(location.type || '')}" maxlength="80" placeholder="城镇 / 地牢 / 区域" /></label>
+      <label class="field"><span>标签</span><input data-location-tags value="${esc(Array.isArray(location.tags) ? location.tags.join(', ') : '')}" maxlength="1000" placeholder="港口, 安全区" /></label>
+    </div>
+    <label class="field"><span>简介</span><textarea data-location-summary rows="2" maxlength="2000" placeholder="玩家可见的地点简介">${esc(location.summary || '')}</textarea></label>
+  </article>`;
+}
+function worldDraftNpcTemplate(npc, index, locations) {
+  const options = ['<option value="">未指定地点</option>'].concat(locations.map(location => `<option value="${esc(location.id || '')}"${npc.locationId === location.id ? ' selected' : ''}>${esc(location.name || location.id)}</option>`)).join('');
+  return `<article class="world-draft-entry world-draft-npc" data-index="${index}">
+    <div class="world-draft-entry-head"><strong>NPC ${index + 1}</strong><button class="ghost-btn small danger" type="button" data-remove-npc>删除</button></div>
+    <div class="world-draft-entry-grid">
+      <label class="field"><span>ID</span><input data-npc-id value="${esc(npc.id || '')}" maxlength="64" spellcheck="false" required /></label>
+      <label class="field"><span>名称</span><input data-npc-name value="${esc(npc.name || '')}" maxlength="200" required /></label>
+      <label class="field"><span>身份 / 角色</span><input data-npc-role value="${esc(npc.role || '')}" maxlength="200" /></label>
+      <label class="field"><span>所在地点</span><select data-npc-location>${options}</select></label>
+    </div>
+    <label class="field"><span>描述</span><textarea data-npc-description rows="2" maxlength="4000" placeholder="外观、背景与当前状态">${esc(npc.description || '')}</textarea></label>
+    <div class="world-draft-entry-grid">
+      <label class="field"><span>性格</span><textarea data-npc-personality rows="2" maxlength="2000" placeholder="性格与行为习惯">${esc(npc.personality || '')}</textarea></label>
+      <label class="field"><span>说话方式</span><textarea data-npc-speech rows="2" maxlength="2000" placeholder="语气、口头禅或表达风格">${esc(npc.speechStyle || '')}</textarea></label>
+    </div>
+    <div class="world-draft-entry-grid">
+      <label class="field"><span>公开事实</span><input data-npc-facts value="${esc(Array.isArray(npc.publicFacts) ? npc.publicFacts.join(', ') : '')}" maxlength="1000" placeholder="逗号分隔" /></label>
+      <label class="field"><span>公开目标</span><input data-npc-goals value="${esc(Array.isArray(npc.publicGoals) ? npc.publicGoals.join(', ') : '')}" maxlength="1000" placeholder="逗号分隔" /></label>
+    </div>
+  </article>`;
+}
+function renderWorldDraftCollections(world) {
+  const locations = Array.isArray(world?.locations) ? world.locations : [];
+  const npcs = Array.isArray(world?.npcs) ? world.npcs : [];
+  const locationList = $('world-draft-locations');
+  const npcList = $('world-draft-npcs');
+  if (locationList) locationList.innerHTML = locations.length ? locations.map(worldDraftLocationTemplate).join('') : '<p class="world-draft-empty">暂无地点，点击“＋地点”添加。</p>';
+  if (npcList) npcList.innerHTML = npcs.length ? npcs.map((npc, index) => worldDraftNpcTemplate(npc, index, locations)).join('') : '<p class="world-draft-empty">暂无 NPC，点击“＋NPC”添加。</p>';
+  locationList?.querySelectorAll('[data-remove-location]').forEach(button => button.addEventListener('click', () => {
+    syncWorldDraftCollectionsFromForm();
+    const index = Number(button.closest('[data-index]')?.dataset.index);
+    worldDraft.world.locations.splice(index, 1);
+    worldDraftDirty = true;
+    renderWorldDraftCollections(worldDraft.world);
+  }));
+  npcList?.querySelectorAll('[data-remove-npc]').forEach(button => button.addEventListener('click', () => {
+    syncWorldDraftCollectionsFromForm();
+    const index = Number(button.closest('[data-index]')?.dataset.index);
+    worldDraft.world.npcs.splice(index, 1);
+    worldDraftDirty = true;
+    renderWorldDraftCollections(worldDraft.world);
+  }));
+}
+function syncWorldDraftCollectionsFromForm() {
+  if (!worldDraft) return;
+  const { locations, npcs } = collectWorldDraftCollections();
+  worldDraft.world.locations = locations;
+  worldDraft.world.npcs = npcs;
+}
+function addWorldDraftLocation() {
+  if (!worldDraft) return;
+  syncWorldDraftCollectionsFromForm();
+  if (!Array.isArray(worldDraft.world.locations)) worldDraft.world.locations = [];
+  worldDraft.world.locations.push({ id: 'location-' + uid(), name: '新地点', type: 'region', summary: '', tags: [] });
+  worldDraftDirty = true;
+  renderWorldDraftCollections(worldDraft.world);
+  $('world-draft-locations')?.lastElementChild?.querySelector('input')?.focus();
+}
+function addWorldDraftNpc() {
+  if (!worldDraft) return;
+  syncWorldDraftCollectionsFromForm();
+  if (!Array.isArray(worldDraft.world.npcs)) worldDraft.world.npcs = [];
+  worldDraft.world.npcs.push({ id: 'npc-' + uid(), name: '新 NPC', role: '', locationId: null, description: '', personality: '', publicFacts: [], publicGoals: [] });
+  worldDraftDirty = true;
+  renderWorldDraftCollections(worldDraft.world);
+  $('world-draft-npcs')?.lastElementChild?.querySelector('input')?.focus();
+}
+function collectWorldDraftCollections() {
+  const locations = [...document.querySelectorAll('#world-draft-locations .world-draft-location')].map(row => ({
+    id: row.querySelector('[data-location-id]')?.value.trim() || '',
+    name: row.querySelector('[data-location-name]')?.value.trim() || '',
+    type: row.querySelector('[data-location-type]')?.value.trim() || '',
+    summary: row.querySelector('[data-location-summary]')?.value || '',
+    tags: splitWorldDraftList(row.querySelector('[data-location-tags]')?.value),
+  }));
+  const npcs = [...document.querySelectorAll('#world-draft-npcs .world-draft-npc')].map(row => {
+    const index = Number(row.dataset.index);
+    const previous = worldDraft?.world?.npcs?.[index] || {};
+    const personality = row.querySelector('[data-npc-personality]')?.value || '';
+    return {
+      ...previous,
+      id: row.querySelector('[data-npc-id]')?.value.trim() || '',
+      name: row.querySelector('[data-npc-name]')?.value.trim() || '',
+      role: row.querySelector('[data-npc-role]')?.value.trim() || '',
+      locationId: row.querySelector('[data-npc-location]')?.value || null,
+      description: row.querySelector('[data-npc-description]')?.value || '',
+      personality,
+      speechStyle: row.querySelector('[data-npc-speech]')?.value || '',
+      publicFacts: splitWorldDraftList(row.querySelector('[data-npc-facts]')?.value),
+      publicGoals: splitWorldDraftList(row.querySelector('[data-npc-goals]')?.value),
+      ...(Array.isArray(previous.secrets) ? { secrets: previous.secrets } : {}),
+    };
+  });
+  return { locations, npcs };
+}
 function fillWorldDraftForm(draft) {
   const world = draft?.world || {};
   $('world-draft-name').value = world.title || '';
   $('world-draft-summary').value = world.summary || '';
   $('world-draft-tags').value = Array.isArray(world.tags) ? world.tags.join(', ') : '';
   $('world-draft-lorebooks').value = Array.isArray(world.lorebookIds) ? world.lorebookIds.join(', ') : '';
+  renderWorldDraftCollections(world);
   $('world-draft-base').textContent = `基于已发布 v${draft.baseVersion}；草稿修改不会影响旧版本或已有存档。`;
 }
 async function openWorldDraftEditor() {
@@ -415,6 +523,7 @@ async function saveWorldDraft() {
   const summary = $('world-draft-summary').value;
   const tags = splitWorldDraftList($('world-draft-tags').value);
   const lorebookIds = splitWorldDraftList($('world-draft-lorebooks').value);
+  const { locations, npcs } = collectWorldDraftCollections();
   const titleInput = $('world-draft-name');
   if (!title) {
     setWorldDraftStatus('世界标题不能为空。', 'error');
@@ -430,7 +539,7 @@ async function saveWorldDraft() {
     const res = await fetch('/api/world-drafts/' + encodeURIComponent(worldDraft.worldId), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
-      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds }),
+      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds, locations, npcs }),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error(worldApiError(data, '世界草稿保存失败（HTTP ' + res.status + '）'));
@@ -4571,6 +4680,8 @@ function bindEvents() {
   $('world-new-draft').addEventListener('click', openWorldDraftEditor);
   $('world-edit-draft').addEventListener('click', openWorldDraftEditor);
   $('world-draft-form').addEventListener('input', () => { worldDraftDirty = true; });
+  $('world-draft-add-location').addEventListener('click', addWorldDraftLocation);
+  $('world-draft-add-npc').addEventListener('click', addWorldDraftNpc);
   $('world-draft-form').addEventListener('submit', async e => { e.preventDefault(); await saveWorldDraft(); });
   $('world-draft-close').addEventListener('click', requestCloseWorldDraft);
   $('world-draft-cancel').addEventListener('click', requestCloseWorldDraft);

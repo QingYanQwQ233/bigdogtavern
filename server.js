@@ -174,12 +174,92 @@ function worldDraftFieldsValid(payload, requireRevision = false) {
   return null;
 }
 
+function draftTextValid(value, maxLength, required = false) {
+  return typeof value === 'string' && value.trim().length <= maxLength && (!required || value.trim().length > 0);
+}
+
+function draftStringListValid(value, maxItems, maxLength) {
+  return Array.isArray(value) && value.length <= maxItems
+    && value.every(item => typeof item === 'string' && item.trim() && item.trim().length <= maxLength);
+}
+
+function validateWorldDraftCollections(payload, sourceWorld) {
+  const hasLocations = payload.locations !== undefined;
+  const hasNpcs = payload.npcs !== undefined;
+  if (!hasLocations && !hasNpcs) return null;
+  const locations = hasLocations ? payload.locations : (Array.isArray(sourceWorld?.locations) ? sourceWorld.locations : []);
+  const npcs = hasNpcs ? payload.npcs : (Array.isArray(sourceWorld?.npcs) ? sourceWorld.npcs : []);
+  if (!Array.isArray(locations) || locations.length > 256) return 'locations must contain at most 256 items';
+  const locationIds = new Set();
+  for (const location of locations) {
+    if (!location || typeof location !== 'object' || Array.isArray(location)) return 'locations contains an invalid item';
+    const id = typeof location.id === 'string' ? location.id.trim() : '';
+    if (!isSafeId(id) || locationIds.has(id)) return 'locations contains a duplicate or invalid ID';
+    if (!draftTextValid(location.name, 200, true) || !draftTextValid(location.type ?? '', 80) || !draftTextValid(location.summary ?? '', 2000)) return 'location text is invalid';
+    if (location.tags !== undefined && !draftStringListValid(location.tags, 32, 120)) return 'location tags are invalid';
+    locationIds.add(id);
+  }
+  const startLocationId = sourceWorld?.start?.locationId;
+  if (hasLocations && startLocationId !== undefined && startLocationId !== null && !locationIds.has(startLocationId)) return 'locations must retain start.locationId';
+  if (!Array.isArray(npcs) || npcs.length > 256) return 'npcs must contain at most 256 items';
+  const npcIds = new Set();
+  for (const npc of npcs) {
+    if (!npc || typeof npc !== 'object' || Array.isArray(npc)) return 'npcs contains an invalid item';
+    const id = typeof npc.id === 'string' ? npc.id.trim() : '';
+    if (!isSafeId(id) || npcIds.has(id)) return 'npcs contains a duplicate or invalid ID';
+    if (!draftTextValid(npc.name, 200, true)) return 'NPC name is invalid';
+    for (const key of ['role', 'description', 'persona', 'personality', 'appearance', 'speechStyle']) {
+      if (npc[key] !== undefined && !draftTextValid(npc[key], key === 'description' ? 4000 : 2000)) return `NPC ${key} is too long`;
+    }
+    for (const key of ['publicFacts', 'publicGoals']) {
+      if (npc[key] !== undefined && !draftStringListValid(npc[key], 64, 1000)) return `NPC ${key} is invalid`;
+    }
+    if (npc.secrets !== undefined) {
+      if (!Array.isArray(npc.secrets) || npc.secrets.length > 64) return 'NPC secrets are invalid';
+      const secretIds = new Set();
+      for (const secret of npc.secrets) {
+        const secretId = typeof secret?.id === 'string' ? secret.id.trim() : '';
+        if (!isSafeId(secretId) || secretIds.has(secretId) || !draftTextValid(secret?.content ?? '', 2000, true)) return 'NPC secrets contain an invalid item';
+        secretIds.add(secretId);
+      }
+    }
+    if (npc.locationId !== undefined && npc.locationId !== null && (!isSafeId(npc.locationId) || !locationIds.has(npc.locationId))) return 'NPC locationId must point to a registered location';
+    npcIds.add(id);
+  }
+  return null;
+}
+
+function normalizeDraftList(value, maxItems, maxLength) {
+  return [...new Set((Array.isArray(value) ? value : []).map(item => item.trim()).filter(Boolean))].slice(0, maxItems).map(item => item.slice(0, maxLength));
+}
+
+function normalizeDraftLocation(location) {
+  const next = { id: location.id.trim(), name: location.name.trim() };
+  for (const key of ['type', 'summary']) if (typeof location[key] === 'string') next[key] = location[key].trim();
+  if (Array.isArray(location.tags)) next.tags = normalizeDraftList(location.tags, 32, 120);
+  return next;
+}
+
+function normalizeDraftNpc(npc) {
+  const next = { id: npc.id.trim(), name: npc.name.trim() };
+  for (const key of ['role', 'description', 'persona', 'personality', 'appearance', 'speechStyle']) if (typeof npc[key] === 'string') next[key] = npc[key].trim();
+  if (npc.locationId !== undefined) next.locationId = npc.locationId === null ? null : npc.locationId.trim();
+  for (const key of ['publicFacts', 'publicGoals']) if (Array.isArray(npc[key])) next[key] = normalizeDraftList(npc[key], 64, 1000);
+  if (Array.isArray(npc.secrets)) next.secrets = npc.secrets.map(secret => ({ id: secret.id.trim(), content: secret.content.trim() }));
+  return next;
+}
+
 function applyWorldDraftFields(world, payload) {
   const next = cloneJson(world);
   next.title = payload.title.trim();
   next.summary = payload.summary;
   next.tags = [...new Set(payload.tags.map(value => value.trim()))];
   next.lorebookIds = [...new Set(payload.lorebookIds.map(value => value.trim()))];
+  if (payload.locations !== undefined) next.locations = payload.locations.map(normalizeDraftLocation);
+  if (payload.npcs !== undefined) {
+    next.npcs = payload.npcs.map(normalizeDraftNpc);
+    next.npcIds = next.npcs.map(npc => npc.id);
+  }
   return next;
 }
 
@@ -345,7 +425,7 @@ async function handleWorldDraftCreate(req, res) {
 async function handleWorldDraftPut(req, res, worldId) {
   if (!isSafeId(worldId)) return send(res, 400, JSON.stringify({ error: '无效的 worldId' }), 'application/json');
   let payload;
-  try { payload = await readJsonBody(req, 64 * 1024); }
+  try { payload = await readJsonBody(req, 512 * 1024); }
   catch (err) {
     const status = err.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400;
     return send(res, status, JSON.stringify({ error: err.message }), 'application/json');
@@ -363,6 +443,8 @@ async function handleWorldDraftPut(req, res, worldId) {
       }
       const worlds = await loadWorlds();
       if (!findWorldVersion(worlds, worldId, current.baseVersion)) return send(res, 409, JSON.stringify({ error: '草稿所基于的世界版本已不存在' }), 'application/json');
+      const collectionsInvalid = validateWorldDraftCollections(payload, current.world);
+      if (collectionsInvalid) return send(res, 400, JSON.stringify({ error: collectionsInvalid }), 'application/json');
       const updatedAt = Math.max(Date.now(), current.updatedAt + 1);
       const next = { ...current, world: applyWorldDraftFields(current.world, payload), updatedAt };
       drafts[index] = next;

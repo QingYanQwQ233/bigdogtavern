@@ -1621,6 +1621,19 @@ body[data-theme="vibrancy"] .dropdown { box-shadow: none; }
 .world-draft-base { margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .world-draft-body { padding: 18px 20px 6px; overflow-y: auto; }
 .world-draft-body .field { margin-bottom: 14px; }
+.world-draft-collection { margin: 18px 0 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.world-draft-collection-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.world-draft-collection-head h3 { margin: 0 0 3px; color: var(--text); font: 16px var(--font-display); letter-spacing: 0.8px; }
+.world-draft-collection-head p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.world-draft-collection-list { display: grid; gap: 10px; }
+.world-draft-empty { margin: 0; padding: 13px; border: 1px dashed var(--line); border-radius: 9px; color: var(--muted); font-size: 11.5px; text-align: center; }
+.world-draft-entry { padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: rgba(var(--bg-0-rgb), 0.32); }
+.world-draft-entry-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 9px; color: var(--accent); font: 13px var(--font-display); }
+.world-draft-entry-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+.world-draft-entry .field { margin-bottom: 9px; }
+.world-draft-entry .field > span { display: block; margin-bottom: 5px; color: var(--muted); font-size: 11px; letter-spacing: 0.4px; }
+.world-draft-entry .danger { color: var(--danger); border-color: rgba(var(--danger-rgb), 0.35); }
+.world-draft-entry .danger:hover { background: rgba(var(--danger-rgb), 0.12); }
 .world-draft-status { min-height: 20px; margin: 3px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.5; }
 .world-draft-status.error { color: var(--danger); }
 .world-draft-status.ok { color: var(--ok); }
@@ -1883,6 +1896,7 @@ body[data-theme="vibrancy"] .dropdown { box-shadow: none; }
   .world-draft-body { padding-inline: 14px; }
   .world-draft-head, .world-draft-actions { padding-inline: 14px; }
   .world-draft-body :is(input, textarea) { font-size: 16px; }
+  .world-draft-entry-grid { grid-template-columns: 1fr; }
   .cw-head { align-items: flex-start; flex-direction: column; }
   .cw-steps { width: 100%; overflow-x: auto; }
   .cm-profile-row { grid-template-columns: 1fr auto; }

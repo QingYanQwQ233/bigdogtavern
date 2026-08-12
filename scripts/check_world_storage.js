@@ -76,6 +76,11 @@ async function main() {
       body: JSON.stringify({ worldId: world.id, baseVersion: world.version }),
     });
     assert.strictEqual(duplicateDraft.response.status, 200, 'draft creation is idempotent');
+    const draftLocations = [
+      { id: 'wolf-tooth-inn', name: '断牙之角', type: 'inn', summary: '雨幕下的旅店', tags: ['安全区'] },
+      { id: 'region-2', name: 'Region Two', type: 'region', summary: '', tags: [] },
+    ];
+    const draftNpcs = [{ id: 'npc-lily', name: 'Lily', role: 'innkeeper', locationId: 'wolf-tooth-inn', description: '旅店老板', publicFacts: ['认识本地客人'], publicGoals: [], secrets: [{ id: 'lily-secret', content: '保留的秘密' }] }];
     const draftUpdate = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -86,11 +91,22 @@ async function main() {
         summary: '草稿简介',
         tags: ['日式西幻', '草稿'],
         lorebookIds: ['default'],
+        locations: draftLocations,
+        npcs: draftNpcs,
       }),
     });
     assert.strictEqual(draftUpdate.response.status, 200);
     assert.strictEqual(draftUpdate.body.world.title, '极光大陆（草稿）');
     assert.deepStrictEqual(draftUpdate.body.world.tags, ['日式西幻', '草稿']);
+    assert.deepStrictEqual(draftUpdate.body.world.locations, draftLocations);
+    assert.deepStrictEqual(draftUpdate.body.world.npcs, draftNpcs);
+    assert.deepStrictEqual(draftUpdate.body.world.npcIds, ['npc-lily']);
+    const invalidDraftCollections = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedUpdatedAt: draftUpdate.body.updatedAt, baseVersion: world.version, title: 'invalid', summary: '', tags: [], lorebookIds: [], locations: [{ id: 'wolf-tooth-inn', name: 'Inn' }], npcs: [{ id: 'npc-lily', name: 'Lily', locationId: 'missing-location' }] }),
+    });
+    assert.strictEqual(invalidDraftCollections.response.status, 400, 'dangling NPC location is rejected');
     const staleDraftUpdate = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
