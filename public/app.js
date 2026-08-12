@@ -599,8 +599,9 @@ function renderCharList() {
   list.innerHTML = '';
   for (const c of characters) {
     const el = document.createElement('div');
-    el.className = 'cm-item' + (c.id === currentCharId ? ' active' : '');
-    el.innerHTML = `<span>${esc(c.name || '未命名')}</span><span class="cm-x" title="删除">✕</span>`;
+    const inUse = c.id === currentCharId;
+    el.className = 'cm-item' + (c.id === cmEditingId ? ' active' : '');
+    el.innerHTML = `<span class="cm-name">${esc(c.name || '未命名')}${inUse ? '<span class="cm-inuse-mark">使用中</span>' : ''}</span><span class="cm-x" title="删除">✕</span>`;
     el.addEventListener('click', (ev) => {
       if (ev.target.classList.contains('cm-x')) { deleteChar(c.id); return; }
       selectCharForEdit(c.id);
@@ -651,6 +652,7 @@ function selectCharForEdit(id) {
   $('cm-ref-image').value = c.refImage || '';
   updateRefPreview(c.refImage || '');
   $('cm-tags').value = c.tags || '';
+  renderCharList();
 }
 
 /* 参考图预览：有图显示，无图隐藏 */
