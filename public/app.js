@@ -1642,7 +1642,12 @@ function updateTypingContent(text) {
     typingRaf = 0;
     const t = $('typing-msg');
     const content = mode === 'rpg' ? splitRpgOutput(typingText).content : typingText;
-    if (t) t.querySelector(mode === 'rpg' ? '.rpg-prose' : '.bubble').innerHTML = renderBubble(content).html;
+    if (t) {
+      const target = t.querySelector(mode === 'rpg' ? '.rpg-prose' : '.bubble');
+      const rendered = renderBubble(content);
+      target.innerHTML = rendered.html;
+      target.classList.toggle('md', rendered.md);
+    }
     const chat = $('chat');
     chat.scrollTop = chat.scrollHeight;
   });
