@@ -220,6 +220,7 @@ function resetWorldTurnPending(pending) {
   if (!pending) return;
   pending.messages = pending.messages.filter(message => message && message.role !== 'assistant' && message.role !== 'image');
   pending.options = null;
+  pending.createEntities = null;
   pending.state = cloneValue(pending.beforeState);
   if (currentWorldSave && pending.saveId === currentWorldSaveId) {
     currentWorldSave.state = cloneValue(pending.beforeState);
@@ -266,6 +267,7 @@ async function submitWorldTurn(pending) {
       state: pending.state,
       turns: cloneValue(pending.messages),
       options: pending.options,
+      createEntities: pending.createEntities || undefined,
     }),
   });
   const data = await res.json().catch(() => null);
@@ -663,8 +665,8 @@ function processAIOutput(reply) {
     const detail = r.rolls.length > 1 ? `（${r.rolls.join(' + ')}${r.bonus ? (r.bonus >= 0 ? ' + ' + r.bonus : ' - ' + Math.abs(r.bonus)) : ''}）` : (r.bonus ? `（+${r.bonus}）` : '');
     pushMessage('user', `🎲 掷骰 ${r.expr} = ${r.total} ${detail}`, { meta: true });
   }
-  const options = applyRpgUpdate(parsed.payload); // ```rpg``` 状态/物品/任务/位置/options 应用
-  return { content: parsed.content, options };
+  const update = applyRpgUpdate(parsed.payload); // ```rpg``` 状态/物品/任务/位置/options 应用
+  return { content: parsed.content, options: update?.options || null, createEntities: update?.createEntities || null };
 }
 
 function applyRpgUpdate(payload) {
@@ -712,9 +714,10 @@ function applyRpgUpdate(payload) {
   const options = Array.isArray(upd.options)
     ? upd.options.filter(o => typeof o === 'string' && o.trim()).slice(0, 4)
     : null;
+  const createEntities = Array.isArray(upd.createEntities) ? cloneValue(upd.createEntities) : null;
   commitRpgState(rs);
   renderRPG();
-  return options;
+  return { options, createEntities };
 }
 
 /* ─────────── 掷骰（D&D 风格：d20+5 / 2d6-1 自动掷骰） ─────────── */
@@ -2201,9 +2204,12 @@ function buildWorldNpcPromptPart() {
   if (!worldModeActive()) return '';
   const world = currentWorldCard();
   const save = currentWorldSave;
-  const definitions = Array.isArray(world?.npcs)
-    ? world.npcs.filter(npc => npc && typeof npc.id === 'string' && npc.id.trim())
+  const generatedNpcs = save.generatedEntities?.npcs && typeof save.generatedEntities.npcs === 'object' && !Array.isArray(save.generatedEntities.npcs)
+    ? Object.values(save.generatedEntities.npcs)
     : [];
+  const definitions = [...(Array.isArray(world?.npcs) ? world.npcs : []), ...generatedNpcs]
+    .filter(npc => npc && typeof npc.id === 'string' && npc.id.trim())
+    .filter((npc, index, list) => list.findIndex(item => item.id === npc.id) === index);
   if (!definitions.length) return '';
   const state = save.state || {};
   const currentLocationId = typeof state.locationId === 'string' ? state.locationId : '';
@@ -3518,6 +3524,7 @@ async function requestReply() {
     if (worldTurnPendingActive()) {
       if (!processed.options || processed.options.length !== 4) throw new Error('RPG 回合必须返回恰好 4 个行动选项，当前候选未提交');
       worldTurnPending.options = processed.options;
+      worldTurnPending.createEntities = processed.createEntities;
       worldTurnPending.state = serializeWorldState(currentWorldSave);
       await submitWorldTurn(worldTurnPending);
     }
@@ -3561,6 +3568,7 @@ async function sendMessage() {
         state: serializeWorldState(currentWorldSave),
         messages: [{ id: uid(), role: 'user', content: text, ts: Date.now() }],
         options: null,
+        createEntities: null,
       };
       renderMessages();
       const rolls = rollDiceIn(text);

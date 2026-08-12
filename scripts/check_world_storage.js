@@ -144,11 +144,37 @@ async function main() {
           { id: 'turn-user-2', role: 'user', content: '询问莉莉' },
           { id: 'turn-ai-2', role: 'assistant', content: '莉莉抬头。' },
         ],
+        createEntities: [
+          { kind: 'npc', tempId: 'traveler-1', name: '临时旅人', role: 'witness', description: '只属于本次存档的目击者', locationId: 'region-2' },
+          { kind: 'item', tempId: 'blue-key', name: '蓝色钥匙', count: 1, locationId: 'region-2' },
+        ],
       }),
     });
     assert.strictEqual(npcTurn.response.status, 200);
     assert.strictEqual(npcTurn.body.revision, 3);
     assert.strictEqual(npcTurn.body.npcStates['npc-lily'].locationId, 'region-2');
+    const generatedNpcId = Object.keys(npcTurn.body.generatedEntities.npcs || {})[0];
+    assert.match(generatedNpcId, new RegExp(`^save:${first.body.id}:npc:1$`));
+    assert.strictEqual(npcTurn.body.generatedEntities.npcs[generatedNpcId].name, '临时旅人');
+    assert.strictEqual(npcTurn.body.generatedEntities.npcs[generatedNpcId].role, 'witness');
+    assert.strictEqual(Object.keys(npcTurn.body.generatedEntities.items || {}).length, 1);
+    const duplicateGeneratedTurn = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...turnPayload,
+        commandId: 'command-0005',
+        expectedRevision: 2,
+        npcStates: { 'npc-lily': { locationId: 'region-2', relation: { trust: 1 }, knowledge: ['玩家曾帮助她'], status: ['alert'] } },
+        turns: [{ id: 'turn-user-2', role: 'user', content: '询问莉莉' }, { id: 'turn-ai-2', role: 'assistant', content: '莉莉抬头。' }],
+        createEntities: [
+          { kind: 'npc', tempId: 'traveler-1', name: '临时旅人', role: 'witness', description: '只属于本次存档的目击者', locationId: 'region-2' },
+          { kind: 'item', tempId: 'blue-key', name: '蓝色钥匙', count: 1, locationId: 'region-2' },
+        ],
+      }),
+    });
+    assert.strictEqual(duplicateGeneratedTurn.response.status, 200, 'generated entity command is idempotent');
+    assert.strictEqual(Object.keys(duplicateGeneratedTurn.body.generatedEntities.npcs || {}).length, 1);
     const invalidLocation = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -165,6 +191,7 @@ async function main() {
     assert.strictEqual(secondReload.response.status, 200);
     assert.strictEqual(secondReload.body.revision, 0);
     assert.strictEqual(secondReload.body.npcStates['npc-lily'].locationId, 'wolf-tooth-inn', 'NPC state does not leak across saves');
+    assert.deepStrictEqual(secondReload.body.generatedEntities, {}, 'generated entities do not leak across saves');
     const duplicateTurn = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -200,6 +227,12 @@ async function main() {
       body: JSON.stringify({ ...turnPayload, commandId: 'command-0006', expectedRevision: 3, npcStates: { 'npc-lily': { knowledge: new Array(129).fill('x') } } }),
     });
     assert.strictEqual(invalidNpcState.response.status, 400, 'candidate NPC state is bounded');
+    const invalidCreateEntity = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...turnPayload, commandId: 'command-0009', expectedRevision: 3, createEntities: [{ kind: 'world-rule', tempId: 'bad', name: '越界实体' }] }),
+    });
+    assert.strictEqual(invalidCreateEntity.response.status, 400, 'unsupported generated entity kind is rejected');
     const conflict = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

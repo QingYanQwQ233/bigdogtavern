@@ -142,11 +142,14 @@ function worldLocationIds(world) {
     .map(id => id.trim()));
 }
 
-function validateWorldLocationIds(world, state, npcStates) {
+function validateWorldLocationIds(world, state, npcStates, createEntities) {
   const allowedIds = worldLocationIds(world);
   const refs = [['state.locationId', state && state.locationId]];
   if (npcStates && typeof npcStates === 'object') {
     for (const [npcId, npc] of Object.entries(npcStates)) refs.push([`npcStates.${npcId}.locationId`, npc && npc.locationId]);
+  }
+  if (Array.isArray(createEntities)) {
+    createEntities.forEach((entity, index) => refs.push([`createEntities[${index}].locationId`, entity && entity.locationId]));
   }
   for (const [label, locationId] of refs) {
     if (locationId !== undefined && locationId !== null && (!allowedIds.has(locationId) || !SAFE_ID_RE.test(locationId))) {
@@ -393,6 +396,83 @@ function validateNpcStates(value, allowedIds = null) {
   return null;
 }
 
+const GENERATED_ENTITY_KINDS = new Set(['npc', 'item', 'quest', 'location']);
+
+function validateCreateEntities(value) {
+  if (value === undefined) return null;
+  if (!Array.isArray(value) || value.length > 32) return 'createEntities 必须是最多 32 个实体的数组';
+  const tempIds = new Set();
+  for (const entity of value) {
+    if (!entity || typeof entity !== 'object' || Array.isArray(entity)) return 'createEntities 项必须是对象';
+    if (!GENERATED_ENTITY_KINDS.has(entity.kind)) return 'createEntities kind 无效';
+    if (typeof entity.tempId !== 'string' || !entity.tempId.trim() || entity.tempId.length > 80) return 'createEntities tempId 无效';
+    if (tempIds.has(entity.tempId.trim())) return 'createEntities tempId 不能重复';
+    tempIds.add(entity.tempId.trim());
+    if (typeof entity.name !== 'string' || !entity.name.trim() || entity.name.length > 200) return 'createEntities name 无效';
+    if (entity.reason !== undefined && (typeof entity.reason !== 'string' || entity.reason.length > 1000)) return 'createEntities reason 无效';
+    if (entity.description !== undefined && (typeof entity.description !== 'string' || entity.description.length > 4000)) return 'createEntities description 无效';
+    for (const key of ['role', 'persona', 'personality', 'appearance', 'speechStyle', 'publicGoals', 'type']) {
+      if (entity[key] !== undefined && (typeof entity[key] !== 'string' || entity[key].length > 2000)) return `createEntities ${key} 无效`;
+    }
+    if (entity.locationId !== undefined && entity.locationId !== null && (typeof entity.locationId !== 'string' || entity.locationId.length > 240)) return 'createEntities locationId 无效';
+    if (entity.count !== undefined && (!Number.isInteger(entity.count) || entity.count < 0 || entity.count > 1000000)) return 'createEntities count 无效';
+    if (entity.status !== undefined && (typeof entity.status !== 'string' || entity.status.length > 64)) return 'createEntities status 无效';
+    for (const key of ['npcIds', 'tags', 'publicFacts']) {
+      if (entity[key] !== undefined && (!Array.isArray(entity[key]) || entity[key].length > 64 || entity[key].some(item => typeof item !== 'string' || item.length > 1000))) return `createEntities ${key} 无效`;
+    }
+  }
+  return null;
+}
+
+function generatedEntityCount(generatedEntities) {
+  if (!generatedEntities || typeof generatedEntities !== 'object' || Array.isArray(generatedEntities)) return 0;
+  return Object.values(generatedEntities).reduce((total, bucket) => total + (bucket && typeof bucket === 'object' && !Array.isArray(bucket) ? Object.keys(bucket).length : 0), 0);
+}
+
+function nextGeneratedEntitySequence(generatedEntities, saveId) {
+  let next = 1;
+  if (!generatedEntities || typeof generatedEntities !== 'object') return next;
+  for (const bucket of Object.values(generatedEntities)) {
+    if (!bucket || typeof bucket !== 'object' || Array.isArray(bucket)) continue;
+    for (const id of Object.keys(bucket)) {
+      const match = id.match(new RegExp(`^save:${saveId}:[a-z]+:(\\d+)$`));
+      if (match) next = Math.max(next, Number(match[1]) + 1);
+    }
+  }
+  return next;
+}
+
+function materializeGeneratedEntities(current, candidates, saveId, commandId, revision) {
+  const generated = current.generatedEntities && typeof current.generatedEntities === 'object' && !Array.isArray(current.generatedEntities)
+    ? cloneJson(current.generatedEntities)
+    : {};
+  let sequence = nextGeneratedEntitySequence(generated, saveId);
+  for (const candidate of candidates || []) {
+    const bucketName = candidate.kind + 's';
+    if (!generated[bucketName] || typeof generated[bucketName] !== 'object' || Array.isArray(generated[bucketName])) generated[bucketName] = {};
+    const id = `save:${saveId}:${candidate.kind}:${sequence++}`;
+    const entity = {
+      id,
+      kind: candidate.kind,
+      tempId: candidate.tempId.trim(),
+      name: candidate.name.trim(),
+      reason: candidate.reason ? candidate.reason.trim() : '',
+      createdAt: Date.now(),
+      commandId,
+      revision,
+    };
+    for (const key of ['description', 'locationId', 'status', 'role', 'persona', 'personality', 'appearance', 'speechStyle', 'publicGoals', 'type']) {
+      if (candidate[key] !== undefined) entity[key] = candidate[key];
+    }
+    if (candidate.count !== undefined) entity.count = candidate.count;
+    for (const key of ['npcIds', 'tags', 'publicFacts']) {
+      if (Array.isArray(candidate[key])) entity[key] = candidate[key].map(item => item.trim());
+    }
+    generated[bucketName][id] = entity;
+  }
+  return generated;
+}
+
 async function handleWorldSavePut(req, res, saveId) {
   const fp = savePath(saveId);
   if (!fp) return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json');
@@ -444,6 +524,8 @@ function validateWorldTurn(payload) {
   }
   if (!Array.isArray(payload.options) || payload.options.length !== 4 || payload.options.some(o => typeof o !== 'string' || !o.trim())) return 'options 必须恰好包含 4 个非空字符串';
   if (new Set(payload.options.map(o => o.trim())).size !== 4) return 'options 不能重复';
+  const invalidCreateEntities = validateCreateEntities(payload.createEntities);
+  if (invalidCreateEntities) return invalidCreateEntities;
   return null;
 }
 
@@ -465,9 +547,13 @@ async function handleWorldTurnPost(req, res, saveId) {
       const current = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
       if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
       const world = (await loadWorlds()).find(item => item.id === current.worldId && item.version === current.worldVersion);
-      const invalidLocation = validateWorldLocationIds(world, payload.state, payload.npcStates);
+      const invalidLocation = validateWorldLocationIds(world, payload.state, payload.npcStates, payload.createEntities);
       if (invalidLocation) return send(res, 400, JSON.stringify({ error: invalidLocation }), 'application/json');
       let allowedNpcIds = new Set(Object.keys(current.npcStates || {}));
+      const generatedNpcs = current.generatedEntities && current.generatedEntities.npcs;
+      if (generatedNpcs && typeof generatedNpcs === 'object' && !Array.isArray(generatedNpcs)) {
+        for (const id of Object.keys(generatedNpcs)) allowedNpcIds.add(id);
+      }
       if (!allowedNpcIds.size) {
         try {
           const world = (await loadWorlds()).find(item => item.id === current.worldId && item.version === current.worldVersion);
@@ -483,12 +569,18 @@ async function handleWorldTurnPost(req, res, saveId) {
       if (current.revision !== payload.expectedRevision) {
         return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
       }
+      if (generatedEntityCount(current.generatedEntities) + (payload.createEntities ? payload.createEntities.length : 0) > 1024) {
+        return send(res, 400, JSON.stringify({ error: '存档临时实体数量不能超过 1024' }), 'application/json');
+      }
       const revision = current.revision + 1;
       const committedTurns = payload.turns.map(turn => ({ ...cloneJson(turn), commandId: payload.commandId, revision }));
       const next = {
         ...current,
         state: cloneJson(payload.state),
         npcStates: payload.npcStates === undefined ? (current.npcStates || {}) : cloneJson(payload.npcStates),
+        generatedEntities: payload.createEntities && payload.createEntities.length
+          ? materializeGeneratedEntities(current, payload.createEntities, saveId, payload.commandId, revision)
+          : (current.generatedEntities || {}),
         turns: [...(Array.isArray(current.turns) ? current.turns : []), ...committedTurns],
         receipts: [...(Array.isArray(current.receipts) ? current.receipts : []), {
           commandId: payload.commandId,

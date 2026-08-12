@@ -64,6 +64,12 @@ vm.runInContext(`
           'npc-quest': { locationId: 'far-away', relation: {}, knowledge: [], status: ['waiting'] },
           'npc-remote': { locationId: 'far-away', relation: {}, knowledge: [], status: [] },
         },
+        generatedEntities: {
+          npcs: {
+            'save:save-world:npc:1': { id: 'save:save-world:npc:1', kind: 'npc', name: 'Generated Local', role: 'witness', locationId: 'wolf-tooth-inn', publicFacts: ['只存在于当前存档'] },
+            'save:save-world:npc:2': { id: 'save:save-world:npc:2', kind: 'npc', name: 'Generated Remote', role: 'stranger', locationId: 'far-away' },
+          },
+        },
         turns: [], opening: '',
       };
       worldCards = [{
@@ -111,6 +117,8 @@ assert.match(context.check.worldPrompt, /wolf-tooth-inn/);
 assert.match(context.check.worldPrompt, /npc-party/);
 assert.match(context.check.worldPrompt, /npc-local/);
 assert.match(context.check.worldPrompt, /npc-quest/);
+assert.match(context.check.worldPrompt, /Generated Local/);
+assert.doesNotMatch(context.check.worldPrompt, /Generated Remote/);
 assert.doesNotMatch(context.check.worldPrompt, /npc-remote/);
 assert.doesNotMatch(context.check.hiddenSecretPrompt, /隐藏宝库位于北墙之后/);
 assert.match(context.check.unlockedSecretPrompt, /隐藏宝库位于北墙之后/);
