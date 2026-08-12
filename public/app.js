@@ -106,6 +106,7 @@ let worldLoadToken = 0;
 let worldSaveWriteChain = Promise.resolve();
 let worldSavePending = null;
 let worldTurnPending = null;
+let worldTurnError = null;
 let worldTurnPreparing = false;
 let worldTurnEpoch = 0;
 let theme = localStorage.getItem(LS_THEME) || 'tavern';
@@ -212,15 +213,48 @@ function worldTimelineMessages() {
 function worldTurnPendingActive() {
   return worldModeActive() && !!worldTurnPending && worldTurnPending.saveId === currentWorldSaveId;
 }
-function discardWorldTurnPending() {
-  const pending = worldTurnPending;
-  worldTurnPending = null;
-  worldTurnEpoch++;
-  if (pending && currentWorldSave && pending.saveId === currentWorldSaveId) {
+function worldTurnErrorActive() {
+  return worldModeActive() && !!worldTurnError && worldTurnError.saveId === currentWorldSaveId;
+}
+function resetWorldTurnPending(pending) {
+  if (!pending) return;
+  pending.messages = pending.messages.filter(message => message && message.role !== 'assistant' && message.role !== 'image');
+  pending.options = null;
+  pending.state = cloneValue(pending.beforeState);
+  if (currentWorldSave && pending.saveId === currentWorldSaveId) {
     currentWorldSave.state = cloneValue(pending.beforeState);
     hydrateWorldSave(currentWorldSave);
   }
+}
+function discardWorldTurnPending() {
+  const pending = worldTurnPending;
+  worldTurnPending = null;
+  worldTurnError = null;
+  worldTurnEpoch++;
+  resetWorldTurnPending(pending);
   renderMessages();
+}
+function failWorldTurnPending(message) {
+  if (!worldTurnPendingActive()) return false;
+  resetWorldTurnPending(worldTurnPending);
+  worldTurnError = {
+    saveId: worldTurnPending.saveId,
+    commandId: worldTurnPending.commandId,
+    message: String(message || '本回合未提交'),
+  };
+  worldTurnEpoch++;
+  renderMessages();
+  return true;
+}
+async function retryWorldTurn() {
+  if (!worldTurnPendingActive() || !worldTurnErrorActive() || sending || worldTurnPreparing) return;
+  worldTurnError = null;
+  resetWorldTurnPending(worldTurnPending);
+  worldTurnEpoch++;
+  renderMessages();
+  worldTurnPreparing = true;
+  try { await requestReply(); }
+  finally { worldTurnPreparing = false; }
 }
 async function submitWorldTurn(pending) {
   const res = await fetch('/api/world-saves/' + encodeURIComponent(pending.saveId), {
@@ -244,6 +278,7 @@ async function submitWorldTurn(pending) {
   currentWorldSave = data;
   currentWorldSaveId = data.id;
   worldTurnPending = null;
+  worldTurnError = null;
   worldTurnEpoch++;
   renderRPG();
   renderSessions();
@@ -313,6 +348,7 @@ async function loadWorldSaves(worldId) {
   return saves;
 }
 async function openWorldSave(saveId, expectedToken = worldLoadToken) {
+  if (worldTurnPending && worldTurnPending.saveId !== saveId) discardWorldTurnPending();
   const res = await fetch('/api/world-saves/' + encodeURIComponent(saveId));
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new Error(worldApiError(data, '存档读取失败（HTTP ' + res.status + '）'));
@@ -328,6 +364,7 @@ async function openWorldSave(saveId, expectedToken = worldLoadToken) {
   return currentWorldSave;
 }
 async function createWorldSave(name) {
+  if (worldTurnPending) discardWorldTurnPending();
   const world = currentWorldCard();
   if (!world) throw new Error('请先选择一个世界卡');
   const res = await fetch('/api/world-saves', {
@@ -365,6 +402,7 @@ function renderWorldList() {
     </button>`;
   }).join('');
   list.querySelectorAll('[data-world-id]').forEach(el => el.addEventListener('click', async () => {
+    if (worldTurnPending) discardWorldTurnPending();
     const token = ++worldLoadToken;
     const id = el.dataset.worldId;
     if (!worldCardById(id)) return;
@@ -3411,10 +3449,9 @@ async function requestReply() {
   } catch (err) {
     console.error('[Tavern] ✗ 请求失败', err.message);
     removeTyping();
-    const hadWorldTurn = worldTurnPendingActive();
-    if (hadWorldTurn) discardWorldTurnPending();
+    const keptWorldTurn = failWorldTurnPending(err.message);
     setDebugTrace(targetScope, { status: '失败', output: `ERROR\n${err.message}` });
-    if (activeConversationKey() === targetKey && !hadWorldTurn) pushMessage('system', `⚠️ 请求失败：${err.message}`);
+    if (activeConversationKey() === targetKey && !keptWorldTurn) pushMessage('system', `⚠️ 请求失败：${err.message}`);
     setApiStatus(`最近一次请求失败：${err.message}`, true);
   } finally {
     sending = false;
@@ -3572,6 +3609,7 @@ function applyLayout() {
 
 /* 模式：酒馆 / RPG（body[data-mode] 控制布局与渲染分支） */
 function applyMode(name) {
+  if (worldTurnPending) discardWorldTurnPending();
   mode = (name === 'rpg') ? 'rpg' : 'tavern';
   document.body.dataset.mode = mode;
   localStorage.setItem(LS_MODE, mode);
@@ -4068,6 +4106,32 @@ function renderQuickActions() {
   const qa = $('quick-actions');
   if (!qa) return;
   qa.innerHTML = '';
+  if (worldTurnErrorActive()) {
+    const box = document.createElement('div');
+    box.className = 'world-turn-error';
+    box.setAttribute('role', 'status');
+    box.setAttribute('aria-live', 'polite');
+    const text = document.createElement('span');
+    text.className = 'world-turn-error-text';
+    text.textContent = `本回合未提交：${worldTurnError.message}`;
+    box.appendChild(text);
+    const actions = document.createElement('span');
+    actions.className = 'world-turn-error-actions';
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'btn gold small';
+    retry.textContent = '重试 AI';
+    retry.addEventListener('click', retryWorldTurn);
+    const discard = document.createElement('button');
+    discard.type = 'button';
+    discard.className = 'ghost-btn small';
+    discard.textContent = '放弃本回合';
+    discard.addEventListener('click', discardWorldTurnPending);
+    actions.append(retry, discard);
+    box.appendChild(actions);
+    qa.appendChild(box);
+    return;
+  }
   if (mode === 'rpg') {
     const msgs = curMessages();
     let opts = null;
