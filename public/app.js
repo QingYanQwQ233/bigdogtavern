@@ -83,6 +83,7 @@ let theme = localStorage.getItem(LS_THEME) || 'tavern';
 let mode = localStorage.getItem(LS_MODE) || 'tavern'; // 'tavern' 酒馆模式 | 'rpg' RPG 模式
 let sending = false;
 let cmEditingId = null;
+let cmCreating = false;
 let wiEditingId = null;
 let lbEditingId = null;
 let pgEditingName = null;
@@ -597,6 +598,12 @@ function renderCharList() {
   const list = $('cm-list');
   if (!list) return;
   list.innerHTML = '';
+  if (cmCreating) {
+    const draft = document.createElement('div');
+    draft.className = 'cm-item cm-draft active';
+    draft.innerHTML = `<span class="cm-name">${esc($('cm-name').value.trim() || '新角色')}<span class="cm-draft-mark">未保存</span></span>`;
+    list.appendChild(draft);
+  }
   for (const c of characters) {
     const el = document.createElement('div');
     const inUse = c.id === currentCharId;
@@ -684,7 +691,10 @@ function appendCharFieldRow(field, custom = false) {
   input.value = field.value || '';
   input.placeholder = field.placeholder || '填写' + (field.label || '内容');
   input.setAttribute('aria-label', (field.label || '自定义条目') + '内容');
-  if (CHAR_FIELD_FORM[field.key]) input.addEventListener('input', () => { $(CHAR_FIELD_FORM[field.key]).value = input.value; });
+  if (CHAR_FIELD_FORM[field.key]) input.addEventListener('input', () => {
+    $(CHAR_FIELD_FORM[field.key]).value = input.value;
+    if (cmCreating && field.key === 'name') renderCharList();
+  });
   row.appendChild(input);
   if (custom) {
     const remove = document.createElement('button');
@@ -742,12 +752,15 @@ function syncProfileFieldsToForm() {
     const id = CHAR_FIELD_FORM[row.dataset.key];
     if (id) $(id).value = row.querySelector('.cm-profile-value').value.trim();
   }
+  if (cmCreating) renderCharList();
 }
 
 function selectCharForEdit(id) {
   const c = characters.find(x => x.id === id);
   if (!c) return;
+  cmCreating = false;
   cmEditingId = id;
+  $('cm-del').textContent = '删除角色';
   $('cm-edit-title').textContent = '编辑角色：' + (c.name || '未命名');
   $('cm-name').value = c.name || '';
   $('cm-race').value = c.race || '';
@@ -811,8 +824,10 @@ function importRefImage(file) {
 }
 
 function newCharEditor() {
+  cmCreating = true;
   cmEditingId = null;
   $('cm-edit-title').textContent = '新建角色';
+  $('cm-del').textContent = '取消新建';
   ['cm-name', 'cm-race', 'cm-role', 'cm-persona', 'cm-scenario', 'cm-first-mes', 'cm-system', 'cm-post', 'cm-ref-image', 'cm-tags']
     .forEach(id => { $(id).value = ''; });
   $('cm-ai-desc').value = '';
@@ -820,6 +835,8 @@ function newCharEditor() {
   renderCharProfileFields(null);
   setCharWizardStep(1);
   updateRefPreview(''); // 清空参考图预览（新建角色不复用上个角色的图）
+  renderCharList();
+  $('cm-ai-desc').focus();
 }
 
 function saveCharFromEditor() {
@@ -846,6 +863,9 @@ function saveCharFromEditor() {
     characters.push(c);
     cmEditingId = c.id;
   }
+  cmCreating = false;
+  $('cm-edit-title').textContent = '编辑角色：' + data.name;
+  $('cm-del').textContent = '删除角色';
   saveChars();
   renderCharList();
   renderCharacter();
@@ -872,7 +892,10 @@ function deleteChar(id) {
   if (currentCharId === id) { currentCharId = characters.length ? characters[0].id : null; localStorage.setItem(LS_CURRENT_CHAR, currentCharId || ''); }
   saveChars();
   activateSessionScope();
-  if (cmEditingId === id) newCharEditor();
+  if (cmEditingId === id) {
+    if (currentCharId) selectCharForEdit(currentCharId);
+    else newCharEditor();
+  }
   renderCharList();
   renderCharacter();
   renderSessions();
@@ -2546,7 +2569,7 @@ function switchView(name) {
     renderBindSelects();
     $('char-mgr').classList.remove('hidden');
     renderCharList();
-    if (!cmEditingId && characters.length) selectCharForEdit(currentCharId || characters[0].id);
+    if (!cmEditingId && !cmCreating && characters.length) selectCharForEdit(currentCharId || characters[0].id);
     return;
   }
   if (name === 'prompts') {
@@ -2756,6 +2779,7 @@ async function aiGenFullChar() {
       const value = Object.prototype.hasOwnProperty.call(confirmed, key) ? confirmed[key] : obj[key];
       if (typeof value === 'string') $(id).value = value;
     }
+    if (cmCreating) renderCharList();
     setCharWizardStep(3);
     $('cm-ai-status').textContent = '完整角色卡已生成，基本信息条目会随角色一起保存。';
   } catch (err) {
@@ -3226,9 +3250,19 @@ function bindEvents() {
   $('session-menu-new').addEventListener('click', () => { newSession(); $('session-menu').classList.add('hidden'); });
   // 角色管理
   $('cm-new').addEventListener('click', newCharEditor);
+  $('cm-name').addEventListener('input', () => { if (cmCreating) renderCharList(); });
   $('cm-save').addEventListener('click', () => { saveCharFromEditor(); renderCharList(); });
   $('cm-use').addEventListener('click', useCharInEditor);
-  $('cm-del').addEventListener('click', deleteChar);
+  $('cm-del').addEventListener('click', () => {
+    if (cmCreating) {
+      if (!confirm('取消新建角色？未保存内容将丢失。')) return;
+      cmCreating = false;
+      if (currentCharId) selectCharForEdit(currentCharId);
+      else renderCharList();
+      return;
+    }
+    if (cmEditingId) deleteChar(cmEditingId);
+  });
   $('cm-export').addEventListener('click', exportCurrentChar);
   $('cm-import').addEventListener('click', () => charFileInput.click());
   // 世界书
