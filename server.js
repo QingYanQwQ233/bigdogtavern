@@ -135,6 +135,27 @@ function worldNpcIds(world) {
   return [...new Set(ids.filter(id => typeof id === 'string' && id.trim()).map(id => id.trim()))];
 }
 
+function worldLocationIds(world) {
+  return new Set((Array.isArray(world?.locations) ? world.locations : [])
+    .map(location => location && location.id)
+    .filter(id => typeof id === 'string' && id.trim())
+    .map(id => id.trim()));
+}
+
+function validateWorldLocationIds(world, state, npcStates) {
+  const allowedIds = worldLocationIds(world);
+  const refs = [['state.locationId', state && state.locationId]];
+  if (npcStates && typeof npcStates === 'object') {
+    for (const [npcId, npc] of Object.entries(npcStates)) refs.push([`npcStates.${npcId}.locationId`, npc && npc.locationId]);
+  }
+  for (const [label, locationId] of refs) {
+    if (locationId !== undefined && locationId !== null && (!allowedIds.has(locationId) || !SAFE_ID_RE.test(locationId))) {
+      return `${label} 必须是当前世界已登记的稳定 locationId`;
+    }
+  }
+  return null;
+}
+
 function initialNpcStates(world, start) {
   const locationId = start && typeof start.locationId === 'string' ? start.locationId : null;
   return Object.fromEntries(worldNpcIds(world).map(npcId => [npcId, {
@@ -248,13 +269,15 @@ async function handleWorldSaveCreate(req, res) {
   if (!world) return send(res, 404, JSON.stringify({ error: '世界卡不存在' }), 'application/json');
   const worldVersion = Number(payload.worldVersion ?? world.version);
   if (!Number.isInteger(worldVersion) || worldVersion !== Number(world.version)) return send(res, 409, JSON.stringify({ error: '世界卡版本已变化，请重新打开世界库' }), 'application/json');
+  const start = world.start && typeof world.start === 'object' ? world.start : {};
+  const invalidStartLocation = validateWorldLocationIds(world, { locationId: start.locationId }, null);
+  if (invalidStartLocation) return send(res, 400, JSON.stringify({ error: invalidStartLocation }), 'application/json');
   if (typeof payload.name !== 'string') return send(res, 400, JSON.stringify({ error: '存档名称必须是字符串' }), 'application/json');
   const name = payload.name.trim();
   if (!name || name.length > 120) return send(res, 400, JSON.stringify({ error: '存档名称不能为空且不能超过 120 个字符' }), 'application/json');
 
   const id = newSaveId();
   const now = Date.now();
-  const start = world.start && typeof world.start === 'object' ? world.start : {};
   const initial = start.initialState && typeof start.initialState === 'object' ? start.initialState : {};
   const stats = initial.stats && typeof initial.stats === 'object' ? cloneJson(initial.stats) : {};
   const player = start.playerTemplate && typeof start.playerTemplate === 'object' ? cloneJson(start.playerTemplate) : { name: '未命名冒险者', race: '待定', role: '旅人', profileFields: [] };
@@ -385,6 +408,9 @@ async function handleWorldSavePut(req, res, saveId) {
     try {
       const current = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
       if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
+      const world = (await loadWorlds()).find(item => item.id === current.worldId && item.version === current.worldVersion);
+      const invalidLocation = validateWorldLocationIds(world, payload.state, current.npcStates);
+      if (invalidLocation) return send(res, 400, JSON.stringify({ error: invalidLocation }), 'application/json');
       if (current.revision !== payload.expectedRevision) {
         return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
       }
@@ -438,6 +464,9 @@ async function handleWorldTurnPost(req, res, saveId) {
     try {
       const current = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
       if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
+      const world = (await loadWorlds()).find(item => item.id === current.worldId && item.version === current.worldVersion);
+      const invalidLocation = validateWorldLocationIds(world, payload.state, payload.npcStates);
+      if (invalidLocation) return send(res, 400, JSON.stringify({ error: invalidLocation }), 'application/json');
       let allowedNpcIds = new Set(Object.keys(current.npcStates || {}));
       if (!allowedNpcIds.size) {
         try {

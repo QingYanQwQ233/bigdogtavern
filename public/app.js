@@ -2180,6 +2180,7 @@ function buildRpgPromptPart() {
       parts.unshift('【当前世界卡】\n' + [
         `世界：${world.title || world.id}（v${world.version || 1}）`,
         world.summary || '',
+        '位置协议：state.locationId 与 NPC locationId 只能使用已登记的稳定 locationId；地点名称只用于叙事，不得写入状态。',
         world.locations?.length ? '已登记地点：' + world.locations.map(x => `${x.name || x.id}（${x.type || '地点'}）`).join('、') : '',
         currentWorldSave.opening ? '开局：' + currentWorldSave.opening : '',
       ].filter(Boolean).join('\n'));

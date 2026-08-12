@@ -50,6 +50,14 @@ vm.runInContext(`
     activeRpg: activePresetNameForMode('rpg'),
     blocks: buildPromptBlocks(),
     payload: buildPayload(),
+    worldPrompt: (() => {
+      mode = 'rpg';
+      currentWorldId = 'world-aurora';
+      currentWorldSaveId = 'save-world';
+      currentWorldSave = { id: 'save-world', worldId: 'world-aurora', state: { locationId: 'wolf-tooth-inn', stats: {}, inventory: [], quests: [] }, turns: [], opening: '' };
+      worldCards = [{ id: 'world-aurora', version: 1, title: 'Aurora', locations: [{ id: 'wolf-tooth-inn', name: 'Inn' }] }];
+      return buildRpgPromptPart();
+    })(),
     converted: convertSTPresetData({
       temperature: 0.8,
       prompts: [
@@ -71,6 +79,8 @@ assert.strictEqual(context.check.activeTavern, '旧预设');
 assert.strictEqual(context.check.activeRpg, 'RPG 预设');
 assert.strictEqual(context.check.explicitGlobal, '');
 assert.match(context.check.blocks.system, /你是 夏瑾 的叙事者/);
+assert.match(context.check.worldPrompt, /state\.locationId/);
+assert.match(context.check.worldPrompt, /wolf-tooth-inn/);
 assert.match(context.check.blocks.system, /与 旅人 合作/);
 assert.match(context.check.blocks.system, /保持轻快/);
 assert.strictEqual((context.check.blocks.system.match(/月港终年有雾/g) || []).length, 1);

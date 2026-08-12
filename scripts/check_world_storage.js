@@ -11,11 +11,13 @@ const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tavern-world-'));
 const defaults = JSON.parse(fs.readFileSync(path.join(root, 'public', 'data', '_defaults.json'), 'utf8'));
 defaults.worlds[0].npcIds = ['npc-lily'];
 defaults.worlds[0].npcs = [{ id: 'npc-lily', name: 'Lily', role: 'innkeeper' }];
+defaults.worlds[0].locations.push({ id: 'region-2', name: 'Region Two', type: 'region' });
 defaults.worlds.push({
   ...defaults.worlds[0],
   id: 'world-second',
   title: '第二个世界',
   start: { ...defaults.worlds[0].start, locationId: 'second-start' },
+  locations: [...defaults.worlds[0].locations, { id: 'second-start', name: 'Second Start', type: 'region' }],
 });
 fs.writeFileSync(path.join(tempDir, '_defaults.json'), JSON.stringify(defaults, null, 2));
 fs.writeFileSync(path.join(tempDir, 'worlds.json'), JSON.stringify(defaults.worlds, null, 2));
@@ -147,6 +149,12 @@ async function main() {
     assert.strictEqual(npcTurn.response.status, 200);
     assert.strictEqual(npcTurn.body.revision, 3);
     assert.strictEqual(npcTurn.body.npcStates['npc-lily'].locationId, 'region-2');
+    const invalidLocation = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...turnPayload, commandId: 'command-0008', expectedRevision: 3, state: { ...statePatch, locationId: '自由文本地点' } }),
+    });
+    assert.strictEqual(invalidLocation.response.status, 400, 'free-text locations are rejected');
     const unknownNpcState = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
