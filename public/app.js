@@ -1885,14 +1885,16 @@ function renderDebugTerminal() {
 }
 
 function openDebugTerminal() {
-  $('debug-panel').classList.remove('hidden');
+  const panel = $('debug-panel');
+  if (!panel.open) panel.showModal();
   $('btn-debug').setAttribute('aria-expanded', 'true');
   renderDebugTerminal();
   $('debug-close').focus();
 }
 
 function closeDebugTerminal() {
-  $('debug-panel').classList.add('hidden');
+  const panel = $('debug-panel');
+  if (panel.open) panel.close();
   $('btn-debug').setAttribute('aria-expanded', 'false');
   $('btn-debug').focus();
 }
@@ -3398,11 +3400,12 @@ function bindEvents() {
     }));
   // 设置
   document.querySelectorAll('.js-settings').forEach(b => b.addEventListener('click', openSettings));
-  $('btn-debug').addEventListener('click', () => $('debug-panel').classList.contains('hidden') ? openDebugTerminal() : closeDebugTerminal());
+  $('btn-debug').addEventListener('click', () => $('debug-panel').open ? closeDebugTerminal() : openDebugTerminal());
   $('debug-close').addEventListener('click', closeDebugTerminal);
   $('debug-clear').addEventListener('click', clearDebugTerminal);
   $('debug-copy').addEventListener('click', copyDebugTerminal);
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('debug-panel').classList.contains('hidden')) closeDebugTerminal(); });
+  $('debug-panel').addEventListener('cancel', e => { e.preventDefault(); closeDebugTerminal(); });
+  $('debug-panel').addEventListener('click', e => { if (e.target === e.currentTarget) closeDebugTerminal(); });
   // 模式切换：刷新快捷行动与 RPG 面板
   $('btn-mode-switch').addEventListener('click', switchMode);
   renderQuickActions();
