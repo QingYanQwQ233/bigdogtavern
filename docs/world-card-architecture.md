@@ -1,15 +1,15 @@
 # Tavern 世界卡 / 世界存档架构草案
 
-> 状态：**设计草案，待确认；未实现。**
+> 状态：**W1 世界库与 W2 Web 世界存档主链已实现；NPC、回合事务提交与旧 RPG 迁移仍按路线图进行。**
 >
-> 本文只定义目标结构与迁移边界，不授权修改现有 RPG 运行时代码或用户存档。
+> 本文定义目标结构与迁移边界；W1/W2 已落地 Web 存档边界，旧 RPG 用户数据仍不自动迁移。
 >
 > 分阶段任务、验收门与回退入口见 [world-card-implementation-plan.md](world-card-implementation-plan.md)。
 
 ## 1. 已确定的方向
 
 - RPG 不再是“角色卡的一种对话模式”；它是进入一个可复用大世界后创建的一次游玩。
-- 当前 RPG 的“对话”在目标模型中改为“世界存档”；叙事记录是存档的一部分。
+- 当前 RPG 的“对话”在目标模型中改为“世界存档”；开局叙事与 `turns` 是存档的一部分。
 - 世界卡负责可复用的世界内容；世界存档负责会变化的事实。两者不能互相覆盖。
 - 角色卡在世界模式中分为玩家角色、世界 NPC 与临时 NPC，不再成为 RPG 会话的唯一归属。
 - 沿用 SillyTavern 的世界书 / 提示词素材库 / Prompt 顺序思想，但 UI 由 Tavern 原生数据渲染，不执行导入 HTML、EJS、MVU、插件脚本或正则脚本。
@@ -150,8 +150,9 @@
     'npc-lily': { locationId: 'wolf-tooth-inn', relation: {}, knowledge: [], status: [] },
   },
   turns: [
-    // 只保存已提交回合；不是未完成的流式草稿
-    { id: 'turn-12', revision: 12, input: '推门进入旅店', narrative: '...', options: [], changes: {}, createdAt: 0 },
+    // W2 先保存可恢复的消息时间线；W3 再扩展为带 command/receipt 的回合提交
+    { id: 'turn-12', role: 'user', content: '推门进入旅店', ts: 0 },
+    { id: 'turn-13', role: 'assistant', content: '你推开了旅店的门。', options: [], ts: 0 },
   ],
   receipts: [], // commandId 幂等记录，按上限裁剪
   generatedEntities: {}, // save:* ID 的临时 NPC、道具、任务或地点；只属于此存档

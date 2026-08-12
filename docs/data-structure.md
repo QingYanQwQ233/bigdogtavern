@@ -47,9 +47,9 @@ localStorage（前缀 rpg-airp:）→ server JSON 的离线缓存，server 为�
 世界：WorldCard → WorldSave → 世界 Prompt → 回合 / 状态 / 地图 / NPC
 ```
 
-W1 已实现世界卡目录到空存档的创建、列表和打开；世界桌面、AI 回合和旧 RPG 会话迁移仍属于后续阶段。世界卡由 `worldId + worldVersion` 定位，动态事实只由 `saveId + revision` 定位。浏览器 localStorage 只记住最近 ID，服务端 JSON 才是正式世界存档的权威来源。
+W1 已实现世界卡目录到存档的创建、列表和打开；W2 已把当前 RPG 叙事、状态、地图数据与美化图路径接入 WorldSave。世界卡由 `worldId + worldVersion` 定位，动态事实只由 `saveId + revision` 定位。浏览器 localStorage 只记住最近 ID，服务端 JSON 才是正式世界存档的权威来源。
 
-运行时数据按 `角色卡 → 会话` 隔离：会话以 `charId + kind` 归属到一个角色的一种模式；消息、AI 行动选项、RPG 状态、背包、任务、地图数据与美化图都只能从当前会话读取。切换角色或模式时，只切换到相同 `charId + kind` 的会话；不存在时创建独立会话并加载该角色的开场白。
+运行时数据按两条 owner 链隔离：酒馆仍是 `角色卡 → ChatSession`，RPG 世界模式是 `WorldCard → WorldSave`。世界模式的开场白与 `turns` 组成叙事投影，状态、背包、任务、地图数据和美化图路径只从当前 `saveId` 读取；切换世界存档不会读取旧 RPG 会话，也不会把当前角色卡开场白混入世界时间线。旧 `kind: 'rpg'` 会话保留兼容路径，尚未自动迁移。
 
 ```js
 {
@@ -91,14 +91,17 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
   id, worldId, worldVersion, name, createdAt, updatedAt,
   schemaVersion: 1, revision: 0,
   player: { templateId, snapshot }, party: [],
-  state: { stats, inventory: [], quests: [], locationId },
-  map: { data: null, imagePath: null },
-  opening: { text, shown: false },
-  turns: [], receipts: [], generatedEntities: [], migrationHistory: []
+  state: {
+    stats, inventory: [], quests: [], locationId,
+    map: { strategy: 'perSave', data: null, imagePath: null, markers: [] }
+  },
+  opening: '世界卡 start.opening 的开局叙事',
+  turns: [{ id, role: 'user' | 'assistant' | 'system', content, ts, options? }],
+  receipts: [], generatedEntities: {}, migrationHistory: []
 }
 ```
 
-创建时由服务端从当前 `WorldCard.start` 复制玩家快照和初始状态；客户端不能提交文件路径或自行指定 `saveId`。W1 只创建空 `turns`，W2 才把叙事、状态、地图和图片逐步接入 `WorldSave`。
+创建时由服务端从当前 `WorldCard.start` 复制玩家快照和初始状态；客户端不能提交文件路径或自行指定 `saveId`。世界模式修改通过 `PUT /api/world-saves/<saveId>` 提交完整的 `state + turns + opening`，带 `expectedRevision` 做顺序校验；地图网格写入 JSON 前转为数字数组，读取后恢复为 `Uint16Array`，图片只保存受校验的本地 `/images/...` 路径。
 
 ### 角色卡 characters[]（characters.json）
 ```js
@@ -210,6 +213,7 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 | `GET /api/world-saves?worldId=<worldId>` | 列出指定世界的存档摘要 |
 | `POST /api/world-saves` | 按世界卡创建一个独立空存档；服务端分配 `saveId` |
 | `GET /api/world-saves/<saveId>` | 读取一个完整 WorldSave |
+| `PUT /api/world-saves/<saveId>` | 使用 `expectedRevision` 原子提交当前存档的 `state`、`turns` 与 `opening`；版本冲突返回 409 |
 
 运行时 JSON 不通过静态文件直接暴露：`/data/` 路径拒绝读取，世界卡和存档只能通过上述 API 访问。
 
@@ -220,7 +224,7 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 - **参数**：Base URL / API Key / 模型 / 尺寸 / steps / CFG / 采样器 / 负面提示词 / 提示词来源（LLM 生成 | 直接剧情） / 回复后自动生图
 - **触发**：① 回复完成后自动（需开 auto）；② 设置面板「生成测试图」按钮（手动测试提示词）
 - **LLM 提示词生成**：走 `/api/chat` 代理（复用对话配置），指令为 `imageGen.promptInstruction`（JSON 可编辑）
-- **图片消息**：`{ role: 'image', content: <url|base64> }` 存入会话，渲染为 `<img>`；**不进对话上下文**（buildPromptBlocks history 过滤 image 角色）
+- **图片消息**：酒馆模式存入 ChatSession；世界模式存入当前 WorldSave.turns。两者都渲染为 `<img>`，且**不进对话上下文**（buildPromptBlocks history 过滤 image 角色）
 - 响应解析：`data[].b64_json ? 'data:image/png;base64,'+… : data[].url`；SD 取 `images[0]` base64
 
 ## 七、已知冗余（设计取舍）

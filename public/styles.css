@@ -1544,6 +1544,7 @@ body[data-theme="vibrancy"] .dropdown { box-shadow: none; }
 .world-item.active { background: rgba(var(--accent-rgb), 0.14); border-color: rgba(var(--accent-rgb), 0.42); color: var(--text); }
 .world-item-title { display: block; color: inherit; font-family: var(--font-display); letter-spacing: 0.5px; overflow-wrap: anywhere; }
 .world-item-meta { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; color: var(--muted); font-size: 10.5px; }
+.rpg-world-save { max-width: 180px; overflow: hidden; color: var(--accent); font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
 .world-item-summary { display: block; margin-top: 5px; overflow: hidden; color: var(--muted); font-size: 11px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
 .world-edit { padding: 24px clamp(18px, 4vw, 52px); }
 .world-detail { max-width: 900px; margin: 0 auto; }

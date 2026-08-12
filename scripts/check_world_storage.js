@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 
 const root = path.resolve(__dirname, '..');
+const MapGen = require(path.join(root, 'public', 'mapgen.js'));
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tavern-world-'));
 const defaults = JSON.parse(fs.readFileSync(path.join(root, 'public', 'data', '_defaults.json'), 'utf8'));
 defaults.worlds.push({
@@ -35,6 +36,12 @@ async function jsonRequest(base, pathname, options) {
 
 async function main() {
   try {
+    const generatedMap = MapGen.generateWorldMap(7, { size: 24, regionCount: 4 });
+    const serializedMap = MapGen.serializeMap(generatedMap);
+    assert.ok(Array.isArray(serializedMap.grid), 'map grid crosses JSON boundary as an array');
+    const hydratedMap = MapGen.hydrateMap(serializedMap);
+    assert.ok(hydratedMap.grid instanceof Uint16Array, 'map grid hydrates to Uint16Array');
+    assert.deepStrictEqual(Array.from(hydratedMap.grid), Array.from(generatedMap.grid));
     await startServer(0);
     const address = server.address();
     const base = `http://127.0.0.1:${address.port}`;
@@ -83,6 +90,30 @@ async function main() {
     assert.strictEqual(saved.response.status, 200);
     assert.strictEqual(saved.body.name, '第一份存档');
     assert.strictEqual(saved.body.worldId, world.id);
+    const statePatch = JSON.parse(JSON.stringify(saved.body.state));
+    statePatch.locationId = 'region-2';
+    statePatch.map.data = { size: 2, grid: [0, 1, 1, 0], regions: [], points: [], adjacency: [], seed: 7 };
+    statePatch.map.imagePath = '/images/world-map.png';
+    const savedUpdate = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedRevision: saved.body.revision, state: statePatch, turns: [{ id: 'turn-1', role: 'assistant', content: '世界存档内的叙事' }], opening: saved.body.opening }),
+    });
+    assert.strictEqual(savedUpdate.response.status, 200);
+    assert.strictEqual(savedUpdate.body.revision, 1);
+    assert.deepStrictEqual(savedUpdate.body.state.map.data.grid, [0, 1, 1, 0]);
+    const conflict = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedRevision: 0, state: statePatch, turns: [], opening: saved.body.opening }),
+    });
+    assert.strictEqual(conflict.response.status, 409, 'stale revision is rejected');
+    const badImagePath = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedRevision: 1, state: { ...statePatch, map: { ...statePatch.map, imagePath: '../secret.png' } }, turns: [], opening: saved.body.opening }),
+    });
+    assert.strictEqual(badImagePath.response.status, 400, 'external image path is rejected');
 
     const traversal = await jsonRequest(base, '/api/world-saves/%2e%2e%2fworlds');
     assert.strictEqual(traversal.response.status, 400, 'path traversal is rejected');

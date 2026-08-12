@@ -4,7 +4,7 @@
  *  - generateWorldMap(seed, opts) → { size, regions[], points[], grid, adjacency, seed }
  *    regions:  [{ id, name, biome, seedX, seedY }]          陆地划分的区域
  *    points:   [{ id, name, type, x, y, regionId, desc }]   路径点（城镇/地标）
- *    grid:     Uint8Array(size*size)，每像素存 regionId（0=海洋，1..n=区域）
+ *    grid:     Uint16Array(size*size)，每像素存 regionId（0=海洋，1..n=区域）；JSON 边界用数字数组
  *    adjacency:[ [a,b], ... ]                                相邻区域对
  *  - renderWorldMap(canvas, mapData, opts)                  绘制到 canvas
  *  - mapHit(mapData, px, py, scale) → { kind:'point'|'region', ... }
@@ -589,6 +589,20 @@
   }
 
   /* ---------- 命中检测 ---------- */
+  /* JSON 边界：Uint16Array 只存在运行时，存档中使用普通数字数组。 */
+  function serializeMap(map) {
+    if (!map || typeof map !== 'object') return null;
+    return { ...map, grid: Array.from(map.grid || []) };
+  }
+  function hydrateMap(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const map = { ...raw };
+    if (Array.isArray(raw.grid)) map.grid = Uint16Array.from(raw.grid);
+    else if (raw.grid instanceof Uint16Array) map.grid = raw.grid;
+    else return null;
+    return map;
+  }
+
   /* canvas 像素坐标 (px,py)（0..size 网格坐标系）→ 命中 */
   function mapHit(map, px, py) {
     const { size, points, grid } = map;
@@ -725,7 +739,7 @@
   }
 
   /* 导出：node（CommonJS）与浏览器（window.MapGen）双环境 */
-  const api = { generateWorldMap, renderWorldMap, mapHit, BIOMES };
+  const api = { generateWorldMap, renderWorldMap, mapHit, serializeMap, hydrateMap, BIOMES };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else global.MapGen = api;
 })(typeof window !== 'undefined' ? window : global);

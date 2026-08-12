@@ -271,6 +271,63 @@ async function handleWorldSaveCreate(req, res) {
   }
 }
 
+function validateWorldSavePatch(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return '请求必须是 JSON 对象';
+  if (!Number.isInteger(payload.expectedRevision) || payload.expectedRevision < 0) return 'expectedRevision 必须是非负整数';
+  if (!payload.state || typeof payload.state !== 'object' || Array.isArray(payload.state)) return 'state 必须是对象';
+  if (!Array.isArray(payload.turns) || payload.turns.length > 5000) return 'turns 必须是最多 5000 条的数组';
+  if (payload.opening !== undefined && typeof payload.opening !== 'string') return 'opening 必须是字符串';
+  const state = payload.state;
+  if (!Array.isArray(state.inventory) || !Array.isArray(state.quests)) return 'state.inventory/state.quests 必须是数组';
+  if (state.locationId !== null && state.locationId !== undefined && typeof state.locationId !== 'string') return 'state.locationId 必须是字符串或 null';
+  if (state.map !== undefined) {
+    if (!state.map || typeof state.map !== 'object' || Array.isArray(state.map)) return 'state.map 必须是对象';
+    const imagePath = state.map.imagePath;
+    if (imagePath !== null && imagePath !== undefined && !/^\/images\/[A-Za-z0-9._-]{1,160}$/.test(imagePath)) return '地图图片必须是本地 /images/ 路径';
+    const map = state.map.data;
+    if (map !== null && map !== undefined) {
+      if (!map || typeof map !== 'object' || !Number.isInteger(map.size) || map.size < 1 || map.size > 512) return '地图 size 无效';
+      if (!Array.isArray(map.grid) || map.grid.length !== map.size * map.size) return '地图 grid 长度无效';
+      if (map.grid.some(v => !Number.isInteger(v) || v < 0 || v > 65535)) return '地图 grid 数值无效';
+    }
+  }
+  return null;
+}
+
+async function handleWorldSavePut(req, res, saveId) {
+  const fp = savePath(saveId);
+  if (!fp) return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json');
+  let payload;
+  try { payload = await readJsonBody(req, 4 * 1024 * 1024); }
+  catch (err) {
+    const status = err.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400;
+    return send(res, status, JSON.stringify({ error: err.message }), 'application/json');
+  }
+  const invalid = validateWorldSavePatch(payload);
+  if (invalid) return send(res, 400, JSON.stringify({ error: invalid }), 'application/json');
+  try {
+    const current = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
+    if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
+    if (current.revision !== payload.expectedRevision) {
+      return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
+    }
+    const next = {
+      ...current,
+      state: cloneJson(payload.state),
+      turns: cloneJson(payload.turns),
+      opening: payload.opening === undefined ? current.opening : payload.opening,
+      revision: current.revision + 1,
+      updatedAt: Date.now(),
+    };
+    await writeJsonAtomic(fp, next);
+    send(res, 200, JSON.stringify(next), 'application/json; charset=utf-8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return send(res, 404, JSON.stringify({ error: '存档不存在' }), 'application/json');
+    console.error('[world-saves] 保存失败:', err.message);
+    send(res, 500, JSON.stringify({ error: '存档保存失败: ' + err.message }), 'application/json');
+  }
+}
+
 /** GET /api/data/:type → 返回 JSON 文件内容 */
 async function handleDataGet(req, res, type) {
   if (!DATA_TYPES.includes(type) || type === 'worlds') return send(res, 400, '未知数据类型');
@@ -509,11 +566,11 @@ const server = http.createServer((req, res) => {
     if (req.method === 'POST') return handleWorldSaveCreate(req, res);
   }
   const worldSaveMatch = url.pathname.match(/^\/api\/world-saves\/([^/]+)\/?$/);
-  if (worldSaveMatch && req.method === 'GET') {
+  if (worldSaveMatch && (req.method === 'GET' || req.method === 'PUT')) {
     let saveId;
     try { saveId = decodeURIComponent(worldSaveMatch[1]); }
     catch { return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json'); }
-    return handleWorldSaveGet(req, res, saveId);
+    return req.method === 'PUT' ? handleWorldSavePut(req, res, saveId) : handleWorldSaveGet(req, res, saveId);
   }
   // 数据读写：/api/data/:type
   const dataMatch = url.pathname.match(/^\/api\/data\/(\w+)$/);

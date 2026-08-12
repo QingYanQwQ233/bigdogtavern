@@ -103,6 +103,8 @@ let currentWorldSaveId = localStorage.getItem(LS_CURRENT_WORLD_SAVE) || null;
 let currentWorldSave = null;
 let worldSavesByWorld = new Map();
 let worldLoadToken = 0;
+let worldSaveWriteChain = Promise.resolve();
+let worldSavePending = null;
 let theme = localStorage.getItem(LS_THEME) || 'tavern';
 let mode = localStorage.getItem(LS_MODE) || 'tavern'; // 'tavern' 酒馆模式 | 'rpg' RPG 模式
 let sending = false;
@@ -158,7 +160,7 @@ function uid() { return Date.now().toString(36) + Math.random().toString(36).sli
 function currentChar() { return characters.find(c => c.id === currentCharId) || null; }
 function sessionMatches(s) { return !!s && s.charId === currentCharId && s.kind === mode; }
 
-/* ─────────── 世界库 / 世界存档（W1：只负责归属与创建，不接 AI 回合） ─────────── */
+/* ─────────── 世界库 / 世界存档（W2：RPG 主链由当前 WorldSave 持有） ─────────── */
 function worldCardById(id) { return worldCards.find(w => w.id === id) || null; }
 function currentWorldCard() { return worldCardById(currentWorldId); }
 function formatWorldDate(ts) {
@@ -168,6 +170,83 @@ function formatWorldDate(ts) {
 }
 function worldApiError(data, fallback) {
   return data && typeof data.error === 'string' ? data.error : fallback;
+}
+function worldModeActive() {
+  return mode === 'rpg' && !!currentWorldSave && currentWorldSave.id === currentWorldSaveId;
+}
+function activeConversationKey() {
+  const scope = activeConversationScope();
+  return scope ? `${worldModeActive() ? 'world' : 'session'}:${scope.id}` : '';
+}
+function cloneValue(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+function hydrateWorldSave(data) {
+  if (!data || typeof data !== 'object') return data;
+  if (!data.state || typeof data.state !== 'object') data.state = {};
+  if (!Array.isArray(data.turns)) data.turns = [];
+  const map = data.state.map;
+  if (map && map.data && window.MapGen?.hydrateMap) map.data = window.MapGen.hydrateMap(map.data);
+  return data;
+}
+function serializeWorldState(save) {
+  const state = cloneValue(save.state || {});
+  const map = save.state && save.state.map;
+  if (map && map.data && window.MapGen?.serializeMap) state.map.data = window.MapGen.serializeMap(map.data);
+  return state;
+}
+function worldTimelineMessages() {
+  if (!worldModeActive()) return [];
+  const result = [];
+  if (currentWorldSave.opening) result.push({ role: 'assistant', content: currentWorldSave.opening, ts: currentWorldSave.createdAt || Date.now(), _opening: true });
+  for (const turn of currentWorldSave.turns || []) {
+    if (!turn || typeof turn !== 'object' || !turn.role) continue;
+    result.push(turn);
+  }
+  return result;
+}
+async function flushWorldSaveWrites() {
+  while (worldSavePending) {
+    const pending = worldSavePending;
+    worldSavePending = null;
+    const { save, snapshot } = pending;
+    if (!currentWorldSave || save.id !== currentWorldSaveId) continue;
+    const res = await fetch('/api/world-saves/' + encodeURIComponent(save.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ expectedRevision: currentWorldSave.revision, ...snapshot }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(worldApiError(data, '世界存档保存失败（HTTP ' + res.status + '）'));
+    if (!currentWorldSave || save.id !== currentWorldSaveId) continue;
+    hydrateWorldSave(data);
+    currentWorldSave = data;
+    renderRPG();
+    renderSessions();
+  }
+}
+function queueWorldSave(save = currentWorldSave) {
+  if (!save || !worldModeActive() || save !== currentWorldSave) return worldSaveWriteChain;
+  worldSavePending = {
+    save,
+    snapshot: {
+      state: serializeWorldState(save),
+      turns: cloneValue(save.turns || []),
+      opening: save.opening || '',
+    },
+  };
+  worldSaveWriteChain = worldSaveWriteChain.catch(() => {}).then(() => flushWorldSaveWrites()).catch(err => {
+    console.error('[Tavern] 世界存档保存失败:', err.message);
+    const status = $('world-open-status');
+    if (status && worldModeActive()) status.textContent = `⚠️ 存档尚未保存：${err.message}（可继续操作，稍后重试）`;
+  });
+  return worldSaveWriteChain;
+}
+function enterWorldWorkspace() {
+  if (!worldModeActive()) return;
+  closeWorldLibrary();
+  renderSessions();
+  renderMessages();
 }
 async function loadWorldCards() {
   const res = await fetch('/api/worlds');
@@ -195,6 +274,7 @@ async function openWorldSave(saveId, expectedToken = worldLoadToken) {
   if (!res.ok) throw new Error(worldApiError(data, '存档读取失败（HTTP ' + res.status + '）'));
   if (!data || data.id !== saveId) throw new Error('存档响应缺少稳定 ID');
   if (expectedToken !== worldLoadToken) return null;
+  hydrateWorldSave(data);
   currentWorldSave = data;
   currentWorldSaveId = data.id;
   currentWorldId = data.worldId;
@@ -213,6 +293,7 @@ async function createWorldSave(name) {
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new Error(worldApiError(data, '存档创建失败（HTTP ' + res.status + '）'));
+  hydrateWorldSave(data);
   currentWorldSave = data;
   currentWorldSaveId = data.id;
   localStorage.setItem(LS_CURRENT_WORLD, data.worldId);
@@ -305,16 +386,17 @@ function renderWorldDetail() {
       const opened = await openWorldSave(btn.dataset.openSave, token);
       if (!opened || token !== worldLoadToken) return;
       const status = $('world-open-status');
-      if (status) status.textContent = `已打开「${currentWorldSave.name}」——世界桌面将在下一阶段接入；当前存档 ID：${currentWorldSave.id}`;
+      if (status) status.textContent = `已打开「${currentWorldSave.name}」——世界状态、地图和叙事已绑定当前存档；当前存档 ID：${currentWorldSave.id}`;
+      enterWorldWorkspace();
     } catch (err) { showWorldError(err.message); }
     finally { btn.disabled = false; btn.textContent = old; }
   }));
   if (currentWorldSave && currentWorldSave.worldId === world.id) {
     const status = $('world-open-status');
-    if (status) status.textContent = `已打开「${currentWorldSave.name}」——世界桌面将在下一阶段接入；当前存档 ID：${currentWorldSave.id}`;
+    if (status) status.textContent = `已打开「${currentWorldSave.name}」——世界状态、地图和叙事已绑定当前存档；当前存档 ID：${currentWorldSave.id}`;
   }
 }
-async function loadWorldLibraryData() {
+async function loadWorldLibraryData(restoreWorkspace = false) {
   const token = ++worldLoadToken;
   try {
     await loadWorldCards();
@@ -322,12 +404,13 @@ async function loadWorldLibraryData() {
     await Promise.all(worldCards.map(world => loadWorldSaves(world.id)));
     if (token !== worldLoadToken) return false;
     if (currentWorldSaveId) {
-      try { await openWorldSave(currentWorldSaveId); }
+      try { await openWorldSave(currentWorldSaveId, token); }
       catch { currentWorldSave = null; currentWorldSaveId = null; localStorage.removeItem(LS_CURRENT_WORLD_SAVE); }
     }
     if (token !== worldLoadToken) return false;
     renderWorldList();
     renderWorldDetail();
+    if (restoreWorkspace && worldModeActive() && currentWorldSaveId) enterWorldWorkspace();
     return true;
   } catch (err) {
     if (token !== worldLoadToken) return false;
@@ -338,11 +421,11 @@ async function loadWorldLibraryData() {
     return false;
   }
 }
-function openWorldLibrary() {
+function openWorldLibrary(restoreWorkspace = false) {
   const mgr = $('world-mgr');
   if (!mgr) return;
   mgr.classList.remove('hidden');
-  loadWorldLibraryData();
+  loadWorldLibraryData(restoreWorkspace);
 }
 function closeWorldLibrary() {
   worldLoadToken++;
@@ -359,7 +442,12 @@ function getGreeting() {
     || settings.firstMes || '';
 }
 function curSession() { return Array.isArray(sessions) ? sessions.find(s => s.id === currentSessionId && sessionMatches(s)) || null : null; }
-function curMessages() { const s = curSession(); return s ? s.messages : []; }
+function activeConversationScope() { return worldModeActive() ? currentWorldSave : curSession(); }
+function curMessages() {
+  if (worldModeActive()) return worldTimelineMessages();
+  const s = curSession();
+  return s ? s.messages : [];
+}
 
 /* ═══════════ RPG 状态（每会话独立） ═══════════ */
 
@@ -382,8 +470,42 @@ function defaultRpgState() {
   };
 }
 
-/* 当前会话的 RPG 状态（惰性初始化，保存在 session.rpgState） */
+function worldRpgState() {
+  if (!worldModeActive()) return null;
+  const state = currentWorldSave.state || (currentWorldSave.state = {});
+  if (!state.__runtimeRpg) {
+    const stats = state.stats && typeof state.stats === 'object' ? state.stats : {};
+    const numberOr = (value, fallback) => Number.isFinite(value) ? value : fallback;
+    Object.defineProperty(state, '__runtimeRpg', {
+      value: {
+        level: numberOr(stats.level, 1), exp: numberOr(stats.exp, 0), expNext: numberOr(stats.expNext, 100),
+        hp: numberOr(stats.hp, 20), maxHp: numberOr(stats.maxHp, 20), mp: numberOr(stats.mp, 5), maxMp: numberOr(stats.maxMp, 5),
+        gold: numberOr(stats.gold, 0), location: state.locationId || '未知地点',
+        buffs: Array.isArray(stats.buffs) ? stats.buffs : [],
+        inventory: Array.isArray(state.inventory) ? state.inventory : [],
+        quests: Array.isArray(state.quests) ? state.quests : [],
+      }, writable: true, configurable: true,
+    });
+  }
+  return state.__runtimeRpg;
+}
+function commitRpgState(rs) {
+  if (!rs) return;
+  if (worldModeActive()) {
+    const state = currentWorldSave.state || (currentWorldSave.state = {});
+    state.stats = { ...(state.stats || {}), level: rs.level, exp: rs.exp, expNext: rs.expNext, hp: rs.hp, maxHp: rs.maxHp, mp: rs.mp, maxMp: rs.maxMp, gold: rs.gold, buffs: cloneValue(rs.buffs || []) };
+    state.locationId = rs.location || null;
+    state.inventory = cloneValue(rs.inventory || []);
+    state.quests = cloneValue(rs.quests || []);
+    queueWorldSave(currentWorldSave);
+  } else {
+    saveSessions();
+  }
+}
+
+/* 当前 RPG 状态（旧 RPG 会话兼容；世界模式由 WorldSave.state 持有） */
 function curRpgState() {
+  if (worldModeActive()) return worldRpgState();
   const s = curSession();
   if (!s || s.kind !== 'rpg') return null;
   if (!s.rpgState) s.rpgState = defaultRpgState();
@@ -420,10 +542,10 @@ function renderRPG() {
       : '<p class="hint">（无）</p>';
   }
   const cs = $('rpg-char-summary');
-  const c = currentChar();
+  const c = worldModeActive() ? (currentWorldSave.player?.snapshot || null) : currentChar();
   if (cs) {
     cs.innerHTML = c
-      ? `<div class="rpg-item"><span class="rpg-item-name">${esc(c.name || '？？？')}</span><div class="rpg-item-sub">${esc([c.race, c.role].filter(Boolean).join(' · ') || '种族/身份待定')}</div></div>`
+      ? `<div class="rpg-item"><span class="rpg-item-name">${esc(c.name || '未命名冒险者')}</span><div class="rpg-item-sub">${esc([c.race, c.role].filter(Boolean).join(' · ') || '种族/身份待定')}</div></div>`
       : '<p class="hint">未选择角色</p>';
   }
   renderMap(); // 世界地图（数据层 + 美化图显示）
@@ -504,7 +626,7 @@ function applyRpgUpdate(payload) {
   const options = Array.isArray(upd.options)
     ? upd.options.filter(o => typeof o === 'string' && o.trim()).slice(0, 4)
     : null;
-  saveSessions();
+  commitRpgState(rs);
   renderRPG();
   return options;
 }
@@ -740,8 +862,23 @@ function deleteSession(id) {
 
 function renderSessions() {
   const nameEl = $('session-name');
+  if (worldModeActive()) {
+    if (nameEl) nameEl.textContent = currentWorldSave.name || '世界存档';
+    const player = currentWorldSave.player?.snapshot || {};
+    const hdrName = $('hdr-char-name');
+    const hdrRace = $('hdr-char-race');
+    if (hdrName) hdrName.textContent = player.name || currentWorldCard()?.title || '世界存档';
+    if (hdrRace) hdrRace.textContent = `${[player.race, player.role].filter(Boolean).join(' · ') || '玩家快照'} · 世界存档`;
+    const ml = $('session-menu-list');
+    if (ml) ml.innerHTML = '<div class="sess-empty">当前显示世界存档，不读取旧 RPG 会话</div>';
+    const saveMark = $('rpg-world-save');
+    if (saveMark) { saveMark.hidden = false; saveMark.textContent = `世界 · ${currentWorldSave.name || currentWorldSave.id}`; }
+    return;
+  }
   const s = curSession();
   if (nameEl) nameEl.textContent = s ? s.name : '—';
+  const saveMark = $('rpg-world-save');
+  if (saveMark) saveMark.hidden = true;
   // 头部下拉（只列当前模式 kind 的会话）
   const ml = $('session-menu-list');
   if (ml) {
@@ -1860,7 +1997,7 @@ function buildWorldInfo() {
   if (prefs.activeLoreId && lorebooks && lorebooks[prefs.activeLoreId]) {
     sources.push(...lorebooks[prefs.activeLoreId].entries);
   }
-  if (char && char.loreId && lorebooks && lorebooks[char.loreId] && char.loreId !== prefs.activeLoreId) {
+  if (!worldModeActive() && char && char.loreId && lorebooks && lorebooks[char.loreId] && char.loreId !== prefs.activeLoreId) {
     sources.push(...lorebooks[char.loreId].entries);
   }
   const depth = Math.max(0, prefs.wiScanDepth || 0);
@@ -1951,6 +2088,19 @@ function buildRpgPromptPart() {
     const mapCtx = buildMapContext();
     if (mapCtx) parts.push(mapCtx);
   }
+  if (worldModeActive()) {
+    const world = currentWorldCard();
+    if (world) {
+      parts.unshift('【当前世界卡】\n' + [
+        `世界：${world.title || world.id}（v${world.version || 1}）`,
+        world.summary || '',
+        world.locations?.length ? '已登记地点：' + world.locations.map(x => `${x.name || x.id}（${x.type || '地点'}）`).join('、') : '',
+        currentWorldSave.opening ? '开局：' + currentWorldSave.opening : '',
+      ].filter(Boolean).join('\n'));
+      const player = currentWorldSave.player?.snapshot;
+      if (player) parts.unshift('【世界存档中的玩家快照】\n' + Object.entries(player).filter(([k, v]) => k !== 'profileFields' && v != null && String(v).trim()).map(([k, v]) => `${k}：${typeof v === 'object' ? JSON.stringify(v) : v}`).join('\n'));
+    }
+  }
   parts.push((defaults?.rpg?.stateInstruction) || '每次回复末尾输出包含 options 的 ```rpg``` JSON 状态块。');
   return parts.join('\n\n');
 }
@@ -1987,11 +2137,12 @@ function mergeHistoryInjections(history, injections) {
 
 function buildPromptBlocks() {
   const char = currentChar();
+  const promptChar = worldModeActive() ? null : char;
   const { preset: rawPreset } = resolvePromptPreset();
   const preset = normalizePromptPreset('', rawPreset);
   const wi = buildWorldInfo();
-  const charParts = buildCharacterPromptParts(char);
-  const userPart = buildUserPromptPart();
+  const charParts = worldModeActive() ? { description: '', personality: '', scenario: '' } : buildCharacterPromptParts(promptChar);
+  const userPart = worldModeActive() ? '' : buildUserPromptPart();
   const runtime = {
     worldInfoBefore: wi.length ? '【世界设定】\n' + wi.join('\n\n') : '',
     worldInfoAfter: '',
@@ -2002,15 +2153,15 @@ function buildPromptBlocks() {
     tavernMemory: buildMemoryPromptPart(),
     tavernFormat: buildFormatPromptPart(),
     tavernRpg: buildRpgPromptPart(),
-    dialogueExamples: char?.mesExample || char?.mes_example || '',
+    dialogueExamples: promptChar?.mesExample || promptChar?.mes_example || '',
   };
   const macroContext = {
     user: currentUserPreset()?.name || '玩家',
-    char: char?.name || '角色',
+    char: worldModeActive() ? (currentWorldCard()?.title || '世界') : (promptChar?.name || '角色'),
     persona: currentUserPreset()?.persona || '',
     description: charParts.description,
-    personality: char?.persona || '',
-    scenario: char?.scenario || '',
+    personality: promptChar?.persona || '',
+    scenario: promptChar?.scenario || '',
   };
   const variables = {};
   const promptMap = new Map(preset.prompts.map(p => [p.identifier, p]));
@@ -2032,9 +2183,9 @@ function buildPromptBlocks() {
     }
     let content = prompt.marker ? runtime[prompt.identifier] ?? prompt.content : prompt.content;
     if (prompt.identifier === 'main') {
-      content = (mode === 'tavern' && char?.systemPrompt?.trim()) || prompt.content || (mode === 'rpg' ? RPG_TASK_FALLBACK : settings.systemPrompt) || '';
+      content = (mode === 'tavern' && promptChar?.systemPrompt?.trim()) || prompt.content || (mode === 'rpg' ? RPG_TASK_FALLBACK : settings.systemPrompt) || '';
     }
-    if (prompt.identifier === 'jailbreak') content = char?.postHistory?.trim() || prompt.content || settings.postHistory || '';
+    if (prompt.identifier === 'jailbreak') content = promptChar?.postHistory?.trim() || prompt.content || settings.postHistory || '';
     content = expandPresetMacros(content, macroContext, variables);
     if (!content) continue;
     if (prompt.position === 'in_chat' && !prompt.marker) {
@@ -2407,16 +2558,16 @@ function updateApiStatusFromSettings() {
 function setDebugTrace(session, patch) {
   if (!session) return;
   debugTraces.set(session.id, { ...(debugTraces.get(session.id) || {}), ...patch });
-  if (session === curSession()) renderDebugTerminal();
+  if (session === activeConversationScope()) renderDebugTerminal();
 }
 
 function renderDebugTerminal() {
-  const session = curSession();
+  const session = activeConversationScope();
   const trace = session && debugTraces.get(session.id);
   const scope = $('debug-scope');
   if (!scope) return;
   scope.textContent = session
-    ? `${currentChar()?.name || '未命名角色'} · ${session.kind === 'rpg' ? 'RPG' : '酒馆'} · ${session.name}${trace?.status ? ` · ${trace.status}` : ''}`
+    ? `${worldModeActive() ? (currentWorldCard()?.title || '世界') : (currentChar()?.name || '未命名角色')} · ${worldModeActive() ? '世界存档' : (session.kind === 'rpg' ? 'RPG' : '酒馆')} · ${session.name || session.id}${trace?.status ? ` · ${trace.status}` : ''}`
     : '当前会话 · 暂无记录';
   $('debug-input').textContent = trace?.input || '尚未向 AI 发送请求。';
   $('debug-output').textContent = trace?.output || '尚未收到 AI 响应。';
@@ -2438,13 +2589,13 @@ function closeDebugTerminal() {
 }
 
 function clearDebugTerminal() {
-  const session = curSession();
+  const session = activeConversationScope();
   if (session) debugTraces.delete(session.id);
   renderDebugTerminal();
 }
 
 function copyDebugTerminal() {
-  const session = curSession();
+  const session = activeConversationScope();
   const trace = session && debugTraces.get(session.id);
   if (!trace) return;
   const text = `INPUT\n${trace.input || ''}\n\nOUTPUT\n${trace.output || ''}`;
@@ -2552,7 +2703,7 @@ function saveEdit(m) {
   const ta = $('edit-msg');
   if (ta) m.content = ta.value;
   delete m._editing;
-  saveSessions();
+  if (worldModeActive()) queueWorldSave(currentWorldSave); else saveSessions();
   renderMessages();
 }
 function cancelEdit(m) {
@@ -2560,6 +2711,16 @@ function cancelEdit(m) {
   renderMessages();
 }
 function deleteMessage(m) {
+  if (worldModeActive()) {
+    if (m._opening) return;
+    if (!confirm('删除这条消息？')) return;
+    const i = (currentWorldSave.turns || []).indexOf(m);
+    if (i < 0) return;
+    currentWorldSave.turns.splice(i, 1);
+    queueWorldSave(currentWorldSave);
+    renderMessages();
+    return;
+  }
   const s = curSession();
   if (!s) return;
   const i = s.messages.indexOf(m);
@@ -2577,6 +2738,16 @@ function copyMessage(m) {
 }
 /* 重新生成：删除该条 assistant 及之后，用现有历史重新请求 */
 async function regenAssistant(m) {
+  if (worldModeActive()) {
+    if (m._opening || sending) return;
+    const i = (currentWorldSave.turns || []).indexOf(m);
+    if (i < 0 || currentWorldSave.turns[i].role !== 'assistant') return;
+    currentWorldSave.turns = currentWorldSave.turns.slice(0, i);
+    queueWorldSave(currentWorldSave);
+    renderMessages();
+    await requestReply();
+    return;
+  }
   const s = curSession();
   if (!s || sending) return;
   const i = s.messages.indexOf(m);
@@ -2644,7 +2815,7 @@ function renderMessages() {
         } else {
           const { html, md } = renderBubble(m.content);
           el.innerHTML = `<div class="rpg-prose${md ? ' md' : ''}">${html}</div>`;
-          attachMsgActions(el, m, { regen: true, edit: true, copy: true, del: true });
+          attachMsgActions(el, m, m._opening ? { copy: true } : { regen: true, edit: true, copy: true, del: true });
         }
         chat.appendChild(el);
         continue;
@@ -2708,6 +2879,16 @@ function renderMessages() {
 }
 
 function pushMessage(role, content, extra) {
+  if (worldModeActive()) {
+    const msg = { id: uid(), role, content, ts: Date.now() };
+    if (extra) Object.assign(msg, extra);
+    currentWorldSave.turns = Array.isArray(currentWorldSave.turns) ? currentWorldSave.turns : [];
+    currentWorldSave.turns.push(msg);
+    queueWorldSave(currentWorldSave);
+    renderMessages();
+    renderSessions();
+    return;
+  }
   const s = curSession();
   if (!s) return;
   const msg = { role, content, ts: Date.now() };
@@ -2936,8 +3117,7 @@ function zoomMap() {
   if (mmBeauty && !mmBeauty.hidden && mmImg && mmImg.src) src = mmImg.src;
   else if (beauty && !beauty.hidden && bImg && bImg.src) src = bImg.src;
   if (!src) {
-    const rs = curRpgState();
-    const map = (rs && rs.mapData) || null;
+    const map = curMapData();
     const canvas = $('mm-canvas') || $('map-canvas');
     if (map && window.MapGen) {
       const c = document.createElement('canvas');
@@ -2954,18 +3134,17 @@ function zoomMap() {
 
 /* 查看生图参考图（带地形标记：山脉▲/森林树/湿地波纹）——用于确认 AI 收到的标注图 */
 function showMapRef() {
-  const rs = curRpgState();
-  if (!rs || !rs.mapData || !window.MapGen) return;
+  const map = curMapData();
+  if (!map || !window.MapGen) return;
   const c = document.createElement('canvas');
-  window.MapGen.renderWorldMap(c, rs.mapData, { pixelSize: 12, markers: true, labels: 'bold' });
+  window.MapGen.renderWorldMap(c, map, { pixelSize: 12, markers: true, labels: 'bold' });
   openLightbox(c.toDataURL('image/png'), '生图参考图（标注：山脉/森林/湿地）');
 }
 
 /* 地图数据 JSON 查看：结构化导出（区域/路径点/邻接/网格统计），不包含全量 grid */
 let lastMapJson = '';
 function buildMapJson() {
-  const rs = curRpgState();
-  const map = rs && rs.mapData;
+  const map = curMapData();
   if (!map) return null;
   let land = 0, ocean = 0;
   for (let i = 0; i < map.grid.length; i++) { if (map.grid[i]) land++; else ocean++; }
@@ -3000,11 +3179,12 @@ function copyMapJson() {
 async function generateImageFor(story) {
   const ig = igSettings();
   if (!ig.enabled || !ig.baseUrl) return;
+  const targetKey = activeConversationKey();
   const status = $('ig-test-result');
   if (status) status.textContent = '⏳ 正在生成图片…';
   addImagePending(); // 聊天栏占位提示：开始生图
   try {
-    const char = currentChar();
+    const char = worldModeActive() ? (currentWorldSave.player?.snapshot || null) : currentChar();
     const refImage = (char && char.refImage) ? char.refImage : null;
     let prompt;
     if (ig.promptSource === 'story') {
@@ -3028,6 +3208,7 @@ async function generateImageFor(story) {
     let local = src;
     try { local = await saveImageLocally(src); } // 存本地，刷新不丢
     catch (e) { console.warn('[Tavern] 图片本地保存失败，本轮仍显示:', e.message); }
+    if (activeConversationKey() !== targetKey) return;
     pushMessage('image', local, { imgPrompt: prompt }); // 记住提示词，供「重新生成」复用
     if (status) status.textContent = '✅ 图片已生成并显示在聊天栏';
   } catch (err) {
@@ -3043,10 +3224,11 @@ async function testImageGen() {
   const ig = igSettings();
   const prompt = ($('ig-test-prompt').value || '').trim() || 'a fox knight in a tavern, anime style';
   const status = $('ig-test-result');
+  const targetKey = activeConversationKey();
   if (status) status.textContent = '⏳ 正在生成测试图…';
   addImagePending();
   try {
-    const char = currentChar();
+    const char = worldModeActive() ? (currentWorldSave.player?.snapshot || null) : currentChar();
     const refImage = (char && char.refImage) ? char.refImage : null;
     // 测试按钮同样注入当前角色形象描述
     let p = prompt;
@@ -3060,6 +3242,7 @@ async function testImageGen() {
     let local = src;
     try { local = await saveImageLocally(src); }
     catch (e) { console.warn('[Tavern] 图片本地保存失败，本轮仍显示:', e.message); }
+    if (activeConversationKey() !== targetKey) return;
     pushMessage('image', local, { imgPrompt: prompt });
   } catch (err) {
     console.error('[Tavern] 文生图测试失败:', err.message);
@@ -3073,17 +3256,20 @@ async function regenImage(msg) {
   const ig = igSettings();
   if (!ig.enabled || !ig.baseUrl) { pushMessage('system', '⚠️ 文生图未启用或未配置 Base URL'); return; }
   if (!msg.imgPrompt) { pushMessage('system', '⚠️ 该图片没有提示词记录（旧消息），无法重新生成'); return; }
+  const targetKey = activeConversationKey();
   addImagePending();
   try {
-    const refImage = (currentChar() && currentChar().refImage) ? currentChar().refImage : null;
+    const refChar = worldModeActive() ? (currentWorldSave.player?.snapshot || null) : currentChar();
+    const refImage = refChar?.refImage || null;
     const src = await callImageAPI(ig, msg.imgPrompt, refImage);
     removeImagePending();
+    if (activeConversationKey() !== targetKey) return;
     let local = src;
     try { local = await saveImageLocally(src); }
     catch (e) { console.warn('[Tavern] 图片本地保存失败，本轮仍显示:', e.message); }
     msg.content = local;
     msg.ts = Date.now();
-    saveSessions();
+    if (worldModeActive()) queueWorldSave(currentWorldSave); else saveSessions();
     renderMessages();
   } catch (err) {
     console.error('[Tavern] 重新生成失败:', err.message);
@@ -3095,15 +3281,16 @@ async function regenImage(msg) {
 /* 核心请求：用当前历史请求一次回复（发送消息 / 重新生成共用） */
 async function requestReply() {
   if (sending) return;
-  const targetSession = curSession();
-  if (!targetSession) return;
+  const targetScope = activeConversationScope();
+  if (!targetScope) return;
+  const targetKey = activeConversationKey();
   sending = true;
   $('btn-send').disabled = true;
   addTyping();
   let cot = '';
   try {
     const payload = buildPayload();
-    setDebugTrace(targetSession, {
+    setDebugTrace(targetScope, {
       status: '请求中',
       input: JSON.stringify({ endpoint: payload.baseUrl + '/chat/completions', ...payload.body }, null, 2),
       output: '等待 AI 响应…',
@@ -3133,14 +3320,14 @@ async function requestReply() {
         : '模型未返回内容（请检查模型名与 API 是否匹配；请求详情见浏览器控制台）';
       throw new Error(msg);
     }
-    setDebugTrace(targetSession, {
+    setDebugTrace(targetScope, {
       status: '已完成',
       output: cot ? `${reply}\n\n[reasoning_content]\n${cot}` : String(reply),
     });
     // 请求期间可能切换角色 / 模式 / 会话；迟到响应不得写入新的当前会话。
-    if (curSession() !== targetSession) {
-      setDebugTrace(targetSession, { status: '已完成（响应因切换会话未写入历史）' });
-      console.warn('[Tavern] 会话已切换，已丢弃原会话的迟到响应');
+    if (activeConversationKey() !== targetKey) {
+      setDebugTrace(targetScope, { status: '已完成（响应因切换存档/会话未写入历史）' });
+      console.warn('[Tavern] 当前存档/会话已切换，已丢弃原范围的迟到响应');
       removeTyping();
       return;
     }
@@ -3162,8 +3349,8 @@ async function requestReply() {
   } catch (err) {
     console.error('[Tavern] ✗ 请求失败', err.message);
     removeTyping();
-    setDebugTrace(targetSession, { status: '失败', output: `ERROR\n${err.message}` });
-    if (curSession() === targetSession) pushMessage('system', `⚠️ 请求失败：${err.message}`);
+    setDebugTrace(targetScope, { status: '失败', output: `ERROR\n${err.message}` });
+    if (activeConversationKey() === targetKey) pushMessage('system', `⚠️ 请求失败：${err.message}`);
     setApiStatus(`最近一次请求失败：${err.message}`, true);
   } finally {
     sending = false;
@@ -3199,7 +3386,7 @@ function switchView(name) {
   document.querySelectorAll('.nav-item[data-view]').forEach(b =>
     b.classList.toggle('active', b.dataset.view === name));
   ['char-mgr', 'prompt-mgr', 'lore-mgr', 'memory-mgr', 'world-mgr'].forEach(id => { const el = $(id); if (el) el.classList.add('hidden'); });
-  if (name === 'worlds') { openWorldLibrary(); return; }
+  if (name === 'worlds') { openWorldLibrary(false); return; }
   if (name === 'chat') return;
   if (name === 'chars') {
     renderBindSelects();
@@ -3306,8 +3493,8 @@ function applyMode(name) {
   // 模式切换：会话按 charId + kind 双重分流
   renderSessions();
   renderMessages();
-  if (mode === 'rpg') openWorldLibrary();
-  else closeWorldLibrary();
+  if (mode === 'rpg') openWorldLibrary(true);
+  else { closeWorldLibrary(); renderCharacter(); }
 }
 
 function switchMode() {
@@ -3469,7 +3656,7 @@ function addRpgItem() {
   const exist = rs.inventory.find(i => i.name === name);
   if (exist) exist.count += count;
   else rs.inventory.push({ name, count, desc });
-  saveSessions(); renderRPG();
+  commitRpgState(rs); renderRPG();
 }
 
 function addRpgQuest() {
@@ -3479,28 +3666,28 @@ function addRpgQuest() {
   if (!title) return;
   const desc = (prompt('任务内容（可留空）：') || '').trim();
   rs.quests.push({ id: uid(), title, desc, status: 'active' });
-  saveSessions(); renderRPG();
+  commitRpgState(rs); renderRPG();
 }
 
 function toggleRpgQuest(idx) {
   const rs = curRpgState();
   if (!rs || !rs.quests[idx]) return;
   rs.quests[idx].status = rs.quests[idx].status === 'done' ? 'active' : 'done';
-  saveSessions(); renderRPG();
+  commitRpgState(rs); renderRPG();
 }
 
 function removeRpgItem(idx) {
   const rs = curRpgState();
   if (!rs) return;
   rs.inventory.splice(idx, 1);
-  saveSessions(); renderRPG();
+  commitRpgState(rs); renderRPG();
 }
 
 function removeRpgQuest(idx) {
   const rs = curRpgState();
   if (!rs) return;
   rs.quests.splice(idx, 1);
-  saveSessions(); renderRPG();
+  commitRpgState(rs); renderRPG();
 }
 
 /* 酒馆模式快捷行动（保留原有） */
@@ -3512,9 +3699,39 @@ const QUICK_TAVERN = [
 ];
 
 /* ═══════════ 世界地图系统（三步法 demo：算法生成 + 数据层 + AI 美化 + 上下文注入） ═══════════ */
-/* 地图数据存会话 rpgState.mapData（JSON 数据层）+ rpgState.mapImage（AI 美化图本地路径） */
+/* 世界模式地图归属 WorldSave.state.map；旧 RPG 兼容路径仍读 session.rpgState。 */
+
+function currentWorldMapState() {
+  if (!worldModeActive()) return null;
+  const state = currentWorldSave.state || (currentWorldSave.state = {});
+  state.map = state.map && typeof state.map === 'object' ? state.map : { strategy: 'perSave', data: null, imagePath: null, markers: [] };
+  return state.map;
+}
+function curMapImage() {
+  const mapState = currentWorldMapState();
+  return mapState ? mapState.imagePath : (curRpgState()?.mapImage || null);
+}
+function setCurMapImage(value) {
+  const mapState = currentWorldMapState();
+  if (mapState) mapState.imagePath = value || null;
+  else {
+    const rs = curRpgState();
+    if (rs) rs.mapImage = value || null;
+  }
+}
 
 function curMapData() {
+  const worldMap = currentWorldMapState();
+  if (worldMap) {
+    if (worldMap.data && !(worldMap.data.grid instanceof Uint16Array) && window.MapGen?.hydrateMap) worldMap.data = window.MapGen.hydrateMap(worldMap.data);
+    if (!worldMap.data && window.MapGen) {
+      const world = currentWorldCard();
+      const generation = world?.map?.generation || {};
+      worldMap.data = window.MapGen.generateWorldMap(generation.seed || (Date.now() % 2147483647), { size: generation.size || 128, regionCount: generation.regionCount || 8 });
+      queueWorldSave(currentWorldSave);
+    }
+    return worldMap.data || null;
+  }
   const rs = curRpgState();
   if (!rs) return null;
   if (!rs.mapData) {
@@ -3531,10 +3748,10 @@ function renderMap() {
   const rs = curRpgState();
   const map = curMapData();
   if (!map) return;
-  if (rs.mapImage) {
+  if (curMapImage()) {
     canvas.style.display = 'none';
     $('map-beauty').hidden = false;
-    $('map-beauty-img').src = rs.mapImage;
+    $('map-beauty-img').src = curMapImage();
   } else {
     $('map-beauty').hidden = true;
     canvas.style.display = 'block';
@@ -3555,13 +3772,14 @@ function renderMapModal() {
   const map = curMapData();
   if (!map) return;
   const toggle = $('mm-toggle');
-  const hasImage = !!rs.mapImage;
+  const mapImage = curMapImage();
+  const hasImage = !!mapImage;
   if (toggle) toggle.style.display = hasImage ? '' : 'none'; // 无美化图时切换按钮隐藏
   const showOriginal = !hasImage || mmShowOriginal;
   if (!showOriginal) {
     canvas.style.display = 'none';
     $('mm-beauty').hidden = false;
-    $('mm-beauty-img').src = rs.mapImage;
+    $('mm-beauty-img').src = mapImage;
     if (toggle) toggle.textContent = '🖼 原始底图';
   } else {
     $('mm-beauty').hidden = true;
@@ -3634,10 +3852,18 @@ function mapCanvasClick(e) {
 /* 重新生成：换 seed，清美化图，重建数据层（逻辑坐标全变） */
 function mapRegenerate() {
   const rs = curRpgState();
-  if (!rs) return;
-  rs.mapData = window.MapGen.generateWorldMap(Date.now() % 2147483647, { size: 128, regionCount: 8 });
-  delete rs.mapImage;
-  saveSessions();
+  if (!rs || !window.MapGen) return;
+  const map = window.MapGen.generateWorldMap(Date.now() % 2147483647, { size: 128, regionCount: 8 });
+  const worldMap = currentWorldMapState();
+  if (worldMap) {
+    worldMap.data = map;
+    worldMap.imagePath = null;
+    queueWorldSave(currentWorldSave);
+  } else {
+    rs.mapData = map;
+    delete rs.mapImage;
+    if (worldModeActive()) queueWorldSave(currentWorldSave); else saveSessions();
+  }
   renderMap(); // 小预览 + 窗口同步刷新
   const info = $('mm-info');
   if (info) info.innerHTML = '<span class="hint">✅ 已生成新世界，数据层已更新（区域/路径点/邻接）</span>';
@@ -3677,6 +3903,8 @@ async function mapBeautify() {
     return;
   }
   const status = $('mm-info');
+  const targetKey = activeConversationKey();
+  const targetMap = map;
   if (status) status.innerHTML = '<span class="hint">⏳ AI 美化中…（标注版参考图已上传）</span>';
   const refCanvas = document.createElement('canvas');
   window.MapGen.renderWorldMap(refCanvas, map, { pixelSize: 12, markers: true, labels: 'bold' }); // 参考图：标注边界线+文字+地形符号
@@ -3703,8 +3931,11 @@ async function mapBeautify() {
     const src = parseImageSrc(data);
     if (!src) throw new Error('响应中没有图片字段');
     const local = await saveImageLocally(src);
-    rs.mapImage = local || src;
-    saveSessions();
+    if (worldModeActive()
+      ? (activeConversationKey() !== targetKey || currentWorldMapState()?.data?.seed !== targetMap.seed)
+      : activeConversationKey() !== targetKey) return;
+    setCurMapImage(local || src);
+    if (worldModeActive()) queueWorldSave(currentWorldSave); else saveSessions();
     renderMap();
     if (status) status.innerHTML = '<span class="hint">✅ 美化完成 —— 数据层（区域/路径点/邻接）保持不变，点击仍有效</span>';
   } catch (err) {
@@ -3880,6 +4111,7 @@ function bindEvents() {
   // 会话
   $('btn-session').addEventListener('click', e => {
     e.stopPropagation();
+    if (worldModeActive()) { openWorldLibrary(); return; }
     $('session-menu').classList.toggle('hidden');
   });
   document.addEventListener('click', e => {
@@ -3970,7 +4202,7 @@ function bindEvents() {
   // 模式切换：刷新快捷行动与 RPG 面板
   $('btn-mode-switch').addEventListener('click', switchMode);
   renderQuickActions();
-  // 世界库：W1 只建立 / 打开存档，不改变旧 RPG 回合链
+  // 世界库：当前存档接管 RPG 主链；旧 RPG 回合仍保留兼容出口
   $('world-refresh').addEventListener('click', async () => {
     const btn = $('world-refresh');
     const old = btn.textContent;
@@ -3994,7 +4226,8 @@ function bindEvents() {
       await createWorldSave(name);
       input.value = '';
       const status = $('world-open-status');
-      if (status) status.textContent = `已创建并打开「${currentWorldSave.name}」——世界桌面将在下一阶段接入；当前存档 ID：${currentWorldSave.id}`;
+      if (status) status.textContent = `已创建并打开「${currentWorldSave.name}」——世界状态、地图和叙事已绑定当前存档；当前存档 ID：${currentWorldSave.id}`;
+      enterWorldWorkspace();
     } catch (err) {
       showWorldError(err.message);
       input.focus();
@@ -4032,6 +4265,13 @@ function bindEvents() {
   // 清空对话
   $('btn-clear-chat').addEventListener('click', () => {
     if (!confirm('确定清空当前对话？将重新加载开场白。')) return;
+    if (worldModeActive()) {
+      currentWorldSave.turns = [];
+      queueWorldSave(currentWorldSave);
+      renderMessages();
+      renderSessions();
+      return;
+    }
     const s = curSession();
     if (!s) return;
     // 清空后重新加载开场白（getGreeting：char → preset → settings）
