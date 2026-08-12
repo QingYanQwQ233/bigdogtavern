@@ -32,6 +32,8 @@ body[data-theme="tavern"] {
     radial-gradient(820px 520px at -12% 112%, rgba(138, 168, 111, 0.06), transparent 55%),
     linear-gradient(168deg, #171310 0%, #1c1712 48%, #14110d 100%);
   --radius: 12px;
+  --motion-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --motion-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 }
 
 /* ─────────── 色调 2/4：和纸 · 明亮日系 ─────────── */
@@ -153,7 +155,7 @@ body {
   height: 100vh;
 }
 /* 主区：内容右移给侧栏让位（margin+width 同步过渡，总宽恒为 100% → 无抽搐） */
-.main { width: 100%; margin-left: 0; transition: margin-left 0.25s ease, width 0.25s ease; }
+.main { width: 100%; margin-left: 0; transition: margin-left 0.25s var(--motion-in-out), width 0.25s var(--motion-in-out); }
 
 /* ── 桌面（≥961px）：侧栏滑入 + main 让位；手机/平板一律抽屉导航 ── */
 @media (min-width: 961px) {
@@ -169,7 +171,7 @@ body {
 }
 
 /* 管理页（角色/提示词/世界书/记忆）：fixed 覆盖层，left 随侧栏联动 */
-.char-mgr { position: fixed; top: 0; bottom: 0; left: 196px; right: 0; transition: left 0.25s ease; }
+.char-mgr { position: fixed; top: 0; bottom: 0; left: 196px; right: 0; transition: left 0.25s var(--motion-in-out); }
 @media (max-width: 960px) { .char-mgr { left: 0; } }
 
 /* ═══════════════════ RPG 模式布局 ═══════════════════ */
@@ -305,7 +307,7 @@ body[data-mode="rpg"] #rpg-status { display: flex; grid-area: status; }
   gap: 6px;
   background: linear-gradient(180deg, var(--panel), var(--bg-0)); /* 完全实色：杜绝气泡透字 */
   border-right: 1px solid var(--line);
-  transition: transform 0.25s ease, background 0.4s ease;
+  transition: transform 0.25s var(--motion-in-out), background 0.4s ease;
 }
 
 /* ── logo / 导航 ── */
@@ -790,9 +792,9 @@ body[data-theme="washi"] #map-canvas { image-rendering: auto; }
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .msg { animation: msg-in 0.28s ease both; }
+  .msg { animation: msg-in 0.18s var(--motion-out) both; }
   @keyframes msg-in {
-    from { opacity: 0; transform: translateY(8px); }
+    from { opacity: 0; transform: translateY(4px); }
     to   { opacity: 1; transform: translateY(0); }
   }
   .msg.assistant.typing .avatar { animation: crest-breathe 1.4s ease-in-out infinite; }
@@ -1226,7 +1228,8 @@ textarea#input:focus {
   border-radius: 14px;
   padding: 14px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
-  animation: fm-pop 0.18s ease;
+  transform-origin: top right;
+  animation: fm-pop 0.18s var(--motion-out);
 }
 #floating-panel.hidden { display: none; }
 @keyframes fm-pop {
@@ -1251,7 +1254,7 @@ textarea#input:focus {
   font-family: var(--font-body);
   font-size: 12.5px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .fm-layout:hover { color: var(--text); background: rgba(var(--accent-rgb), 0.06); }
 .fm-layout.active {
@@ -1299,6 +1302,12 @@ textarea#input:focus {
   border-radius: 16px;
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(var(--accent-rgb), 0.06);
   transition: background 0.4s ease;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .modal:not(.hidden) { animation: modal-scrim-in 0.22s var(--motion-out); }
+  .modal:not(.hidden) .modal-box { animation: modal-box-in 0.22s var(--motion-out); }
+  @keyframes modal-scrim-in { from { opacity: 0; } }
+  @keyframes modal-box-in { from { opacity: 0; transform: translateY(8px) scale(0.97); } }
 }
 .modal-head {
   display: flex;
@@ -1429,8 +1438,13 @@ body[data-theme="vibrancy"] .dropdown { box-shadow: none; }
   display: flex;
   flex-direction: column;
   gap: 4px;
+  transform-origin: top left;
+  animation: dropdown-in 0.16s var(--motion-out);
 }
 .dropdown.hidden { display: none; }
+@keyframes dropdown-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+}
 .sess-item {
   padding: 8px 10px;
   border-radius: 8px;
@@ -1623,8 +1637,26 @@ body[data-theme="vibrancy"] .dropdown { box-shadow: none; }
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.58);
   overflow: hidden;
 }
-.debug-panel[open] { display: flex; }
-.debug-panel::backdrop { background: rgba(5, 4, 3, 0.72); backdrop-filter: blur(4px); }
+.debug-panel[open] {
+  display: flex;
+  animation: debug-panel-in 0.22s var(--motion-out);
+}
+.debug-panel::backdrop {
+  background: rgba(5, 4, 3, 0.72);
+  backdrop-filter: blur(4px);
+  animation: debug-backdrop-in 0.22s var(--motion-out);
+}
+@keyframes debug-panel-in { from { opacity: 0; transform: scale(0.97); } }
+@keyframes debug-backdrop-in { from { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .main, .char-mgr, .sidebar { transition-duration: 0.01ms; }
+  .dropdown, #floating-panel, .modal:not(.hidden), .modal:not(.hidden) .modal-box,
+  .debug-panel[open], .debug-panel::backdrop, .msg.typing .bubble::after {
+    animation: none;
+  }
+  .chip:hover, .theme-dot:hover { transform: none; }
+}
 .debug-head {
   min-height: 54px;
   padding: 9px 12px 9px 16px;
