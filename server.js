@@ -291,9 +291,35 @@ function validateWorldSavePatch(payload) {
   if (payload.opening !== undefined && typeof payload.opening !== 'string') return 'opening 必须是字符串';
   const state = payload.state;
   if (!Array.isArray(state.inventory) || !Array.isArray(state.quests)) return 'state.inventory/state.quests 必须是数组';
-  if (state.locationId !== null && state.locationId !== undefined && typeof state.locationId !== 'string') return 'state.locationId 必须是字符串或 null';
+  if (state.locationId !== null && state.locationId !== undefined && (typeof state.locationId !== 'string' || state.locationId.length > 240)) return 'state.locationId 必须是 240 字符以内的字符串或 null';
+  if (state.inventory.length > 256 || state.quests.length > 256) return '背包或任务最多各保存 256 项';
+  if (state.stats !== undefined) {
+    if (!state.stats || typeof state.stats !== 'object' || Array.isArray(state.stats)) return 'state.stats 必须是对象';
+    const statRules = {
+      level: [1, 999999, true], exp: [0, 1000000000, true], expNext: [1, 1000000000, true],
+      hp: [0, 1000000000, false], maxHp: [1, 1000000000, false], mp: [0, 1000000000, false],
+      maxMp: [1, 1000000000, false], gold: [0, 1000000000000, false],
+    };
+    for (const [key, [min, max, integer]] of Object.entries(statRules)) {
+      if (state.stats[key] === undefined) continue;
+      const value = state.stats[key];
+      if (!Number.isFinite(value) || value < min || value > max || (integer && !Number.isInteger(value))) return `state.stats.${key} 数值无效`;
+    }
+    if (state.stats.buffs !== undefined && (!Array.isArray(state.stats.buffs) || state.stats.buffs.length > 64 || state.stats.buffs.some(v => typeof v !== 'string' || v.length > 120))) return 'state.stats.buffs 无效';
+  }
+  for (const item of state.inventory) {
+    if (!item || typeof item !== 'object' || typeof item.name !== 'string' || !item.name.trim() || item.name.length > 200) return '背包条目无效';
+    if (item.count !== undefined && (!Number.isInteger(item.count) || item.count < 0 || item.count > 1000000)) return '背包数量无效';
+    if (item.desc !== undefined && (typeof item.desc !== 'string' || item.desc.length > 2000)) return '背包描述无效';
+  }
+  for (const quest of state.quests) {
+    if (!quest || typeof quest !== 'object' || typeof quest.title !== 'string' || !quest.title.trim() || quest.title.length > 240) return '任务条目无效';
+    if (quest.desc !== undefined && (typeof quest.desc !== 'string' || quest.desc.length > 4000)) return '任务描述无效';
+    if (quest.status !== undefined && !['active', 'done'].includes(quest.status)) return '任务状态无效';
+  }
   if (state.map !== undefined) {
     if (!state.map || typeof state.map !== 'object' || Array.isArray(state.map)) return 'state.map 必须是对象';
+    if (state.map.markers !== undefined && (!Array.isArray(state.map.markers) || state.map.markers.length > 256)) return '地图 markers 无效';
     const imagePath = state.map.imagePath;
     if (imagePath !== null && imagePath !== undefined && !/^\/images\/[A-Za-z0-9._-]{1,160}$/.test(imagePath)) return '地图图片必须是本地 /images/ 路径';
     const map = state.map.data;
@@ -301,6 +327,9 @@ function validateWorldSavePatch(payload) {
       if (!map || typeof map !== 'object' || !Number.isInteger(map.size) || map.size < 1 || map.size > 512) return '地图 size 无效';
       if (!Array.isArray(map.grid) || map.grid.length !== map.size * map.size) return '地图 grid 长度无效';
       if (map.grid.some(v => !Number.isInteger(v) || v < 0 || v > 65535)) return '地图 grid 数值无效';
+      if (map.regions !== undefined && (!Array.isArray(map.regions) || map.regions.length > 1024)) return '地图 regions 无效';
+      if (map.points !== undefined && (!Array.isArray(map.points) || map.points.length > 4096)) return '地图 points 无效';
+      if (map.adjacency !== undefined && (!Array.isArray(map.adjacency) || map.adjacency.length > 8192)) return '地图 adjacency 无效';
     }
   }
   return null;

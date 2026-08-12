@@ -214,7 +214,7 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 | `POST /api/world-saves` | 按世界卡创建一个独立空存档；服务端分配 `saveId` |
 | `GET /api/world-saves/<saveId>` | 读取一个完整 WorldSave |
 | `PUT /api/world-saves/<saveId>` | 使用 `expectedRevision` 原子提交当前存档的 `state`、`turns` 与 `opening`；版本冲突返回 409 |
-| `POST /api/world-saves/<saveId>` | 提交一次 RPG 回合候选；校验 `commandId`、assistant 回合、4 个唯一选项和 revision，成功后追加带 revision 的回合并记录 receipt；相同 commandId 幂等返回 |
+| `POST /api/world-saves/<saveId>` | 提交一次 RPG 回合候选；校验 `commandId`、assistant 回合、4 个唯一选项、状态数值/背包/任务边界和 revision，成功后追加带 revision 的回合并记录 receipt；相同 commandId 幂等返回 |
 
 运行时 JSON 不通过静态文件直接暴露：`/data/` 路径拒绝读取，世界卡和存档只能通过上述 API 访问。
 

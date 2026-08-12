@@ -134,6 +134,22 @@ async function main() {
       body: JSON.stringify({ ...turnPayload, commandId: 'command-0002', expectedRevision: 2, options: ['重复', '重复', '三', '四'] }),
     });
     assert.strictEqual(badOptions.response.status, 400, 'candidate options are validated');
+    const badState = JSON.parse(JSON.stringify(statePatch));
+    badState.stats.hp = 1000000001;
+    const invalidState = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...turnPayload, commandId: 'command-0003', expectedRevision: 2, state: badState }),
+    });
+    assert.strictEqual(invalidState.response.status, 400, 'candidate numeric state is bounded');
+    const badInventory = JSON.parse(JSON.stringify(statePatch));
+    badInventory.inventory = [{ name: '超大数量', count: 1000001 }];
+    const invalidInventory = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...turnPayload, commandId: 'command-0004', expectedRevision: 2, state: badInventory }),
+    });
+    assert.strictEqual(invalidInventory.response.status, 400, 'candidate inventory is bounded');
     const conflict = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
