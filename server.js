@@ -72,6 +72,7 @@ async function ensureDataFiles() {
 const SAFE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 const COMMAND_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{7,95}$/;
 const worldSaveLocks = new Map();
+let worldWriteChain = Promise.resolve();
 
 function isSafeId(value) {
   return typeof value === 'string' && SAFE_ID_RE.test(value);
@@ -88,6 +89,16 @@ function withWorldSaveLock(saveId, task) {
   worldSaveLocks.set(saveId, run);
   run.finally(() => {
     if (worldSaveLocks.get(saveId) === run) worldSaveLocks.delete(saveId);
+  }).catch(() => {});
+  return run;
+}
+
+// ponytail: single local-user lock; split by world only if concurrent editors become a real use case.
+function withWorldsLock(task) {
+  const run = worldWriteChain.catch(() => {}).then(task);
+  worldWriteChain = run;
+  run.finally(() => {
+    if (worldWriteChain === run) worldWriteChain = Promise.resolve();
   }).catch(() => {});
   return run;
 }
@@ -126,6 +137,20 @@ async function loadWorlds() {
   const worlds = JSON.parse(raw);
   if (!Array.isArray(worlds)) throw new Error('worlds.json 必须是数组');
   return worlds;
+}
+
+function worldVersions(worlds, worldId) {
+  return worlds
+    .filter(world => world && world.id === worldId)
+    .sort((a, b) => Number(a.version) - Number(b.version));
+}
+
+function latestWorld(worlds, worldId) {
+  return worldVersions(worlds, worldId).at(-1) || null;
+}
+
+function findWorldVersion(worlds, worldId, version) {
+  return worlds.find(world => world && world.id === worldId && Number(world.version) === Number(version)) || null;
 }
 
 function worldNpcIds(world) {
@@ -222,11 +247,104 @@ async function handleWorldsGet(req, res) {
     const saves = await listWorldSaveFiles();
     const counts = new Map();
     for (const save of saves) counts.set(save.worldId, (counts.get(save.worldId) || 0) + 1);
-    send(res, 200, JSON.stringify(worlds.map(w => worldSummary(w, counts.get(w.id) || 0))), 'application/json; charset=utf-8');
+    const latest = new Map();
+    for (const world of worlds) {
+      if (!world || typeof world.id !== 'string') continue;
+      const previous = latest.get(world.id);
+      if (!previous || Number(world.version) > Number(previous.version)) latest.set(world.id, world);
+    }
+    send(res, 200, JSON.stringify([...latest.values()].map(w => worldSummary(w, counts.get(w.id) || 0))), 'application/json; charset=utf-8');
   } catch (err) {
     console.error('[worlds] 读取失败:', err.message);
     send(res, 500, JSON.stringify({ error: '世界卡读取失败: ' + err.message }), 'application/json');
   }
+}
+
+async function handleWorldCardGet(req, res, worldId, version) {
+  if (!isSafeId(worldId)) return send(res, 400, JSON.stringify({ error: '无效的 worldId' }), 'application/json');
+  try {
+    const worlds = await loadWorlds();
+    const world = version === undefined ? latestWorld(worlds, worldId) : findWorldVersion(worlds, worldId, version);
+    if (!world) return send(res, 404, JSON.stringify({ error: '世界卡版本不存在' }), 'application/json');
+    send(res, 200, JSON.stringify(world), 'application/json; charset=utf-8');
+  } catch (err) {
+    console.error('[worlds] 读取版本失败:', err.message);
+    send(res, 500, JSON.stringify({ error: '世界卡读取失败: ' + err.message }), 'application/json');
+  }
+}
+
+function stableWorldNpcId(worlds) {
+  let id;
+  do {
+    id = 'npc-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+  } while (worlds.some(world => worldNpcIds(world).includes(id)));
+  return id;
+}
+
+async function handleWorldNpcPromotion(req, res, worldId) {
+  let payload;
+  try { payload = await readJsonBody(req, 64 * 1024); }
+  catch (err) {
+    const status = err.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400;
+    return send(res, status, JSON.stringify({ error: err.message }), 'application/json');
+  }
+  if (!isSafeId(worldId)) return send(res, 400, JSON.stringify({ error: '无效的 worldId' }), 'application/json');
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return send(res, 400, JSON.stringify({ error: '请求必须是 JSON 对象' }), 'application/json');
+  const sourceSaveId = String(payload.sourceSaveId || '');
+  const generatedNpcId = String(payload.npcId || '');
+  if (!isSafeId(sourceSaveId)) return send(res, 400, JSON.stringify({ error: '无效的 sourceSaveId' }), 'application/json');
+  if (!/^save:[A-Za-z0-9][A-Za-z0-9_-]{0,63}:npc:\d+$/.test(generatedNpcId)) return send(res, 400, JSON.stringify({ error: '无效的存档 NPC ID' }), 'application/json');
+  if (payload.expectedRevision !== undefined && (!Number.isInteger(payload.expectedRevision) || payload.expectedRevision < 0)) {
+    return send(res, 400, JSON.stringify({ error: 'expectedRevision 必须是非负整数' }), 'application/json');
+  }
+  if (payload.title !== undefined && (typeof payload.title !== 'string' || !payload.title.trim() || payload.title.trim().length > 200)) {
+    return send(res, 400, JSON.stringify({ error: 'title 必须是 1-200 字符的字符串' }), 'application/json');
+  }
+  if (!generatedNpcId.startsWith(`save:${sourceSaveId}:npc:`)) return send(res, 403, JSON.stringify({ error: 'NPC 不属于指定存档' }), 'application/json');
+  const sourcePath = savePath(sourceSaveId);
+  return withWorldSaveLock(sourceSaveId, () => withWorldsLock(async () => {
+    try {
+      const save = JSON.parse(await fs.promises.readFile(sourcePath, 'utf-8'));
+      if (!save || save.id !== sourceSaveId) return send(res, 404, JSON.stringify({ error: '存档不存在' }), 'application/json');
+      if (save.worldId !== worldId) return send(res, 409, JSON.stringify({ error: '存档不属于指定世界' }), 'application/json');
+      if (payload.expectedRevision !== undefined && save.revision !== payload.expectedRevision) {
+        return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: save.revision }), 'application/json');
+      }
+      const generatedNpc = save.generatedEntities?.npcs?.[generatedNpcId];
+      if (!generatedNpc || generatedNpc.kind !== 'npc') return send(res, 404, JSON.stringify({ error: '存档 NPC 不存在' }), 'application/json');
+      const worlds = await loadWorlds();
+      const sourceWorld = findWorldVersion(worlds, worldId, save.worldVersion);
+      if (!sourceWorld) return send(res, 409, JSON.stringify({ error: '存档绑定的世界版本不存在' }), 'application/json');
+      for (const world of worlds) {
+        const existing = (Array.isArray(world.npcs) ? world.npcs : []).find(npc => npc && npc.sourceGeneratedEntityId === generatedNpcId && npc.sourceSaveId === sourceSaveId);
+        if (existing) return send(res, 200, JSON.stringify({ world, npcId: existing.id, idempotent: true }), 'application/json; charset=utf-8');
+      }
+      const nextVersion = worldVersions(worlds, worldId).reduce((max, world) => Math.max(max, Number(world.version) || 0), 0) + 1;
+      const stableNpcId = stableWorldNpcId(worlds);
+      const promotedNpc = {
+        id: stableNpcId,
+        name: generatedNpc.name,
+        sourceSaveId,
+        sourceGeneratedEntityId: generatedNpcId,
+        promotedAt: Date.now(),
+      };
+      for (const key of ['description', 'locationId', 'status', 'role', 'persona', 'personality', 'appearance', 'speechStyle', 'publicGoals', 'publicFacts', 'type']) {
+        if (generatedNpc[key] !== undefined) promotedNpc[key] = cloneJson(generatedNpc[key]);
+      }
+      const nextWorld = cloneJson(sourceWorld);
+      nextWorld.version = nextVersion;
+      if (payload.title !== undefined) nextWorld.title = payload.title.trim();
+      nextWorld.npcIds = [...new Set([...(Array.isArray(sourceWorld.npcIds) ? sourceWorld.npcIds : []), stableNpcId])];
+      nextWorld.npcs = [...(Array.isArray(sourceWorld.npcs) ? cloneJson(sourceWorld.npcs) : []), promotedNpc];
+      worlds.push(nextWorld);
+      await writeJsonAtomic(path.join(DATA_DIR, 'worlds.json'), worlds);
+      send(res, 201, JSON.stringify({ world: nextWorld, npcId: stableNpcId, idempotent: false }), 'application/json; charset=utf-8');
+    } catch (err) {
+      if (err.code === 'ENOENT') return send(res, 404, JSON.stringify({ error: '存档不存在' }), 'application/json');
+      console.error('[worlds] 收录 NPC 失败:', err.message);
+      send(res, 500, JSON.stringify({ error: '世界版本创建失败: ' + err.message }), 'application/json');
+    }
+  }));
 }
 
 async function handleWorldSavesList(req, res, worldId) {
@@ -268,7 +386,9 @@ async function handleWorldSaveCreate(req, res) {
   let worlds;
   try { worlds = await loadWorlds(); }
   catch (err) { return send(res, 500, JSON.stringify({ error: '世界卡读取失败: ' + err.message }), 'application/json'); }
-  const world = worlds.find(w => w && w.id === worldId);
+  const world = payload.worldVersion === undefined
+    ? latestWorld(worlds, worldId)
+    : findWorldVersion(worlds, worldId, Number(payload.worldVersion));
   if (!world) return send(res, 404, JSON.stringify({ error: '世界卡不存在' }), 'application/json');
   const worldVersion = Number(payload.worldVersion ?? world.version);
   if (!Number.isInteger(worldVersion) || worldVersion !== Number(world.version)) return send(res, 409, JSON.stringify({ error: '世界卡版本已变化，请重新打开世界库' }), 'application/json');
@@ -488,7 +608,7 @@ async function handleWorldSavePut(req, res, saveId) {
     try {
       const current = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
       if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
-      const world = (await loadWorlds()).find(item => item.id === current.worldId && item.version === current.worldVersion);
+      const world = findWorldVersion(await loadWorlds(), current.worldId, current.worldVersion);
       const invalidLocation = validateWorldLocationIds(world, payload.state, current.npcStates);
       if (invalidLocation) return send(res, 400, JSON.stringify({ error: invalidLocation }), 'application/json');
       if (current.revision !== payload.expectedRevision) {
@@ -546,7 +666,7 @@ async function handleWorldTurnPost(req, res, saveId) {
     try {
       const current = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
       if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
-      const world = (await loadWorlds()).find(item => item.id === current.worldId && item.version === current.worldVersion);
+      const world = findWorldVersion(await loadWorlds(), current.worldId, current.worldVersion);
       const invalidLocation = validateWorldLocationIds(world, payload.state, payload.npcStates, payload.createEntities);
       if (invalidLocation) return send(res, 400, JSON.stringify({ error: invalidLocation }), 'application/json');
       let allowedNpcIds = new Set(Object.keys(current.npcStates || {}));
@@ -556,7 +676,7 @@ async function handleWorldTurnPost(req, res, saveId) {
       }
       if (!allowedNpcIds.size) {
         try {
-          const world = (await loadWorlds()).find(item => item.id === current.worldId && item.version === current.worldVersion);
+          const world = findWorldVersion(await loadWorlds(), current.worldId, current.worldVersion);
           allowedNpcIds = new Set(worldNpcIds(world));
         } catch {}
       }
@@ -833,6 +953,24 @@ const server = http.createServer((req, res) => {
   if (req.method === 'POST' && url.pathname === '/api/image-save') return handleImageSave(req, res);
   if (req.method === 'GET' && url.pathname === '/api/models') return handleModels(req, res);
   if (req.method === 'GET' && url.pathname === '/api/worlds') return handleWorldsGet(req, res);
+  const worldVersionMatch = url.pathname.match(/^\/api\/worlds\/([^/]+)\/versions\/?$/);
+  if (worldVersionMatch && req.method === 'POST') {
+    let worldId;
+    try { worldId = decodeURIComponent(worldVersionMatch[1]); }
+    catch { return send(res, 400, JSON.stringify({ error: '无效的 worldId' }), 'application/json'); }
+    return handleWorldNpcPromotion(req, res, worldId);
+  }
+  const worldCardMatch = url.pathname.match(/^\/api\/worlds\/([^/]+)\/?$/);
+  if (worldCardMatch && req.method === 'GET') {
+    let worldId;
+    try { worldId = decodeURIComponent(worldCardMatch[1]); }
+    catch { return send(res, 400, JSON.stringify({ error: '无效的 worldId' }), 'application/json'); }
+    const rawVersion = url.searchParams.get('version');
+    if (rawVersion !== null && (!/^\d+$/.test(rawVersion) || !Number.isSafeInteger(Number(rawVersion)))) {
+      return send(res, 400, JSON.stringify({ error: '无效的 worldVersion' }), 'application/json');
+    }
+    return handleWorldCardGet(req, res, worldId, rawVersion === null ? undefined : Number(rawVersion));
+  }
   const worldSaveListMatch = url.pathname.match(/^\/api\/world-saves\/?$/);
   if (worldSaveListMatch) {
     if (req.method === 'GET') return handleWorldSavesList(req, res, url.searchParams.get('worldId') || '');

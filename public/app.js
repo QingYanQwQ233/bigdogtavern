@@ -98,6 +98,7 @@ let lorebooks = null; // { id: { name, entries: [] } }
 let userData = loadJSON(LS_USER, null); // { currentPreset, presets: {...}, memories: [] }
 let promptPresets = loadJSON(LS_PRESETS, {});
 let worldCards = [];
+const worldCardVersions = new Map();
 let currentWorldId = localStorage.getItem(LS_CURRENT_WORLD) || null;
 let currentWorldSaveId = localStorage.getItem(LS_CURRENT_WORLD_SAVE) || null;
 let currentWorldSave = null;
@@ -166,7 +167,13 @@ function sessionMatches(s) { return !!s && s.charId === currentCharId && s.kind 
 
 /* ─────────── 世界库 / 世界存档（W2：RPG 主链由当前 WorldSave 持有） ─────────── */
 function worldCardById(id) { return worldCards.find(w => w.id === id) || null; }
-function currentWorldCard() { return worldCardById(currentWorldId); }
+function worldCardKey(id, version) { return `${id}@${version}`; }
+function currentWorldCard() {
+  const version = currentWorldSave && currentWorldSave.worldVersion;
+  return version === undefined || version === null
+    ? worldCardById(currentWorldId)
+    : worldCardVersions.get(worldCardKey(currentWorldId, version)) || worldCardById(currentWorldId);
+}
 function formatWorldDate(ts) {
   if (!ts) return '时间未知';
   try { return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(ts)); }
@@ -340,6 +347,15 @@ async function loadWorldCards() {
   }
   return worldCards;
 }
+async function loadWorldCardVersion(worldId, version) {
+  const query = version === undefined || version === null ? '' : '?version=' + encodeURIComponent(version);
+  const res = await fetch('/api/worlds/' + encodeURIComponent(worldId) + query);
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(worldApiError(data, '世界卡版本读取失败（HTTP ' + res.status + '）'));
+  if (!data || data.id !== worldId) throw new Error('世界卡响应缺少稳定 ID');
+  worldCardVersions.set(worldCardKey(worldId, data.version), data);
+  return data;
+}
 async function loadWorldSaves(worldId) {
   if (!worldId) return [];
   const res = await fetch('/api/world-saves?worldId=' + encodeURIComponent(worldId));
@@ -356,6 +372,8 @@ async function openWorldSave(saveId, expectedToken = worldLoadToken) {
   if (!res.ok) throw new Error(worldApiError(data, '存档读取失败（HTTP ' + res.status + '）'));
   if (!data || data.id !== saveId) throw new Error('存档响应缺少稳定 ID');
   if (expectedToken !== worldLoadToken) return null;
+  await loadWorldCardVersion(data.worldId, data.worldVersion);
+  if (expectedToken !== worldLoadToken) return null;
   hydrateWorldSave(data);
   currentWorldSave = data;
   currentWorldSaveId = data.id;
@@ -367,7 +385,7 @@ async function openWorldSave(saveId, expectedToken = worldLoadToken) {
 }
 async function createWorldSave(name) {
   if (worldTurnPending) discardWorldTurnPending();
-  const world = currentWorldCard();
+  const world = worldCardById(currentWorldId);
   if (!world) throw new Error('请先选择一个世界卡');
   const res = await fetch('/api/world-saves', {
     method: 'POST',
@@ -376,6 +394,7 @@ async function createWorldSave(name) {
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new Error(worldApiError(data, '存档创建失败（HTTP ' + res.status + '）'));
+  await loadWorldCardVersion(data.worldId, data.worldVersion);
   hydrateWorldSave(data);
   currentWorldSave = data;
   currentWorldSaveId = data.id;
@@ -431,7 +450,7 @@ function showWorldError(message) {
 function renderWorldDetail() {
   const empty = $('world-empty');
   const detail = $('world-detail');
-  const world = currentWorldCard();
+  const world = worldCardById(currentWorldId);
   if (!empty || !detail) return;
   if (!world) {
     empty.classList.remove('hidden');

@@ -82,12 +82,14 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 }
 ```
 
-世界卡是可复用的静态定义，不保存某个玩家的回合、背包或地图图片。W1 暂不提供世界卡写接口，内容来自 `_defaults.json.worlds` 初始化的 `worlds.json`。
+世界卡是可复用的静态定义，不保存某个玩家的回合、背包或地图图片。通用世界编辑器仍未开放，初始内容来自 `_defaults.json.worlds` 初始化的 `worlds.json`；W4.7 只提供“从指定存档收录 NPC”这一条显式版本创建接口。
 其中 `locations[].id` 是世界内稳定的地点主键；`start.locationId`、`WorldSave.state.locationId` 和 `npcStates[*].locationId` 只能引用当前世界已登记的 ID，地点名称只用于展示与叙事。RPG Prompt 只注入当前地点 NPC、队伍成员和当前任务引用的 NPC；未命中的世界 NPC 不进入上下文。
 
 WorldNPC 的静态资料按公开边界读取：`role`、`description`、`persona`、`personality`、`appearance`、`speechStyle`、`publicFacts`、`publicGoals` 可进入作用域 Prompt；`secrets` 采用 `[{ id, content }]`，只有当前存档 `npcStates[npcId].knowledge` 包含对应 `id` 时才注入。其他静态字段不会自动展开，跨存档的 `knowledge` / `relation` 永不共享。
 
 `generatedEntities` 按 `npcs` / `items` / `quests` / `locations` 分桶保存 AI 提出的临时实体。回合请求只能提交候选 `createEntities`（最多 32 个），服务端按当前 `saveId` 生成 `save:<saveId>:<kind>:<n>` ID 后写入当前存档；重复命令不会重复创建，其他世界存档不可见。
+
+如需把存档 NPC 收录为长期世界 NPC，客户端必须显式调用 `POST /api/worlds/<worldId>/versions`，提交 `sourceSaveId`、`expectedRevision` 和该存档生成的 `npcId`。服务端会复制来源世界卡为下一 `version`，分配新的稳定 NPC ID 并写入来源映射；来源世界版本与来源存档均不改写。同一来源 NPC 重复调用会返回已创建版本（幂等）。
 
 ### 世界存档 WorldSave（saves/<saveId>.json）
 
@@ -217,6 +219,8 @@ WorldNPC 的静态资料按公开边界读取：`role`、`description`、`person
 | `GET /api/data/seed` | 返回 _defaults.json 全量（深拷贝） |
 | `GET/PUT /api/data/:type` | 读写 characters / presets / lorebooks / settings |
 | `GET /api/worlds` | 返回世界卡摘要与每个世界的存档数量 |
+| `GET /api/worlds/<worldId>?version=<n>` | 读取指定世界卡版本；省略 `version` 时读取最新版本 |
+| `POST /api/worlds/<worldId>/versions` | 显式把来源存档中的生成 NPC 收录进下一不可变世界版本；要求 `sourceSaveId`、`npcId`，可选 `expectedRevision` / `title` |
 | `GET /api/world-saves?worldId=<worldId>` | 列出指定世界的存档摘要 |
 | `POST /api/world-saves` | 按世界卡创建一个独立空存档；服务端分配 `saveId` |
 | `GET /api/world-saves/<saveId>` | 读取一个完整 WorldSave |

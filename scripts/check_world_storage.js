@@ -158,6 +158,42 @@ async function main() {
     assert.strictEqual(npcTurn.body.generatedEntities.npcs[generatedNpcId].name, '临时旅人');
     assert.strictEqual(npcTurn.body.generatedEntities.npcs[generatedNpcId].role, 'witness');
     assert.strictEqual(Object.keys(npcTurn.body.generatedEntities.items || {}).length, 1);
+    const sourceWorldCard = await jsonRequest(base, `/api/worlds/${encodeURIComponent(world.id)}?version=${world.version}`);
+    assert.strictEqual(sourceWorldCard.response.status, 200);
+    assert.strictEqual(sourceWorldCard.body.version, world.version);
+    assert.ok(!sourceWorldCard.body.npcs.some(npc => npc.id === generatedNpcId), 'source world remains unchanged');
+    const promotion = await jsonRequest(base, `/api/worlds/${encodeURIComponent(world.id)}/versions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sourceSaveId: first.body.id, expectedRevision: 3, npcId: generatedNpcId, title: '极光大陆 · 收录旅人' }),
+    });
+    assert.strictEqual(promotion.response.status, 201);
+    assert.strictEqual(promotion.body.world.id, world.id);
+    assert.strictEqual(promotion.body.world.version, Number(world.version) + 1);
+    assert.ok(promotion.body.npcId && promotion.body.npcId !== generatedNpcId);
+    assert.ok(promotion.body.world.npcIds.includes(promotion.body.npcId));
+    assert.strictEqual(promotion.body.world.npcs.find(npc => npc.id === promotion.body.npcId).sourceGeneratedEntityId, generatedNpcId);
+    const duplicatePromotion = await jsonRequest(base, `/api/worlds/${encodeURIComponent(world.id)}/versions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sourceSaveId: first.body.id, expectedRevision: 3, npcId: generatedNpcId }),
+    });
+    assert.strictEqual(duplicatePromotion.response.status, 200, 'promotion is idempotent');
+    assert.strictEqual(duplicatePromotion.body.npcId, promotion.body.npcId);
+    const latestWorld = await jsonRequest(base, `/api/worlds/${encodeURIComponent(world.id)}`);
+    assert.strictEqual(latestWorld.response.status, 200);
+    assert.strictEqual(latestWorld.body.version, promotion.body.world.version);
+    assert.ok(latestWorld.body.npcIds.includes(promotion.body.npcId));
+    const promotedSave = await jsonRequest(base, '/api/world-saves', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ worldId: world.id, worldVersion: latestWorld.body.version, name: '收录后新存档' }),
+    });
+    assert.strictEqual(promotedSave.response.status, 201);
+    assert.ok(promotedSave.body.npcStates[promotion.body.npcId], 'new version seeds promoted NPC state');
+    const oldSaveAfterPromotion = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id));
+    assert.strictEqual(oldSaveAfterPromotion.body.worldVersion, world.version, 'old save stays pinned to source version');
+    assert.ok(!oldSaveAfterPromotion.body.npcStates[promotion.body.npcId], 'old save does not receive promoted NPC');
     const duplicateGeneratedTurn = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -274,7 +310,7 @@ async function main() {
     const restarted = server.address();
     const afterRestart = await jsonRequest(`http://127.0.0.1:${restarted.port}`, '/api/world-saves?worldId=' + encodeURIComponent(world.id));
     assert.strictEqual(afterRestart.response.status, 200);
-    assert.strictEqual(afterRestart.body.length, 2, 'saves survive server restart');
+    assert.strictEqual(afterRestart.body.length, 3, 'saves survive server restart');
     console.log('world storage check passed');
   } finally {
     await closeServer();
