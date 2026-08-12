@@ -90,7 +90,9 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 {
   id, worldId, worldVersion, name, createdAt, updatedAt,
   schemaVersion: 1, revision: 0,
-  player: { templateId, snapshot }, party: [],
+  player: { templateId, snapshot },
+  party: { memberIds: [], leaderId: null },
+  npcStates: { [npcId]: { locationId, relation, knowledge: [], status: [] } },
   state: {
     stats, inventory: [], quests: [], locationId,
     map: { strategy: 'perSave', data: null, imagePath: null, markers: [] }
@@ -101,7 +103,7 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 }
 ```
 
-创建时由服务端从当前 `WorldCard.start` 复制玩家快照和初始状态；客户端不能提交文件路径或自行指定 `saveId`。普通存档维护可通过 `PUT /api/world-saves/<saveId>` 提交完整的 `state + turns + opening`，带 `expectedRevision` 做顺序校验；正式 RPG 新行动使用 `POST /api/world-saves/<saveId>`，携带稳定 `commandId`、`expectedRevision`、候选 `state`、本回合 `turns` 和恰好 4 个 `options`，服务端在同一临界区校验版本、追加带 revision 的回合并写入幂等 `receipts`。地图网格写入 JSON 前转为数字数组，读取后恢复为 `Uint16Array`，图片只保存受校验的本地 `/images/...` 路径。
+创建时由服务端从当前 `WorldCard.start` 复制玩家快照、初始状态和 NPC 初始状态；角色库或世界卡后续编辑不会静默改写已有存档。世界卡的 `npcIds` / `npcs` 只负责静态登记，关系、位置、认知和状态只写当前 `WorldSave.npcStates`。客户端不能提交文件路径或自行指定 `saveId`。普通存档维护可通过 `PUT /api/world-saves/<saveId>` 提交完整的 `state + turns + opening`，带 `expectedRevision` 做顺序校验；正式 RPG 新行动使用 `POST /api/world-saves/<saveId>`，携带稳定 `commandId`、`expectedRevision`、候选 `state`、本回合 `turns`、恰好 4 个 `options`，以及可选的 `npcStates`，服务端在同一临界区校验版本、追加带 revision 的回合并写入幂等 `receipts`。地图网格写入 JSON 前转为数字数组，读取后恢复为 `Uint16Array`，图片只保存受校验的本地 `/images/...` 路径。
 
 ### 角色卡 characters[]（characters.json）
 ```js

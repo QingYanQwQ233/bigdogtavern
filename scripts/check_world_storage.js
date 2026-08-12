@@ -9,6 +9,8 @@ const root = path.resolve(__dirname, '..');
 const MapGen = require(path.join(root, 'public', 'mapgen.js'));
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tavern-world-'));
 const defaults = JSON.parse(fs.readFileSync(path.join(root, 'public', 'data', '_defaults.json'), 'utf8'));
+defaults.worlds[0].npcIds = ['npc-lily'];
+defaults.worlds[0].npcs = [{ id: 'npc-lily', name: 'Lily', role: 'innkeeper' }];
 defaults.worlds.push({
   ...defaults.worlds[0],
   id: 'world-second',
@@ -77,6 +79,13 @@ async function main() {
     assert.notStrictEqual(first.body.id, second.body.id);
     assert.strictEqual(first.body.revision, 0);
     assert.strictEqual(first.body.state.locationId, 'wolf-tooth-inn');
+    assert.deepStrictEqual(first.body.npcStates, {
+      'npc-lily': { locationId: 'wolf-tooth-inn', relation: {}, knowledge: [], status: [] },
+    });
+    assert.deepStrictEqual(second.body.npcStates, first.body.npcStates, 'NPC states are seeded per save');
+    assert.deepStrictEqual(otherWorld.body.npcStates, {
+      'npc-lily': { locationId: 'second-start', relation: {}, knowledge: [], status: [] },
+    }, 'NPC states follow the world start location');
 
     const list = await jsonRequest(base, '/api/world-saves?worldId=' + encodeURIComponent(world.id));
     assert.strictEqual(list.response.status, 200);
@@ -121,13 +130,40 @@ async function main() {
     assert.strictEqual(turnCommit.body.revision, 2);
     assert.strictEqual(turnCommit.body.turns.at(-1).commandId, 'command-0001');
     assert.strictEqual(turnCommit.body.receipts.at(-1).commandId, 'command-0001');
+    const npcTurn = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...turnPayload,
+        commandId: 'command-0005',
+        expectedRevision: 2,
+        npcStates: { 'npc-lily': { locationId: 'region-2', relation: { trust: 1 }, knowledge: ['玩家曾帮助她'], status: ['alert'] } },
+        turns: [
+          { id: 'turn-user-2', role: 'user', content: '询问莉莉' },
+          { id: 'turn-ai-2', role: 'assistant', content: '莉莉抬头。' },
+        ],
+      }),
+    });
+    assert.strictEqual(npcTurn.response.status, 200);
+    assert.strictEqual(npcTurn.body.revision, 3);
+    assert.strictEqual(npcTurn.body.npcStates['npc-lily'].locationId, 'region-2');
+    const unknownNpcState = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...turnPayload, commandId: 'command-0007', expectedRevision: 3, npcStates: { 'npc-other-save': { locationId: 'region-9' } } }),
+    });
+    assert.strictEqual(unknownNpcState.response.status, 400, 'NPC state cannot cross save/world ownership');
+    const secondReload = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(second.body.id));
+    assert.strictEqual(secondReload.response.status, 200);
+    assert.strictEqual(secondReload.body.revision, 0);
+    assert.strictEqual(secondReload.body.npcStates['npc-lily'].locationId, 'wolf-tooth-inn', 'NPC state does not leak across saves');
     const duplicateTurn = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(turnPayload),
     });
     assert.strictEqual(duplicateTurn.response.status, 200, 'duplicate command is idempotent');
-    assert.strictEqual(duplicateTurn.body.revision, 2);
+    assert.strictEqual(duplicateTurn.body.revision, 3);
     const badOptions = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -150,6 +186,12 @@ async function main() {
       body: JSON.stringify({ ...turnPayload, commandId: 'command-0004', expectedRevision: 2, state: badInventory }),
     });
     assert.strictEqual(invalidInventory.response.status, 400, 'candidate inventory is bounded');
+    const invalidNpcState = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...turnPayload, commandId: 'command-0006', expectedRevision: 3, npcStates: { 'npc-lily': { knowledge: new Array(129).fill('x') } } }),
+    });
+    assert.strictEqual(invalidNpcState.response.status, 400, 'candidate NPC state is bounded');
     const conflict = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

@@ -128,6 +128,23 @@ async function loadWorlds() {
   return worlds;
 }
 
+function worldNpcIds(world) {
+  const ids = [];
+  if (Array.isArray(world?.npcIds)) ids.push(...world.npcIds);
+  if (Array.isArray(world?.npcs)) ids.push(...world.npcs.map(npc => npc && npc.id));
+  return [...new Set(ids.filter(id => typeof id === 'string' && id.trim()).map(id => id.trim()))];
+}
+
+function initialNpcStates(world, start) {
+  const locationId = start && typeof start.locationId === 'string' ? start.locationId : null;
+  return Object.fromEntries(worldNpcIds(world).map(npcId => [npcId, {
+    locationId,
+    relation: {},
+    knowledge: [],
+    status: [],
+  }]));
+}
+
 function worldSummary(world, saveCount = 0) {
   return {
     id: world.id,
@@ -137,7 +154,7 @@ function worldSummary(world, saveCount = 0) {
     coverImage: world.coverImage || '',
     tags: Array.isArray(world.tags) ? world.tags : [],
     locationCount: Array.isArray(world.locations) ? world.locations.length : 0,
-    npcCount: Array.isArray(world.npcIds) ? world.npcIds.length : 0,
+    npcCount: worldNpcIds(world).length,
     saveCount,
   };
 }
@@ -267,6 +284,7 @@ async function handleWorldSaveCreate(req, res) {
         markers: [],
       },
     },
+    npcStates: initialNpcStates(world, start),
     opening: String(start.opening || ''),
     turns: [],
     receipts: [],
@@ -335,6 +353,23 @@ function validateWorldSavePatch(payload) {
   return null;
 }
 
+function validateNpcStates(value, allowedIds = null) {
+  if (value === undefined) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'npcStates 必须是对象';
+  const ids = Object.keys(value);
+  if (ids.length > 256 || ids.some(id => !id.trim() || id.length > 120)) return 'npcStates 数量或 ID 无效';
+  if (allowedIds && ids.some(id => !allowedIds.has(id))) return 'npcStates 包含当前存档未登记的 NPC';
+  for (const id of ids) {
+    const npc = value[id];
+    if (!npc || typeof npc !== 'object' || Array.isArray(npc)) return 'NPC 状态必须是对象';
+    if (npc.locationId !== undefined && npc.locationId !== null && (typeof npc.locationId !== 'string' || npc.locationId.length > 240)) return 'NPC locationId 无效';
+    if (npc.relation !== undefined && (!npc.relation || typeof npc.relation !== 'object' || Array.isArray(npc.relation))) return 'NPC relation 无效';
+    if (npc.knowledge !== undefined && (!Array.isArray(npc.knowledge) || npc.knowledge.length > 128 || npc.knowledge.some(item => typeof item !== 'string' || item.length > 1000))) return 'NPC knowledge 无效';
+    if (npc.status !== undefined && (!Array.isArray(npc.status) || npc.status.length > 64 || npc.status.some(item => typeof item !== 'string' || item.length > 240))) return 'NPC status 无效';
+  }
+  return null;
+}
+
 async function handleWorldSavePut(req, res, saveId) {
   const fp = savePath(saveId);
   if (!fp) return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json');
@@ -397,10 +432,21 @@ async function handleWorldTurnPost(req, res, saveId) {
   }
   const invalid = validateWorldTurn(payload);
   if (invalid) return send(res, 400, JSON.stringify({ error: invalid }), 'application/json');
+  const invalidNpcStates = validateNpcStates(payload.npcStates);
+  if (invalidNpcStates) return send(res, 400, JSON.stringify({ error: invalidNpcStates }), 'application/json');
   return withWorldSaveLock(saveId, async () => {
     try {
       const current = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
       if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
+      let allowedNpcIds = new Set(Object.keys(current.npcStates || {}));
+      if (!allowedNpcIds.size) {
+        try {
+          const world = (await loadWorlds()).find(item => item.id === current.worldId && item.version === current.worldVersion);
+          allowedNpcIds = new Set(worldNpcIds(world));
+        } catch {}
+      }
+      const invalidNpcIds = validateNpcStates(payload.npcStates, allowedNpcIds);
+      if (invalidNpcIds) return send(res, 400, JSON.stringify({ error: invalidNpcIds }), 'application/json');
       const existingReceipt = Array.isArray(current.receipts)
         ? current.receipts.find(receipt => receipt && receipt.commandId === payload.commandId)
         : null;
@@ -413,6 +459,7 @@ async function handleWorldTurnPost(req, res, saveId) {
       const next = {
         ...current,
         state: cloneJson(payload.state),
+        npcStates: payload.npcStates === undefined ? (current.npcStates || {}) : cloneJson(payload.npcStates),
         turns: [...(Array.isArray(current.turns) ? current.turns : []), ...committedTurns],
         receipts: [...(Array.isArray(current.receipts) ? current.receipts : []), {
           commandId: payload.commandId,
