@@ -647,7 +647,7 @@ body[data-theme="washi"] #map-canvas { image-rendering: auto; }
   transition: opacity 0.15s;
   z-index: 5;
 }
-.msg:hover .msg-actions { opacity: 1; }
+.msg:hover .msg-actions, .msg:focus-within .msg-actions { opacity: 1; }
 .msg.user .msg-actions { right: auto; left: -8px; transform: translate(-100%, -50%); }
 .ma-btn {
   width: 26px; height: 26px;
@@ -663,7 +663,7 @@ body[data-theme="washi"] #map-canvas { image-rendering: auto; }
 .ma-btn:hover { color: var(--text); border-color: var(--accent); background: rgba(var(--accent-rgb), 0.1); }
 /* 编辑模式 */
 .edit-bubble { padding: 8px !important; }
-.edit-bubble textarea {
+.edit-bubble textarea, .rpg-prose-editor textarea {
   width: 100%;
   min-height: 80px;
   background: var(--bg-0);
@@ -719,6 +719,30 @@ body[data-theme="washi"] #map-canvas { image-rendering: auto; }
   white-space: normal;
 }
 .msg.narration .bubble.md { white-space: normal; }
+/* RPG 正文是连续叙事页，不按引号切成角色气泡。 */
+.msg.rpg-narrative {
+  align-self: stretch;
+  display: block;
+  width: 100%;
+  max-width: none;
+  padding: 0 clamp(2px, 1.5vw, 18px);
+}
+.rpg-prose {
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.9;
+  padding: 4px 40px 16px 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.rpg-prose-editor {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px;
+}
+.rpg-narrative .msg-actions { right: 0; top: 4px; transform: none; }
 /* 思维链独立行（旁白样式，非角色气泡） */
 .msg.cot-msg {
   align-self: center;
@@ -780,29 +804,29 @@ body[data-theme="washi"] #map-canvas { image-rendering: auto; }
 .msg.typing .bubble::after { content: "…"; animation: blink 1s infinite; }
 @keyframes blink { 50% { opacity: 0.2; } }
 
-/* ── Markdown 渲染样式（气泡启用 .md 时） ── */
-.msg .bubble.md { white-space: normal; }
-.bubble.md h1, .bubble.md h2, .bubble.md h3, .bubble.md h4 {
+/* ── Markdown 渲染样式（消息容器启用 .md 时） ── */
+.msg :is(.bubble, .rpg-prose).md { white-space: normal; }
+:is(.bubble, .rpg-prose).md h1, :is(.bubble, .rpg-prose).md h2, :is(.bubble, .rpg-prose).md h3, :is(.bubble, .rpg-prose).md h4 {
   font-family: var(--font-display);
   line-height: 1.4;
   margin: 10px 0 6px;
   color: var(--text);
 }
-.bubble.md h1 { font-size: 17px; }
-.bubble.md h2 { font-size: 16px; }
-.bubble.md h3 { font-size: 15px; }
-.bubble.md h4 { font-size: 14px; }
-.bubble.md p { margin: 5px 0; }
-.bubble.md ul, .bubble.md ol { margin: 5px 0; padding-left: 20px; }
-.bubble.md li { margin: 2px 0; }
-.bubble.md code {
+:is(.bubble, .rpg-prose).md h1 { font-size: 17px; }
+:is(.bubble, .rpg-prose).md h2 { font-size: 16px; }
+:is(.bubble, .rpg-prose).md h3 { font-size: 15px; }
+:is(.bubble, .rpg-prose).md h4 { font-size: 14px; }
+:is(.bubble, .rpg-prose).md p { margin: 5px 0; }
+:is(.bubble, .rpg-prose).md ul, :is(.bubble, .rpg-prose).md ol { margin: 5px 0; padding-left: 20px; }
+:is(.bubble, .rpg-prose).md li { margin: 2px 0; }
+:is(.bubble, .rpg-prose).md code {
   background: rgba(255, 255, 255, 0.09);
   padding: 1px 6px;
   border-radius: 5px;
   font-family: Consolas, "Cascadia Mono", monospace;
   font-size: 12.5px;
 }
-.bubble.md pre {
+:is(.bubble, .rpg-prose).md pre {
   background: rgba(0, 0, 0, 0.35);
   border: 1px solid var(--line-soft);
   border-radius: 8px;
@@ -810,26 +834,26 @@ body[data-theme="washi"] #map-canvas { image-rendering: auto; }
   overflow-x: auto;
   margin: 7px 0;
 }
-.bubble.md pre code { background: none; padding: 0; font-size: 12.5px; }
-.bubble.md blockquote {
+:is(.bubble, .rpg-prose).md pre code { background: none; padding: 0; font-size: 12.5px; }
+:is(.bubble, .rpg-prose).md blockquote {
   border-left: 3px solid var(--accent-2);
   padding: 2px 12px;
   margin: 7px 0;
   color: var(--muted);
 }
-.bubble.md a { color: var(--accent); text-decoration: underline; word-break: break-all; }
-.bubble.md table { display: block; overflow-x: auto; border-collapse: collapse; margin: 7px 0; font-size: 13px; }
-.bubble.md th, .bubble.md td { border: 1px solid var(--line); padding: 4px 10px; }
-.bubble.md th { background: rgba(255, 255, 255, 0.04); }
-.bubble.md hr { border: none; border-top: 1px solid var(--line); margin: 10px 0; }
-.bubble.md img { max-width: 100%; border-radius: 8px; }
+:is(.bubble, .rpg-prose).md a { color: var(--accent); text-decoration: underline; word-break: break-all; }
+:is(.bubble, .rpg-prose).md table { display: block; overflow-x: auto; border-collapse: collapse; margin: 7px 0; font-size: 13px; }
+:is(.bubble, .rpg-prose).md th, :is(.bubble, .rpg-prose).md td { border: 1px solid var(--line); padding: 4px 10px; }
+:is(.bubble, .rpg-prose).md th { background: rgba(255, 255, 255, 0.04); }
+:is(.bubble, .rpg-prose).md hr { border: none; border-top: 1px solid var(--line); margin: 10px 0; }
+:is(.bubble, .rpg-prose).md img { max-width: 100%; border-radius: 8px; }
 /* 对白 vs 旁白：引号内容 → 对白样式（其余为旁白叙述） */
-.bubble.md em {
+:is(.bubble, .rpg-prose).md em {
   color: var(--muted);
 }
 /* 任务列表 */
-.bubble.md ul:has(input[type="checkbox"]), .bubble.md ol:has(input[type="checkbox"]) { list-style: none; padding-left: 2px; }
-.bubble.md input[type="checkbox"] { accent-color: var(--accent); margin-right: 6px; vertical-align: -1px; }
+:is(.bubble, .rpg-prose).md ul:has(input[type="checkbox"]), :is(.bubble, .rpg-prose).md ol:has(input[type="checkbox"]) { list-style: none; padding-left: 2px; }
+:is(.bubble, .rpg-prose).md input[type="checkbox"] { accent-color: var(--accent); margin-right: 6px; vertical-align: -1px; }
 /* 思维链折叠块（回复气泡内） */
 .bubble .cot {
   margin-bottom: 8px;
@@ -1642,6 +1666,9 @@ body[data-theme="vibrancy"] .dropdown { box-shadow: none; }
   .debug-panel { inset: 0; }
   .msg .bubble { font-size: 14.5px; }
   .msg.narration .bubble { font-size: 14px; }
+  .msg.rpg-narrative { padding-bottom: 24px; }
+  .rpg-prose { font-size: 14.5px; padding-inline: 2px; }
+  .rpg-narrative .msg-actions { top: auto; bottom: 0; }
   .regen-btn { font-size: 11.5px; padding: 3px 8px; }
   .lightbox img { max-width: 96vw; max-height: 94vh; }
   /* 移动端无 hover：消息操作按钮常显（气泡下方横排，不遮文字） */

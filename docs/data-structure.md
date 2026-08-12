@@ -47,6 +47,8 @@ localStorage（前缀 rpg-airp:）→ server JSON 的离线缓存，server 为�
 
 旧会话缺少 `kind` 时迁移为 `tavern`，缺少 `charId` 时绑定到迁移时的当前角色；已有归属不会被改写。
 
+消息显示也按 `kind` 分流：酒馆模式保留引号对白/旁白拆分；RPG 模式把 AI 正文作为一条连续叙事渲染，不按引号生成气泡。末尾 ` ```rpg ```` 控制块只由 RPG 会话解析，不进入正文或酒馆消息。
+
 ### 角色卡 characters[]（characters.json）
 ```js
 {

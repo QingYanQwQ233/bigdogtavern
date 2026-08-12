@@ -213,25 +213,38 @@ function renderRPG() {
 
 /* 应用 AI 输出的 ```rpg``` JSON 状态变更；返回本轮行动选项 */
 /* RPG 任务定义兜底（仅当「RPG 叙事引擎」预设被删除时使用；正常内容在预设 JSON 里可编辑） */
-const RPG_TASK_FALLBACK = '你就是这个幻想世界的化身（地下城主/DM）——不是作者，你就是世界本身，玩家遇到的所有角色都由你扮演，玩家始终以“你”称呼。每次回复必须完成三件事：1）世界与叙事——直接描述场景（环境/动作/神态），NPC 对白用“ ”包裹，旁白不混对白，绝不以“作者”口吻自称；2）状态——HP/MP/金币/道具/任务/位置变化通过回复末尾 ```rpg``` 代码块输出，道具任务必须来自剧情产出；3）选项——必须给出 2~4 个具体可执行的玩家行动选项（options），禁止“继续”类空泛表述。输出结构：先叙事正文，再另起一行 ```rpg``` JSON 代码块。';
+const RPG_TASK_FALLBACK = '你就是这个幻想世界的化身（地下城主/DM）——不是作者，你就是世界本身，玩家遇到的所有角色都由你扮演，玩家始终以“你”称呼。每次回复必须完成三件事：1）世界与叙事——直接描述场景（环境/动作/神态），NPC 对白用“ ”包裹并自然融入连续叙事，绝不以“作者”口吻自称；2）状态——HP/MP/金币/道具/任务/位置变化通过回复末尾 ```rpg``` 代码块输出，道具任务必须来自剧情产出；3）选项——必须给出 2~4 个具体可执行的玩家行动选项（options），禁止“继续”类空泛表述。输出结构：先叙事正文，再另起一行 ```rpg``` JSON 代码块。';
 
-/* AI 输出统一正则处理管线：```rpg``` JSON 状态应用（正则提取）→ 掷骰表达式自动掷骰（结果以 meta 用户消息进上下文）→ 返回剔除 rpg 块后的正文 */
+/* RPG 输出分为叙事正文与末尾控制块；流式输出未闭合时也不把控制 JSON 混进叙事栏。 */
+function splitRpgOutput(reply) {
+  const text = String(reply || '');
+  const start = text.match(/(?:^|\r?\n)[ \t]*```rpg(?:[ \t]*\r?\n|[ \t]*$)/i);
+  if (!start) return { content: text.trim(), payload: null };
+  const rest = text.slice(start.index + start[0].length);
+  const end = rest.match(/\r?\n?[ \t]*```[ \t]*$/);
+  return {
+    content: text.slice(0, start.index).trim(),
+    payload: end ? rest.slice(0, end.index).trim() : null,
+  };
+}
+
+/* AI 输出处理：酒馆保留原文；RPG 先剥离控制块，再只对叙事正文执行掷骰。 */
 function processAIOutput(reply) {
-  const rolls = rollDiceIn(reply); // AI 输出中的骰子表达式（如 d20+5、2d6）→ 自动掷骰
+  if (mode !== 'rpg') return { content: String(reply || '').trim(), options: null };
+  const parsed = splitRpgOutput(reply);
+  const rolls = rollDiceIn(parsed.content); // options 中尚未选择的骰子表达式不能提前掷骰
   for (const r of rolls) {
     const detail = r.rolls.length > 1 ? `（${r.rolls.join(' + ')}${r.bonus ? (r.bonus >= 0 ? ' + ' + r.bonus : ' - ' + Math.abs(r.bonus)) : ''}）` : (r.bonus ? `（+${r.bonus}）` : '');
     pushMessage('user', `🎲 掷骰 ${r.expr} = ${r.total} ${detail}`, { meta: true });
   }
-  const options = applyRpgUpdate(reply); // ```rpg``` 状态/物品/任务/位置/options 应用
-  return { content: String(reply || '').replace(/```rpg\s*[\s\S]*?```/g, '').trim(), options };
+  const options = applyRpgUpdate(parsed.payload); // ```rpg``` 状态/物品/任务/位置/options 应用
+  return { content: parsed.content, options };
 }
 
-function applyRpgUpdate(reply) {
-  if (mode !== 'rpg') return null;
-  const m = String(reply || '').match(/```rpg\s*([\s\S]*?)```/);
-  if (!m) return null;
+function applyRpgUpdate(payload) {
+  if (mode !== 'rpg' || !payload) return null;
   let upd;
-  try { upd = JSON.parse(m[1]); } catch (e) { console.warn('[Tavern] rpg JSON 解析失败', e.message); return null; }
+  try { upd = JSON.parse(payload); } catch (e) { console.warn('[Tavern] rpg JSON 解析失败', e.message); return null; }
   const rs = curRpgState();
   if (!rs || typeof upd !== 'object') return null;
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -1628,7 +1641,8 @@ function updateTypingContent(text) {
   typingRaf = requestAnimationFrame(() => {
     typingRaf = 0;
     const t = $('typing-msg');
-    if (t) t.querySelector('.bubble').innerHTML = renderBubble(typingText).html;
+    const content = mode === 'rpg' ? splitRpgOutput(typingText).content : typingText;
+    if (t) t.querySelector(mode === 'rpg' ? '.rpg-prose' : '.bubble').innerHTML = renderBubble(content).html;
     const chat = $('chat');
     chat.scrollTop = chat.scrollHeight;
   });
@@ -1911,25 +1925,25 @@ function attachMsgActions(el, m, opts) {
   const btns = opts || {};
   if (btns.regen) {
     const b = document.createElement('button');
-    b.className = 'ma-btn'; b.title = '重新生成'; b.textContent = '🔄';
+    b.className = 'ma-btn'; b.title = '重新生成'; b.setAttribute('aria-label', b.title); b.textContent = '🔄';
     b.addEventListener('click', (e) => { e.stopPropagation(); regenAssistant(m); });
     wrap.appendChild(b);
   }
   if (btns.edit) {
     const b = document.createElement('button');
-    b.className = 'ma-btn'; b.title = '编辑'; b.textContent = '✏️';
+    b.className = 'ma-btn'; b.title = '编辑'; b.setAttribute('aria-label', b.title); b.textContent = '✏️';
     b.addEventListener('click', (e) => { e.stopPropagation(); editMessage(m); });
     wrap.appendChild(b);
   }
   if (btns.copy) {
     const b = document.createElement('button');
-    b.className = 'ma-btn'; b.title = '复制'; b.textContent = '⧉';
+    b.className = 'ma-btn'; b.title = '复制'; b.setAttribute('aria-label', b.title); b.textContent = '⧉';
     b.addEventListener('click', (e) => { e.stopPropagation(); copyMessage(m); });
     wrap.appendChild(b);
   }
   if (btns.del) {
     const b = document.createElement('button');
-    b.className = 'ma-btn'; b.title = '删除'; b.textContent = '🗑';
+    b.className = 'ma-btn'; b.title = '删除'; b.setAttribute('aria-label', b.title); b.textContent = '🗑';
     b.addEventListener('click', (e) => { e.stopPropagation(); deleteMessage(m); });
     wrap.appendChild(b);
   }
@@ -1983,8 +1997,8 @@ async function regenAssistant(m) {
 }
 
 /* 编辑模式渲染：消息内容替换为 textarea */
-function renderEditBubble(m) {
-  return `<div class="bubble edit-bubble"><textarea id="edit-msg" rows="4">${esc(m.content)}</textarea><div class="edit-actions"><button class="btn gold small" data-edit-save>保存</button><button class="ghost-btn small" data-edit-cancel>取消</button></div></div>`;
+function renderEditBubble(m, className = 'bubble edit-bubble') {
+  return `<div class="${className}"><textarea id="edit-msg" rows="4">${esc(m.content)}</textarea><div class="edit-actions"><button class="btn gold small" data-edit-save>保存</button><button class="ghost-btn small" data-edit-cancel>取消</button></div></div>`;
 }
 
 function renderMessages() {
@@ -2017,7 +2031,7 @@ function renderMessages() {
       chat.appendChild(imgEl);
       continue;
     }
-    // 角色回复：拆分为「旁白行 + 角色气泡」，气泡只放角色说的话
+    // AI 回复：RPG 是连续叙事；酒馆才按引号拆分「旁白行 + 角色气泡」。
     if (m.role === 'assistant') {
       // 思维链独立呈现（旁白样式），不占用角色气泡
       if (m.cot) {
@@ -2025,6 +2039,23 @@ function renderMessages() {
         cotEl.className = 'msg cot-msg';
         cotEl.innerHTML = `<div class="nar-icon">🧠</div><div class="bubble"><details class="cot"><summary>🧠 思维链</summary><pre>${esc(m.cot)}</pre></details></div>`;
         chat.appendChild(cotEl);
+      }
+      if (mode === 'rpg') {
+        const el = document.createElement('article');
+        el.className = 'msg rpg-narrative';
+        if (m._editing) {
+          el.innerHTML = renderEditBubble(m, 'rpg-prose rpg-prose-editor');
+          const sb = el.querySelector('[data-edit-save]');
+          const cb = el.querySelector('[data-edit-cancel]');
+          if (sb) sb.addEventListener('click', () => saveEdit(m));
+          if (cb) cb.addEventListener('click', () => cancelEdit(m));
+        } else {
+          const { html, md } = renderBubble(m.content);
+          el.innerHTML = `<div class="rpg-prose${md ? ' md' : ''}">${html}</div>`;
+          attachMsgActions(el, m, { regen: true, edit: true, copy: true, del: true });
+        }
+        chat.appendChild(el);
+        continue;
       }
       const segs = splitNarration(m.content);
       segs.forEach((seg, si) => {
@@ -2097,10 +2128,12 @@ function pushMessage(role, content, extra) {
 
 function addTyping() {
   const chat = $('chat');
-  const el = document.createElement('div');
-  el.className = 'msg assistant typing';
+  const el = document.createElement(mode === 'rpg' ? 'article' : 'div');
+  el.className = mode === 'rpg' ? 'msg rpg-narrative typing' : 'msg assistant typing';
   el.id = 'typing-msg';
-  el.innerHTML = `<div class="avatar">${PAW_SVG}</div><div class="bubble">正在思索…</div>`;
+  el.innerHTML = mode === 'rpg'
+    ? '<div class="rpg-prose">世界正在回应…</div>'
+    : `<div class="avatar">${PAW_SVG}</div><div class="bubble">正在思索…</div>`;
   chat.appendChild(el);
   chat.scrollTop = chat.scrollHeight;
 }

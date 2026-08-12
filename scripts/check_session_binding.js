@@ -53,4 +53,31 @@ assert.strictEqual(context.check.legacyChar, context.check.a);
 assert.strictEqual(context.check.mapSeed, 1);
 assert.strictEqual(context.check.mapImage, '/images/a.png');
 assert.strictEqual(context.check.crossScope, null);
+
+vm.runInContext(`
+  const fence = String.fromCharCode(96).repeat(3);
+  const complete = splitRpgOutput('狼低声说：“别动。”\\n\\n' + fence + 'RPG\\n{"options":["掷 d20 观察"],"hp":null}\\n' + fence);
+  const streaming = splitRpgOutput('雾气漫过石阶。\\n' + fence + 'rpg\\n{"options":[');
+  mode = 'tavern';
+  const tavern = processAIOutput('保留代码\\n' + fence + 'rpg\\n{"hp":-1}\\n' + fence);
+  globalThis.outputCheck = { complete, streaming, tavern, narrativeRolls: rollDiceIn(complete.content).length };
+`, context);
+assert.strictEqual(context.outputCheck.complete.content, '狼低声说：“别动。”');
+assert.match(context.outputCheck.complete.payload, /掷 d20 观察/);
+assert.strictEqual(context.outputCheck.streaming.content, '雾气漫过石阶。');
+assert.strictEqual(context.outputCheck.streaming.payload, null);
+assert.match(context.outputCheck.tavern.content, /```rpg/);
+assert.strictEqual(context.outputCheck.narrativeRolls, 0);
+
+vm.runInContext(`
+  mode = 'rpg'; currentCharId = 'b'; currentSessionId = 'rpg-process';
+  sessions = [{ id: 'rpg-process', charId: 'b', kind: 'rpg', messages: [], rpgState: defaultRpgState() }];
+  globalThis.pushed = [];
+  pushMessage = (...args) => pushed.push(args);
+  saveSessions = () => {};
+  renderRPG = () => {};
+  globalThis.processed = processAIOutput('守卫摇头。\\n' + fence + 'rpg\\n{"options":["掷 d20 观察"],"hp":null}\\n' + fence);
+`, context);
+assert.deepStrictEqual(JSON.parse(JSON.stringify(context.processed.options)), ['掷 d20 观察']);
+assert.strictEqual(context.pushed.length, 0);
 console.log('session binding check passed');
