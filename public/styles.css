@@ -1092,6 +1092,7 @@ textarea#input:focus {
   object-fit: contain;
   display: block;
 }
+.ref-preview.hidden, #btn-remove-ref.hidden { display: none; }
 
 /* ═══ 地图窗口（点击地图打开，功能集中于此） ═══ */
 .map-modal {

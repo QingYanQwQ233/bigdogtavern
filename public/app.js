@@ -658,7 +658,16 @@ function updateRefPreview(src) {
   const img = $('cm-ref-preview');
   if (!img) return;
   if (src) { img.src = src; img.classList.remove('hidden'); }
-  else img.classList.add('hidden');
+  else { img.removeAttribute('src'); img.classList.add('hidden'); }
+  $('btn-remove-ref').classList.toggle('hidden', !src);
+}
+
+function removeRefImage() {
+  if (!confirm('删除当前角色的参考图？图片文件仍会保留在本地。')) return;
+  $('cm-ref-image').value = '';
+  updateRefPreview('');
+  const c = characters.find(x => x.id === cmEditingId);
+  if (c) { c.refImage = ''; saveChars(); }
 }
 
 /* 导入本地图片 → 上传到 server → 填入参考图 */
@@ -676,7 +685,8 @@ function importRefImage(file) {
       if (!res.ok || !data.path) throw new Error('上传失败: ' + (data.error || res.status));
       $('cm-ref-image').value = data.path;
       updateRefPreview(data.path);
-      saveCharFromEditor(); // 立即保存到当前编辑的角色
+      const c = characters.find(x => x.id === cmEditingId);
+      if (c) { c.refImage = data.path; saveChars(); }
     } catch (err) {
       console.error('[Tavern] 参考图导入失败:', err.message);
       alert('❌ 参考图导入失败：' + err.message);
@@ -712,7 +722,9 @@ function saveCharFromEditor() {
     const c = characters.find(x => x.id === cmEditingId);
     Object.assign(c, data);
   } else {
-    characters.push({ id: uid(), ...data, createdAt: Date.now() });
+    const c = { id: uid(), ...data, createdAt: Date.now() };
+    characters.push(c);
+    cmEditingId = c.id;
   }
   saveChars();
   renderCharList();
@@ -3025,6 +3037,7 @@ function bindEvents() {
   if (ndm) ndm.addEventListener('click', closeNavDrawer);
   // 形象参考图导入
   $('btn-import-ref').addEventListener('click', () => { const f = $('cm-ref-file'); if (f) f.click(); });
+  $('btn-remove-ref').addEventListener('click', removeRefImage);
   $('cm-ref-file').addEventListener('change', (e) => { importRefImage(e.target.files && e.target.files[0]); e.target.value = ''; });
   // 记忆 / 玩家设定
   $('um-preset').addEventListener('change', () => { userData.currentPreset = $('um-preset').value; fillUserForm(); saveUserData(); });
