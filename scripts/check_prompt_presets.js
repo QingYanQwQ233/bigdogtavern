@@ -17,6 +17,7 @@ const context = vm.createContext({
 });
 
 const source = fs.readFileSync('public/app.js', 'utf8').replace(/\ninit\(\);\s*$/, '');
+const defaultData = JSON.parse(fs.readFileSync('public/data/_defaults.json', 'utf8'));
 vm.runInContext(source, context);
 vm.runInContext(`
   defaults = { gen: {}, rpg: {} };
@@ -85,5 +86,18 @@ assert.strictEqual(context.check.converted.preset.modelParameters.temperature, 0
 assert.strictEqual(context.check.converted.preset.prompts.find(x => x.identifier === 'spare').content, '备用');
 assert.ok(!context.check.converted.preset.promptOrder.some(x => x.identifier === 'spare'));
 assert.throws(() => vm.runInContext("convertSTPresetData({ prompts: Array(2001), prompt_order: [] })", context), /超过 2000 条/);
+
+const tavernDefault = defaultData.presets['RP 基础（示例）'];
+const rpgDefault = defaultData.presets['RPG 叙事引擎（示例）'];
+assert.ok(tavernDefault.systemPrompt.length > 100);
+assert.ok(tavernDefault.modules.some(x => x.id === 'agency' && x.enabled));
+assert.ok(tavernDefault.modules.some(x => x.id === 'characterIntegrity' && x.enabled));
+assert.ok(rpgDefault.systemPrompt.length > 100);
+assert.ok(rpgDefault.modules.some(x => x.id === 'rpgAdjudication' && x.enabled));
+assert.ok(rpgDefault.modules.some(x => x.id === 'rpgContinuity' && x.enabled));
+assert.deepStrictEqual(defaultData.prefs.currentPresetByMode, { tavern: 'RP 基础（示例）', rpg: 'RPG 叙事引擎（示例）' });
+assert.match(defaultData.rpg.stateInstruction, /恰好 4 个/);
+const exampleState = JSON.parse(defaultData.rpg.exampleTurn.assistant.match(/```rpg\n([\s\S]*?)\n```/)[1]);
+assert.strictEqual(exampleState.options.length, 4);
 
 console.log('prompt preset check passed');

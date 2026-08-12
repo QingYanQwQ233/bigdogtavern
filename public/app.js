@@ -231,7 +231,7 @@ function renderRPG() {
 
 /* 应用 AI 输出的 ```rpg``` JSON 状态变更；返回本轮行动选项 */
 /* RPG 任务定义兜底（仅当「RPG 叙事引擎」预设被删除时使用；正常内容在预设 JSON 里可编辑） */
-const RPG_TASK_FALLBACK = '你就是这个幻想世界的化身（地下城主/DM）——不是作者，你就是世界本身，玩家遇到的所有角色都由你扮演，玩家始终以“你”称呼。每次回复必须完成三件事：1）世界与叙事——直接描述场景（环境/动作/神态），NPC 对白用“ ”包裹并自然融入连续叙事，绝不以“作者”口吻自称；2）状态——HP/MP/金币/道具/任务/位置变化通过回复末尾 ```rpg``` 代码块输出，道具任务必须来自剧情产出；3）选项——必须给出 2~4 个具体可执行的玩家行动选项（options），禁止“继续”类空泛表述。输出结构：先叙事正文，再另起一行 ```rpg``` JSON 代码块。';
+const RPG_TASK_FALLBACK = '你是这个幻想世界的地下城主（DM）与世界化身，始终以“你”称呼玩家。直接呈现场景、事件与 NPC，不以作者或助手自称。根据当前状态公平裁定行动；状态变化必须先在叙事中发生，再写入回复末尾唯一一个 ```rpg``` JSON 代码块。options 必须给出恰好 4 个具体、可执行且不重复的玩家行动，禁止“继续”类空泛表述。';
 
 /* RPG 输出分为叙事正文与末尾控制块；流式输出未闭合时也不把控制 JSON 混进叙事栏。 */
 function splitRpgOutput(reply) {
@@ -3009,7 +3009,8 @@ function switchView(name) {
   }
   if (name === 'prompts') {
     $('prompt-mgr').classList.remove('hidden');
-    if (!pgEditingName) selectPresetForEdit(null);
+    const editingPreset = promptPresets[pgEditingName];
+    if (!editingPreset || !['both', mode].includes(presetMode(pgEditingName, editingPreset))) selectPresetForEdit(activePresetNameForMode(mode) || GLOBAL_PRESET_KEY);
     else renderPGList();
     return;
   }
