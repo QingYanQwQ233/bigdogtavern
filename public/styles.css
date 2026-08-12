@@ -1370,6 +1370,7 @@ body[data-theme="vibrancy"] .dropdown { box-shadow: none; }
 
 /* ── 设置弹窗 tab ── */
 .settings-tabs { display: flex; gap: 4px; padding: 10px 18px 0; border-bottom: 1px solid var(--line); }
+.modal-body > [id^="st-panel-"].hidden { display: none; }
 .st-tab {
   padding: 8px 16px;
   border: none;

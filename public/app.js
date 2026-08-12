@@ -129,6 +129,7 @@ function esc(s) {
 }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 function currentChar() { return characters.find(c => c.id === currentCharId) || null; }
+function sessionMatches(s) { return !!s && s.charId === currentCharId && s.kind === mode; }
 
 /* 开场白兜底链：char.firstMes → preset.firstMes → settings.firstMes（新会话 / 清空聊天共用） */
 function getGreeting() {
@@ -138,7 +139,7 @@ function getGreeting() {
     || (preset && preset.firstMes && preset.firstMes.trim())
     || settings.firstMes || '';
 }
-function curSession() { return sessions.find(s => s.id === currentSessionId) || null; }
+function curSession() { return Array.isArray(sessions) ? sessions.find(s => s.id === currentSessionId && sessionMatches(s)) || null : null; }
 function curMessages() { const s = curSession(); return s ? s.messages : []; }
 
 /* ═══════════ RPG 状态（每会话独立） ═══════════ */
@@ -209,10 +210,7 @@ function renderRPG() {
   renderMap(); // 世界地图（数据层 + 美化图显示）
 }
 
-/* 应用 AI 输出的 ```rpg``` JSON 状态变更；返回是否发生了变更 */
-/* 当前消息的 AI 回复选项（```rpg``` JSON options 字段） */
-let lastRpgOptions = null;
-
+/* 应用 AI 输出的 ```rpg``` JSON 状态变更；返回本轮行动选项 */
 /* RPG 任务定义兜底（仅当「RPG 叙事引擎」预设被删除时使用；正常内容在预设 JSON 里可编辑） */
 const RPG_TASK_FALLBACK = '你就是这个幻想世界的化身（地下城主/DM）——不是作者，你就是世界本身，玩家遇到的所有角色都由你扮演，玩家始终以“你”称呼。每次回复必须完成三件事：1）世界与叙事——直接描述场景（环境/动作/神态），NPC 对白用“ ”包裹，旁白不混对白，绝不以“作者”口吻自称；2）状态——HP/MP/金币/道具/任务/位置变化通过回复末尾 ```rpg``` 代码块输出，道具任务必须来自剧情产出；3）选项——必须给出 2~4 个具体可执行的玩家行动选项（options），禁止“继续”类空泛表述。输出结构：先叙事正文，再另起一行 ```rpg``` JSON 代码块。';
 
@@ -223,18 +221,18 @@ function processAIOutput(reply) {
     const detail = r.rolls.length > 1 ? `（${r.rolls.join(' + ')}${r.bonus ? (r.bonus >= 0 ? ' + ' + r.bonus : ' - ' + Math.abs(r.bonus)) : ''}）` : (r.bonus ? `（+${r.bonus}）` : '');
     pushMessage('user', `🎲 掷骰 ${r.expr} = ${r.total} ${detail}`, { meta: true });
   }
-  applyRpgUpdate(reply); // ```rpg``` 状态/物品/任务/位置/options 应用
-  return String(reply || '').replace(/```rpg\s*[\s\S]*?```/g, '').trim();
+  const options = applyRpgUpdate(reply); // ```rpg``` 状态/物品/任务/位置/options 应用
+  return { content: String(reply || '').replace(/```rpg\s*[\s\S]*?```/g, '').trim(), options };
 }
 
 function applyRpgUpdate(reply) {
-  if (mode !== 'rpg') return false;
+  if (mode !== 'rpg') return null;
   const m = String(reply || '').match(/```rpg\s*([\s\S]*?)```/);
-  if (!m) return false;
+  if (!m) return null;
   let upd;
-  try { upd = JSON.parse(m[1]); } catch (e) { console.warn('[Tavern] rpg JSON 解析失败', e.message); return false; }
+  try { upd = JSON.parse(m[1]); } catch (e) { console.warn('[Tavern] rpg JSON 解析失败', e.message); return null; }
   const rs = curRpgState();
-  if (!rs || typeof upd !== 'object') return false;
+  if (!rs || typeof upd !== 'object') return null;
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   if (typeof upd.hp === 'number') rs.hp = clamp(rs.hp + upd.hp, 0, rs.maxHp);
   if (typeof upd.mp === 'number') rs.mp = clamp(rs.mp + upd.mp, 0, rs.maxMp);
@@ -271,12 +269,12 @@ function applyRpgUpdate(reply) {
       }
     }
   }
-  if (Array.isArray(upd.options)) lastRpgOptions = upd.options.filter(o => typeof o === 'string' && o.trim()).slice(0, 4);
-  else if (!upd.options) lastRpgOptions = null; // AI 未给新选项时清空（保持“当前可行动作”语义）
+  const options = Array.isArray(upd.options)
+    ? upd.options.filter(o => typeof o === 'string' && o.trim()).slice(0, 4)
+    : null;
   saveSessions();
   renderRPG();
-  renderQuickActions(); // 快捷行动栏跟随 AI options 刷新
-  return true;
+  return options;
 }
 
 /* ─────────── 掷骰（D&D 风格：d20+5 / 2d6-1 自动掷骰） ─────────── */
@@ -441,32 +439,39 @@ async function seedExamples(force) {
 
 function ensureSessions() {
   if (sessions && sessions.length) {
-    // 迁移旧会话：无 kind → 酒馆模式
-    for (const s of sessions) if (!s.kind) s.kind = 'tavern';
-    // 当前会话必须属于当前模式，否则切到该模式最近的会话
-    const cur = sessions.find(s => s.id === currentSessionId);
-    if (!cur || cur.kind !== mode) {
-      const cand = sessions.filter(s => s.kind === mode);
-      currentSessionId = cand.length ? cand[0].id : null;
+    // 迁移旧会话：无 kind → 酒馆；无 charId → 当前角色。已有归属绝不改写。
+    for (const s of sessions) {
+      if (!s.kind) s.kind = 'tavern';
+      if (!s.charId || s.charId === 'undefined') s.charId = currentCharId;
     }
+    // 当前会话必须同时属于当前角色与当前模式。
+    if (!curSession()) currentSessionId = (sessions.find(sessionMatches) || {}).id || null;
     saveSessions();
     return;
   }
   // 迁移旧单会话
   const oldMsgs = loadJSON(LS_CHAT, null);
+  const oldKind = oldMsgs && oldMsgs.length ? 'tavern' : mode;
   sessions = [{
-    id: uid(), name: '会话 1', charId: currentCharId, kind: 'tavern',
+    id: uid(), name: '会话 1', charId: currentCharId, kind: oldKind,
     messages: (oldMsgs && oldMsgs.length) ? oldMsgs : [],
     createdAt: Date.now(),
   }];
-  currentSessionId = sessions[0].id;
+  currentSessionId = sessionMatches(sessions[0]) ? sessions[0].id : null;
   saveSessions();
 }
 
-function newSession() {
+function activateSessionScope() {
+  ensureSessions();
+  if (!currentCharId) { currentSessionId = null; return; }
+  if (!curSession()) newSession(false);
+}
+
+function newSession(askName = true) {
   const char = currentChar();
-  const defaultName = '会话 ' + (sessions.length + 1);
-  const name = (prompt('新会话名称：', defaultName) || defaultName).trim() || defaultName;
+  if (!char) { if (askName) alert('请先创建 / 选择角色'); return; }
+  const defaultName = '会话 ' + (sessions.filter(sessionMatches).length + 1);
+  const name = askName ? ((prompt('新会话名称：', defaultName) || defaultName).trim() || defaultName) : defaultName;
   const messages = [];
   const greeting = getGreeting();
   if (greeting) {
@@ -482,7 +487,7 @@ function newSession() {
 }
 
 function switchSession(id) {
-  if (!sessions.find(s => s.id === id)) return;
+  if (!sessions.find(s => s.id === id && sessionMatches(s))) return;
   currentSessionId = id;
   saveSessions();
   renderSessions();
@@ -492,12 +497,9 @@ function switchSession(id) {
 function deleteSession(id) {
   if (!confirm('删除该会话？此操作不可撤销。')) return;
   sessions = sessions.filter(s => s.id !== id);
-  if (currentSessionId === id) {
-    if (!sessions.length) {
-      sessions = [{ id: uid(), name: '会话 1', charId: currentCharId, messages: [], createdAt: Date.now() }];
-    }
-    currentSessionId = sessions[0].id;
-  }
+  if (currentSessionId === id) currentSessionId = null;
+  ensureSessions();
+  if (!curSession() && currentCharId) return newSession(false);
   saveSessions();
   renderSessions();
   renderMessages();
@@ -511,7 +513,7 @@ function renderSessions() {
   const ml = $('session-menu-list');
   if (ml) {
     ml.innerHTML = '';
-    for (const ses of sessions.filter(s => s.kind === mode)) {
+    for (const ses of sessions.filter(sessionMatches)) {
       const el = document.createElement('div');
       el.className = 'sess-item' + (ses.id === currentSessionId ? ' active' : '');
       el.innerHTML = `<span>${esc(ses.name)}</span><span class="sess-btns"><span class="sess-x" data-act="rename" title="重命名">✎</span><span class="sess-x" data-act="del" title="删除">✕</span></span>`;
@@ -539,10 +541,17 @@ function saveChars() { saveJSON(LS_CHARS, characters); saveServerData('character
 
 function ensureChars() {
   if (characters.length) {
+    const ids = new Set();
+    let changed = false;
+    for (const c of characters) {
+      if (!c.id || ids.has(c.id)) { c.id = uid(); changed = true; }
+      ids.add(c.id);
+    }
     if (!currentCharId || !characters.find(c => c.id === currentCharId)) {
       currentCharId = characters[0].id;
       localStorage.setItem(LS_CURRENT_CHAR, currentCharId);
     }
+    if (changed) saveChars();
     return;
   }
   // 迁移旧角色卡
@@ -717,8 +726,11 @@ function useCharInEditor() {
     currentCharId = target.id;
     localStorage.setItem(LS_CURRENT_CHAR, currentCharId);
   }
+  activateSessionScope();
   renderCharacter();
   renderCharList();
+  renderSessions();
+  renderMessages();
   switchView('chat');
 }
 
@@ -727,9 +739,12 @@ function deleteChar(id) {
   characters = characters.filter(c => c.id !== id);
   if (currentCharId === id) { currentCharId = characters.length ? characters[0].id : null; localStorage.setItem(LS_CURRENT_CHAR, currentCharId || ''); }
   saveChars();
+  activateSessionScope();
   if (cmEditingId === id) newCharEditor();
   renderCharList();
   renderCharacter();
+  renderSessions();
+  renderMessages();
 }
 
 /* 角色卡导入 / 导出（Character Card V1/V2） */
@@ -1819,6 +1834,7 @@ function renderMessages() {
   chat.innerHTML = '';
   if (mode === 'rpg') renderRPG(); // RPG 模式联动状态面板
   const msgs = curMessages();
+  renderQuickActions(); // 从当前会话最后一条 AI 回复恢复选项，切换会话不串线
   if (!msgs.length) {
     chat.innerHTML = `<div class="chat-empty"><div class="ce-icon">🐾</div><div class="ce-title">${esc(emptyTitle())}</div><div class="ce-desc">${esc(buildGuide())}</div></div>`;
     return;
@@ -2296,6 +2312,8 @@ async function regenImage(msg) {
 /* 核心请求：用当前历史请求一次回复（发送消息 / 重新生成共用） */
 async function requestReply() {
   if (sending) return;
+  const targetSession = curSession();
+  if (!targetSession) return;
   sending = true;
   $('btn-send').disabled = true;
   addTyping();
@@ -2327,14 +2345,21 @@ async function requestReply() {
         : '模型未返回内容（请检查模型名与 API 是否匹配；请求详情见浏览器控制台）';
       throw new Error(msg);
     }
+    // 请求期间可能切换角色 / 模式 / 会话；迟到响应不得写入新的当前会话。
+    if (curSession() !== targetSession) {
+      console.warn('[Tavern] 会话已切换，已丢弃原会话的迟到响应');
+      removeTyping();
+      return;
+    }
     console.debug('[Tavern] ← 响应', reply);
     if (cot) console.debug('[Tavern] 🧠 思维链', cot);
     removeTyping();
     // RPG 模式：统一正则处理（```rpg``` 状态/掷骰），剔除 rpg 块
-    const clean = processAIOutput(reply);
+    const processed = processAIOutput(reply);
+    const clean = processed.content;
     const extra = {};
     if (cot) extra.cot = cot;
-    if (lastRpgOptions && lastRpgOptions.length) { extra.options = lastRpgOptions; lastRpgOptions = null; }
+    if (processed.options && processed.options.length) extra.options = processed.options;
     pushMessage('assistant', clean, extra);
     // 文生图（测试）：回复完成后自动生图（异步，不阻塞对话）
     const ig = settings.imageGen;
@@ -2344,7 +2369,7 @@ async function requestReply() {
   } catch (err) {
     console.error('[Tavern] ✗ 请求失败', err.message);
     removeTyping();
-    pushMessage('system', `⚠️ 请求失败：${err.message}`);
+    if (curSession() === targetSession) pushMessage('system', `⚠️ 请求失败：${err.message}`);
     setApiStatus(`最近一次请求失败：${err.message}`, true);
   } finally {
     sending = false;
@@ -2480,23 +2505,21 @@ function applyMode(name) {
     btn.querySelector('.icon').textContent = mode === 'rpg' ? '⚔' : '🍺';
     btn.querySelector('.label').textContent = mode === 'rpg' ? '模式：RPG' : '模式：酒馆';
   }
-  // 模式切换：会话按 kind 分流（见 ensureSessions/switchMode）
+  activateSessionScope();
+  // 模式切换：会话按 charId + kind 双重分流
   renderSessions();
   renderMessages();
 }
 
 function switchMode() {
   const next = mode === 'rpg' ? 'tavern' : 'rpg';
-  applyMode(next);
   // 自动切换当前预设到对应模式的默认（用户之后可手动改）
   const defaultPreset = next === 'rpg' ? 'RPG 叙事引擎（示例）' : 'RP 基础（示例）';
   if (promptPresets[defaultPreset]) {
     prefs.currentPreset = defaultPreset;
     saveJSON(LS_PREFS, prefs);
   }
-  // 切换到新模式：确保当前会话属于新模式（没有就新建）
-  ensureSessions();
-  if (!curSession()) newSession();
+  applyMode(next);
   renderSessions();
   renderMessages();
   renderQuickActions(); // 快捷行动预设随模式切换
@@ -2889,7 +2912,13 @@ function renderQuickActions() {
   if (!qa) return;
   qa.innerHTML = '';
   if (mode === 'rpg') {
-    const opts = (lastRpgOptions && lastRpgOptions.length) ? lastRpgOptions : null;
+    const msgs = curMessages();
+    let opts = null;
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role !== 'assistant') continue;
+      opts = Array.isArray(msgs[i].options) && msgs[i].options.length ? msgs[i].options : null;
+      break;
+    }
     if (opts) {
       for (const o of opts) {
         const b = document.createElement('button');
@@ -3059,6 +3088,8 @@ function bindEvents() {
       document.querySelectorAll('.st-tab').forEach(x => x.classList.toggle('active', x === b));
       document.querySelectorAll('#settings-modal [id^="st-panel-"]').forEach(p => p.classList.add('hidden'));
       $('st-panel-' + b.dataset.st).classList.remove('hidden');
+      const box = $('settings-modal').querySelector('.modal-box');
+      if (box) box.scrollTop = 0;
     }));
   // 设置
   document.querySelectorAll('.js-settings').forEach(b => b.addEventListener('click', openSettings));

@@ -32,6 +32,20 @@ localStorage（前缀 rpg-airp:）→ server JSON 的离线缓存，server 为�
 
 ## 三、核心数据结构
 
+### 数据所有权
+
+运行时数据按 `角色卡 → 会话` 隔离：会话以 `charId + kind` 归属到一个角色的一种模式；消息、AI 行动选项、RPG 状态、背包、任务、地图数据与美化图都只能从当前会话读取。切换角色或模式时，只切换到相同 `charId + kind` 的会话；不存在时创建独立会话并加载该角色的开场白。
+
+```js
+{
+  id, charId, kind: 'tavern' | 'rpg', name, createdAt,
+  messages: [{ role, content, options?, ts }],
+  rpgState: { hp, mp, inventory, quests, mapData, mapImage }
+}
+```
+
+旧会话缺少 `kind` 时迁移为 `tavern`，缺少 `charId` 时绑定到迁移时的当前角色；已有归属不会被改写。
+
 ### 角色卡 characters[]（characters.json）
 ```js
 {
