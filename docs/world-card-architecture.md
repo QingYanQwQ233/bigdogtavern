@@ -3,6 +3,8 @@
 > 状态：**设计草案，待确认；未实现。**
 >
 > 本文只定义目标结构与迁移边界，不授权修改现有 RPG 运行时代码或用户存档。
+>
+> 分阶段任务、验收门与回退入口见 [world-card-implementation-plan.md](world-card-implementation-plan.md)。
 
 ## 1. 已确定的方向
 
@@ -135,7 +137,14 @@
     stats: { level: 1, exp: 0, expNext: 100, hp: 20, maxHp: 20, mp: 5, maxMp: 5, gold: 10, buffs: [] },
     inventory: [],
     quests: [],
-    mapState: { baseMapId: 'map-aurora-v1', discoveredLocationIds: ['wolf-tooth-inn'], markers: [] },
+    map: {
+      strategy: 'fixed',
+      baseMapId: 'map-aurora-v1',
+      data: null, // perSave 地图使用可 JSON 化的 SerializedWorldMap
+      imagePath: null,
+      discoveredLocationIds: ['wolf-tooth-inn'],
+      markers: [],
+    },
   },
   npcStates: {
     'npc-lily': { locationId: 'wolf-tooth-inn', relation: {}, knowledge: [], status: [] },
@@ -154,9 +163,11 @@
 
 - `WorldNPC`：世界卡引用的长期角色，保存身份、人格、语言、认知边界与静态资料。
 - `npcStates[npcId]`：该 NPC 在此存档中的动态事实。好感、位置、已知线索、队伍状态都在这里。
-- AI 临时生成的路人先进入 `WorldSave.ephemeralNpcs`，只对该存档可见；只有用户执行“收录到世界”时才创建稳定 `npcId` 与世界定义资料。
+- AI 临时生成的路人进入 `WorldSave.generatedEntities.npcs`，只对该存档可见；只有用户执行“收录到世界”时才创建稳定 `npcId` 与世界定义资料。
 
 世界卡可预定义物品和任务模板。AI 需要创造新道具、任务、路人或临时地点时，只能提出 `createEntity` 候选；校验器为其生成 `save:*` 稳定 ID 并写入 `WorldSave.generatedEntities`。因此开放生成仍是“此存档的事实”，不会污染世界卡、其他存档或全局角色库。
+
+地图运行时继续使用 `Uint16Array` 网格；写入 JSON 前必须显式序列化为数字数组，读取后再恢复成 `Uint16Array`，避免区域编号和类型在持久化时丢失。AI 美化图只保存本地相对路径，并由所属 `WorldSave.state.map.imagePath` 引用。
 
 ## 6. RPG Prompt 与世界书装配
 
@@ -268,14 +279,15 @@ DM 身份与玩家主权
 ```text
 public/data/
 ├─ worlds.json                 世界卡索引与内容定义
-├─ world-saves.json            存档索引（轻量元数据）
 ├─ saves/<saveId>.json         单个世界存档的正式状态与时间线
 ├─ characters.json             角色库（酒馆角色 / 玩家模板 / NPC 原始资料）
 ├─ lorebooks.json              世界书库
 └─ presets.json                Prompt 素材库与 Profile
 ```
 
-单存档单文件避免大型地图、长时间线和图片路径让所有存档一起读写；服务端必须用受控 `saveId` 路径映射，不接受客户端任意文件路径。
+单存档单文件避免大型地图、长时间线和图片路径让所有存档一起读写；服务端必须用受控 `saveId` 路径映射，不接受客户端任意文件路径。运行时 JSON 只能通过受校验的 API 读取，静态文件服务不得直接暴露 `/data/`。
+
+第一版不维护第二份 `world-saves.json` 索引：存档列表由服务端扫描 `saves/*.json` 的顶层元数据生成，避免索引与正式存档分叉。这个实现面向本地单用户、数百个以内的存档；只有实测扫描成为瓶颈时，才增加可从正式存档重建的派生索引。
 
 ### 旧 RPG 会话迁移
 
