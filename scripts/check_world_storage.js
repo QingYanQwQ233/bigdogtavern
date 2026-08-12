@@ -58,6 +58,52 @@ async function main() {
     const secondWorld = worlds.body.find(item => item.id === 'world-second');
     assert.ok(secondWorld, 'second world is listed');
 
+    const noDrafts = await jsonRequest(base, '/api/world-drafts?worldId=' + encodeURIComponent(world.id));
+    assert.strictEqual(noDrafts.response.status, 200);
+    assert.deepStrictEqual(noDrafts.body, [], 'world drafts start empty');
+    const draftCreated = await jsonRequest(base, '/api/world-drafts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ worldId: world.id, baseVersion: world.version }),
+    });
+    assert.strictEqual(draftCreated.response.status, 201);
+    assert.strictEqual(draftCreated.body.worldId, world.id);
+    assert.strictEqual(draftCreated.body.baseVersion, world.version);
+    assert.strictEqual(draftCreated.body.world.title, '极光大陆');
+    const duplicateDraft = await jsonRequest(base, '/api/world-drafts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ worldId: world.id, baseVersion: world.version }),
+    });
+    assert.strictEqual(duplicateDraft.response.status, 200, 'draft creation is idempotent');
+    const draftUpdate = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        expectedUpdatedAt: draftCreated.body.updatedAt,
+        baseVersion: world.version,
+        title: '极光大陆（草稿）',
+        summary: '草稿简介',
+        tags: ['日式西幻', '草稿'],
+        lorebookIds: ['default'],
+      }),
+    });
+    assert.strictEqual(draftUpdate.response.status, 200);
+    assert.strictEqual(draftUpdate.body.world.title, '极光大陆（草稿）');
+    assert.deepStrictEqual(draftUpdate.body.world.tags, ['日式西幻', '草稿']);
+    const staleDraftUpdate = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedUpdatedAt: draftCreated.body.updatedAt, baseVersion: world.version, title: '过期草稿', summary: '', tags: [], lorebookIds: [] }),
+    });
+    assert.strictEqual(staleDraftUpdate.response.status, 409, 'stale draft writes are rejected');
+    const draftRead = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id));
+    assert.strictEqual(draftRead.response.status, 200);
+    assert.strictEqual(draftRead.body.world.title, '极光大陆（草稿）');
+    const publishedWorldUnchanged = await jsonRequest(base, `/api/worlds/${encodeURIComponent(world.id)}?version=${world.version}`);
+    assert.strictEqual(publishedWorldUnchanged.response.status, 200);
+    assert.strictEqual(publishedWorldUnchanged.body.title, '极光大陆', 'draft edits do not mutate published world');
+
     const dataFile = await fetch(base + '/data/worlds.json');
     assert.strictEqual(dataFile.status, 403, 'runtime data is not exposed as static file');
     const genericWorldRead = await fetch(base + '/api/data/worlds');
@@ -311,6 +357,9 @@ async function main() {
     const afterRestart = await jsonRequest(`http://127.0.0.1:${restarted.port}`, '/api/world-saves?worldId=' + encodeURIComponent(world.id));
     assert.strictEqual(afterRestart.response.status, 200);
     assert.strictEqual(afterRestart.body.length, 3, 'saves survive server restart');
+    const draftAfterRestart = await jsonRequest(`http://127.0.0.1:${restarted.port}`, '/api/world-drafts/' + encodeURIComponent(world.id));
+    assert.strictEqual(draftAfterRestart.response.status, 200);
+    assert.strictEqual(draftAfterRestart.body.world.title, '极光大陆（草稿）', 'draft survives server restart');
     console.log('world storage check passed');
   } finally {
     await closeServer();

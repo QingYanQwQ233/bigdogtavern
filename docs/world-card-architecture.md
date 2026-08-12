@@ -280,6 +280,7 @@ DM 身份与玩家主权
 ```text
 public/data/
 ├─ worlds.json                 世界卡索引与内容定义
+├─ world-drafts.json           世界卡草稿（未发布，不参与正式版本读取）
 ├─ saves/<saveId>.json         单个世界存档的正式状态与时间线
 ├─ characters.json             角色库（酒馆角色 / 玩家模板 / NPC 原始资料）
 ├─ lorebooks.json              世界书库

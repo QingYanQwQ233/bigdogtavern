@@ -110,6 +110,9 @@ let worldTurnPending = null;
 let worldTurnError = null;
 let worldTurnPreparing = false;
 let worldTurnEpoch = 0;
+let worldDraft = null;
+let worldDraftDirty = false;
+let worldDraftOpener = null;
 let theme = localStorage.getItem(LS_THEME) || 'tavern';
 let mode = localStorage.getItem(LS_MODE) || 'tavern'; // 'tavern' 酒馆模式 | 'rpg' RPG 模式
 let sending = false;
@@ -355,6 +358,92 @@ async function loadWorldCardVersion(worldId, version) {
   if (!data || data.id !== worldId) throw new Error('世界卡响应缺少稳定 ID');
   worldCardVersions.set(worldCardKey(worldId, data.version), data);
   return data;
+}
+function setWorldDraftStatus(message, kind = '') {
+  const el = $('world-draft-status');
+  if (!el) return;
+  el.textContent = message || '';
+  el.className = 'world-draft-status' + (kind ? ' ' + kind : '');
+}
+function splitWorldDraftList(value) {
+  return [...new Set(String(value || '').split(',').map(item => item.trim()).filter(Boolean))];
+}
+function fillWorldDraftForm(draft) {
+  const world = draft?.world || {};
+  $('world-draft-name').value = world.title || '';
+  $('world-draft-summary').value = world.summary || '';
+  $('world-draft-tags').value = Array.isArray(world.tags) ? world.tags.join(', ') : '';
+  $('world-draft-lorebooks').value = Array.isArray(world.lorebookIds) ? world.lorebookIds.join(', ') : '';
+  $('world-draft-base').textContent = `基于已发布 v${draft.baseVersion}；草稿修改不会影响旧版本或已有存档。`;
+}
+async function openWorldDraftEditor() {
+  const world = worldCardById(currentWorldId);
+  const dialog = $('world-draft-dialog');
+  if (!world || !dialog) return showWorldError('请先选择一个世界卡。');
+  worldDraftOpener = document.activeElement;
+  setWorldDraftStatus('正在读取草稿…');
+  try {
+    const res = await fetch('/api/world-drafts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ worldId: world.id, baseVersion: world.version }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(worldApiError(data, '世界草稿读取失败（HTTP ' + res.status + '）'));
+    worldDraft = data;
+    worldDraftDirty = false;
+    fillWorldDraftForm(data);
+    setWorldDraftStatus(data.createdAt === data.updatedAt ? '草稿已创建，修改后点击保存。' : '已载入上次保存的草稿。');
+    if (!dialog.open) dialog.showModal();
+    requestAnimationFrame(() => $('world-draft-name')?.focus());
+  } catch (err) {
+    setWorldDraftStatus(err.message, 'error');
+  }
+}
+function requestCloseWorldDraft() {
+  const dialog = $('world-draft-dialog');
+  if (!dialog?.open) return;
+  if (worldDraftDirty && !confirm('草稿还有未保存的修改，确定关闭吗？')) return;
+  worldDraftDirty = false;
+  dialog.close('cancel');
+  worldDraftOpener?.focus?.();
+  worldDraftOpener = null;
+}
+async function saveWorldDraft() {
+  if (!worldDraft) return;
+  const title = $('world-draft-name').value.trim();
+  const summary = $('world-draft-summary').value;
+  const tags = splitWorldDraftList($('world-draft-tags').value);
+  const lorebookIds = splitWorldDraftList($('world-draft-lorebooks').value);
+  const titleInput = $('world-draft-name');
+  if (!title) {
+    setWorldDraftStatus('世界标题不能为空。', 'error');
+    titleInput.focus();
+    return;
+  }
+  const btn = $('world-draft-save');
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '保存中…';
+  setWorldDraftStatus('正在保存草稿…');
+  try {
+    const res = await fetch('/api/world-drafts/' + encodeURIComponent(worldDraft.worldId), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(worldApiError(data, '世界草稿保存失败（HTTP ' + res.status + '）'));
+    worldDraft = data;
+    worldDraftDirty = false;
+    fillWorldDraftForm(data);
+    setWorldDraftStatus('草稿已保存；发布新版本将在后续步骤中执行。', 'ok');
+  } catch (err) {
+    setWorldDraftStatus(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
 }
 async function loadWorldSaves(worldId) {
   if (!worldId) return [];
@@ -4478,6 +4567,19 @@ function bindEvents() {
     await loadWorldLibraryData();
     btn.disabled = false;
     btn.textContent = old;
+  });
+  $('world-new-draft').addEventListener('click', openWorldDraftEditor);
+  $('world-edit-draft').addEventListener('click', openWorldDraftEditor);
+  $('world-draft-form').addEventListener('input', () => { worldDraftDirty = true; });
+  $('world-draft-form').addEventListener('submit', async e => { e.preventDefault(); await saveWorldDraft(); });
+  $('world-draft-close').addEventListener('click', requestCloseWorldDraft);
+  $('world-draft-cancel').addEventListener('click', requestCloseWorldDraft);
+  $('world-draft-dialog').addEventListener('cancel', e => { e.preventDefault(); requestCloseWorldDraft(); });
+  $('world-draft-dialog').addEventListener('click', e => { if (e.target === e.currentTarget) requestCloseWorldDraft(); });
+  window.addEventListener('beforeunload', e => {
+    if (!worldDraftDirty) return;
+    e.preventDefault();
+    e.returnValue = '';
   });
   $('world-save-form').addEventListener('submit', async e => {
     e.preventDefault();

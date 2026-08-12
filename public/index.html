@@ -651,6 +651,7 @@
       <p class="world-kicker">选择一个世界，建立独立存档。</p>
       <div id="world-list" class="cm-list" aria-label="世界卡列表"></div>
       <button class="ghost-btn" id="world-refresh" type="button" style="width:100%;margin-top:8px">↻ 刷新世界库</button>
+      <button class="ghost-btn" id="world-new-draft" type="button" style="width:100%;margin-top:6px">✎ 创建世界草稿</button>
       <button class="ghost-btn" id="world-legacy-chat" type="button" style="width:100%;margin-top:6px">回到旧 RPG 对话</button>
     </div>
     <div class="cm-edit world-edit">
@@ -672,6 +673,7 @@
             <p id="world-summary" class="world-summary"></p>
             <div id="world-tags" class="world-tags"></div>
           </div>
+          <button class="ghost-btn small world-edit-draft-btn" id="world-edit-draft" type="button">✎ 编辑草稿</button>
         </div>
         <div id="world-facts" class="world-facts"></div>
         <form id="world-save-form" class="world-save-form">
@@ -703,6 +705,44 @@
       </section>
     </div>
   </div>
+
+  <dialog id="world-draft-dialog" class="world-draft-dialog" aria-labelledby="world-draft-title-label">
+    <form id="world-draft-form" class="world-draft-card">
+      <header class="world-draft-head">
+        <div>
+          <p class="world-eyebrow">WORLD CARD · DRAFT</p>
+          <h2 id="world-draft-title-label">编辑世界草稿</h2>
+          <p id="world-draft-base" class="world-draft-base"></p>
+        </div>
+        <button class="ghost-btn small" id="world-draft-close" type="button" aria-label="关闭世界草稿编辑器">✕</button>
+      </header>
+      <div class="world-draft-body">
+        <div class="field">
+          <label for="world-draft-name">世界标题</label>
+          <input id="world-draft-name" name="worldDraftTitle" maxlength="200" autocomplete="off" required />
+        </div>
+        <div class="field">
+          <label for="world-draft-summary">世界简介</label>
+          <textarea id="world-draft-summary" name="worldDraftSummary" rows="4" maxlength="4000" placeholder="用几句话说明这个世界的基调、舞台与玩法…"></textarea>
+        </div>
+        <div class="field row2">
+          <div class="field">
+            <label for="world-draft-tags">标签 <span class="hint-inline">逗号分隔</span></label>
+            <input id="world-draft-tags" name="worldDraftTags" maxlength="1000" placeholder="日式西幻, 福瑞, 开放世界" />
+          </div>
+          <div class="field">
+            <label for="world-draft-lorebooks">绑定世界书 ID <span class="hint-inline">逗号分隔</span></label>
+            <input id="world-draft-lorebooks" name="worldDraftLorebooks" maxlength="1000" placeholder="default, lore-aurora" spellcheck="false" />
+          </div>
+        </div>
+        <p id="world-draft-status" class="world-draft-status" role="status" aria-live="polite"></p>
+      </div>
+      <footer class="world-draft-actions">
+        <button class="ghost-btn" id="world-draft-cancel" type="button">取消</button>
+        <button class="btn gold" id="world-draft-save" type="submit">保存草稿</button>
+      </footer>
+    </form>
+  </dialog>
 
   <dialog id="debug-panel" class="debug-panel" aria-labelledby="debug-title">
     <header class="debug-head">

@@ -82,7 +82,7 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 }
 ```
 
-世界卡是可复用的静态定义，不保存某个玩家的回合、背包或地图图片。通用世界编辑器仍未开放，初始内容来自 `_defaults.json.worlds` 初始化的 `worlds.json`；W4.7 只提供“从指定存档收录 NPC”这一条显式版本创建接口。
+世界卡是可复用的静态定义，不保存某个玩家的回合、背包或地图图片。初始内容来自 `_defaults.json.worlds` 初始化的 `worlds.json`；W5.1 提供单独的 `world-drafts.json` 草稿层，草稿只保存标题、简介、标签和世界书绑定的可编辑副本，发布前不会改写 `worlds.json` 或已有存档。W4.7 仍提供“从指定存档收录 NPC”这一条显式版本创建接口。
 其中 `locations[].id` 是世界内稳定的地点主键；`start.locationId`、`WorldSave.state.locationId` 和 `npcStates[*].locationId` 只能引用当前世界已登记的 ID，地点名称只用于展示与叙事。RPG Prompt 只注入当前地点 NPC、队伍成员和当前任务引用的 NPC；未命中的世界 NPC 不进入上下文。世界模式的世界书只读取当前 `WorldCard.lorebookIds`，不会使用全局酒馆世界书选择；旧世界卡未声明时仅兼容读取 `default`。
 
 WorldNPC 的静态资料按公开边界读取：`role`、`description`、`persona`、`personality`、`appearance`、`speechStyle`、`publicFacts`、`publicGoals` 可进入作用域 Prompt；`secrets` 采用 `[{ id, content }]`，只有当前存档 `npcStates[npcId].knowledge` 包含对应 `id` 时才注入。其他静态字段不会自动展开，跨存档的 `knowledge` / `relation` 永不共享。
@@ -220,6 +220,10 @@ WorldNPC 的静态资料按公开边界读取：`role`、`description`、`person
 | `GET/PUT /api/data/:type` | 读写 characters / presets / lorebooks / settings |
 | `GET /api/worlds` | 返回世界卡摘要与每个世界的存档数量 |
 | `GET /api/worlds/<worldId>?version=<n>` | 读取指定世界卡版本；省略 `version` 时读取最新版本 |
+| `GET /api/world-drafts?worldId=<worldId>` | 列出世界草稿摘要；不传 worldId 时列出全部草稿 |
+| `GET /api/world-drafts/<worldId>` | 读取指定世界草稿 |
+| `POST /api/world-drafts` | 从指定 `worldId` / `baseVersion` 创建草稿；同一世界重复调用幂等 |
+| `PUT /api/world-drafts/<worldId>` | 使用 `expectedUpdatedAt` 乐观锁保存标题、简介、标签和 `lorebookIds` |
 | `POST /api/worlds/<worldId>/versions` | 显式把来源存档中的生成 NPC 收录进下一不可变世界版本；要求 `sourceSaveId`、`npcId`，可选 `expectedRevision` / `title` |
 | `GET /api/world-saves?worldId=<worldId>` | 列出指定世界的存档摘要 |
 | `POST /api/world-saves` | 按世界卡创建一个独立空存档；服务端分配 `saveId` |

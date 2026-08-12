@@ -21,6 +21,7 @@ const DATA_DIR = process.env.TAVERN_DATA_DIR
   ? path.resolve(process.env.TAVERN_DATA_DIR)
   : path.join(PUBLIC_DIR, 'data');
 const SAVES_DIR = path.join(DATA_DIR, 'saves');
+const WORLD_DRAFTS_PATH = path.join(DATA_DIR, 'world-drafts.json');
 // --api-only：只暴露 /api/*（无网页），供公网纯 API 场景
 const API_ONLY = process.argv.includes('--api-only');
 
@@ -57,6 +58,8 @@ async function ensureDataFiles() {
   const defaults = loadDefaults();
   try { await fs.promises.mkdir(DATA_DIR, { recursive: true }); } catch {}
   try { await fs.promises.mkdir(SAVES_DIR, { recursive: true }); } catch {}
+  try { await fs.promises.access(WORLD_DRAFTS_PATH); }
+  catch { await fs.promises.writeFile(WORLD_DRAFTS_PATH, '[]\n', 'utf-8'); }
   for (const type of DATA_TYPES) {
     const fp = path.join(DATA_DIR, type + '.json');
     try { await fs.promises.access(fp); }
@@ -151,6 +154,37 @@ function latestWorld(worlds, worldId) {
 
 function findWorldVersion(worlds, worldId, version) {
   return worlds.find(world => world && world.id === worldId && Number(world.version) === Number(version)) || null;
+}
+
+async function loadWorldDrafts() {
+  const raw = await fs.promises.readFile(WORLD_DRAFTS_PATH, 'utf-8');
+  const drafts = JSON.parse(raw);
+  if (!Array.isArray(drafts)) throw new Error('world-drafts.json 必须是数组');
+  return drafts;
+}
+
+function worldDraftFieldsValid(payload, requireRevision = false) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return '请求必须是 JSON 对象';
+  if (requireRevision && (!Number.isInteger(payload.expectedUpdatedAt) || payload.expectedUpdatedAt < 0)) return 'expectedUpdatedAt 必须是非负整数';
+  if (!Number.isInteger(payload.baseVersion) || payload.baseVersion < 1) return 'baseVersion 必须是正整数';
+  if (typeof payload.title !== 'string' || !payload.title.trim() || payload.title.trim().length > 200) return 'title 必须是 1-200 字符的字符串';
+  if (typeof payload.summary !== 'string' || payload.summary.length > 4000) return 'summary 不能超过 4000 个字符';
+  if (!Array.isArray(payload.tags) || payload.tags.length > 64 || payload.tags.some(value => typeof value !== 'string' || !value.trim() || value.length > 120)) return 'tags 必须是最多 64 项的非空字符串数组';
+  if (!Array.isArray(payload.lorebookIds) || payload.lorebookIds.length > 64 || payload.lorebookIds.some(value => typeof value !== 'string' || !isSafeId(value.trim()))) return 'lorebookIds 包含无效 ID';
+  return null;
+}
+
+function applyWorldDraftFields(world, payload) {
+  const next = cloneJson(world);
+  next.title = payload.title.trim();
+  next.summary = payload.summary;
+  next.tags = [...new Set(payload.tags.map(value => value.trim()))];
+  next.lorebookIds = [...new Set(payload.lorebookIds.map(value => value.trim()))];
+  return next;
+}
+
+function worldDraftView(draft) {
+  return cloneJson(draft);
 }
 
 function worldNpcIds(world) {
@@ -258,6 +292,87 @@ async function handleWorldsGet(req, res) {
     console.error('[worlds] 读取失败:', err.message);
     send(res, 500, JSON.stringify({ error: '世界卡读取失败: ' + err.message }), 'application/json');
   }
+}
+
+async function handleWorldDraftsGet(req, res, worldId = '', single = false) {
+  if (worldId && !isSafeId(worldId)) return send(res, 400, JSON.stringify({ error: '无效的 worldId' }), 'application/json');
+  try {
+    const drafts = await loadWorldDrafts();
+    if (worldId && single) {
+      const draft = drafts.find(item => item && item.worldId === worldId);
+      if (!draft) return send(res, 404, JSON.stringify({ error: '世界草稿不存在' }), 'application/json');
+      return send(res, 200, JSON.stringify(worldDraftView(draft)), 'application/json; charset=utf-8');
+    }
+    const result = worldId ? drafts.filter(draft => draft && draft.worldId === worldId) : drafts;
+    send(res, 200, JSON.stringify(result.map(worldDraftView)), 'application/json; charset=utf-8');
+  } catch (err) {
+    console.error('[world-drafts] 读取失败:', err.message);
+    send(res, 500, JSON.stringify({ error: '世界草稿读取失败: ' + err.message }), 'application/json');
+  }
+}
+
+async function handleWorldDraftCreate(req, res) {
+  let payload;
+  try { payload = await readJsonBody(req, 64 * 1024); }
+  catch (err) {
+    const status = err.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400;
+    return send(res, status, JSON.stringify({ error: err.message }), 'application/json');
+  }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return send(res, 400, JSON.stringify({ error: '请求必须是 JSON 对象' }), 'application/json');
+  const worldId = String(payload.worldId || '');
+  if (!isSafeId(worldId)) return send(res, 400, JSON.stringify({ error: '无效的 worldId' }), 'application/json');
+  if (payload.baseVersion !== undefined && (!Number.isInteger(payload.baseVersion) || payload.baseVersion < 1)) return send(res, 400, JSON.stringify({ error: 'baseVersion 必须是正整数' }), 'application/json');
+  return withWorldsLock(async () => {
+    try {
+      const worlds = await loadWorlds();
+      const source = payload.baseVersion === undefined ? latestWorld(worlds, worldId) : findWorldVersion(worlds, worldId, payload.baseVersion);
+      if (!source) return send(res, 404, JSON.stringify({ error: '世界卡版本不存在' }), 'application/json');
+      const drafts = await loadWorldDrafts();
+      const existing = drafts.find(draft => draft && draft.worldId === worldId);
+      if (existing) return send(res, 200, JSON.stringify(worldDraftView(existing)), 'application/json; charset=utf-8');
+      const now = Date.now();
+      const draft = { schemaVersion: 1, worldId, baseVersion: Number(source.version), world: cloneJson(source), createdAt: now, updatedAt: now };
+      drafts.push(draft);
+      await writeJsonAtomic(WORLD_DRAFTS_PATH, drafts);
+      send(res, 201, JSON.stringify(worldDraftView(draft)), 'application/json; charset=utf-8');
+    } catch (err) {
+      console.error('[world-drafts] 创建失败:', err.message);
+      send(res, 500, JSON.stringify({ error: '世界草稿创建失败: ' + err.message }), 'application/json');
+    }
+  });
+}
+
+async function handleWorldDraftPut(req, res, worldId) {
+  if (!isSafeId(worldId)) return send(res, 400, JSON.stringify({ error: '无效的 worldId' }), 'application/json');
+  let payload;
+  try { payload = await readJsonBody(req, 64 * 1024); }
+  catch (err) {
+    const status = err.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400;
+    return send(res, status, JSON.stringify({ error: err.message }), 'application/json');
+  }
+  const invalid = worldDraftFieldsValid(payload, true);
+  if (invalid) return send(res, 400, JSON.stringify({ error: invalid }), 'application/json');
+  return withWorldsLock(async () => {
+    try {
+      const drafts = await loadWorldDrafts();
+      const index = drafts.findIndex(draft => draft && draft.worldId === worldId);
+      if (index < 0) return send(res, 404, JSON.stringify({ error: '世界草稿不存在' }), 'application/json');
+      const current = drafts[index];
+      if (current.updatedAt !== payload.expectedUpdatedAt || Number(current.baseVersion) !== payload.baseVersion) {
+        return send(res, 409, JSON.stringify({ error: '世界草稿已被更新，请重新读取', updatedAt: current.updatedAt }), 'application/json');
+      }
+      const worlds = await loadWorlds();
+      if (!findWorldVersion(worlds, worldId, current.baseVersion)) return send(res, 409, JSON.stringify({ error: '草稿所基于的世界版本已不存在' }), 'application/json');
+      const updatedAt = Math.max(Date.now(), current.updatedAt + 1);
+      const next = { ...current, world: applyWorldDraftFields(current.world, payload), updatedAt };
+      drafts[index] = next;
+      await writeJsonAtomic(WORLD_DRAFTS_PATH, drafts);
+      send(res, 200, JSON.stringify(worldDraftView(next)), 'application/json; charset=utf-8');
+    } catch (err) {
+      console.error('[world-drafts] 保存失败:', err.message);
+      send(res, 500, JSON.stringify({ error: '世界草稿保存失败: ' + err.message }), 'application/json');
+    }
+  });
 }
 
 async function handleWorldCardGet(req, res, worldId, version) {
@@ -953,6 +1068,19 @@ const server = http.createServer((req, res) => {
   if (req.method === 'POST' && url.pathname === '/api/image-save') return handleImageSave(req, res);
   if (req.method === 'GET' && url.pathname === '/api/models') return handleModels(req, res);
   if (req.method === 'GET' && url.pathname === '/api/worlds') return handleWorldsGet(req, res);
+  const worldDraftListMatch = url.pathname.match(/^\/api\/world-drafts\/?$/);
+  if (worldDraftListMatch) {
+    if (req.method === 'GET') return handleWorldDraftsGet(req, res, url.searchParams.get('worldId') || '');
+    if (req.method === 'POST') return handleWorldDraftCreate(req, res);
+  }
+  const worldDraftMatch = url.pathname.match(/^\/api\/world-drafts\/([^/]+)\/?$/);
+  if (worldDraftMatch && (req.method === 'GET' || req.method === 'PUT')) {
+    let worldId;
+    try { worldId = decodeURIComponent(worldDraftMatch[1]); }
+    catch { return send(res, 400, JSON.stringify({ error: '无效的 worldId' }), 'application/json'); }
+    if (req.method === 'GET') return handleWorldDraftsGet(req, res, worldId, true);
+    return handleWorldDraftPut(req, res, worldId);
+  }
   const worldVersionMatch = url.pathname.match(/^\/api\/worlds\/([^/]+)\/versions\/?$/);
   if (worldVersionMatch && req.method === 'POST') {
     let worldId;
