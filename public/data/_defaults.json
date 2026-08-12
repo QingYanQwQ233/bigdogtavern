@@ -83,7 +83,19 @@
     "memories": []
   },
   "gen": {
-    "charPrompt": "你是一位角色卡设计助手。根据用户对角色的一句话描述，生成一张完整的角色卡。只输出 JSON，不要输出任何其他内容或解释。JSON 结构：{\"name\":\"角色名\",\"race\":\"种族\",\"role\":\"身份\",\"persona\":\"外貌与性格描述（50~120字）\",\"scenario\":\"当前场景（一句叙述性开场）\",\"firstMes\":\"开场白（含动作/神态描写与一句对白）\",\"tags\":\"标签,逗号分隔\"}",
+    "charFields": [
+      { "key": "name", "label": "名字", "required": true },
+      { "key": "race", "label": "种族", "required": true },
+      { "key": "role", "label": "身份 / 职业", "required": true },
+      { "key": "age", "label": "年龄" },
+      { "key": "gender", "label": "性别" },
+      { "key": "appearance", "label": "外貌特征" },
+      { "key": "personality", "label": "性格关键词" },
+      { "key": "motivation", "label": "目标 / 动机" },
+      { "key": "speechStyle", "label": "说话方式" }
+    ],
+    "charBasicPrompt": "你是一位角色设定助手。根据用户的一句话描述填写指定的基本信息表。只输出 JSON，不要解释；格式必须为 {\"fields\":{\"字段key\":\"字段值\"}}。不得增删字段，信息不足时做符合描述的简短合理补全。",
+    "charFullPrompt": "你是一位角色卡设计助手。根据用户已确认的基本信息生成完整角色卡，扩写时不得推翻表中事实。只输出 JSON，不要解释。JSON 结构：{\"name\":\"角色名\",\"race\":\"种族\",\"role\":\"身份\",\"persona\":\"具体的外貌、性格、习惯、动机与说话方式（120~220字）\",\"scenario\":\"适合开始互动的当前场景\",\"firstMes\":\"含动作、神态、环境与自然对白的开场白\",\"systemPrompt\":\"角色专属规则；无必要则为空字符串\",\"postHistory\":\"历史后指令；无必要则为空字符串\",\"tags\":\"标签,逗号分隔\"}。",
     "lorePrompt": "你是一位奇幻世界设定撰写助手。根据用户对某设定的描述，生成一条世界书条目。只输出 JSON，不要输出任何其他内容或解释。JSON 结构：{\"title\":\"条目标题\",\"keys\":\"触发词,逗号分隔（尽量覆盖同义词）\",\"content\":\"设定内容（80~150字，具体、可注入上下文）\",\"constant\":false}"
   },
   "rpg": {

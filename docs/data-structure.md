@@ -26,6 +26,7 @@ localStorage（前缀 rpg-airp:）→ server JSON 的离线缓存，server 为�
 | `prefs` | `{formatPreset,formatCustom,stop,wiScanDepth,wiWholeWord,currentPreset,cotEnabled,cotEffort}` | 界面偏好默认值 |
 | `ui` | `{emptyTitle,emptyGuideWithChar,emptyGuide}` | 空状态文案（`{name}`/`{role}` 插值） |
 | `settings` | 连接参数 + `systemPrompt/postHistory/firstMes` | settings.json 初始内容 |
+| `gen` | `{charFields,charBasicPrompt,charFullPrompt,lorePrompt}` | AI 三步生成角色卡与世界书条目；基本信息栏目由 JSON 动态渲染 |
 | `characters` | 数组，示例角色 | characters.json 初始内容 |
 | `lorebooks` | `{id:{name,entries[]}}` | lorebooks.json 初始内容 |
 | `presets` | `{预设名:{systemPrompt,postHistory,firstMes,modules[]}}` | presets.json 初始内容 |
@@ -55,9 +56,14 @@ localStorage（前缀 rpg-airp:）→ server JSON 的离线缓存，server 为�
   postHistory: '',
   presetName: '',              // 绑定的提示词预设名（可空 → 用 prefs.currentPreset）
   loreId: '',                  // 绑定的世界书 id（可空 → 只用全局世界书）
+  profileFields: [             // AI 基本信息表；默认栏目来自 gen.charFields，也可按角色增加自定义条目
+    { key: 'age', label: '年龄', value: '24' },
+  ],
   tags: '', createdAt: 0,
 }
 ```
+
+`profileFields` 随角色保存，并写入 Character Card V2 的 `extensions.tavern.profileFields`；导入时恢复。构建对话提示词时，非核心字段会追加到唯一的 `【角色卡】` system 段，因此自定义条目不仅用于展示，也会实际参与 AI 对话。
 
 ### 提示词预设 presets{}（presets.json）
 ```js

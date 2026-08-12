@@ -991,7 +991,7 @@ textarea#input:focus {
   margin-bottom: 5px;
   letter-spacing: 0.5px;
 }
-.field input, .field select, .field textarea {
+.field input, .field select, .field textarea, .char-wizard input {
   width: 100%;
   padding: 8px 10px;
   border-radius: 8px;
@@ -1003,7 +1003,7 @@ textarea#input:focus {
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s, background 0.4s ease;
 }
-.field input:focus, .field select:focus, .field textarea:focus {
+.field input:focus, .field select:focus, .field textarea:focus, .char-wizard input:focus {
   border-color: rgba(var(--accent-rgb), 0.55);
   box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.07);
 }
@@ -1354,12 +1354,14 @@ body[data-theme="vibrancy"] .card { background: rgba(255, 255, 255, 0.03); }
 body[data-theme="vibrancy"] textarea#input,
 body[data-theme="vibrancy"] .field input,
 body[data-theme="vibrancy"] .field select,
-body[data-theme="vibrancy"] .field textarea {
+body[data-theme="vibrancy"] .field textarea,
+body[data-theme="vibrancy"] .char-wizard input {
   background: #1c1c1e;
   border-color: rgba(255, 255, 255, 0.10);
 }
 body[data-theme="vibrancy"] textarea#input::placeholder,
-body[data-theme="vibrancy"] .field input::placeholder { color: rgba(255, 255, 255, 0.30); }
+body[data-theme="vibrancy"] .field input::placeholder,
+body[data-theme="vibrancy"] .char-wizard input::placeholder { color: rgba(255, 255, 255, 0.30); }
 body[data-theme="vibrancy"] .modal-box,
 body[data-theme="vibrancy"] .crest .crest-ring { animation: none; }
 body[data-theme="vibrancy"] .msg { animation: none; }
@@ -1492,6 +1494,30 @@ body[data-theme="vibrancy"] .dropdown { box-shadow: none; }
 }
 .cm-edit-actions { display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
 
+.char-wizard {
+  margin-bottom: 16px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(var(--accent-rgb), 0.04);
+}
+.cw-head, .cw-panel-head, .cw-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.cw-head { margin-bottom: 12px; color: var(--accent); font-family: var(--font-display); }
+.cw-steps { display: flex; gap: 6px; margin: 0; padding: 0; list-style: none; font-family: var(--font-body); font-size: 11px; color: var(--muted); }
+.cw-steps li { padding: 3px 7px; border: 1px solid transparent; border-radius: 999px; }
+.cw-steps li.active { border-color: var(--accent); color: var(--accent); }
+.cw-steps li.done { color: var(--text); }
+.cw-panel.hidden { display: none; }
+.cw-panel > label, .cw-panel-head > span { display: block; margin-bottom: 7px; color: var(--text); font-size: 13px; }
+.cm-profile-fields { display: grid; gap: 7px; margin: 8px 0 10px; }
+.cm-profile-row { display: grid; grid-template-columns: minmax(110px, 160px) minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.cm-profile-row > label { color: var(--muted); font-size: 12px; }
+.cm-profile-label { font-size: 12px; }
+.cm-profile-remove { color: var(--danger); }
+.cw-actions { justify-content: flex-end; flex-wrap: wrap; }
+.cw-done { margin-bottom: 9px; color: var(--text); }
+.cm-full-title { margin: 4px 0 10px; color: var(--accent); font-family: var(--font-display); font-size: 13px; letter-spacing: 1px; }
+
 /* ── 世界书 ── */
 .wi-list {
   display: flex;
@@ -1605,6 +1631,10 @@ body[data-theme="vibrancy"] .dropdown { box-shadow: none; }
   .cm-list, .wi-list, .pg-modules, .lb-list { max-height: 30vh; }
   .char-mgr { grid-template-rows: auto 1fr; }
   .cm-edit { padding: 12px; }
+  .cw-head { align-items: flex-start; flex-direction: column; }
+  .cw-steps { width: 100%; overflow-x: auto; }
+  .cm-profile-row { grid-template-columns: 1fr auto; }
+  .cm-profile-row > label, .cm-profile-label { grid-column: 1 / -1; }
   .sess-item { padding: 8px 10px; font-size: 13px; }
   .relation { display: none; }
   .debug-panel { inset: 0; }

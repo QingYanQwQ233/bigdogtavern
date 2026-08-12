@@ -125,13 +125,37 @@
         <span id="cm-edit-title">编辑角色</span>
         <button class="ghost-btn" data-back-chat>回到对话</button>
       </div>
-      <div class="field">
-        <label for="cm-ai-desc">✨ AI 生成角色卡 <span class="hint-inline">一句话描述，自动填入下方表单</span></label>
-        <div class="row-inline">
-          <input id="cm-ai-desc" placeholder="例如：傲娇的猫娘旅店老板娘" />
-          <button class="btn gold small" id="btn-ai-char">✨ 生成</button>
+      <div class="char-wizard" aria-labelledby="cw-title">
+        <div class="cw-head">
+          <span id="cw-title">AI 角色工坊</span>
+          <ol class="cw-steps" aria-label="角色卡生成进度">
+            <li class="active" data-cw-step="1">1 定角色</li>
+            <li data-cw-step="2">2 调整信息</li>
+            <li data-cw-step="3">3 完整角色卡</li>
+          </ol>
         </div>
+        <section class="cw-panel" id="cw-panel-1">
+          <label for="cm-ai-desc">用一句话确定角色</label>
+          <div class="row-inline">
+            <input id="cm-ai-desc" placeholder="例如：傲娇的猫娘旅店老板娘" />
+            <button class="btn gold small" id="btn-ai-char">AI 填写基本信息</button>
+          </div>
+        </section>
+        <section class="cw-panel hidden" id="cw-panel-2">
+          <div class="cw-panel-head"><span>检查并调整基本信息</span><button class="ghost-btn small" id="cw-back-1">修改一句话</button></div>
+          <div id="cm-profile-fields" class="cm-profile-fields"></div>
+          <div class="cw-actions">
+            <button class="ghost-btn small" id="cm-profile-add">＋ 自定义条目</button>
+            <button class="btn gold small" id="btn-ai-char-full">AI 完善并生成完整角色卡</button>
+          </div>
+        </section>
+        <section class="cw-panel hidden" id="cw-panel-3">
+          <div class="cw-done">完整 JSON 角色卡已生成，请检查下方内容后保存。</div>
+          <button class="ghost-btn small" id="cw-back-2">返回调整基本信息</button>
+        </section>
+        <div id="cm-ai-status" class="hint" aria-live="polite"></div>
       </div>
+      <div class="cm-full-title">完整角色卡 <span class="hint-inline">第三步生成后仍可继续修改</span></div>
       <div class="field row2">
         <div class="field"><label for="cm-name">名字</label><input id="cm-name" /></div>
         <div class="field"><label for="cm-race">种族</label><input id="cm-race" /></div>

@@ -634,6 +634,116 @@ function renderBindSelects() {
   }
 }
 
+const CHAR_FIELD_FORM = {
+  name: 'cm-name', race: 'cm-race', role: 'cm-role', persona: 'cm-persona',
+  scenario: 'cm-scenario', firstMes: 'cm-first-mes', tags: 'cm-tags',
+};
+
+function charFieldDefs() {
+  const fields = defaults && defaults.gen && defaults.gen.charFields;
+  return Array.isArray(fields) ? fields.filter(f => f && f.key && f.label) : [];
+}
+
+function normalizeCharProfileFields(fields) {
+  if (!Array.isArray(fields)) return [];
+  return fields.filter(f => f && f.key && f.label).map(f => ({
+    key: String(f.key), label: String(f.label), value: f.value == null ? '' : String(f.value),
+  }));
+}
+
+function setCharWizardStep(step) {
+  document.querySelectorAll('[data-cw-step]').forEach(el => {
+    const n = Number(el.dataset.cwStep);
+    el.classList.toggle('active', n === step);
+    el.classList.toggle('done', n < step);
+  });
+  [1, 2, 3].forEach(n => $('cw-panel-' + n).classList.toggle('hidden', n !== step));
+}
+
+function appendCharFieldRow(field, custom = false) {
+  const row = document.createElement('div');
+  row.className = 'cm-profile-row';
+  row.dataset.key = field.key;
+  row.dataset.custom = custom ? '1' : '0';
+  if (custom) {
+    const label = document.createElement('input');
+    label.className = 'cm-profile-label';
+    label.value = field.label || '';
+    label.placeholder = '条目名称';
+    label.setAttribute('aria-label', '自定义条目名称');
+    row.appendChild(label);
+  } else {
+    const label = document.createElement('label');
+    label.textContent = field.label;
+    label.htmlFor = 'cpf-' + field.key;
+    row.appendChild(label);
+  }
+  const input = document.createElement('input');
+  input.id = 'cpf-' + field.key;
+  input.className = 'cm-profile-value';
+  input.value = field.value || '';
+  input.placeholder = field.placeholder || '填写' + (field.label || '内容');
+  input.setAttribute('aria-label', (field.label || '自定义条目') + '内容');
+  if (CHAR_FIELD_FORM[field.key]) input.addEventListener('input', () => { $(CHAR_FIELD_FORM[field.key]).value = input.value; });
+  row.appendChild(input);
+  if (custom) {
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'ghost-btn cm-profile-remove';
+    remove.textContent = '删除';
+    remove.setAttribute('aria-label', '删除自定义条目');
+    remove.addEventListener('click', () => row.remove());
+    row.appendChild(remove);
+  }
+  $('cm-profile-fields').appendChild(row);
+  return row;
+}
+
+function renderCharProfileFields(char, generated) {
+  const list = $('cm-profile-fields');
+  list.innerHTML = '';
+  const stored = normalizeCharProfileFields(char && char.profileFields);
+  const storedByKey = new Map(stored.map(f => [f.key, f]));
+  const defined = new Set();
+  for (const def of charFieldDefs()) {
+    defined.add(def.key);
+    const old = storedByKey.get(def.key);
+    const coreValue = char && CHAR_FIELD_FORM[def.key] ? (char[def.key] || '') : '';
+    const value = generated && Object.prototype.hasOwnProperty.call(generated, def.key)
+      ? generated[def.key] : ((old && old.value) || coreValue);
+    appendCharFieldRow({ ...def, value: String(value || '') });
+  }
+  for (const field of stored) {
+    if (!defined.has(field.key)) appendCharFieldRow(field, true);
+  }
+}
+
+function addCharProfileField() {
+  const row = appendCharFieldRow({ key: 'custom_' + uid(), label: '', value: '' }, true);
+  row.querySelector('.cm-profile-label').focus();
+}
+
+function collectCharProfileFields(syncCore = false) {
+  const coreValues = Object.fromEntries(Object.entries(CHAR_FIELD_FORM).map(([key, id]) => [key, $(id).value.trim()]));
+  return [...document.querySelectorAll('#cm-profile-fields .cm-profile-row')].map(row => {
+    const custom = row.dataset.custom === '1';
+    const labelEl = row.querySelector(custom ? '.cm-profile-label' : 'label');
+    const key = row.dataset.key;
+    return {
+      key,
+      label: (custom ? labelEl.value : labelEl.textContent).trim() || '自定义条目',
+      value: syncCore && Object.prototype.hasOwnProperty.call(coreValues, key) ? coreValues[key] : row.querySelector('.cm-profile-value').value.trim(),
+    };
+  }).filter(field => field.key && field.value);
+}
+
+function syncProfileFieldsToForm() {
+  for (const row of document.querySelectorAll('#cm-profile-fields .cm-profile-row')) {
+    const id = CHAR_FIELD_FORM[row.dataset.key];
+    if (id) $(id).value = row.querySelector('.cm-profile-value').value.trim();
+  }
+}
+
 function selectCharForEdit(id) {
   const c = characters.find(x => x.id === id);
   if (!c) return;
@@ -652,6 +762,9 @@ function selectCharForEdit(id) {
   $('cm-ref-image').value = c.refImage || '';
   updateRefPreview(c.refImage || '');
   $('cm-tags').value = c.tags || '';
+  renderCharProfileFields(c);
+  setCharWizardStep(2);
+  $('cm-ai-status').textContent = '';
   renderCharList();
 }
 
@@ -702,6 +815,10 @@ function newCharEditor() {
   $('cm-edit-title').textContent = '新建角色';
   ['cm-name', 'cm-race', 'cm-role', 'cm-persona', 'cm-scenario', 'cm-first-mes', 'cm-system', 'cm-post', 'cm-ref-image', 'cm-tags']
     .forEach(id => { $(id).value = ''; });
+  $('cm-ai-desc').value = '';
+  $('cm-ai-status').textContent = '';
+  renderCharProfileFields(null);
+  setCharWizardStep(1);
   updateRefPreview(''); // 清空参考图预览（新建角色不复用上个角色的图）
 }
 
@@ -719,6 +836,7 @@ function saveCharFromEditor() {
     loreId: $('cm-lore').value || '',
     refImage: $('cm-ref-image').value.trim(),
     tags: $('cm-tags').value.trim(),
+    profileFields: collectCharProfileFields(true),
   };
   if (cmEditingId) {
     const c = characters.find(x => x.id === cmEditingId);
@@ -780,7 +898,7 @@ function charToV2(c) {
       tags: (c.tags || '').split(',').map(t => t.trim()).filter(Boolean),
       creator: '',
       character_version: '1.0',
-      extensions: { tavern: { race: c.race || '', role: c.role || '', presetName: c.presetName || '', loreId: c.loreId || '' } },
+      extensions: { tavern: { race: c.race || '', role: c.role || '', presetName: c.presetName || '', loreId: c.loreId || '', profileFields: c.profileFields || [] } },
     },
   };
 }
@@ -798,6 +916,7 @@ function v2ToChar(j) {
     firstMes: d.first_mes || '', systemPrompt: d.system_prompt || '',
     postHistory: d.post_history_instructions || '',
     presetName: ext.presetName || '', loreId: ext.loreId || '',
+    profileFields: normalizeCharProfileFields(ext.profileFields),
     tags: (d.tags || []).join(', '), createdAt: Date.now(),
   };
 }
@@ -1290,6 +1409,10 @@ function buildPromptBlocks() {
     if (char.role && char.role.trim()) descLines.push('身份：' + char.role.trim());
     if (char.persona && char.persona.trim()) descLines.push('外貌与性格：' + char.persona.trim());
     if (char.scenario && char.scenario.trim()) descLines.push('当前场景：' + char.scenario.trim());
+    const coreKeys = new Set(['name', 'race', 'role', 'persona', 'scenario', 'firstMes', 'tags']);
+    for (const field of normalizeCharProfileFields(char.profileFields)) {
+      if (!coreKeys.has(field.key) && field.value) descLines.push(field.label.trim() + '：' + field.value.trim());
+    }
     if (descLines.length) parts.push('【角色卡】\n' + descLines.join('\n'));
   }
   // 玩家设定（user persona）：描述「你」这个玩家/扮演者
@@ -2585,29 +2708,62 @@ function parseLLMJson(text) {
   return JSON.parse(t);
 }
 
-/* 生成角色卡 → 填入编辑表单（用户确认后保存） */
+/* 第一步 → 第二步：一句话生成由 JSON 定义的基本信息表 */
 async function aiGenChar() {
   const desc = $('cm-ai-desc').value.trim();
   if (!desc) { alert('先描述你想要的角色，例如：傲娇的猫娘旅店老板娘'); return; }
   const gen = defaults.gen || {};
-  if (!gen.charPrompt) { alert('未配置生成指令（_defaults.json → gen.charPrompt）'); return; }
+  if (!gen.charBasicPrompt || !charFieldDefs().length) { alert('未配置角色基本信息字段或生成指令'); return; }
   const btn = $('btn-ai-char');
-  btn.disabled = true; btn.textContent = '生成中…';
+  btn.disabled = true; btn.textContent = '填写中…';
+  $('cm-ai-status').textContent = 'AI 正在填写基本信息…';
   try {
-    const obj = await aiGenerate(gen.charPrompt, desc);
-    if (obj.name) $('cm-name').value = obj.name;
-    if (obj.race) $('cm-race').value = obj.race;
-    if (obj.role) $('cm-role').value = obj.role;
-    if (obj.persona) $('cm-persona').value = obj.persona;
-    if (obj.scenario) $('cm-scenario').value = obj.scenario;
-    if (obj.firstMes) $('cm-first-mes').value = obj.firstMes;
-    if (obj.tags) $('cm-tags').value = obj.tags;
-    alert('✅ 已生成并填入表单 —— 检查后点「保存」');
+    const schema = charFieldDefs().map(({ key, label }) => ({ key, label }));
+    const instruction = gen.charBasicPrompt + '\n字段定义：' + JSON.stringify(schema);
+    const obj = await aiGenerate(instruction, desc);
+    const fields = obj && obj.fields && typeof obj.fields === 'object' ? obj.fields : obj;
+    renderCharProfileFields(characters.find(c => c.id === cmEditingId) || null, fields);
+    syncProfileFieldsToForm();
+    setCharWizardStep(2);
+    $('cm-ai-status').textContent = '基本信息已填写，可直接修改或添加自定义条目。';
   } catch (err) {
     console.error('[Tavern] AI 生成角色卡失败:', err.message);
     alert('❌ ' + err.message);
+    $('cm-ai-status').textContent = '基本信息生成失败，请检查 API 设置后重试。';
   } finally {
-    btn.disabled = false; btn.textContent = '✨ 生成';
+    btn.disabled = false; btn.textContent = 'AI 填写基本信息';
+  }
+}
+
+/* 第二步 → 第三步：基于用户确认的信息生成完整 JSON 角色卡 */
+async function aiGenFullChar() {
+  const gen = defaults.gen || {};
+  if (!gen.charFullPrompt) { alert('未配置完整角色卡生成指令'); return; }
+  const profileFields = collectCharProfileFields();
+  if (!profileFields.length) { alert('请先填写至少一项基本信息'); return; }
+  const btn = $('btn-ai-char-full');
+  btn.disabled = true; btn.textContent = '生成中…';
+  $('cm-ai-status').textContent = 'AI 正在完善完整角色卡…';
+  try {
+    const obj = await aiGenerate(gen.charFullPrompt, JSON.stringify({ summary: $('cm-ai-desc').value.trim(), profileFields }));
+    const confirmed = Object.fromEntries(profileFields.map(field => [field.key, field.value]));
+    const bindings = {
+      name: 'cm-name', race: 'cm-race', role: 'cm-role', persona: 'cm-persona',
+      scenario: 'cm-scenario', firstMes: 'cm-first-mes', systemPrompt: 'cm-system',
+      postHistory: 'cm-post', tags: 'cm-tags',
+    };
+    for (const [key, id] of Object.entries(bindings)) {
+      const value = Object.prototype.hasOwnProperty.call(confirmed, key) ? confirmed[key] : obj[key];
+      if (typeof value === 'string') $(id).value = value;
+    }
+    setCharWizardStep(3);
+    $('cm-ai-status').textContent = '完整角色卡已生成，基本信息条目会随角色一起保存。';
+  } catch (err) {
+    console.error('[Tavern] AI 完整角色卡生成失败:', err.message);
+    alert('❌ ' + err.message);
+    $('cm-ai-status').textContent = '完整角色卡生成失败，已保留当前基本信息。';
+  } finally {
+    btn.disabled = false; btn.textContent = 'AI 完善并生成完整角色卡';
   }
 }
 
@@ -3050,6 +3206,11 @@ function bindEvents() {
   $('mem-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') addMemory(); });
   // AI 生成
   $('btn-ai-char').addEventListener('click', aiGenChar);
+  $('btn-ai-char-full').addEventListener('click', aiGenFullChar);
+  $('cm-profile-add').addEventListener('click', addCharProfileField);
+  $('cw-back-1').addEventListener('click', () => setCharWizardStep(1));
+  $('cw-back-2').addEventListener('click', () => setCharWizardStep(2));
+  $('cm-ai-desc').addEventListener('keydown', e => { if (e.key === 'Enter') aiGenChar(); });
   $('btn-ai-wi').addEventListener('click', aiGenWI);
   // 会话
   $('btn-session').addEventListener('click', e => {

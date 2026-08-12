@@ -22,7 +22,7 @@ node server.js
 
 ## 🍺 酒馆模式（AI 角色扮演聊天）
 
-- **角色卡**：多角色创建/编辑，Character Card V1/V2 JSON 导入导出（description / scenario / first_mes / system_prompt / post_history_instructions / tags）
+- **角色卡**：多角色创建/编辑；AI 按“一句话定角色 → 动态基本信息表 → 完整 JSON 角色卡”三步生成；支持 Character Card V1/V2 JSON 导入导出
 - **提示词预设**（「提示词」栏）：多套 System Prompt + 历史后指令模板，命名保存/切换/删除；角色卡可绑定预设
 - **世界书**：多本世界书 × 条目（触发词支持正则 / 常驻 / 顺序 / 扫描深度 / 整词匹配）；一本全局生效，其余可绑定角色
 - **记忆 / 玩家设定**：玩家外形背景偏好 + 记忆条目（注入上下文）
@@ -84,7 +84,7 @@ node server.js
 
 - `presets`：提示词预设——「RP 基础（示例）」（酒馆 writer 身份）、**「RPG 叙事引擎（示例）」**（DM 身份 + 正反例，可在「提示词」页直接编辑）
 - `rpg`：初始状态 / 输出协议（stateInstruction）/ 行动选项空提示 / 示例回合（exampleTurn，few-shot 注入 history 最前）
-- `gen`：AI 生成角色卡 / 世界书条目的指令
+- `gen`：角色基本信息动态栏目（`charFields`）+ 两阶段角色卡生成指令 + 世界书条目生成指令
 - `user`：玩家设定（外形 / 背景 / 偏好）+ 记忆条目
 - 切换模式自动切换当前预设（RPG → RPG 叙事引擎；酒馆 → RP 基础）
 
