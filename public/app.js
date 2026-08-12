@@ -696,15 +696,13 @@ function appendCharFieldRow(field, custom = false) {
     if (cmCreating && field.key === 'name') renderCharList();
   });
   row.appendChild(input);
-  if (custom) {
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.className = 'ghost-btn cm-profile-remove';
-    remove.textContent = '删除';
-    remove.setAttribute('aria-label', '删除自定义条目');
-    remove.addEventListener('click', () => row.remove());
-    row.appendChild(remove);
-  }
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'ghost-btn cm-profile-remove';
+  remove.textContent = '删除';
+  remove.setAttribute('aria-label', '删除“' + (field.label || '自定义') + '”条目');
+  remove.addEventListener('click', () => row.remove());
+  row.appendChild(remove);
   $('cm-profile-fields').appendChild(row);
   return row;
 }
