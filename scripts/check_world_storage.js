@@ -102,6 +102,38 @@ async function main() {
     assert.strictEqual(savedUpdate.response.status, 200);
     assert.strictEqual(savedUpdate.body.revision, 1);
     assert.deepStrictEqual(savedUpdate.body.state.map.data.grid, [0, 1, 1, 0]);
+    const turnPayload = {
+      commandId: 'command-0001',
+      expectedRevision: 1,
+      state: statePatch,
+      turns: [
+        { id: 'turn-user-1', role: 'user', content: '进入旅店' },
+        { id: 'turn-ai-1', role: 'assistant', content: '你推开了旅店的门。' },
+      ],
+      options: ['观察炉火', '询问老板', '检查背包', '走向窗边'],
+    };
+    const turnCommit = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(turnPayload),
+    });
+    assert.strictEqual(turnCommit.response.status, 200);
+    assert.strictEqual(turnCommit.body.revision, 2);
+    assert.strictEqual(turnCommit.body.turns.at(-1).commandId, 'command-0001');
+    assert.strictEqual(turnCommit.body.receipts.at(-1).commandId, 'command-0001');
+    const duplicateTurn = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(turnPayload),
+    });
+    assert.strictEqual(duplicateTurn.response.status, 200, 'duplicate command is idempotent');
+    assert.strictEqual(duplicateTurn.body.revision, 2);
+    const badOptions = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...turnPayload, commandId: 'command-0002', expectedRevision: 2, options: ['重复', '重复', '三', '四'] }),
+    });
+    assert.strictEqual(badOptions.response.status, 400, 'candidate options are validated');
     const conflict = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

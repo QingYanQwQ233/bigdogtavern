@@ -101,7 +101,7 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 }
 ```
 
-创建时由服务端从当前 `WorldCard.start` 复制玩家快照和初始状态；客户端不能提交文件路径或自行指定 `saveId`。世界模式修改通过 `PUT /api/world-saves/<saveId>` 提交完整的 `state + turns + opening`，带 `expectedRevision` 做顺序校验；地图网格写入 JSON 前转为数字数组，读取后恢复为 `Uint16Array`，图片只保存受校验的本地 `/images/...` 路径。
+创建时由服务端从当前 `WorldCard.start` 复制玩家快照和初始状态；客户端不能提交文件路径或自行指定 `saveId`。普通存档维护可通过 `PUT /api/world-saves/<saveId>` 提交完整的 `state + turns + opening`，带 `expectedRevision` 做顺序校验；正式 RPG 新行动使用 `POST /api/world-saves/<saveId>`，携带稳定 `commandId`、`expectedRevision`、候选 `state`、本回合 `turns` 和恰好 4 个 `options`，服务端在同一临界区校验版本、追加带 revision 的回合并写入幂等 `receipts`。地图网格写入 JSON 前转为数字数组，读取后恢复为 `Uint16Array`，图片只保存受校验的本地 `/images/...` 路径。
 
 ### 角色卡 characters[]（characters.json）
 ```js
@@ -214,6 +214,7 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 | `POST /api/world-saves` | 按世界卡创建一个独立空存档；服务端分配 `saveId` |
 | `GET /api/world-saves/<saveId>` | 读取一个完整 WorldSave |
 | `PUT /api/world-saves/<saveId>` | 使用 `expectedRevision` 原子提交当前存档的 `state`、`turns` 与 `opening`；版本冲突返回 409 |
+| `POST /api/world-saves/<saveId>` | 提交一次 RPG 回合候选；校验 `commandId`、assistant 回合、4 个唯一选项和 revision，成功后追加带 revision 的回合并记录 receipt；相同 commandId 幂等返回 |
 
 运行时 JSON 不通过静态文件直接暴露：`/data/` 路径拒绝读取，世界卡和存档只能通过上述 API 访问。
 

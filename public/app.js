@@ -105,6 +105,9 @@ let worldSavesByWorld = new Map();
 let worldLoadToken = 0;
 let worldSaveWriteChain = Promise.resolve();
 let worldSavePending = null;
+let worldTurnPending = null;
+let worldTurnPreparing = false;
+let worldTurnEpoch = 0;
 let theme = localStorage.getItem(LS_THEME) || 'tavern';
 let mode = localStorage.getItem(LS_MODE) || 'tavern'; // 'tavern' 酒馆模式 | 'rpg' RPG 模式
 let sending = false;
@@ -203,7 +206,48 @@ function worldTimelineMessages() {
     if (!turn || typeof turn !== 'object' || !turn.role) continue;
     result.push(turn);
   }
+  if (worldTurnPending && worldTurnPending.saveId === currentWorldSaveId) result.push(...worldTurnPending.messages);
   return result;
+}
+function worldTurnPendingActive() {
+  return worldModeActive() && !!worldTurnPending && worldTurnPending.saveId === currentWorldSaveId;
+}
+function discardWorldTurnPending() {
+  const pending = worldTurnPending;
+  worldTurnPending = null;
+  worldTurnEpoch++;
+  if (pending && currentWorldSave && pending.saveId === currentWorldSaveId) {
+    currentWorldSave.state = cloneValue(pending.beforeState);
+    hydrateWorldSave(currentWorldSave);
+  }
+  renderMessages();
+}
+async function submitWorldTurn(pending) {
+  const res = await fetch('/api/world-saves/' + encodeURIComponent(pending.saveId), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({
+      commandId: pending.commandId,
+      expectedRevision: pending.expectedRevision,
+      state: pending.state,
+      turns: cloneValue(pending.messages),
+      options: pending.options,
+    }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(worldApiError(data, '世界回合提交失败（HTTP ' + res.status + '）'));
+  if (!worldTurnPendingActive() || pending.commandId !== worldTurnPending.commandId) {
+    if (worldTurnPending === pending) { worldTurnPending = null; worldTurnEpoch++; }
+    return;
+  }
+  hydrateWorldSave(data);
+  currentWorldSave = data;
+  currentWorldSaveId = data.id;
+  worldTurnPending = null;
+  worldTurnEpoch++;
+  renderRPG();
+  renderSessions();
+  renderMessages();
 }
 async function flushWorldSaveWrites() {
   while (worldSavePending) {
@@ -226,7 +270,7 @@ async function flushWorldSaveWrites() {
   }
 }
 function queueWorldSave(save = currentWorldSave) {
-  if (!save || !worldModeActive() || save !== currentWorldSave) return worldSaveWriteChain;
+  if (!save || !worldModeActive() || save !== currentWorldSave || worldTurnPendingActive()) return worldSaveWriteChain;
   worldSavePending = {
     save,
     snapshot: {
@@ -497,6 +541,10 @@ function commitRpgState(rs) {
     state.locationId = rs.location || null;
     state.inventory = cloneValue(rs.inventory || []);
     state.quests = cloneValue(rs.quests || []);
+    if (worldTurnPendingActive()) {
+      worldTurnPending.state = serializeWorldState(currentWorldSave);
+      return;
+    }
     queueWorldSave(currentWorldSave);
   } else {
     saveSessions();
@@ -2567,7 +2615,7 @@ function renderDebugTerminal() {
   const scope = $('debug-scope');
   if (!scope) return;
   scope.textContent = session
-    ? `${worldModeActive() ? (currentWorldCard()?.title || '世界') : (currentChar()?.name || '未命名角色')} · ${worldModeActive() ? '世界存档' : (session.kind === 'rpg' ? 'RPG' : '酒馆')} · ${session.name || session.id}${trace?.status ? ` · ${trace.status}` : ''}`
+    ? `${worldModeActive() ? (currentWorldCard()?.title || '世界') : (currentChar()?.name || '未命名角色')} · ${worldModeActive() ? '世界存档' : (session.kind === 'rpg' ? 'RPG' : '酒馆')} · ${session.name || session.id}${trace?.commandId ? ` · ${trace.commandId}` : ''}${trace?.status ? ` · ${trace.status}` : ''}`
     : '当前会话 · 暂无记录';
   $('debug-input').textContent = trace?.input || '尚未向 AI 发送请求。';
   $('debug-output').textContent = trace?.output || '尚未收到 AI 响应。';
@@ -2882,6 +2930,11 @@ function pushMessage(role, content, extra) {
   if (worldModeActive()) {
     const msg = { id: uid(), role, content, ts: Date.now() };
     if (extra) Object.assign(msg, extra);
+    if (worldTurnPendingActive()) {
+      worldTurnPending.messages.push(msg);
+      renderMessages();
+      return;
+    }
     currentWorldSave.turns = Array.isArray(currentWorldSave.turns) ? currentWorldSave.turns : [];
     currentWorldSave.turns.push(msg);
     queueWorldSave(currentWorldSave);
@@ -3180,6 +3233,7 @@ async function generateImageFor(story) {
   const ig = igSettings();
   if (!ig.enabled || !ig.baseUrl) return;
   const targetKey = activeConversationKey();
+  const targetTurnEpoch = worldModeActive() ? worldTurnEpoch : null;
   const status = $('ig-test-result');
   if (status) status.textContent = '⏳ 正在生成图片…';
   addImagePending(); // 聊天栏占位提示：开始生图
@@ -3208,14 +3262,14 @@ async function generateImageFor(story) {
     let local = src;
     try { local = await saveImageLocally(src); } // 存本地，刷新不丢
     catch (e) { console.warn('[Tavern] 图片本地保存失败，本轮仍显示:', e.message); }
-    if (activeConversationKey() !== targetKey) return;
+    if (activeConversationKey() !== targetKey || (worldModeActive() && targetTurnEpoch !== worldTurnEpoch)) return;
     pushMessage('image', local, { imgPrompt: prompt }); // 记住提示词，供「重新生成」复用
     if (status) status.textContent = '✅ 图片已生成并显示在聊天栏';
   } catch (err) {
     console.error('[Tavern] 文生图失败:', err.message);
     removeImagePending();
     if (status) status.textContent = '❌ ' + err.message;
-    pushMessage('system', `⚠️ 文生图失败：${err.message}`);
+    if (activeConversationKey() === targetKey && (!worldModeActive() || targetTurnEpoch === worldTurnEpoch)) pushMessage('system', `⚠️ 文生图失败：${err.message}`);
   }
 }
 
@@ -3291,6 +3345,7 @@ async function requestReply() {
   try {
     const payload = buildPayload();
     setDebugTrace(targetScope, {
+      commandId: worldTurnPendingActive() ? worldTurnPending.commandId : null,
       status: '请求中',
       input: JSON.stringify({ endpoint: payload.baseUrl + '/chat/completions', ...payload.body }, null, 2),
       output: '等待 AI 响应…',
@@ -3328,6 +3383,7 @@ async function requestReply() {
     if (activeConversationKey() !== targetKey) {
       setDebugTrace(targetScope, { status: '已完成（响应因切换存档/会话未写入历史）' });
       console.warn('[Tavern] 当前存档/会话已切换，已丢弃原范围的迟到响应');
+      if (worldTurnPending && worldTurnPending.saveId === targetScope.id) discardWorldTurnPending();
       removeTyping();
       return;
     }
@@ -3341,6 +3397,12 @@ async function requestReply() {
     if (cot) extra.cot = cot;
     if (processed.options && processed.options.length) extra.options = processed.options;
     pushMessage('assistant', clean, extra);
+    if (worldTurnPendingActive()) {
+      if (!processed.options || processed.options.length !== 4) throw new Error('RPG 回合必须返回恰好 4 个行动选项，当前候选未提交');
+      worldTurnPending.options = processed.options;
+      worldTurnPending.state = serializeWorldState(currentWorldSave);
+      await submitWorldTurn(worldTurnPending);
+    }
     // 文生图（测试）：回复完成后自动生图（异步，不阻塞对话）
     const ig = settings.imageGen;
     if (ig && ig.enabled && ig.auto && ig.baseUrl) {
@@ -3349,8 +3411,10 @@ async function requestReply() {
   } catch (err) {
     console.error('[Tavern] ✗ 请求失败', err.message);
     removeTyping();
+    const hadWorldTurn = worldTurnPendingActive();
+    if (hadWorldTurn) discardWorldTurnPending();
     setDebugTrace(targetScope, { status: '失败', output: `ERROR\n${err.message}` });
-    if (activeConversationKey() === targetKey) pushMessage('system', `⚠️ 请求失败：${err.message}`);
+    if (activeConversationKey() === targetKey && !hadWorldTurn) pushMessage('system', `⚠️ 请求失败：${err.message}`);
     setApiStatus(`最近一次请求失败：${err.message}`, true);
   } finally {
     sending = false;
@@ -3361,11 +3425,38 @@ async function requestReply() {
 }
 
 async function sendMessage() {
-  if (sending) return;
+  if (sending || worldTurnPreparing || worldTurnPending) return;
   const input = $('input');
   const text = input.value.trim();
   if (!text) return;
   input.value = '';
+  if (worldModeActive()) {
+    worldTurnPreparing = true;
+    try {
+      await worldSaveWriteChain.catch(() => {});
+      if (!worldModeActive()) return;
+      worldTurnEpoch++;
+      worldTurnPending = {
+        commandId: uid(),
+        saveId: currentWorldSave.id,
+        expectedRevision: currentWorldSave.revision,
+        beforeState: cloneValue(serializeWorldState(currentWorldSave)),
+        state: serializeWorldState(currentWorldSave),
+        messages: [{ id: uid(), role: 'user', content: text, ts: Date.now() }],
+        options: null,
+      };
+      renderMessages();
+      const rolls = rollDiceIn(text);
+      for (const r of rolls) {
+        const detail = r.rolls.length > 1 ? `（${r.rolls.join(' + ')}${r.bonus ? (r.bonus >= 0 ? ' + ' + r.bonus : ' - ' + Math.abs(r.bonus)) : ''}）` : (r.bonus ? `（+${r.bonus}）` : '');
+        pushMessage('user', `🎲 ${r.expr} = ${r.total} ${detail}`, { meta: true });
+      }
+      await requestReply();
+    } finally {
+      worldTurnPreparing = false;
+    }
+    return;
+  }
   pushMessage('user', text);
   // 掷骰：玩家输入含 d20+5 / 2d6-1 → 自动掷骰并显示结果（不进 AI 上下文）
   const rolls = rollDiceIn(text);
@@ -4266,6 +4357,7 @@ function bindEvents() {
   $('btn-clear-chat').addEventListener('click', () => {
     if (!confirm('确定清空当前对话？将重新加载开场白。')) return;
     if (worldModeActive()) {
+      if (worldTurnPendingActive()) { discardWorldTurnPending(); return; }
       currentWorldSave.turns = [];
       queueWorldSave(currentWorldSave);
       renderMessages();
