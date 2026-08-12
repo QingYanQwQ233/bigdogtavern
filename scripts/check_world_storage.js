@@ -172,6 +172,77 @@ async function main() {
     assert.strictEqual(otherList.response.status, 200);
     assert.strictEqual(otherList.body.length, 1, 'world save lists stay isolated');
 
+    const secondDraftCreated = await jsonRequest(base, '/api/world-drafts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ worldId: secondWorld.id, baseVersion: secondWorld.version }),
+    });
+    assert.strictEqual(secondDraftCreated.response.status, 201);
+    const secondDraftUpdate = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(secondWorld.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        expectedUpdatedAt: secondDraftCreated.body.updatedAt,
+        baseVersion: secondWorld.version,
+        title: 'Second World Published',
+        summary: secondDraftCreated.body.world.summary || '',
+        tags: secondDraftCreated.body.world.tags || [],
+        lorebookIds: secondDraftCreated.body.world.lorebookIds || [],
+        mapGeneration: draftMapGeneration,
+        locations: secondDraftCreated.body.world.locations || [],
+        npcs: secondDraftCreated.body.world.npcs || [],
+      }),
+    });
+    assert.strictEqual(secondDraftUpdate.response.status, 200);
+    const invalidPublish = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(secondWorld.id) + '/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'bad', expectedUpdatedAt: secondDraftUpdate.body.updatedAt, baseVersion: secondWorld.version }),
+    });
+    assert.strictEqual(invalidPublish.response.status, 400, 'invalid publication command IDs are rejected');
+    const publishPayload = { commandId: 'publish-second-0001', expectedUpdatedAt: secondDraftUpdate.body.updatedAt, baseVersion: secondWorld.version };
+    const secondPublish = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(secondWorld.id) + '/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(publishPayload),
+    });
+    assert.strictEqual(secondPublish.response.status, 201);
+    assert.strictEqual(secondPublish.body.world.version, Number(secondWorld.version) + 1);
+    assert.strictEqual(secondPublish.body.world.title, 'Second World Published');
+    assert.strictEqual(secondPublish.body.world.publication.commandId, publishPayload.commandId);
+    assert.strictEqual(secondPublish.body.idempotent, false);
+    assert.strictEqual(secondPublish.body.draftRemoved, true);
+    const duplicatePublish = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(secondWorld.id) + '/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(publishPayload),
+    });
+    assert.strictEqual(duplicatePublish.response.status, 200, 'draft publication is idempotent');
+    assert.strictEqual(duplicatePublish.body.world.version, secondPublish.body.world.version);
+    assert.strictEqual(duplicatePublish.body.idempotent, true);
+    const reusedPublishCommand = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(secondWorld.id) + '/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...publishPayload, expectedUpdatedAt: publishPayload.expectedUpdatedAt + 1 }),
+    });
+    assert.strictEqual(reusedPublishCommand.response.status, 409, 'a publication command ID cannot be reused for another revision');
+    const consumedDraft = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(secondWorld.id));
+    assert.strictEqual(consumedDraft.response.status, 404, 'published draft is consumed');
+    const oldSecondWorld = await jsonRequest(base, `/api/worlds/${encodeURIComponent(secondWorld.id)}?version=${secondWorld.version}`);
+    assert.strictEqual(oldSecondWorld.response.status, 200);
+    assert.strictEqual(oldSecondWorld.body.title, secondWorld.title, 'publication does not mutate the source version');
+    const latestSecondWorld = await jsonRequest(base, `/api/worlds/${encodeURIComponent(secondWorld.id)}`);
+    assert.strictEqual(latestSecondWorld.body.version, secondPublish.body.world.version);
+    const oldSecondSave = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(otherWorld.body.id));
+    assert.strictEqual(oldSecondSave.body.worldVersion, secondWorld.version, 'existing save stays pinned after draft publication');
+    const newSecondSave = await jsonRequest(base, '/api/world-saves', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ worldId: secondWorld.id, worldVersion: secondPublish.body.world.version, name: 'Published World Save' }),
+    });
+    assert.strictEqual(newSecondSave.response.status, 201);
+    assert.strictEqual(newSecondSave.body.worldVersion, secondPublish.body.world.version, 'new saves can use the published version');
+
     const saved = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id));
     assert.strictEqual(saved.response.status, 200);
     assert.strictEqual(saved.body.name, '第一份存档');
@@ -261,6 +332,15 @@ async function main() {
     assert.strictEqual(latestWorld.response.status, 200);
     assert.strictEqual(latestWorld.body.version, promotion.body.world.version);
     assert.ok(latestWorld.body.npcIds.includes(promotion.body.npcId));
+    const staleDraftPublish = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id) + '/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'publish-aurora-stale-0001', expectedUpdatedAt: draftUpdate.body.updatedAt, baseVersion: world.version }),
+    });
+    assert.strictEqual(staleDraftPublish.response.status, 409, 'draft cannot publish over a newer world version');
+    assert.strictEqual(staleDraftPublish.body.latestVersion, promotion.body.world.version);
+    const retainedStaleDraft = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id));
+    assert.strictEqual(retainedStaleDraft.response.status, 200, 'conflicted draft remains available for recovery');
     const promotedSave = await jsonRequest(base, '/api/world-saves', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

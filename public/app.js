@@ -113,6 +113,7 @@ let worldTurnEpoch = 0;
 let worldDraft = null;
 let worldDraftDirty = false;
 let worldDraftOpener = null;
+let worldDraftPublishId = null;
 let theme = localStorage.getItem(LS_THEME) || 'tavern';
 let mode = localStorage.getItem(LS_MODE) || 'tavern'; // 'tavern' 酒馆模式 | 'rpg' RPG 模式
 let sending = false;
@@ -550,6 +551,7 @@ function fillWorldDraftForm(draft) {
   fillWorldDraftMapForm(world);
   renderWorldDraftCollections(world);
   $('world-draft-base').textContent = `基于已发布 v${draft.baseVersion}；草稿修改不会影响旧版本或已有存档。`;
+  $('world-draft-publish').textContent = `发布为 v${Number(draft.baseVersion) + 1}`;
 }
 async function openWorldDraftEditor() {
   const world = worldCardById(currentWorldId);
@@ -567,6 +569,7 @@ async function openWorldDraftEditor() {
     if (!res.ok) throw new Error(worldApiError(data, '世界草稿读取失败（HTTP ' + res.status + '）'));
     worldDraft = data;
     worldDraftDirty = false;
+    worldDraftPublishId = null;
     fillWorldDraftForm(data);
     setWorldDraftStatus(data.createdAt === data.updatedAt ? '草稿已创建，修改后点击保存。' : '已载入上次保存的草稿。');
     if (!dialog.open) dialog.showModal();
@@ -585,7 +588,7 @@ function requestCloseWorldDraft() {
   worldDraftOpener = null;
 }
 async function saveWorldDraft() {
-  if (!worldDraft) return;
+  if (!worldDraft) return false;
   const title = $('world-draft-name').value.trim();
   const summary = $('world-draft-summary').value;
   const tags = splitWorldDraftList($('world-draft-tags').value);
@@ -596,7 +599,7 @@ async function saveWorldDraft() {
   if (!title) {
     setWorldDraftStatus('世界标题不能为空。', 'error');
     titleInput.focus();
-    return;
+    return false;
   }
   const btn = $('world-draft-save');
   const old = btn.textContent;
@@ -613,13 +616,62 @@ async function saveWorldDraft() {
     if (!res.ok) throw new Error(worldApiError(data, '世界草稿保存失败（HTTP ' + res.status + '）'));
     worldDraft = data;
     worldDraftDirty = false;
+    worldDraftPublishId = null;
     fillWorldDraftForm(data);
-    setWorldDraftStatus('草稿已保存；发布新版本将在后续步骤中执行。', 'ok');
+    setWorldDraftStatus(`草稿已保存，可以发布为 v${Number(data.baseVersion) + 1}。`, 'ok');
+    return true;
   } catch (err) {
     setWorldDraftStatus(err.message, 'error');
+    return false;
   } finally {
     btn.disabled = false;
     btn.textContent = old;
+  }
+}
+async function publishWorldDraft() {
+  if (!worldDraft || !$('world-draft-form').reportValidity()) return;
+  if (worldDraftDirty && !await saveWorldDraft()) return;
+  const title = worldDraft.world?.title || '未命名世界';
+  const nextVersion = Number(worldDraft.baseVersion) + 1;
+  if (!confirm(`将“${title}”发布为 v${nextVersion}？\n\n已发布版本不可覆盖；现有存档仍绑定各自原版本。`)) return;
+  worldDraftPublishId ||= 'publish-' + uid();
+  const publishButton = $('world-draft-publish');
+  const saveButton = $('world-draft-save');
+  const oldLabel = publishButton.textContent;
+  publishButton.disabled = true;
+  saveButton.disabled = true;
+  publishButton.textContent = '发布中…';
+  setWorldDraftStatus(`正在发布 v${nextVersion}…`);
+  try {
+    const res = await fetch('/api/world-drafts/' + encodeURIComponent(worldDraft.worldId) + '/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ commandId: worldDraftPublishId, expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const error = new Error(worldApiError(data, '世界草稿发布失败（HTTP ' + res.status + '）'));
+      error.status = res.status;
+      throw error;
+    }
+    const published = data?.world;
+    if (!published || published.id !== worldDraft.worldId || Number(published.version) !== nextVersion) throw new Error('发布响应缺少新世界版本');
+    worldDraft = null;
+    worldDraftDirty = false;
+    worldDraftPublishId = null;
+    $('world-draft-dialog').close('published');
+    worldDraftOpener = null;
+    await loadWorldLibraryData();
+    const status = $('world-open-status');
+    if (status) status.textContent = `已发布“${published.title}” v${published.version}；旧存档仍固定在各自世界版本。`;
+    $('world-edit-draft')?.focus();
+  } catch (err) {
+    const recovery = err.status === 409 ? '；草稿已保留，请先处理版本冲突。' : '；可直接重试发布。';
+    setWorldDraftStatus(err.message + recovery, 'error');
+  } finally {
+    publishButton.disabled = false;
+    saveButton.disabled = false;
+    publishButton.textContent = worldDraft ? oldLabel : `发布为 v${nextVersion}`;
   }
 }
 async function loadWorldSaves(worldId) {
@@ -4752,7 +4804,7 @@ function bindEvents() {
   });
   $('world-new-draft').addEventListener('click', openWorldDraftEditor);
   $('world-edit-draft').addEventListener('click', openWorldDraftEditor);
-  $('world-draft-form').addEventListener('input', () => { worldDraftDirty = true; });
+  $('world-draft-form').addEventListener('input', () => { worldDraftDirty = true; worldDraftPublishId = null; });
   $('world-draft-map-regions').addEventListener('input', updateWorldDraftMapOutputs);
   $('world-draft-map-land').addEventListener('input', updateWorldDraftMapOutputs);
   $('world-draft-map-random').addEventListener('click', randomizeWorldDraftMapSeed);
@@ -4760,6 +4812,7 @@ function bindEvents() {
   $('world-draft-add-location').addEventListener('click', addWorldDraftLocation);
   $('world-draft-add-npc').addEventListener('click', addWorldDraftNpc);
   $('world-draft-form').addEventListener('submit', async e => { e.preventDefault(); await saveWorldDraft(); });
+  $('world-draft-publish').addEventListener('click', publishWorldDraft);
   $('world-draft-close').addEventListener('click', requestCloseWorldDraft);
   $('world-draft-cancel').addEventListener('click', requestCloseWorldDraft);
   $('world-draft-dialog').addEventListener('cancel', e => { e.preventDefault(); requestCloseWorldDraft(); });

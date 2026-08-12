@@ -82,7 +82,7 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 }
 ```
 
-世界卡是可复用的静态定义，不保存某个玩家的回合、背包或地图图片。初始内容来自 `_defaults.json.worlds` 初始化的 `worlds.json`；W5 草稿层保存在独立的 `world-drafts.json`，可编辑世界元数据、声明式 `locations` 与 `npcs`，并通过稳定 ID 互相引用；草稿不会改写 `worlds.json` 或已有存档。服务端只接受白名单字段，不接受可执行 HTML/JS。W4.7 仍提供“从指定存档收录 NPC”这一条显式版本创建接口。
+世界卡是可复用的静态定义，不保存某个玩家的回合、背包或地图图片。初始内容来自 `_defaults.json.worlds` 初始化的 `worlds.json`；W5 草稿层保存在独立的 `world-drafts.json`，可编辑世界元数据、声明式 `locations` 与 `npcs`，并通过稳定 ID 互相引用；保存草稿不会改写 `worlds.json` 或已有存档。发布会基于当前最新版本追加不可变的 `version + 1`，然后消费该草稿；旧版本仍可按版本号读取，已有 `WorldSave.worldVersion` 不会自动迁移。服务端只接受白名单字段，不接受可执行 HTML/JS。W4.7 仍提供“从指定存档收录 NPC”这一条显式版本创建接口。
 
 `map.generation` 是世界版本的地图生成配置：`seed`、`size`、`regionCount`、`landRatio` 与 `mapgenSize`。`landRatio` 在 fallback 引擎中是目标陆地占比，在 Mapgen2 中映射为大陆膨胀参数，因此 UI 预览会另外显示实际陆地占比。地图首次生成后，完整数据和生成参数一起写入所属 `WorldSave.state.map.data`；重生成只影响当前存档。
 
@@ -227,6 +227,7 @@ WorldNPC 的静态资料按公开边界读取：`role`、`description`、`person
 | `GET /api/world-drafts/<worldId>` | 读取指定世界草稿 |
 | `POST /api/world-drafts` | 从指定 `worldId` / `baseVersion` 创建草稿；同一世界重复调用幂等 |
 | `PUT /api/world-drafts/<worldId>` | 使用 `expectedUpdatedAt` 乐观锁保存标题、简介、标签、`lorebookIds`、地图生成参数、声明式 `locations` 与 `npcs`；地点/NPC ID 必须唯一，NPC 的 `locationId` 必须指向草稿地点 |
+| `POST /api/world-drafts/<worldId>/publish` | 提交 `commandId`、`expectedUpdatedAt` 与 `baseVersion`，把草稿发布为不可变的下一版本。命令可幂等重试；草稿落后最新版本时返回 409 并保留草稿 |
 | `POST /api/worlds/<worldId>/versions` | 显式把来源存档中的生成 NPC 收录进下一不可变世界版本；要求 `sourceSaveId`、`npcId`，可选 `expectedRevision` / `title` |
 | `GET /api/world-saves?worldId=<worldId>` | 列出指定世界的存档摘要 |
 | `POST /api/world-saves` | 按世界卡创建一个独立空存档；服务端分配 `saveId` |
