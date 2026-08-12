@@ -85,11 +85,12 @@ RPG 的末尾控制块只在 RPG 模式解析；流式生成时不会显示未�
 
 所有可编辑内容在 `public/data/_defaults.json`（新环境自动初始化），运行时数据存 `public/data/*.json`：
 
-- `presets`：提示词预设——「RP 基础（示例）」（酒馆 writer 身份）、**「RPG 叙事引擎（示例）」**（DM 身份 + 正反例，可在「提示词」页直接编辑）
+- `presets`：SillyTavern 风格的提示词素材库 + 启用顺序；支持固定数据槽位、自定义条目、Role、Relative / In-Chat、宏以及 ST Chat Completion JSON 导入/导出
+- 内置「RP 基础（示例）」（酒馆 writer 身份）与 **「RPG 叙事引擎（示例）」**（DM 身份 + 正反例）；角色、世界书、记忆、历史和 RPG 状态在运行时填入固定槽位，不复制进预设
 - `rpg`：初始状态 / 输出协议（stateInstruction）/ 行动选项空提示 / 示例回合（exampleTurn，few-shot 注入 history 最前）
 - `gen`：角色基本信息动态栏目（`charFields`）+ 两阶段角色卡生成指令 + 世界书条目生成指令
 - `user`：玩家设定（外形 / 背景 / 偏好）+ 记忆条目
-- 切换模式自动切换当前预设（RPG → RPG 叙事引擎；酒馆 → RP 基础）
+- 酒馆与 RPG 分别记忆当前预设；角色卡绑定只作用于酒馆，避免两个模式串用身份提示词
 
 ## 文生图（测试功能，默认关闭）
 

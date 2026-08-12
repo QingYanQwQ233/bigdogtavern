@@ -23,13 +23,13 @@ localStorage（前缀 rpg-airp:）→ server JSON 的离线缓存，server 为�
 |---|---|---|
 | `providers` | `[{id,label,baseUrl,model}]` | 设置面板「服务预设」下拉（动态渲染） |
 | `format` | `{key:{label,text}}` | 格式指令（对白协议/长叙事/JSON…），附加到 system |
-| `prefs` | `{formatPreset,formatCustom,stop,wiScanDepth,wiWholeWord,currentPreset,cotEnabled,cotEffort}` | 界面偏好默认值 |
+| `prefs` | `{formatPreset,formatCustom,stop,wiScanDepth,wiWholeWord,currentPresetByMode,cotEnabled,cotEffort}` | 界面偏好默认值；酒馆/RPG 分别记忆当前预设 |
 | `ui` | `{emptyTitle,emptyGuideWithChar,emptyGuide}` | 空状态文案（`{name}`/`{role}` 插值） |
 | `settings` | 连接参数 + `systemPrompt/postHistory/firstMes` | settings.json 初始内容 |
 | `gen` | `{charFields,charBasicPrompt,charFullPrompt,lorePrompt}` | AI 三步生成角色卡与世界书条目；基本信息栏目由 JSON 动态渲染 |
 | `characters` | 数组，示例角色 | characters.json 初始内容 |
 | `lorebooks` | `{id:{name,entries[]}}` | lorebooks.json 初始内容 |
-| `presets` | `{预设名:{systemPrompt,postHistory,firstMes,modules[]}}` | presets.json 初始内容 |
+| `presets` | `{预设名:{version,mode,firstMes,prompts[],promptOrder[]}}` | presets.json 初始内容；旧结构启动时迁移 |
 
 ## 三、核心数据结构
 
@@ -58,7 +58,7 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
   persona: '外貌与性格描述', scenario: '当前场景', firstMes: '开场白',
   systemPrompt: '',            // 角色专属 system（可空，由预设/全局兜底）
   postHistory: '',
-  presetName: '',              // 绑定的提示词预设名（可空 → 用 prefs.currentPreset）
+  presetName: '',              // 绑定的酒馆提示词预设名；RPG 使用独立的模式预设
   loreId: '',                  // 绑定的世界书 id（可空 → 只用全局世界书）
   profileFields: [             // AI 基本信息表；默认栏目来自 gen.charFields，也可按角色增加自定义条目
     { key: 'age', label: '年龄', value: '24' },
@@ -72,19 +72,31 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 ### 提示词预设 presets{}（presets.json）
 ```js
 {
-  '__global__': {              // 固定键 = 全局默认（⭐ 提示词栏第一项，不可删）
-    systemPrompt: '',          // writer 身份模板等，用户自填
-    postHistory: '', firstMes: '', modules: [],
-  },
   'RP 基础（示例）': {
-    systemPrompt: '你是一位互动小说作者（writer）…',  // 身份 = writer，非角色
-    postHistory: '', firstMes: '…', 
-    modules: [                 // 可开关的行为模块（SillyTavern prompts 风格）
-      { id, name, enabled, content },
+    version: 2,
+    mode: 'tavern',            // tavern | rpg | both
+    firstMes: '…',
+    prompts: [                 // 素材库；未进入顺序的素材仍会保留
+      {
+        identifier: 'main', name: '主提示词', role: 'system', content: '…',
+        marker: true, position: 'relative', depth: 4, order: 100,
+      },
+      {
+        identifier: 'custom-id', name: '文风', role: 'user', content: '…',
+        marker: false, position: 'in_chat', depth: 2, order: 100,
+      },
+    ],
+    promptOrder: [             // 当前 Profile 的顺序与开关
+      { identifier: 'main', enabled: true },
+      { identifier: 'chatHistory', enabled: true },
     ],
   },
 }
 ```
+
+固定槽位包括主提示词、世界书前/后、玩家设定、角色描述、角色性格、场景、记忆、格式指令、RPG 状态与协议、对话示例、聊天历史和历史后指令。槽位可关闭和排序，但不可删除；其内容在每次请求时从当前角色与当前会话动态生成，避免把角色、地图或状态复制进预设造成串数据。
+
+提示词页可导入/导出 SillyTavern Chat Completion 的 `prompts + prompt_order`。导入优先选择 `character_id: 100001`；未进入该顺序的 prompts 保留在素材库。常见采样参数会保存在 `modelParameters` 供无损导出，但连接设置仍是运行时权威，不会因导入而静默改动 API 参数。支持安全宏 `{{user}}`、`{{char}}`、`{{persona}}`、`{{description}}`、`{{personality}}`、`{{scenario}}`、`{{setvar::名称::值}}`、`{{getvar::名称}}` 和 `{{trim}}`；未知宏原样保留。EJS、MVU、扩展脚本和正则不会执行。
 
 ### 世界书 lorebooks{}（lorebooks.json）
 ```js
@@ -104,7 +116,7 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 ### 全局设置 settings（settings.json）
 ```js
 {
-  preset: '',               // 服务商 id（providers 的 key），⚠️ 与 prefs.currentPreset 无关
+  preset: '',               // 服务商 id（providers 的 key），⚠️ 与提示词预设无关
   baseUrl: '', apiKey: '', model: '',
   temperature: 0.9, maxTokens: 1024, topP: 1,
   frequencyPenalty: 0, presencePenalty: 0, seed: -1,
@@ -116,20 +128,14 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 
 ## 四、提示词构建管线 buildPromptBlocks
 
-```
-System message 组装顺序：
-  1. system prompt（身份定位在前）
-     兜底链：char.systemPrompt → preset.systemPrompt → settings.systemPrompt → ''
-     preset 选择链：char.presetName → prefs.currentPreset → '__global__' → null
-  2. 【角色卡】名字/种族/身份/外貌与性格/当前场景（作者创作的对象）
-  3. 预设启用模块 content（modules.filter(enabled)）
-  4. 格式指令：format[prefs.formatPreset].text + prefs.formatCustom
-  5. 世界书命中（buildWorldInfo：全局世界书 + 角色绑定世界书合并）
-之后：
-  6. 最近 settings.history 条历史
-  7. postHistory（兜底链同上）
-  8. 开场白（newSession 时）：char.firstMes → preset.firstMes → settings.firstMes
-```
+1. 选择当前模式的预设；酒馆允许角色卡 `presetName` 覆盖，RPG 不读取酒馆绑定。
+2. 按 `promptOrder` 遍历启用条目，固定槽位从当前角色/会话求值，自定义条目展开安全宏。
+3. 所有 System 和固定槽位合并为唯一一条 `system`；Relative User/Assistant 条目按聊天历史槽位分到历史前后。
+4. In-Chat User/Assistant 按 `depth + order` 插入历史；In-Chat System 为保持唯一 system 而提升到唯一 system，并标注原深度。
+5. `chatHistory` 关闭时不发送会话历史；RPG 示例回合只在 RPG 模式加入。
+6. 开场白仍按 `char.firstMes → preset.firstMes → settings.firstMes` 读取。
+
+旧版 `{systemPrompt,postHistory,firstMes,modules[]}` 在启动时原位迁移到 v2；迁移前可用 `presets.v1.backup-*.json` 回滚。迁移不修改 `_defaults.json` 中的提示词正文来源。
 
 ## 五、数据流向
 
@@ -164,4 +170,4 @@ System message 组装顺序：
 
 - `settings.systemPrompt/postHistory/firstMes` 与 `__global__` 预设语义重叠：`__global__` 是提示词栏的编辑入口，settings 三字段仅作最后兜底（兼容旧数据）
 - 数据双写 localStorage + JSON：server 文件权威，localStorage 为离线降级
-- 命名易混淆：`settings.preset`（服务商）vs `prefs.currentPreset`（提示词预设）
+- 命名易混淆：`settings.preset`（服务商）vs `prefs.currentPresetByMode`（酒馆/RPG 当前提示词预设）

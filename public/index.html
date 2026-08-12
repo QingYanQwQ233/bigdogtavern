@@ -196,8 +196,13 @@
       <div class="cm-head">提示词预设</div>
       <div id="pg-list" class="cm-list"></div>
       <button class="btn gold small" id="pg-new" style="width:100%">＋ 新建预设</button>
+      <div class="pg-side-actions">
+        <button class="ghost-btn" id="pg-import" type="button">导入 ST 预设</button>
+        <button class="ghost-btn" id="pg-export" type="button">导出</button>
+      </div>
+      <input id="pg-file" type="file" accept="application/json,.json" hidden />
       <button class="ghost-btn" id="pg-del" style="width:100%;margin-top:6px">删除当前预设</button>
-      <p class="hint" style="margin-top:10px">预设 = System Prompt + 历史后指令。角色卡可绑定预设（角色 system_prompt 为空时自动使用）。</p>
+      <p class="hint" style="margin-top:10px">兼容 SillyTavern Chat Completion 预设的 prompts 与 prompt_order；扩展脚本和正则不会执行。</p>
     </div>
     <div class="cm-edit">
       <div class="cm-edit-head">
@@ -205,21 +210,38 @@
         <button class="ghost-btn" data-back-chat>回到对话</button>
       </div>
       <div class="field">
-        <label for="pg-active">当前使用（未绑定预设的角色使用）</label>
+        <label for="pg-active">当前模式使用的预设</label>
         <select id="pg-active"></select>
       </div>
-      <div class="field"><label for="pg-system">System Prompt</label><textarea id="pg-system" rows="6" placeholder="（尚未设定 —— 先构思世界观与角色，再在这里填写全局默认提示词）"></textarea></div>
-      <div class="field"><label for="pg-post">历史后指令（post_history_instructions）</label><textarea id="pg-post" rows="3"></textarea></div>
-      <div class="field"><label for="pg-first-mes">开场白（first_mes，新会话自动作为角色首条消息）</label><textarea id="pg-first-mes" rows="3" placeholder="（描写一句环境或动作）&quot; 角色说的第一句话&quot;"></textarea></div>
-      <div class="field">
-        <label>模块（可开关的提示词条目，受 SillyTavern prompts 启发）</label>
-        <div id="pg-modules" class="pg-modules"></div>
+      <div class="field row2">
+        <div class="field"><label for="pg-mode">适用模式</label><select id="pg-mode"><option value="tavern">酒馆</option><option value="rpg">RPG</option><option value="both">两种模式</option></select></div>
+        <div class="field"><label for="pg-first-mes">开场白（新会话）</label><textarea id="pg-first-mes" rows="2"></textarea></div>
+      </div>
+      <div class="pg-manager">
+        <section class="pg-sequence" aria-labelledby="pg-sequence-title">
+          <div class="pg-section-head"><strong id="pg-sequence-title">提示词顺序</strong><div class="pg-sequence-actions"><select id="pg-library" aria-label="从素材库插入提示词"><option value="">插入素材…</option></select><button class="ghost-btn small" id="pg-prompt-new" type="button">＋ 新条目</button></div></div>
+          <p class="hint">越靠上越早组装；固定槽位由角色卡、世界书、历史和状态动态填充。</p>
+          <div id="pg-prompts" class="pg-prompts"></div>
+        </section>
+        <section id="pg-prompt-editor" class="pg-prompt-editor" aria-labelledby="pg-prompt-title">
+          <div class="pg-section-head"><strong id="pg-prompt-title">条目编辑</strong><button class="ghost-btn small" id="pg-prompt-del" type="button">删除条目</button></div>
+          <div class="field"><label for="pg-prompt-name">名称</label><input id="pg-prompt-name" /></div>
+          <div class="field row2">
+            <div class="field"><label for="pg-prompt-role">角色</label><select id="pg-prompt-role"><option value="system">System</option><option value="user">User</option><option value="assistant">Assistant</option></select></div>
+            <div class="field"><label for="pg-prompt-position">位置</label><select id="pg-prompt-position"><option value="relative">按列表顺序</option><option value="in_chat">插入历史</option></select></div>
+          </div>
+          <div id="pg-inchat-fields" class="field row2 hidden">
+            <div class="field"><label for="pg-prompt-depth">历史深度</label><input id="pg-prompt-depth" type="number" min="0" max="9999" value="4" /></div>
+            <div class="field"><label for="pg-prompt-order">同深度顺序</label><input id="pg-prompt-order" type="number" value="100" /></div>
+          </div>
+          <div class="field"><label for="pg-prompt-content">内容</label><textarea id="pg-prompt-content" rows="9" placeholder="支持 {{user}}、{{char}}、{{setvar::名称::值}}、{{getvar::名称}} 和 {{trim}}"></textarea></div>
+          <p id="pg-prompt-note" class="hint"></p>
+        </section>
       </div>
       <div class="cm-edit-actions">
         <button class="btn gold" id="pg-save">保存预设</button>
-        <button class="btn gold" id="pg-save-global">保存为全局默认</button>
       </div>
-      <p class="hint" style="margin-top:10px">未选择任何预设时，编辑的是「全局默认」System Prompt（所有角色兜底）。</p>
+      <p class="hint" style="margin-top:10px">运行时仍合并为唯一一条 system 消息；User / Assistant 条目按顺序进入上下文。未知宏会原样保留。</p>
     </div>
   </div>
 

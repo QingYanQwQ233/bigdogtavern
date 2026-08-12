@@ -2,9 +2,8 @@
  * 数据层（localStorage）：
  *   角色库 characters / 会话 sessions / 世界书 lorebook /
  *   提示词预设 promptPresets / 偏好 prefs（格式·世界书设置）
- * 提示词管线（参考 SillyTavern）：
- *   角色 system_prompt → 预设/全局 → 格式指令 → 世界书命中条目
- *   → 最近历史 → post_history_instructions（历史后，权重高）
+ * 提示词管线（兼容 SillyTavern prompts + prompt_order）：
+ *   固定槽位/自定义条目按预设顺序组装；System 最终合并为唯一消息。
  */
 
 'use strict';
@@ -24,7 +23,24 @@ const LS_LORE = 'rpg-airp:lore';
 const LS_USER = 'rpg-airp:user';
 const LS_PRESETS = 'rpg-airp:prompt-presets';
 const LS_PREFS = 'rpg-airp:prefs';
-const GLOBAL_PRESET_KEY = '__global__'; // 全局默认提示词 = presets.json 固定键（与普通预设同构，含 modules）
+const GLOBAL_PRESET_KEY = '__global__';
+const PRESET_SCHEMA_VERSION = 2;
+const PRESET_MARKERS = [
+  ['main', '主提示词'],
+  ['worldInfoBefore', '世界书（前）'],
+  ['personaDescription', '玩家设定'],
+  ['charDescription', '角色描述'],
+  ['charPersonality', '角色性格'],
+  ['scenario', '场景'],
+  ['tavernMemory', '记忆'],
+  ['tavernFormat', '格式指令'],
+  ['tavernRpg', 'RPG 状态与协议'],
+  ['worldInfoAfter', '世界书（后）'],
+  ['dialogueExamples', '对话示例'],
+  ['chatHistory', '聊天历史'],
+  ['jailbreak', '历史后指令'],
+];
+const PRESET_MARKER_IDS = new Set(PRESET_MARKERS.map(([id]) => id));
 
 const PAW_SVG = '<span class="avatar-mark">✦</span>';
 
@@ -88,7 +104,8 @@ let cmCreating = false;
 let wiEditingId = null;
 let lbEditingId = null;
 let pgEditingName = null;
-let pgEditingModules = null;
+let pgEditingPreset = null;
+let pgEditingPromptId = null;
 
 /* ─────────── 数据加载 / 保存（JSON 文件存储） ─────────── */
 function saveSettings() {
@@ -127,7 +144,7 @@ function saveJSON(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
 function savePresets() { localStorage.setItem(LS_PRESETS, JSON.stringify(promptPresets)); saveServerData('presets', promptPresets); }
 function $(id) { return document.getElementById(id); }
 function esc(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 function currentChar() { return characters.find(c => c.id === currentCharId) || null; }
@@ -136,7 +153,7 @@ function sessionMatches(s) { return !!s && s.charId === currentCharId && s.kind 
 /* 开场白兜底链：char.firstMes → preset.firstMes → settings.firstMes（新会话 / 清空聊天共用） */
 function getGreeting() {
   const char = currentChar();
-  const preset = promptPresets[(char && char.presetName)] || promptPresets[prefs.currentPreset] || promptPresets[GLOBAL_PRESET_KEY] || null;
+  const preset = resolvePromptPreset().preset;
   return (char && char.firstMes && char.firstMes.trim())
     || (preset && preset.firstMes && preset.firstMes.trim())
     || settings.firstMes || '';
@@ -439,6 +456,7 @@ async function seedExamples(force) {
   if ((force || !Object.keys(promptPresets).length) && seedPreset) {
     if (!promptPresets['RP 基础（示例）']) {
       promptPresets['RP 基础（示例）'] = JSON.parse(JSON.stringify(seedPreset));
+      prefs.currentPresetByMode = { ...(prefs.currentPresetByMode || {}), tavern: 'RP 基础（示例）' };
       prefs.currentPreset = 'RP 基础（示例）';
       changed = true;
     }
@@ -639,6 +657,7 @@ function renderBindSelects() {
     ps.innerHTML = '';
     const o0 = document.createElement('option'); o0.value = ''; o0.textContent = '（不绑定）'; ps.appendChild(o0);
     for (const n of Object.keys(promptPresets)) {
+      if (n === GLOBAL_PRESET_KEY || !['tavern', 'both'].includes(presetMode(n, promptPresets[n]))) continue;
       const o = document.createElement('option'); o.value = n; o.textContent = n; ps.appendChild(o);
     }
     if (cur && promptPresets[cur]) ps.value = cur;
@@ -1100,6 +1119,103 @@ function ensureEntryIds() {
   if (changed) saveLore(); // 持久化，避免刷新后 id 丢失
 }
 
+function presetMode(name, preset) {
+  if (preset && ['tavern', 'rpg', 'both'].includes(preset.mode)) return preset.mode;
+  if (name === GLOBAL_PRESET_KEY) return 'both';
+  return /RPG/i.test(name || '') ? 'rpg' : 'tavern';
+}
+
+function makePresetMarker(identifier, name, content = '') {
+  return { identifier, name, role: 'system', content, marker: true, position: 'relative', depth: 4, order: 100 };
+}
+
+function normalizePromptPreset(name, source) {
+  const src = source && typeof source === 'object' ? source : {};
+  if (src.version === PRESET_SCHEMA_VERSION && Array.isArray(src.prompts) && Array.isArray(src.promptOrder)) {
+    const seen = new Set();
+    const prompts = src.prompts.map((p, i) => {
+      let identifier = String(p.identifier || p.id || `prompt-${i + 1}`);
+      while (seen.has(identifier)) identifier += '-copy';
+      seen.add(identifier);
+      const marker = !!p.marker || PRESET_MARKER_IDS.has(identifier);
+      return {
+        ...p,
+        identifier,
+        name: String(p.name || identifier),
+        role: marker ? 'system' : (['system', 'user', 'assistant'].includes(p.role) ? p.role : 'system'),
+        content: String(p.content || ''),
+        marker,
+        position: marker ? 'relative' : (p.position === 'in_chat' ? 'in_chat' : 'relative'),
+        depth: Math.max(0, Number(p.depth ?? p.injection_depth ?? 4) || 0),
+        order: Number(p.order ?? p.injection_order ?? 100) || 0,
+      };
+    });
+    const ids = new Set(prompts.map(p => p.identifier));
+    const promptOrder = src.promptOrder
+      .filter(o => o && ids.has(o.identifier))
+      .map(o => ({ identifier: o.identifier, enabled: o.enabled !== false }));
+    for (const [identifier, label] of PRESET_MARKERS.filter(([id]) => ['tavernMemory', 'tavernFormat', 'tavernRpg'].includes(id))) {
+      if (ids.has(identifier)) continue;
+      prompts.push(makePresetMarker(identifier, label));
+      const beforeHistory = promptOrder.findIndex(o => o.identifier === 'chatHistory');
+      promptOrder.splice(beforeHistory < 0 ? promptOrder.length : beforeHistory, 0, { identifier, enabled: identifier !== 'tavernRpg' || presetMode(name, src) !== 'tavern' });
+      ids.add(identifier);
+    }
+    return { ...src, version: PRESET_SCHEMA_VERSION, mode: presetMode(name, src), firstMes: String(src.firstMes || ''), prompts, promptOrder };
+  }
+
+  const prompts = PRESET_MARKERS.map(([id, label]) => makePresetMarker(
+    id,
+    label,
+    id === 'main' ? String(src.systemPrompt || '') : (id === 'jailbreak' ? String(src.postHistory || '') : ''),
+  ));
+  const promptOrder = prompts.map(p => ({ identifier: p.identifier, enabled: p.identifier !== 'tavernRpg' || presetMode(name, src) !== 'tavern' }));
+  const formatIndex = promptOrder.findIndex(o => o.identifier === 'tavernFormat');
+  for (const [i, module] of (Array.isArray(src.modules) ? src.modules : []).entries()) {
+    let identifier = String(module.id || `module-${i + 1}`);
+    while (prompts.some(p => p.identifier === identifier)) identifier += '-copy';
+    prompts.push({ identifier, name: String(module.name || identifier), role: 'system', content: String(module.content || ''), marker: false, position: 'relative', depth: 4, order: 100 });
+    promptOrder.splice(formatIndex + i, 0, { identifier, enabled: module.enabled !== false });
+  }
+  return { version: PRESET_SCHEMA_VERSION, mode: presetMode(name, src), firstMes: String(src.firstMes || ''), prompts, promptOrder };
+}
+
+function ensurePromptPresetsV2() {
+  let changed = false;
+  for (const name of Object.keys(promptPresets)) {
+    const before = JSON.stringify(promptPresets[name]);
+    const normalized = normalizePromptPreset(name, promptPresets[name]);
+    if (before !== JSON.stringify(normalized)) changed = true;
+    promptPresets[name] = normalized;
+  }
+  return changed;
+}
+
+function activePresetNameForMode(targetMode = mode) {
+  const byMode = prefs.currentPresetByMode || {};
+  const hasModeChoice = Object.prototype.hasOwnProperty.call(byMode, targetMode);
+  const named = hasModeChoice ? byMode[targetMode] : (prefs.currentPreset || '');
+  if (hasModeChoice && !named) return ''; // 空值是用户明确选择全局默认，不应自动回落示例预设
+  if (promptPresets[named] && ['both', targetMode].includes(presetMode(named, promptPresets[named]))) return named;
+  const fallbackName = targetMode === 'rpg' ? 'RPG 叙事引擎（示例）' : 'RP 基础（示例）';
+  if (promptPresets[fallbackName]) return fallbackName;
+  return Object.keys(promptPresets).find(n => n !== GLOBAL_PRESET_KEY && ['both', targetMode].includes(presetMode(n, promptPresets[n]))) || '';
+}
+
+function setActivePresetName(name) {
+  prefs.currentPresetByMode = { ...(prefs.currentPresetByMode || {}), [mode]: name || '' };
+  prefs.currentPreset = name || ''; // 保留旧版消费者的兼容镜像
+  saveJSON(LS_PREFS, prefs);
+}
+
+function resolvePromptPreset() {
+  const char = currentChar();
+  const bound = mode === 'tavern' && char?.presetName && promptPresets[char.presetName]
+    && ['tavern', 'both'].includes(presetMode(char.presetName, promptPresets[char.presetName])) ? char.presetName : '';
+  const name = bound || activePresetNameForMode(mode);
+  return { name, preset: promptPresets[name] || promptPresets[GLOBAL_PRESET_KEY] || normalizePromptPreset(GLOBAL_PRESET_KEY, {}) };
+}
+
 function renderPGList() {
   const list = $('pg-list');
   if (!list) return;
@@ -1109,8 +1225,10 @@ function renderPGList() {
   for (const name of names) {
     const display = name === GLOBAL_PRESET_KEY ? '⭐ 全局默认' : name;
     const el = document.createElement('div');
-    el.className = 'cm-item' + (name === pgEditingName ? ' active' : '') + (name === prefs.currentPreset ? ' pg-inuse' : '');
-    el.innerHTML = `<span>${esc(display)}${name === prefs.currentPreset ? ' ●' : ''}</span>${name === GLOBAL_PRESET_KEY ? '' : '<span class="cm-x" data-act="del" title="删除">✕</span>'}`;
+    const inUse = name === resolvePromptPreset().name;
+    const badge = presetMode(name, promptPresets[name]) === 'both' ? '通用' : (presetMode(name, promptPresets[name]) === 'rpg' ? 'RPG' : '酒馆');
+    el.className = 'cm-item' + (name === pgEditingName ? ' active' : '') + (inUse ? ' pg-inuse' : '');
+    el.innerHTML = `<span>${esc(display)} <small>${badge}</small>${inUse ? ' ●' : ''}</span>${name === GLOBAL_PRESET_KEY ? '' : '<span class="cm-x" data-act="del" title="删除">✕</span>'}`;
     el.addEventListener('click', (ev) => {
       if (ev.target.dataset && ev.target.dataset.act === 'del') { pgDelete(name); return; }
       selectPresetForEdit(name);
@@ -1131,43 +1249,32 @@ function fillPGActive() {
   sel.appendChild(o0);
   for (const name of Object.keys(promptPresets)) {
     if (name === GLOBAL_PRESET_KEY) continue; // 全局默认由空值表达
+    if (!['both', mode].includes(presetMode(name, promptPresets[name]))) continue;
     const o = document.createElement('option');
     o.value = name;
     o.textContent = name;
     sel.appendChild(o);
   }
   if (cur && promptPresets[cur]) sel.value = cur;
-  else sel.value = prefs.currentPreset || '';
+  else sel.value = activePresetNameForMode(mode);
 }
 
 function selectPresetForEdit(name) {
-  pgEditingName = name || GLOBAL_PRESET_KEY; // 编辑全局默认 = 编辑 __global__ 预设
-  let sys = '', post = '', fm = '';
-  const target = promptPresets[pgEditingName];
-  if (target) {
-    sys = target.systemPrompt || '';
-    post = target.postHistory || '';
-    fm = target.firstMes || '';
-    pgEditingModules = (target.modules || []).map(m => ({ ...m }));
-  } else {
-    pgEditingModules = null;
-  }
+  pgEditingName = name || GLOBAL_PRESET_KEY;
+  pgEditingPreset = normalizePromptPreset(pgEditingName, promptPresets[pgEditingName]);
+  pgEditingPromptId = pgEditingPreset.promptOrder[0]?.identifier || null;
   $('pg-edit-title').textContent = pgEditingName === GLOBAL_PRESET_KEY ? '编辑全局默认' : '编辑预设：' + pgEditingName;
-  $('pg-system').value = sys;
-  $('pg-post').value = post;
-  $('pg-first-mes').value = fm;
-  renderPGModules();
+  $('pg-mode').value = pgEditingPreset.mode;
+  $('pg-first-mes').value = pgEditingPreset.firstMes;
+  renderPGPrompts();
   renderPGList();
 }
 
 function pgNew() {
   const name = prompt('新预设名称：', '预设 ' + (Object.keys(promptPresets).length + 1));
   if (!name || !name.trim()) return;
-  const baseModules = (promptPresets['RP 基础（示例）'] && promptPresets['RP 基础（示例）'].modules) || [];
-  promptPresets[name.trim()] = {
-    systemPrompt: '', postHistory: '', firstMes: '',
-    modules: baseModules.map(m => ({ ...m })),
-  };
+  if (promptPresets[name.trim()]) { alert('已存在同名预设。'); return; }
+  promptPresets[name.trim()] = normalizePromptPreset(name.trim(), { mode, firstMes: '' });
   savePresets();
   selectPresetForEdit(name.trim());
 }
@@ -1176,51 +1283,221 @@ function pgDelete(name) {
   if (!promptPresets[name] || name === GLOBAL_PRESET_KEY) return; // 全局默认不可删
   if (!confirm(`删除预设「${name}」？`)) return;
   delete promptPresets[name];
-  if (prefs.currentPreset === name) { prefs.currentPreset = ''; saveJSON(LS_PREFS, prefs); }
-  if (pgEditingName === name) pgEditingName = null;
+  for (const targetMode of ['tavern', 'rpg']) {
+    if (prefs.currentPresetByMode?.[targetMode] === name) prefs.currentPresetByMode[targetMode] = '';
+  }
+  if (prefs.currentPreset === name) prefs.currentPreset = '';
+  let charsChanged = false;
+  for (const char of characters) {
+    if (char.presetName === name) { char.presetName = ''; charsChanged = true; }
+  }
+  if (charsChanged) saveChars();
+  saveJSON(LS_PREFS, prefs);
   savePresets();
-  renderPGList();
+  if (pgEditingName === name) selectPresetForEdit(GLOBAL_PRESET_KEY);
+  else renderPGList();
 }
 
 function pgSave() {
   const name = pgEditingName || GLOBAL_PRESET_KEY;
-  const data = {
-    systemPrompt: $('pg-system').value,
-    postHistory: $('pg-post').value,
-    firstMes: $('pg-first-mes').value,
-    modules: pgEditingModules ? pgEditingModules.map(m => ({ ...m })) : [],
-  };
-  promptPresets[name] = data;
+  if (!pgEditingPreset) return;
+  capturePGPromptEditor();
+  pgEditingPreset.mode = $('pg-mode').value;
+  pgEditingPreset.firstMes = $('pg-first-mes').value;
+  promptPresets[name] = JSON.parse(JSON.stringify(pgEditingPreset));
   savePresets();
   renderPGList();
 }
 
-function pgSaveGlobal() {
-  pgSave();
-  alert('✅ 已保存为全局默认（System Prompt / 历史后指令 / 开场白 / 模块）');
+function currentPGPrompt() {
+  return pgEditingPreset && pgEditingPreset.prompts.find(p => p.identifier === pgEditingPromptId);
 }
 
-/* 模块开关渲染 */
-function renderPGModules() {
-  const box = $('pg-modules');
-  if (!box) return;
-  if (!pgEditingModules || !pgEditingModules.length) {
-    box.innerHTML = '<div class="hint">该预设无模块。新预设会从示例预设继承模块。</div>';
-    return;
+function renderPGLibrary() {
+  const select = $('pg-library');
+  const used = new Set(pgEditingPreset?.promptOrder.map(o => o.identifier) || []);
+  select.innerHTML = '<option value="">插入素材…</option>';
+  for (const p of pgEditingPreset?.prompts || []) {
+    if (used.has(p.identifier)) continue;
+    const option = document.createElement('option');
+    option.value = p.identifier;
+    option.textContent = p.name;
+    select.appendChild(option);
   }
+  select.disabled = select.options.length === 1;
+}
+
+function renderPGPrompts() {
+  const box = $('pg-prompts');
   box.innerHTML = '';
-  pgEditingModules.forEach((m, i) => {
+  if (!pgEditingPreset || !pgEditingPreset.promptOrder.length) box.innerHTML = '<div class="hint">提示词顺序为空。请新建条目或从素材库插入。</div>';
+  const promptMap = new Map(pgEditingPreset?.prompts.map(p => [p.identifier, p]) || []);
+  pgEditingPreset?.promptOrder.forEach((item, i) => {
+    const p = promptMap.get(item.identifier);
+    if (!p) return;
     const el = document.createElement('div');
-    el.className = 'mod-item';
-    el.innerHTML = `<label class="check"><input type="checkbox" data-mi="${i}" ${m.enabled ? 'checked' : ''} /><span>${esc(m.name)}</span></label>`;
+    el.className = 'pg-prompt-row' + (p.identifier === pgEditingPromptId ? ' active' : '');
+    el.tabIndex = 0;
+    el.setAttribute('role', 'button');
+    el.innerHTML = `<input type="checkbox" data-enable="${i}" aria-label="启用 ${esc(p.name)}" ${item.enabled ? 'checked' : ''} />
+      <div class="pg-prompt-main"><span class="pg-prompt-name">${esc(p.name)}</span><span class="pg-prompt-meta"><span>${esc(p.role)}</span><span>${p.marker ? '固定槽位' : (p.position === 'in_chat' ? `历史深度 ${p.depth}` : '相对位置')}</span></span></div>
+      <div class="pg-prompt-move"><button class="ghost-btn" type="button" data-move="-1" data-index="${i}" aria-label="上移 ${esc(p.name)}">↑</button><button class="ghost-btn" type="button" data-move="1" data-index="${i}" aria-label="下移 ${esc(p.name)}">↓</button></div>`;
+    const selectPrompt = () => {
+      capturePGPromptEditor();
+      pgEditingPromptId = p.identifier;
+      renderPGPrompts();
+    };
+    el.addEventListener('click', e => {
+      if (e.target.closest('input,button')) return;
+      selectPrompt();
+    });
+    el.addEventListener('keydown', e => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      selectPrompt();
+    });
     box.appendChild(el);
   });
-  box.querySelectorAll('input[data-mi]').forEach(cb => {
+  box.querySelectorAll('input[data-enable]').forEach(cb => {
     cb.addEventListener('change', () => {
-      const i = parseInt(cb.dataset.mi, 10);
-      pgEditingModules[i].enabled = cb.checked;
+      pgEditingPreset.promptOrder[Number(cb.dataset.enable)].enabled = cb.checked;
     });
   });
+  box.querySelectorAll('button[data-move]').forEach(btn => btn.addEventListener('click', () => {
+    capturePGPromptEditor();
+    const from = Number(btn.dataset.index);
+    const to = from + Number(btn.dataset.move);
+    if (to < 0 || to >= pgEditingPreset.promptOrder.length) return;
+    const [item] = pgEditingPreset.promptOrder.splice(from, 1);
+    pgEditingPreset.promptOrder.splice(to, 0, item);
+    renderPGPrompts();
+  }));
+  renderPGLibrary();
+  fillPGPromptEditor();
+}
+
+function fillPGPromptEditor() {
+  const p = currentPGPrompt();
+  const editor = $('pg-prompt-editor');
+  editor.classList.toggle('hidden', !p);
+  if (!p) return;
+  const dynamicMarker = p.marker && !['main', 'jailbreak'].includes(p.identifier);
+  editor.classList.toggle('is-marker', p.marker);
+  $('pg-prompt-name').value = p.name;
+  $('pg-prompt-role').value = p.role;
+  $('pg-prompt-position').value = p.position;
+  $('pg-prompt-depth').value = p.depth;
+  $('pg-prompt-order').value = p.order;
+  $('pg-prompt-content').value = p.content;
+  $('pg-prompt-role').disabled = p.marker;
+  $('pg-prompt-position').disabled = p.marker;
+  $('pg-prompt-content').disabled = dynamicMarker;
+  $('pg-prompt-del').disabled = p.marker;
+  $('pg-inchat-fields').classList.toggle('hidden', p.position !== 'in_chat' || p.marker);
+  $('pg-prompt-note').textContent = dynamicMarker
+    ? '固定槽位由运行时数据填充，不在预设中复制角色、世界书、历史或状态。'
+    : (p.marker ? '固定槽位不可删除，但可编辑内容、调整顺序或关闭。' : '自定义条目可使用常用 SillyTavern 宏。');
+}
+
+function capturePGPromptEditor() {
+  const p = currentPGPrompt();
+  if (!p) return;
+  p.name = $('pg-prompt-name').value.trim() || p.identifier;
+  if (!p.marker) {
+    p.role = $('pg-prompt-role').value;
+    p.position = $('pg-prompt-position').value;
+  }
+  p.depth = Math.max(0, Number($('pg-prompt-depth').value) || 0);
+  p.order = Number($('pg-prompt-order').value) || 0;
+  if (!$('pg-prompt-content').disabled) p.content = $('pg-prompt-content').value;
+}
+
+function pgPromptNew() {
+  if (!pgEditingPreset) return;
+  capturePGPromptEditor();
+  const identifier = uid();
+  pgEditingPreset.prompts.push({ identifier, name: '新提示词', role: 'system', content: '', marker: false, position: 'relative', depth: 4, order: 100 });
+  pgEditingPreset.promptOrder.push({ identifier, enabled: true });
+  pgEditingPromptId = identifier;
+  renderPGPrompts();
+  $('pg-prompt-name').focus();
+  $('pg-prompt-name').select();
+}
+
+function pgPromptDelete() {
+  const p = currentPGPrompt();
+  if (!p || p.marker) return;
+  pgEditingPreset.promptOrder = pgEditingPreset.promptOrder.filter(o => o.identifier !== p.identifier);
+  pgEditingPreset.prompts = pgEditingPreset.prompts.filter(x => x.identifier !== p.identifier);
+  pgEditingPromptId = pgEditingPreset.promptOrder[0]?.identifier || null;
+  renderPGPrompts();
+}
+
+function insertPGLibraryPrompt(identifier) {
+  if (!identifier || !pgEditingPreset || pgEditingPreset.promptOrder.some(o => o.identifier === identifier)) return;
+  capturePGPromptEditor();
+  pgEditingPreset.promptOrder.push({ identifier, enabled: true });
+  pgEditingPromptId = identifier;
+  renderPGPrompts();
+}
+
+function convertSTPresetData(data) {
+  if (!data || !Array.isArray(data.prompts) || !Array.isArray(data.prompt_order)) throw new Error('不是 SillyTavern Chat Completion 预设');
+  if (data.prompts.length > 2000) throw new Error('预设素材超过 2000 条，拒绝导入');
+  const profile = data.prompt_order.find(x => x.character_id === 100001) || data.prompt_order.at(-1);
+  if (!profile || !Array.isArray(profile.order)) throw new Error('预设缺少 prompt_order');
+  if (profile.order.length > 2000) throw new Error('提示词顺序超过 2000 条，拒绝导入');
+  const prompts = data.prompts.map((p, i) => ({
+    ...p,
+    identifier: String(p.identifier || `prompt-${i + 1}`),
+    name: String(p.name || p.identifier || `提示词 ${i + 1}`),
+    role: ['system', 'user', 'assistant'].includes(p.role) ? p.role : 'system',
+    content: String(p.content || ''),
+    marker: !!p.marker || PRESET_MARKER_IDS.has(p.identifier),
+    position: p.injection_position === 1 ? 'in_chat' : 'relative',
+    depth: Math.max(0, Number(p.injection_depth ?? 4) || 0),
+    order: Number(p.injection_order ?? 100) || 0,
+  }));
+  const promptOrder = profile.order.map(o => ({ identifier: o.identifier, enabled: o.enabled !== false }));
+  const modelParameters = Object.fromEntries([
+    'temperature', 'frequency_penalty', 'presence_penalty', 'top_p', 'top_k', 'top_a', 'min_p',
+    'repetition_penalty', 'openai_max_context', 'openai_max_tokens', 'seed', 'n', 'stream_openai',
+    'reasoning_effort', 'verbosity', 'assistant_prefill', 'continue_prefill', 'continue_postfix',
+  ].filter(key => data[key] !== undefined).map(key => [key, data[key]]));
+  const importedMode = ['tavern', 'rpg', 'both'].includes(data.tavern_meta?.mode) ? data.tavern_meta.mode : 'tavern';
+  return {
+    preset: { version: PRESET_SCHEMA_VERSION, mode: importedMode, firstMes: String(data.tavern_meta?.firstMes || ''), prompts, promptOrder, modelParameters, source: { format: 'sillytavern-chat-completion', profile: profile.character_id, unusedPrompts: Math.max(0, prompts.length - promptOrder.length) } },
+    report: { prompts: prompts.length, ordered: promptOrder.length, regexes: data.extensions?.regex_scripts?.length || 0 },
+  };
+}
+
+function importSTPreset(data, filename) {
+  const converted = convertSTPresetData(data);
+  const name = String(filename || 'SillyTavern 预设').replace(/\.json$/i, '') || 'SillyTavern 预设';
+  let uniqueName = name;
+  for (let i = 2; promptPresets[uniqueName]; i++) uniqueName = `${name} (${i})`;
+  promptPresets[uniqueName] = normalizePromptPreset(uniqueName, converted.preset);
+  savePresets();
+  selectPresetForEdit(uniqueName);
+  return { name: uniqueName, ...converted.report };
+}
+
+function exportPromptPreset() {
+  if (!pgEditingPreset || pgEditingName === GLOBAL_PRESET_KEY) return;
+  capturePGPromptEditor();
+  const prompts = pgEditingPreset.prompts.map(p => ({
+    name: p.name, system_prompt: p.marker, role: p.role, content: p.content,
+    identifier: p.identifier, marker: p.marker || undefined,
+    injection_position: p.position === 'in_chat' ? 1 : 0,
+    injection_depth: p.depth, injection_order: p.order,
+  }));
+  const payload = { ...(pgEditingPreset.modelParameters || {}), prompts, prompt_order: [{ character_id: 100001, order: pgEditingPreset.promptOrder }], tavern_meta: { version: PRESET_SCHEMA_VERSION, mode: pgEditingPreset.mode, firstMes: pgEditingPreset.firstMes } };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = pgEditingName.replace(/[\\/:*?"<>|]/g, '_') + '.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 /* ─────────── 世界书（独立栏目，多本可绑定） ─────────── */
@@ -1419,105 +1696,166 @@ function buildWorldInfo() {
   return uniq.map(e => e.content).filter(Boolean);
 }
 
-/* ─────────── 提示词构建管线 ─────────── */
+/* ─────────── 提示词构建管线（ST 风格素材库 + 顺序，运行时保持唯一 system） ─────────── */
+function buildCharacterPromptParts(char) {
+  if (!char) return { description: '', personality: '', scenario: '' };
+  const lines = [];
+  if (char.name?.trim()) lines.push('名字：' + char.name.trim());
+  if (char.race?.trim()) lines.push('种族：' + char.race.trim());
+  if (char.role?.trim()) lines.push('身份：' + char.role.trim());
+  const coreKeys = new Set(['name', 'race', 'role', 'persona', 'scenario', 'firstMes', 'tags']);
+  for (const field of normalizeCharProfileFields(char.profileFields)) {
+    if (!coreKeys.has(field.key) && field.value) lines.push(field.label.trim() + '：' + field.value.trim());
+  }
+  if (mode === 'rpg' && char.systemPrompt?.trim()) lines.push('角色专属指令：' + char.systemPrompt.trim());
+  return {
+    description: lines.length ? '【角色描述】\n' + lines.join('\n') : '',
+    personality: char.persona?.trim() ? '【角色性格与外貌】\n' + char.persona.trim() : '',
+    scenario: char.scenario?.trim() ? '【当前场景】\n' + char.scenario.trim() : '',
+  };
+}
+
+function buildUserPromptPart() {
+  if (!userData) return '';
+  const up = currentUserPreset();
+  const lines = [];
+  if (up.name?.trim()) lines.push('名字：' + up.name.trim());
+  if (up.race?.trim()) lines.push('种族：' + up.race.trim());
+  if (up.role?.trim()) lines.push('身份：' + up.role.trim());
+  if (up.persona?.trim()) lines.push('外貌 / 背景 / 偏好：' + up.persona.trim());
+  return lines.length ? '【玩家设定】\n' + lines.join('\n') : '';
+}
+
+function buildMemoryPromptPart() {
+  const mems = (userData?.memories || []).filter(m => m.enabled !== false && m.content?.trim());
+  return mems.length ? '【记忆】\n' + mems.map(m => '- ' + m.content.trim()).join('\n') : '';
+}
+
+function buildFormatPromptPart() {
+  const lines = [];
+  const fi = formatInstructions[prefs.formatPreset];
+  if (fi) lines.push(typeof fi === 'string' ? fi : (fi.text || ''));
+  if (prefs.formatCustom?.trim()) lines.push(prefs.formatCustom.trim());
+  return lines.filter(Boolean).join('\n');
+}
+
+function buildRpgPromptPart() {
+  if (mode !== 'rpg') return '';
+  const parts = [];
+  const rs = curRpgState();
+  if (rs) {
+    parts.push('【RPG 状态】' + `等级 ${rs.level}（经验 ${rs.exp}/${rs.expNext}），HP ${rs.hp}/${rs.maxHp}，MP ${rs.mp}/${rs.maxMp}，金币 ${rs.gold}，当前位置：${rs.location}`
+      + (rs.buffs?.length ? `，状态效果：${rs.buffs.join('、')}` : ''));
+    parts.push('【背包】' + (rs.inventory.length ? rs.inventory.map(i => `${i.name}×${i.count}${i.desc ? `（${i.desc}）` : ''}`).join('、') : '（空）'));
+    parts.push('【任务】' + (rs.quests.length ? rs.quests.map(x => `${x.title}${x.status === 'done' ? '（已完成）' : ''}`).join('、') : '（无）'));
+    const mapCtx = buildMapContext();
+    if (mapCtx) parts.push(mapCtx);
+  }
+  parts.push((defaults?.rpg?.stateInstruction) || '每次回复末尾输出包含 options 的 ```rpg``` JSON 状态块。');
+  return parts.join('\n\n');
+}
+
+function expandPresetMacros(text, macroContext, variables) {
+  let output = String(text || '').replace(/\{\{\/\/[\s\S]*?\}\}/g, '');
+  output = output.replace(/\{\{setvar::([^}:]+)::([\s\S]*?)\}\}/g, (_, key, value) => {
+    variables[key.trim()] = value;
+    return '';
+  });
+  output = output.replace(/\{\{getvar::([^}]+)\}\}/g, (_, key) => variables[key.trim()] ?? '');
+  output = output.replace(/\{\{(user|char|persona|description|personality|scenario)\}\}/g, (_, key) => macroContext[key] ?? '');
+  return output.replace(/\{\{trim\}\}/g, '').trim();
+}
+
+function mergeHistoryInjections(history, injections) {
+  if (!injections.length) return history;
+  const grouped = new Map();
+  for (const item of injections) {
+    const index = Math.max(0, history.length - Math.max(0, item.depth));
+    if (!grouped.has(index)) grouped.set(index, []);
+    grouped.get(index).push(item);
+  }
+  const roleOrder = { user: 0, assistant: 1 };
+  const result = [];
+  for (let i = 0; i <= history.length; i++) {
+    const group = grouped.get(i) || [];
+    group.sort((a, b) => a.order - b.order || roleOrder[a.role] - roleOrder[b.role]);
+    result.push(...group.map(({ role, content }) => ({ role, content })));
+    if (i < history.length) result.push(history[i]);
+  }
+  return result;
+}
+
 function buildPromptBlocks() {
   const char = currentChar();
-  const preset = promptPresets[(char && char.presetName)] || promptPresets[prefs.currentPreset] || promptPresets[GLOBAL_PRESET_KEY] || null;
-  const parts = [];
-  // RPG 预设（DM/世界身份，提示词栏可编辑）；仅 RPG 模式使用
-  const rpgPresetInst = (mode === 'rpg' && promptPresets['RPG 叙事引擎（示例）']
-    && promptPresets['RPG 叙事引擎（示例）'].systemPrompt
-    && promptPresets['RPG 叙事引擎（示例）'].systemPrompt.trim()) || '';
-  // System Prompt：
-  //  - 酒馆：角色卡 systemPrompt → 所选预设（writer 等）→ 全局 settings
-  //  - RPG：角色卡 systemPrompt（保留角色个性）→ RPG 预设（DM/世界身份）；不注入 writer 预设，避免身份混淆
-  const inst = (char && char.systemPrompt && char.systemPrompt.trim())
-    || (mode === 'rpg' ? rpgPresetInst : ((preset && preset.systemPrompt && preset.systemPrompt.trim()) || settings.systemPrompt || ''))
-    || '';
-  parts.push(inst);
-
-  // 角色卡信息
-  if (char) {
-    const descLines = [];
-    if (char.name && char.name.trim()) descLines.push('名字：' + char.name.trim());
-    if (char.race && char.race.trim()) descLines.push('种族：' + char.race.trim());
-    if (char.role && char.role.trim()) descLines.push('身份：' + char.role.trim());
-    if (char.persona && char.persona.trim()) descLines.push('外貌与性格：' + char.persona.trim());
-    if (char.scenario && char.scenario.trim()) descLines.push('当前场景：' + char.scenario.trim());
-    const coreKeys = new Set(['name', 'race', 'role', 'persona', 'scenario', 'firstMes', 'tags']);
-    for (const field of normalizeCharProfileFields(char.profileFields)) {
-      if (!coreKeys.has(field.key) && field.value) descLines.push(field.label.trim() + '：' + field.value.trim());
-    }
-    if (descLines.length) parts.push('【角色卡】\n' + descLines.join('\n'));
-  }
-  // 玩家设定（user persona）：描述「你」这个玩家/扮演者
-  if (userData) {
-    const up = currentUserPreset();
-    const uLines = [];
-    if (up.name && up.name.trim()) uLines.push('名字：' + up.name.trim());
-    if (up.race && up.race.trim()) uLines.push('种族：' + up.race.trim());
-    if (up.role && up.role.trim()) uLines.push('身份：' + up.role.trim());
-    if (up.persona && up.persona.trim()) uLines.push('外貌 / 背景 / 偏好：' + up.persona.trim());
-    if (uLines.length) parts.push('【玩家设定】\n' + uLines.join('\n'));
-    // 记忆条目（启用的注入）
-    const mems = (userData.memories || []).filter(m => m.enabled !== false && m.content && m.content.trim());
-    if (mems.length) parts.push('【记忆】\n' + mems.map(m => '- ' + m.content.trim()).join('\n'));
-  }
-  // 预设模块（受 SillyTavern prompts 启发：可开关的提示词条目）
-  if (preset && preset.modules) {
-    for (const m of preset.modules) {
-      if (m.enabled && m.content && m.content.trim()) parts.push(m.content);
-    }
-  }
-  // 格式指令
-  const fmtLines = [];
-  const fi = formatInstructions[prefs.formatPreset];
-  if (fi) fmtLines.push(typeof fi === 'string' ? fi : (fi.text || ''));
-  if (prefs.formatCustom && prefs.formatCustom.trim()) fmtLines.push(prefs.formatCustom.trim());
-  if (fmtLines.length) parts.push(fmtLines.join('\n'));
-  // RPG 模式：注入【任务】定义（来自 RPG 预设，提示词栏可编辑）+【RPG 状态】+ 强化协议
-  if (mode === 'rpg') {
-    // 任务定义：优先取「RPG 叙事引擎」预设的 systemPrompt（用户可在提示词栏编辑）；删了则用内联兜底
-    // inst 已是 RPG 预设（DM 身份）时不重复注入
-    const rpgPreset = promptPresets['RPG 叙事引擎（示例）'];
-    const task = (rpgPreset && rpgPreset.systemPrompt && rpgPreset.systemPrompt.trim()) || RPG_TASK_FALLBACK;
-    if (task && inst !== task) parts.push('【任务】' + task);
-    const rs = curRpgState();
-    if (rs) {
-      const st = `等级 ${rs.level}（经验 ${rs.exp}/${rs.expNext}），HP ${rs.hp}/${rs.maxHp}，MP ${rs.mp}/${rs.maxMp}，金币 ${rs.gold}，当前位置：${rs.location}`
-        + (rs.buffs && rs.buffs.length ? `，状态效果：${rs.buffs.join('、')}` : '');
-      parts.push('【RPG 状态】' + st);
-      parts.push('【背包】' + (rs.inventory.length
-        ? rs.inventory.map(i => `${i.name}×${i.count}${i.desc ? `（${i.desc}）` : ''}`).join('、')
-        : '（空）'));
-      parts.push('【任务】' + (rs.quests.length
-        ? rs.quests.map(x => `${x.title}${x.status === 'done' ? '（已完成）' : ''}`).join('、')
-        : '（无）'));
-      // 世界地图数据（三步法：数据层注入保障叙事正确性）
-      const mapCtx = buildMapContext();
-      if (mapCtx) parts.push(mapCtx);
-    }
-    // 状态变更输出协议（数据外置：defaults.rpg.stateInstruction，兜底内联）
-    const proto = (defaults && defaults.rpg && defaults.rpg.stateInstruction)
-      || '每次回复末尾另起一行输出 ```rpg``` 代码块，包含本次状态变更 JSON：{"hp":相对增减数字或null,"mp":相对增减或null,"gold":相对增减或null,"level":相对增减或null,"exp":相对增减或null,"location":"新位置或null","buffs":["状态效果"]或null,"inventory":[{"name":"道具名","count":数量,"add":true或false,"desc":"描述"}]或null,"quests":[{"title":"标题","desc":"内容","status":"active或done"}]或null,"options":["行动选项1","行动选项2"]}。正数增加、负数减少、null 不变；无变更时输出 {"hp":null,"options":["行动选项1","行动选项2"]}。options 必填（2~4 个玩家可执行的行动选项）；道具与任务必须由当前剧情合理产出（掉落、NPC 委托等），禁止凭空添加。除叙事正文与 ```rpg``` 块外不要输出其他内容。';
-    parts.push(proto);
-  }
-  const system = parts.join('\n\n');
+  const { preset: rawPreset } = resolvePromptPreset();
+  const preset = normalizePromptPreset('', rawPreset);
   const wi = buildWorldInfo();
-  const history = curMessages().slice(-Math.max(1, settings.history || 20))
-    .filter(m => m.role === 'user' || m.role === 'assistant') // 图片消息不进对话上下文
-    .map(m => ({ role: m.role, content: m.content }));
-  // RPG：history 最前注入示例回合（in-context few-shot，模型跟着模仿完整输出格式）
-  if (mode === 'rpg' && defaults && defaults.rpg && defaults.rpg.exampleTurn) {
-    const ex = defaults.rpg.exampleTurn;
-    if (ex.user && ex.assistant) {
-      history.unshift({ role: 'user', content: ex.user }, { role: 'assistant', content: ex.assistant });
+  const charParts = buildCharacterPromptParts(char);
+  const userPart = buildUserPromptPart();
+  const runtime = {
+    worldInfoBefore: wi.length ? '【世界设定】\n' + wi.join('\n\n') : '',
+    worldInfoAfter: '',
+    personaDescription: userPart,
+    charDescription: charParts.description,
+    charPersonality: charParts.personality,
+    scenario: charParts.scenario,
+    tavernMemory: buildMemoryPromptPart(),
+    tavernFormat: buildFormatPromptPart(),
+    tavernRpg: buildRpgPromptPart(),
+    dialogueExamples: char?.mesExample || char?.mes_example || '',
+  };
+  const macroContext = {
+    user: currentUserPreset()?.name || '玩家',
+    char: char?.name || '角色',
+    persona: currentUserPreset()?.persona || '',
+    description: charParts.description,
+    personality: char?.persona || '',
+    scenario: char?.scenario || '',
+  };
+  const variables = {};
+  const promptMap = new Map(preset.prompts.map(p => [p.identifier, p]));
+  const systemParts = [];
+  const beforeHistory = [];
+  const afterHistory = [];
+  const injections = [];
+  let includeHistory = false;
+  let reachedHistory = false;
+
+  for (const item of preset.promptOrder) {
+    if (item.enabled === false) continue;
+    const prompt = promptMap.get(item.identifier);
+    if (!prompt) continue;
+    if (prompt.identifier === 'chatHistory') {
+      includeHistory = true;
+      reachedHistory = true;
+      continue;
+    }
+    let content = prompt.marker ? runtime[prompt.identifier] ?? prompt.content : prompt.content;
+    if (prompt.identifier === 'main') {
+      content = (mode === 'tavern' && char?.systemPrompt?.trim()) || prompt.content || (mode === 'rpg' ? RPG_TASK_FALLBACK : settings.systemPrompt) || '';
+    }
+    if (prompt.identifier === 'jailbreak') content = char?.postHistory?.trim() || prompt.content || settings.postHistory || '';
+    content = expandPresetMacros(content, macroContext, variables);
+    if (!content) continue;
+    if (prompt.position === 'in_chat' && !prompt.marker) {
+      if (prompt.role === 'system') systemParts.push(`【历史深度 ${prompt.depth} 的 System 指令】\n${content}`);
+      else injections.push({ role: prompt.role, content, depth: prompt.depth, order: prompt.order });
+    } else if (prompt.role === 'system' || prompt.marker) {
+      systemParts.push(content);
+    } else {
+      (reachedHistory ? afterHistory : beforeHistory).push({ role: prompt.role, content });
     }
   }
-  const post = (char && char.postHistory && char.postHistory.trim())
-    || (preset && preset.postHistory && preset.postHistory.trim())
-    || settings.postHistory || '';
-  return { system, wi, history, post };
+
+  let history = includeHistory
+    ? curMessages().slice(-Math.max(1, settings.history || 20)).filter(m => m.role === 'user' || m.role === 'assistant').map(m => ({ role: m.role, content: m.content }))
+    : [];
+  if (mode === 'rpg' && defaults?.rpg?.exampleTurn) {
+    const ex = defaults.rpg.exampleTurn;
+    if (ex.user && ex.assistant) history.unshift({ role: 'user', content: ex.user }, { role: 'assistant', content: ex.assistant });
+  }
+  history = mergeHistoryInjections(history, injections);
+  return { system: systemParts.join('\n\n'), wi, history: [...beforeHistory, ...history, ...afterHistory], post: '', worldInfoInSystem: true };
 }
 
 /* ─────────── API ─────────── */
@@ -1546,12 +1884,12 @@ function buildPayload({ test = false } = {}) {
     body.messages = [{ role: 'user', content: 'ping' }];
     return { baseUrl: s.baseUrl, apiKey: s.apiKey, body, wi: [] };
   }
-  const { system, wi, history, post } = buildPromptBlocks();
+  const { system, wi, history, post, worldInfoInSystem } = buildPromptBlocks();
   // 唯一 system 消息：身份 + 角色卡 + 模块 + 格式 + 世界设定 + 历史后指令 合并为一条，
   // 避免多条 system 穿插在 user/assistant 之间导致模型混淆 role 边界（DeepSeek/本地模型尤其敏感）
   const sysParts = [];
   if (system && system.trim()) sysParts.push(system);
-  if (wi && wi.length) sysParts.push('【世界设定】\n' + wi.join('\n\n'));
+  if (!worldInfoInSystem && wi && wi.length) sysParts.push('【世界设定】\n' + wi.join('\n\n'));
   if (post && post.trim()) sysParts.push('【历史后指令】\n' + post);
   body.messages = [];
   if (sysParts.length) body.messages.push({ role: 'system', content: sysParts.join('\n\n') });
@@ -2770,12 +3108,14 @@ function applyMode(name) {
 
 function switchMode() {
   const next = mode === 'rpg' ? 'tavern' : 'rpg';
-  // 自动切换当前预设到对应模式的默认（用户之后可手动改）
+  // 每种模式记住自己的预设；首次进入时使用对应示例。
   const defaultPreset = next === 'rpg' ? 'RPG 叙事引擎（示例）' : 'RP 基础（示例）';
-  if (promptPresets[defaultPreset]) {
-    prefs.currentPreset = defaultPreset;
-    saveJSON(LS_PREFS, prefs);
-  }
+  prefs.currentPresetByMode = { ...(prefs.currentPresetByMode || {}) };
+  const hasSavedPreset = Object.prototype.hasOwnProperty.call(prefs.currentPresetByMode, next);
+  const savedPreset = prefs.currentPresetByMode[next];
+  if (!hasSavedPreset || (savedPreset && !promptPresets[savedPreset])) prefs.currentPresetByMode[next] = promptPresets[defaultPreset] ? defaultPreset : '';
+  prefs.currentPreset = prefs.currentPresetByMode[next] || '';
+  saveJSON(LS_PREFS, prefs);
   applyMode(next);
   renderSessions();
   renderMessages();
@@ -3372,10 +3712,27 @@ function bindEvents() {
   $('pg-new').addEventListener('click', pgNew);
   $('pg-del').addEventListener('click', () => { if (pgEditingName) pgDelete(pgEditingName); });
   $('pg-save').addEventListener('click', pgSave);
-  $('pg-save-global').addEventListener('click', pgSaveGlobal);
+  $('pg-prompt-new').addEventListener('click', pgPromptNew);
+  $('pg-prompt-del').addEventListener('click', pgPromptDelete);
+  $('pg-library').addEventListener('change', () => { insertPGLibraryPrompt($('pg-library').value); $('pg-library').value = ''; });
+  $('pg-prompt-position').addEventListener('change', () => { capturePGPromptEditor(); fillPGPromptEditor(); });
+  $('pg-import').addEventListener('click', () => $('pg-file').click());
+  $('pg-export').addEventListener('click', exportPromptPreset);
+  $('pg-file').addEventListener('change', async e => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    try {
+      if (file.size > 5 * 1024 * 1024) throw new Error('文件超过 5 MB，拒绝导入');
+      const report = importSTPreset(JSON.parse(await file.text()), file.name);
+      alert(`已导入「${report.name}」：素材 ${report.prompts} 条，当前顺序 ${report.ordered} 条。${report.regexes ? `检测到 ${report.regexes} 条扩展正则，已保留在原文件但不会执行。` : ''}`);
+    } catch (err) {
+      alert('导入失败：' + err.message);
+    } finally {
+      e.target.value = '';
+    }
+  });
   $('pg-active').addEventListener('change', () => {
-    prefs.currentPreset = $('pg-active').value || '';
-    saveJSON(LS_PREFS, prefs);
+    setActivePresetName($('pg-active').value || '');
     renderPGList();
   });
   // 世界书页
@@ -3559,14 +3916,16 @@ async function init() {
     saveChars();
   }
   await seedExamples(false);
-  // currentPreset 兜底：指向已删除/无效预设时回落示例预设（保证 writer 身份等生效）
-  if (!promptPresets[prefs.currentPreset]) {
-    const fallback = promptPresets['RP 基础（示例）']
-      ? 'RP 基础（示例）'
-      : (Object.keys(promptPresets).filter(k => k !== GLOBAL_PRESET_KEY)[0] || '');
-    prefs.currentPreset = fallback;
-    saveJSON(LS_PREFS, prefs);
+  const presetsMigrated = ensurePromptPresetsV2();
+  prefs.currentPresetByMode = { ...(prefs.currentPresetByMode || {}) };
+  for (const targetMode of ['tavern', 'rpg']) {
+    const hasSavedPreset = Object.prototype.hasOwnProperty.call(prefs.currentPresetByMode, targetMode);
+    const savedPreset = prefs.currentPresetByMode[targetMode];
+    if (!hasSavedPreset || (savedPreset && !promptPresets[savedPreset])) prefs.currentPresetByMode[targetMode] = activePresetNameForMode(targetMode);
   }
+  prefs.currentPreset = prefs.currentPresetByMode[mode] || '';
+  saveJSON(LS_PREFS, prefs);
+  if (presetsMigrated) savePresets();
   ensureSessions();
   applyTheme(theme);
   applyMode(mode);
