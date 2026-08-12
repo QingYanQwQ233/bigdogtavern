@@ -105,7 +105,7 @@
   map: {
     strategy: 'fixed', // fixed | perSave
     baseMapId: 'map-aurora-v1', // fixed 时读取的底图
-    generation: { seed: 12345, size: 128, regionCount: 10 }, // perSave 时的生成参数
+    generation: { seed: 12345, size: 128, regionCount: 10, landRatio: 0.55, mapgenSize: 'small' }, // perSave 时的生成参数
   },
   ui: { layout: 'world-desk' }, // 仅声明式布局，不含可执行 HTML/JS
   source: { format: 'native', rawAssetRef: null },
@@ -169,6 +169,8 @@
 世界卡可预定义物品和任务模板。AI 需要创造新道具、任务、路人或临时地点时，只能提出 `createEntities` 候选；校验器为其生成 `save:<saveId>:<kind>:<n>` 稳定 ID 并写入 `WorldSave.generatedEntities`。因此开放生成仍是“此存档的事实”，不会污染世界卡、其他存档或全局角色库。
 
 地图运行时继续使用 `Uint16Array` 网格；写入 JSON 前必须显式序列化为数字数组，读取后再恢复成 `Uint16Array`，避免区域编号和类型在持久化时丢失。AI 美化图只保存本地相对路径，并由所属 `WorldSave.state.map.imagePath` 引用。
+
+世界卡只定义生成参数；地图首次生成或重新生成后，使用的 `generation` 快照随地图数据写入当前存档。草稿参数变更不会回写已发布版本，也不会改变已有存档地图。
 
 ## 6. RPG Prompt 与世界书装配
 

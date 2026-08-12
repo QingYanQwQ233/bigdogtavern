@@ -203,8 +203,11 @@
    * 适配为自研同款数据形状（region/point/adjacency/grid），渲染层复用 */
   function generateViaMapgen2(seed, opts) {
     opts = opts || {};
-    const sizeKey = opts.mapgenSize || 'small'; // tiny/small/medium/large/huge
-    const map = global.MapGen2.generateMap(seed, sizeKey, {});
+    const sizeKey = ['tiny', 'small'].includes(opts.mapgenSize) ? opts.mapgenSize : 'small';
+    const landRatio = Math.max(0.25, Math.min(0.8, opts.landRatio ?? 0.55));
+    const map = global.MapGen2.generateMap(seed, sizeKey, {
+      shape: { round: 0.5, inflate: landRatio, amplitudes: [1 / 2, 1 / 4, 1 / 8, 1 / 16] },
+    });
     const mesh = map.mesh;
     const N = mesh.numRegions;
     const size = opts.size || 128;
@@ -321,7 +324,7 @@
       seenRegions.add(rid);
       points.push({ id: 'p' + (points.length + 1), name: '地点 ' + (points.length - townCount + 1), type: '地标', x: xi, y: yi, regionId: rid, desc: '一处未命名地标' });
     }
-    return { size, regions, points, grid, adjacency, seed, createdAt: Date.now(), engine: 'mapgen2' };
+    return { size, regions, points, grid, adjacency, seed, generation: { seed, size, regionCount: target, landRatio, mapgenSize: sizeKey }, createdAt: Date.now(), engine: 'mapgen2' };
   }
 
   function generateWorldMap(seed, opts) {
@@ -585,7 +588,7 @@
     }
     const adjacency = [...adj].map(s => s.split(',').map(Number));
 
-    return { size, regions, points, grid, adjacency, seed, createdAt: Date.now() };
+    return { size, regions, points, grid, adjacency, seed, generation: { seed, size, regionCount, landRatio, mapgenSize: ['tiny', 'small'].includes(opts.mapgenSize) ? opts.mapgenSize : 'small' }, createdAt: Date.now(), engine: 'fallback' };
   }
 
   /* ---------- 命中检测 ---------- */

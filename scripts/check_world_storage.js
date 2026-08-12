@@ -46,6 +46,10 @@ async function main() {
     const hydratedMap = MapGen.hydrateMap(serializedMap);
     assert.ok(hydratedMap.grid instanceof Uint16Array, 'map grid hydrates to Uint16Array');
     assert.deepStrictEqual(Array.from(hydratedMap.grid), Array.from(generatedMap.grid));
+    const sparseLand = MapGen.generateWorldMap(11, { size: 48, regionCount: 6, landRatio: 0.3 });
+    const broadLand = MapGen.generateWorldMap(11, { size: 48, regionCount: 6, landRatio: 0.75 });
+    const landPixels = map => map.grid.reduce((count, value) => count + (value ? 1 : 0), 0);
+    assert.ok(landPixels(broadLand) > landPixels(sparseLand), 'landRatio changes generated land coverage');
     await startServer(0);
     const address = server.address();
     const base = `http://127.0.0.1:${address.port}`;
@@ -81,6 +85,7 @@ async function main() {
       { id: 'region-2', name: 'Region Two', type: 'region', summary: '', tags: [] },
     ];
     const draftNpcs = [{ id: 'npc-lily', name: 'Lily', role: 'innkeeper', locationId: 'wolf-tooth-inn', description: '旅店老板', publicFacts: ['认识本地客人'], publicGoals: [], secrets: [{ id: 'lily-secret', content: '保留的秘密' }] }];
+    const draftMapGeneration = { seed: 67890, size: 96, regionCount: 12, landRatio: 0.62, mapgenSize: 'tiny' };
     const draftUpdate = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -91,6 +96,7 @@ async function main() {
         summary: '草稿简介',
         tags: ['日式西幻', '草稿'],
         lorebookIds: ['default'],
+        mapGeneration: draftMapGeneration,
         locations: draftLocations,
         npcs: draftNpcs,
       }),
@@ -101,6 +107,13 @@ async function main() {
     assert.deepStrictEqual(draftUpdate.body.world.locations, draftLocations);
     assert.deepStrictEqual(draftUpdate.body.world.npcs, draftNpcs);
     assert.deepStrictEqual(draftUpdate.body.world.npcIds, ['npc-lily']);
+    assert.deepStrictEqual(draftUpdate.body.world.map.generation, draftMapGeneration);
+    const invalidDraftMap = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedUpdatedAt: draftUpdate.body.updatedAt, baseVersion: world.version, title: 'invalid', summary: '', tags: [], lorebookIds: [], mapGeneration: { ...draftMapGeneration, landRatio: 2 }, locations: draftLocations, npcs: draftNpcs }),
+    });
+    assert.strictEqual(invalidDraftMap.response.status, 400, 'unsafe map generation values are rejected');
     const invalidDraftCollections = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -165,7 +178,8 @@ async function main() {
     assert.strictEqual(saved.body.worldId, world.id);
     const statePatch = JSON.parse(JSON.stringify(saved.body.state));
     statePatch.locationId = 'region-2';
-    statePatch.map.data = { size: 2, grid: [0, 1, 1, 0], regions: [], points: [], adjacency: [], seed: 7 };
+    const saveMapGeneration = { ...draftMapGeneration, size: 64 };
+    statePatch.map.data = MapGen.serializeMap(MapGen.generateWorldMap(saveMapGeneration.seed, saveMapGeneration));
     statePatch.map.imagePath = '/images/world-map.png';
     const savedUpdate = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id), {
       method: 'PUT',
@@ -174,7 +188,8 @@ async function main() {
     });
     assert.strictEqual(savedUpdate.response.status, 200);
     assert.strictEqual(savedUpdate.body.revision, 1);
-    assert.deepStrictEqual(savedUpdate.body.state.map.data.grid, [0, 1, 1, 0]);
+    assert.strictEqual(savedUpdate.body.state.map.data.grid.length, 64 * 64);
+    assert.deepStrictEqual(savedUpdate.body.state.map.data.generation, saveMapGeneration);
     const turnPayload = {
       commandId: 'command-0001',
       expectedRevision: 1,

@@ -735,6 +735,30 @@
             <input id="world-draft-lorebooks" name="worldDraftLorebooks" maxlength="1000" placeholder="default, lore-aurora" spellcheck="false" />
           </div>
         </div>
+        <section class="world-draft-collection world-draft-map" aria-labelledby="world-draft-map-title">
+          <div class="world-draft-collection-head">
+            <div>
+              <h3 id="world-draft-map-title">地图生成</h3>
+              <p>参数属于世界版本；已创建存档中的地图不会随草稿变化。</p>
+            </div>
+            <button class="ghost-btn small" id="world-draft-map-preview" type="button">生成预览</button>
+          </div>
+          <div class="world-draft-map-layout">
+            <div class="world-draft-map-fields">
+              <label class="field"><span>种子</span><span class="row-inline"><input id="world-draft-map-seed" name="worldDraftMapSeed" type="number" min="0" max="2147483647" step="1" inputmode="numeric" spellcheck="false" required /><button class="ghost-btn small" id="world-draft-map-random" type="button">随机</button></span></label>
+              <div class="world-draft-entry-grid">
+                <label class="field"><span>数据分辨率</span><select id="world-draft-map-size" name="worldDraftMapSize"><option value="64">64 × 64</option><option value="96">96 × 96</option><option value="128">128 × 128</option><option value="160">160 × 160</option><option value="192">192 × 192</option></select></label>
+                <label class="field"><span>地形细节</span><select id="world-draft-map-detail" name="worldDraftMapDetail"><option value="tiny">轻量</option><option value="small">标准</option></select></label>
+              </div>
+              <label class="field world-draft-range"><span>区域数量 <output id="world-draft-map-regions-output" for="world-draft-map-regions">10</output></span><input id="world-draft-map-regions" name="worldDraftMapRegions" type="range" min="4" max="24" step="1" value="10" /></label>
+              <label class="field world-draft-range"><span>大陆占比目标 <output id="world-draft-map-land-output" for="world-draft-map-land">55%</output></span><input id="world-draft-map-land" name="worldDraftMapLand" type="range" min="25" max="80" step="1" value="55" /></label>
+            </div>
+            <figure class="world-draft-map-preview">
+              <canvas id="world-draft-map-canvas" width="256" height="256" aria-label="世界地图参数预览"></canvas>
+              <figcaption id="world-draft-map-caption">调整参数后生成预览。</figcaption>
+            </figure>
+          </div>
+        </section>
         <section class="world-draft-collection" aria-labelledby="world-draft-locations-title">
           <div class="world-draft-collection-head">
             <div>

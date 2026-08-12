@@ -171,7 +171,30 @@ function worldDraftFieldsValid(payload, requireRevision = false) {
   if (typeof payload.summary !== 'string' || payload.summary.length > 4000) return 'summary 不能超过 4000 个字符';
   if (!Array.isArray(payload.tags) || payload.tags.length > 64 || payload.tags.some(value => typeof value !== 'string' || !value.trim() || value.length > 120)) return 'tags 必须是最多 64 项的非空字符串数组';
   if (!Array.isArray(payload.lorebookIds) || payload.lorebookIds.length > 64 || payload.lorebookIds.some(value => typeof value !== 'string' || !isSafeId(value.trim()))) return 'lorebookIds 包含无效 ID';
+  const mapInvalid = validateWorldDraftMapGeneration(payload.mapGeneration);
+  if (mapInvalid) return mapInvalid;
   return null;
+}
+
+function validateWorldDraftMapGeneration(value) {
+  if (value === undefined) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'mapGeneration 必须是对象';
+  if (!Number.isInteger(value.seed) || value.seed < 0 || value.seed > 2147483647) return 'mapGeneration.seed 无效';
+  if (![64, 96, 128, 160, 192].includes(value.size)) return 'mapGeneration.size 无效';
+  if (!Number.isInteger(value.regionCount) || value.regionCount < 4 || value.regionCount > 24) return 'mapGeneration.regionCount 无效';
+  if (!Number.isFinite(value.landRatio) || value.landRatio < 0.25 || value.landRatio > 0.8) return 'mapGeneration.landRatio 无效';
+  if (!['tiny', 'small'].includes(value.mapgenSize)) return 'mapGeneration.mapgenSize 无效';
+  return null;
+}
+
+function normalizeWorldDraftMapGeneration(value) {
+  return {
+    seed: value.seed,
+    size: value.size,
+    regionCount: value.regionCount,
+    landRatio: Math.round(value.landRatio * 100) / 100,
+    mapgenSize: value.mapgenSize,
+  };
 }
 
 function draftTextValid(value, maxLength, required = false) {
@@ -255,6 +278,10 @@ function applyWorldDraftFields(world, payload) {
   next.summary = payload.summary;
   next.tags = [...new Set(payload.tags.map(value => value.trim()))];
   next.lorebookIds = [...new Set(payload.lorebookIds.map(value => value.trim()))];
+  if (payload.mapGeneration !== undefined) {
+    const map = next.map && typeof next.map === 'object' && !Array.isArray(next.map) ? next.map : {};
+    next.map = { ...map, generation: normalizeWorldDraftMapGeneration(payload.mapGeneration) };
+  }
   if (payload.locations !== undefined) next.locations = payload.locations.map(normalizeDraftLocation);
   if (payload.npcs !== undefined) {
     next.npcs = payload.npcs.map(normalizeDraftNpc);
@@ -686,6 +713,10 @@ function validateWorldSavePatch(payload) {
     const map = state.map.data;
     if (map !== null && map !== undefined) {
       if (!map || typeof map !== 'object' || !Number.isInteger(map.size) || map.size < 1 || map.size > 512) return '地图 size 无效';
+      const generationInvalid = validateWorldDraftMapGeneration(map.generation);
+      if (generationInvalid) return generationInvalid;
+      if (map.generation && map.generation.size !== map.size) return '地图 generation.size 与 size 不一致';
+      if (map.generation && map.generation.seed !== map.seed) return '地图 generation.seed 与 seed 不一致';
       if (!Array.isArray(map.grid) || map.grid.length !== map.size * map.size) return '地图 grid 长度无效';
       if (map.grid.some(v => !Number.isInteger(v) || v < 0 || v > 65535)) return '地图 grid 数值无效';
       if (map.regions !== undefined && (!Array.isArray(map.regions) || map.regions.length > 1024)) return '地图 regions 无效';

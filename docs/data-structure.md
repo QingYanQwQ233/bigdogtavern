@@ -77,12 +77,15 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
   },
   lorebookIds: [], rpgPresetName: 'RPG 叙事引擎（示例）',
   locations: [], npcs: [], factions: [], items: [], quests: [],
-  map: { strategy: 'perSave', generation: { seed, size, regionCount } },
+  map: { strategy: 'perSave', generation: { seed, size, regionCount, landRatio, mapgenSize } },
   ui: { layout: 'world-desktop', source: 'json' }
 }
 ```
 
 世界卡是可复用的静态定义，不保存某个玩家的回合、背包或地图图片。初始内容来自 `_defaults.json.worlds` 初始化的 `worlds.json`；W5 草稿层保存在独立的 `world-drafts.json`，可编辑世界元数据、声明式 `locations` 与 `npcs`，并通过稳定 ID 互相引用；草稿不会改写 `worlds.json` 或已有存档。服务端只接受白名单字段，不接受可执行 HTML/JS。W4.7 仍提供“从指定存档收录 NPC”这一条显式版本创建接口。
+
+`map.generation` 是世界版本的地图生成配置：`seed`、`size`、`regionCount`、`landRatio` 与 `mapgenSize`。`landRatio` 在 fallback 引擎中是目标陆地占比，在 Mapgen2 中映射为大陆膨胀参数，因此 UI 预览会另外显示实际陆地占比。地图首次生成后，完整数据和生成参数一起写入所属 `WorldSave.state.map.data`；重生成只影响当前存档。
+
 其中 `locations[].id` 是世界内稳定的地点主键；`start.locationId`、`WorldSave.state.locationId` 和 `npcStates[*].locationId` 只能引用当前世界已登记的 ID，地点名称只用于展示与叙事。RPG Prompt 只注入当前地点 NPC、队伍成员和当前任务引用的 NPC；未命中的世界 NPC 不进入上下文。世界模式的世界书只读取当前 `WorldCard.lorebookIds`，不会使用全局酒馆世界书选择；旧世界卡未声明时仅兼容读取 `default`。
 
 WorldNPC 的静态资料按公开边界读取：`role`、`description`、`persona`、`personality`、`appearance`、`speechStyle`、`publicFacts`、`publicGoals` 可进入作用域 Prompt；`secrets` 采用 `[{ id, content }]`，只有当前存档 `npcStates[npcId].knowledge` 包含对应 `id` 时才注入。其他静态字段不会自动展开，跨存档的 `knowledge` / `relation` 永不共享。
@@ -223,7 +226,7 @@ WorldNPC 的静态资料按公开边界读取：`role`、`description`、`person
 | `GET /api/world-drafts?worldId=<worldId>` | 列出世界草稿摘要；不传 worldId 时列出全部草稿 |
 | `GET /api/world-drafts/<worldId>` | 读取指定世界草稿 |
 | `POST /api/world-drafts` | 从指定 `worldId` / `baseVersion` 创建草稿；同一世界重复调用幂等 |
-| `PUT /api/world-drafts/<worldId>` | 使用 `expectedUpdatedAt` 乐观锁保存标题、简介、标签、`lorebookIds`、声明式 `locations` 与 `npcs`；地点/NPC ID 必须唯一，NPC 的 `locationId` 必须指向草稿地点 |
+| `PUT /api/world-drafts/<worldId>` | 使用 `expectedUpdatedAt` 乐观锁保存标题、简介、标签、`lorebookIds`、地图生成参数、声明式 `locations` 与 `npcs`；地点/NPC ID 必须唯一，NPC 的 `locationId` 必须指向草稿地点 |
 | `POST /api/worlds/<worldId>/versions` | 显式把来源存档中的生成 NPC 收录进下一不可变世界版本；要求 `sourceSaveId`、`npcId`，可选 `expectedRevision` / `title` |
 | `GET /api/world-saves?worldId=<worldId>` | 列出指定世界的存档摘要 |
 | `POST /api/world-saves` | 按世界卡创建一个独立空存档；服务端分配 `saveId` |

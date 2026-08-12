@@ -2705,7 +2705,7 @@ var MapGen2 = (() => {
       drainageSeed: opts.variant || 0,
       riverSeed: opts.variant || 0,
       biomeBias: opts.biomeBias || { north_temperature: 0, south_temperature: 0, moisture: 0.35 },
-      shape: { round: 0.5, inflate: 0.4, amplitudes: [1 / 2, 1 / 4, 1 / 8, 1 / 16] }
+      shape: opts.shape || { round: 0.5, inflate: 0.4, amplitudes: [1 / 2, 1 / 4, 1 / 8, 1 / 16] }
     });
     return map;
   }

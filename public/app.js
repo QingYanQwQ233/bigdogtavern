@@ -368,6 +368,72 @@ function setWorldDraftStatus(message, kind = '') {
 function splitWorldDraftList(value) {
   return [...new Set(String(value || '').split(',').map(item => item.trim()).filter(Boolean))];
 }
+function worldDraftMapGeneration(world = worldDraft?.world) {
+  const generation = world?.map?.generation || {};
+  return {
+    seed: Number.isInteger(generation.seed) ? generation.seed : 12345,
+    size: [64, 96, 128, 160, 192].includes(generation.size) ? generation.size : 128,
+    regionCount: Number.isInteger(generation.regionCount) ? Math.max(4, Math.min(24, generation.regionCount)) : 10,
+    landRatio: Number.isFinite(generation.landRatio) ? Math.max(0.25, Math.min(0.8, generation.landRatio)) : 0.55,
+    mapgenSize: ['tiny', 'small'].includes(generation.mapgenSize) ? generation.mapgenSize : 'small',
+  };
+}
+function updateWorldDraftMapOutputs() {
+  $('world-draft-map-regions-output').value = $('world-draft-map-regions').value;
+  $('world-draft-map-land-output').value = $('world-draft-map-land').value + '%';
+}
+function fillWorldDraftMapForm(world) {
+  const generation = worldDraftMapGeneration(world);
+  $('world-draft-map-seed').value = generation.seed;
+  $('world-draft-map-size').value = generation.size;
+  $('world-draft-map-regions').value = generation.regionCount;
+  $('world-draft-map-land').value = Math.round(generation.landRatio * 100);
+  $('world-draft-map-detail').value = generation.mapgenSize;
+  updateWorldDraftMapOutputs();
+  const canvas = $('world-draft-map-canvas');
+  canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+  $('world-draft-map-caption').textContent = '调整参数后生成预览。';
+}
+function collectWorldDraftMapGeneration() {
+  return {
+    seed: Number($('world-draft-map-seed').value),
+    size: Number($('world-draft-map-size').value),
+    regionCount: Number($('world-draft-map-regions').value),
+    landRatio: Number($('world-draft-map-land').value) / 100,
+    mapgenSize: $('world-draft-map-detail').value,
+  };
+}
+function randomizeWorldDraftMapSeed() {
+  const values = new Uint32Array(1);
+  crypto.getRandomValues(values);
+  $('world-draft-map-seed').value = values[0] & 0x7fffffff;
+  worldDraftDirty = true;
+}
+async function previewWorldDraftMap() {
+  const button = $('world-draft-map-preview');
+  const caption = $('world-draft-map-caption');
+  if (!window.MapGen || button.disabled) return;
+  const seedInput = $('world-draft-map-seed');
+  if (!seedInput.checkValidity()) return seedInput.reportValidity();
+  const generation = collectWorldDraftMapGeneration();
+  const old = button.textContent;
+  button.disabled = true;
+  button.textContent = '生成中…';
+  caption.textContent = '正在计算地形…';
+  await new Promise(resolve => requestAnimationFrame(resolve));
+  try {
+    const map = window.MapGen.generateWorldMap(generation.seed, generation);
+    window.MapGen.renderWorldMap($('world-draft-map-canvas'), map, { pixelSize: 2, labels: false, markers: false });
+    const landPixels = map.grid.reduce((count, regionId) => count + (regionId ? 1 : 0), 0);
+    const actualLand = Math.round(landPixels / map.grid.length * 100);
+    caption.textContent = `${map.regions.length} 个区域 · 实际陆地 ${actualLand}% · ${map.engine === 'mapgen2' ? 'Mapgen2' : 'Fallback'}`;
+  } catch (err) {
+    caption.textContent = '预览生成失败：' + err.message;
+  } finally {
+    button.disabled = false;
+    button.textContent = old;
+  }
+}
 function worldDraftLocationTemplate(location, index) {
   return `<article class="world-draft-entry world-draft-location" data-index="${index}">
     <div class="world-draft-entry-head"><strong>地点 ${index + 1}</strong><button class="ghost-btn small danger" type="button" data-remove-location>删除</button></div>
@@ -481,6 +547,7 @@ function fillWorldDraftForm(draft) {
   $('world-draft-summary').value = world.summary || '';
   $('world-draft-tags').value = Array.isArray(world.tags) ? world.tags.join(', ') : '';
   $('world-draft-lorebooks').value = Array.isArray(world.lorebookIds) ? world.lorebookIds.join(', ') : '';
+  fillWorldDraftMapForm(world);
   renderWorldDraftCollections(world);
   $('world-draft-base').textContent = `基于已发布 v${draft.baseVersion}；草稿修改不会影响旧版本或已有存档。`;
 }
@@ -523,6 +590,7 @@ async function saveWorldDraft() {
   const summary = $('world-draft-summary').value;
   const tags = splitWorldDraftList($('world-draft-tags').value);
   const lorebookIds = splitWorldDraftList($('world-draft-lorebooks').value);
+  const mapGeneration = collectWorldDraftMapGeneration();
   const { locations, npcs } = collectWorldDraftCollections();
   const titleInput = $('world-draft-name');
   if (!title) {
@@ -539,7 +607,7 @@ async function saveWorldDraft() {
     const res = await fetch('/api/world-drafts/' + encodeURIComponent(worldDraft.worldId), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
-      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds, locations, npcs }),
+      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds, mapGeneration, locations, npcs }),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error(worldApiError(data, '世界草稿保存失败（HTTP ' + res.status + '）'));
@@ -4146,6 +4214,10 @@ function currentWorldMapState() {
   state.map = state.map && typeof state.map === 'object' ? state.map : { strategy: 'perSave', data: null, imagePath: null, markers: [] };
   return state.map;
 }
+function currentWorldMapGeneration(seed) {
+  const generation = worldDraftMapGeneration(currentWorldCard());
+  return seed === undefined ? generation : { ...generation, seed };
+}
 function curMapImage() {
   const mapState = currentWorldMapState();
   return mapState ? mapState.imagePath : (curRpgState()?.mapImage || null);
@@ -4164,9 +4236,8 @@ function curMapData() {
   if (worldMap) {
     if (worldMap.data && !(worldMap.data.grid instanceof Uint16Array) && window.MapGen?.hydrateMap) worldMap.data = window.MapGen.hydrateMap(worldMap.data);
     if (!worldMap.data && window.MapGen) {
-      const world = currentWorldCard();
-      const generation = world?.map?.generation || {};
-      worldMap.data = window.MapGen.generateWorldMap(generation.seed || (Date.now() % 2147483647), { size: generation.size || 128, regionCount: generation.regionCount || 8 });
+      const generation = currentWorldMapGeneration();
+      worldMap.data = window.MapGen.generateWorldMap(generation.seed, generation);
       queueWorldSave(currentWorldSave);
     }
     return worldMap.data || null;
@@ -4292,7 +4363,9 @@ function mapCanvasClick(e) {
 function mapRegenerate() {
   const rs = curRpgState();
   if (!rs || !window.MapGen) return;
-  const map = window.MapGen.generateWorldMap(Date.now() % 2147483647, { size: 128, regionCount: 8 });
+  const seed = Date.now() % 2147483647;
+  const generation = worldModeActive() ? currentWorldMapGeneration(seed) : { seed, size: 128, regionCount: 8, landRatio: 0.55, mapgenSize: 'small' };
+  const map = window.MapGen.generateWorldMap(seed, generation);
   const worldMap = currentWorldMapState();
   if (worldMap) {
     worldMap.data = map;
@@ -4680,6 +4753,10 @@ function bindEvents() {
   $('world-new-draft').addEventListener('click', openWorldDraftEditor);
   $('world-edit-draft').addEventListener('click', openWorldDraftEditor);
   $('world-draft-form').addEventListener('input', () => { worldDraftDirty = true; });
+  $('world-draft-map-regions').addEventListener('input', updateWorldDraftMapOutputs);
+  $('world-draft-map-land').addEventListener('input', updateWorldDraftMapOutputs);
+  $('world-draft-map-random').addEventListener('click', randomizeWorldDraftMapSeed);
+  $('world-draft-map-preview').addEventListener('click', previewWorldDraftMap);
   $('world-draft-add-location').addEventListener('click', addWorldDraftLocation);
   $('world-draft-add-npc').addEventListener('click', addWorldDraftNpc);
   $('world-draft-form').addEventListener('submit', async e => { e.preventDefault(); await saveWorldDraft(); });

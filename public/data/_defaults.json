@@ -505,7 +505,7 @@
       "map": {
         "strategy": "perSave",
         "baseMapId": null,
-        "generation": { "seed": 12345, "size": 128, "regionCount": 10 }
+        "generation": { "seed": 12345, "size": 128, "regionCount": 10, "landRatio": 0.55, "mapgenSize": "small" }
       },
       "ui": { "layout": "world-desk" },
       "source": { "format": "native", "rawAssetRef": null }
