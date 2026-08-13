@@ -623,6 +623,38 @@ function validateFactionGoalList(value, label) {
   return null;
 }
 
+function validateFactionActionList(factionId, value, resources) {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value) || value.length > 64) return `factions.${factionId}.actions 无效`;
+  const ids = new Set();
+  const resourceIds = new Set(resources.map(resource => resource.id));
+  for (const action of value) {
+    const id = typeof action?.id === 'string' ? action.id.trim() : '';
+    if (!isSafeId(id) || ids.has(id) || !draftTextValid(action.title, 200, true) || !draftTextValid(action.description ?? '', 4000)) return `factions.${factionId}.actions 含有重复或无效条目`;
+    const trigger = action.trigger;
+    if (!trigger || typeof trigger !== 'object' || Array.isArray(trigger)) return `factions.${factionId}.actions.${id}.trigger 无效`;
+    const hasAt = trigger.at !== undefined;
+    const hasAfterTurns = trigger.afterTurns !== undefined;
+    if (!hasAt && !hasAfterTurns) return `factions.${factionId}.actions.${id}.trigger 至少声明 at 或 afterTurns`;
+    if (hasAt && (!validBoundedNumber(trigger.at, 0, 1000000000))) return `factions.${factionId}.actions.${id}.trigger.at 无效`;
+    if (hasAfterTurns && (!Number.isInteger(trigger.afterTurns) || trigger.afterTurns < 1 || trigger.afterTurns > 1000000)) return `factions.${factionId}.actions.${id}.trigger.afterTurns 无效`;
+    if (trigger.locationId !== undefined && !isSafeId(trigger.locationId)) return `factions.${factionId}.actions.${id}.trigger.locationId 无效`;
+    if (action.visibility !== undefined && !['public', 'local', 'hidden'].includes(action.visibility)) return `factions.${factionId}.actions.${id}.visibility 无效`;
+    if (action.once !== undefined && action.once !== true) return `factions.${factionId}.actions.${id}.once 目前必须为 true`;
+    const changes = action.changes === undefined ? {} : action.changes;
+    if (!changes || typeof changes !== 'object' || Array.isArray(changes)) return `factions.${factionId}.actions.${id}.changes 无效`;
+    for (const key of ['relation', 'influence']) if (changes[key] !== undefined && !validBoundedNumber(changes[key], -1000000000, 1000000000)) return `factions.${factionId}.actions.${id}.changes.${key} 无效`;
+    if (changes.resources !== undefined) {
+      if (!changes.resources || typeof changes.resources !== 'object' || Array.isArray(changes.resources) || Object.keys(changes.resources).length > 64) return `factions.${factionId}.actions.${id}.changes.resources 无效`;
+      for (const [resourceId, delta] of Object.entries(changes.resources)) if (!resourceIds.has(resourceId) || !validBoundedNumber(delta, -1000000000, 1000000000)) return `factions.${factionId}.actions.${id}.changes.resources.${resourceId} 无效`;
+    }
+    if (action.consequences !== undefined && !draftStringListValid(action.consequences, 16, 1000)) return `factions.${factionId}.actions.${id}.consequences 无效`;
+    if (!isSafeId(`${factionId}-${id}`)) return `factions.${factionId}.actions.${id} 与派系 ID 组合后过长`;
+    ids.add(id);
+  }
+  return null;
+}
+
 function validateWorldFactions(value) {
   if (value === undefined || value === null) return null;
   if (!Array.isArray(value) || value.length > 128) return 'factions 最多 128 项';
@@ -646,6 +678,8 @@ function validateWorldFactions(value) {
         || !validBoundedNumber(initial, min, max)) return `factions.${id}.resources 无效`;
       resourceIds.add(resourceId);
     }
+    const actionInvalid = validateFactionActionList(id, faction.actions, resources);
+    if (actionInvalid) return actionInvalid;
     const initial = faction.initialState;
     if (initial !== undefined) {
       if (!initial || typeof initial !== 'object' || Array.isArray(initial)) return `factions.${id}.initialState 无效`;
@@ -675,6 +709,7 @@ function validateFactionStates(world, value, current = null) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return 'state.factionStates 必须是对象';
   const definitions = new Map(worldFactionDefinitions(world).map(faction => [faction.id, faction]));
   if (!definitions.size && Object.keys(value).length) return 'state.factionStates 包含未登记的派系';
+  for (const id of definitions.keys()) if (value[id] === undefined) return `state.factionStates.${id} 不能省略`;
   if (current && typeof current === 'object') {
     for (const id of Object.keys(current)) if (value[id] === undefined) return `state.factionStates.${id} 不能省略`;
   }
@@ -756,6 +791,59 @@ function settleWorldEvents(world, current, nextState, commandId, revision) {
     });
   }
   return { events: [...existing, ...triggered].slice(-256), eventIds: triggered.map(event => event.eventId) };
+}
+
+function settleWorldFactionActions(world, current, nextState, commandId, revision) {
+  const existing = Array.isArray(current?.state?.worldEvents) ? cloneJson(current.state.worldEvents) : [];
+  const eventIds = new Set(existing.map(event => event?.eventId).filter(Boolean));
+  const actionIds = [];
+  const time = nextState?.time;
+  const locationId = nextState?.locationId ?? null;
+  const turnNumber = committedTurnCount(current) + 1;
+  const triggered = [];
+  const factionStates = nextState.factionStates && typeof nextState.factionStates === 'object' ? nextState.factionStates : {};
+  for (const faction of worldFactionDefinitions(world)) {
+    const state = factionStates[faction.id];
+    if (!state) continue;
+    for (const action of Array.isArray(faction.actions) ? faction.actions : []) {
+      const trigger = action.trigger || {};
+      if (trigger.at !== undefined && (!time || Number(time.value) < Number(trigger.at))) continue;
+      if (trigger.afterTurns !== undefined && turnNumber < Number(trigger.afterTurns)) continue;
+      if (trigger.locationId !== undefined && trigger.locationId !== locationId) continue;
+      const eventId = `faction-${faction.id}-${action.id}`;
+      if (eventIds.has(eventId)) continue;
+      const changes = action.changes || {};
+      if (changes.relation !== undefined) state.relation = Math.max(-100, Math.min(100, Number(state.relation || 0) + Number(changes.relation)));
+      if (changes.influence !== undefined) state.influence = Math.max(0, Math.min(1000000000, Number(state.influence || 0) + Number(changes.influence)));
+      if (changes.resources && typeof changes.resources === 'object') {
+        const resourceDefs = new Map((Array.isArray(faction.resources) ? faction.resources : []).map(resource => [resource.id, resource]));
+        for (const [resourceId, delta] of Object.entries(changes.resources)) {
+          const definition = resourceDefs.get(resourceId);
+          if (!definition) continue;
+          const currentValue = Number(state.resources?.[resourceId] ?? definition.initial ?? definition.min ?? 0);
+          if (!state.resources || typeof state.resources !== 'object' || Array.isArray(state.resources)) state.resources = {};
+          state.resources[resourceId] = Math.max(definition.min ?? 0, Math.min(definition.max ?? 1000000, currentValue + Number(delta)));
+        }
+      }
+      const event = {
+        eventId,
+        title: String(action.title || `${faction.name || faction.id} 行动`).trim(),
+        description: String(action.description || '').trim(),
+        consequences: Array.isArray(action.consequences) ? action.consequences.map(item => String(item).trim()).filter(Boolean) : [],
+        visibility: ['public', 'local', 'hidden'].includes(action.visibility) ? action.visibility : 'public',
+        locationId: trigger.locationId ?? locationId,
+        time: time ? cloneJson(time) : null,
+        factionId: faction.id,
+        actionId: action.id,
+        commandId,
+        revision,
+      };
+      triggered.push(event);
+      eventIds.add(eventId);
+      actionIds.push(`${faction.id}:${action.id}`);
+    }
+  }
+  return { events: [...existing, ...triggered].slice(-256), eventIds: actionIds };
 }
 
 function settleWorldDeadlines(nextState) {
@@ -1772,6 +1860,8 @@ function worldPackageImportReport(pkg) {
     if (turnContractInvalid) errors.push(turnContractInvalid);
     const timeInvalid = validateWorldTime(world.time);
     if (timeInvalid) errors.push(timeInvalid);
+    const factionsInvalid = validateWorldFactions(world.factions);
+    if (factionsInvalid) errors.push(factionsInvalid);
   }
   if (!Array.isArray(content?.characters) || content.characters.length > 256) errors.push('characters 必须是至多 256 项的数组');
   if (!content?.lorebooks || typeof content.lorebooks !== 'object' || Array.isArray(content.lorebooks)) errors.push('lorebooks 必须是对象');
@@ -2662,7 +2752,8 @@ async function handleWorldTurnPost(req, res, saveId) {
       nextState.time = advanceWorldTime(current.state?.time, world);
       const deadlineIds = settleWorldDeadlines(nextState);
       const settledEvents = settleWorldEvents(world, current, nextState, payload.commandId, revision);
-      nextState.worldEvents = settledEvents.events;
+      const settledFactionActions = settleWorldFactionActions(world, { ...current, state: { ...current.state, worldEvents: settledEvents.events } }, nextState, payload.commandId, revision);
+      nextState.worldEvents = settledFactionActions.events;
       const committedTurns = payload.turns.map((turn, index) => ({
         ...cloneJson(turn),
         ...(index === 0 && payload.actionIntent ? { actionIntent: cloneJson(payload.actionIntent) } : {}),
@@ -2683,6 +2774,7 @@ async function handleWorldTurnPost(req, res, saveId) {
           revision,
           turnIds: committedTurns.map(turn => turn.id).filter(Boolean),
           eventIds: settledEvents.eventIds,
+           factionActionIds: settledFactionActions.eventIds,
           deadlineIds,
           committedAt: Date.now(),
         }].slice(-200),

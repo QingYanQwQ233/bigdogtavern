@@ -498,7 +498,11 @@ node scripts/check_pwa.js
 
 ### R4.11 Current progress
 
-Implemented the minimal faction contract: static `WorldCard.factions`, save-owned `WorldSave.state.factionStates`, server-side allowlist/range validation, initialization on create and world upgrade, and RPG panel/prompt projection. R4.12 will add time-point faction actions and event projection.
+Implemented the minimal faction contract: static `WorldCard.factions`, save-owned `WorldSave.state.factionStates`, server-side allowlist/range validation, initialization on create and world upgrade, and RPG panel/prompt projection. R4.12 adds time-point faction actions and event projection.
+
+### R4.12 Current progress
+
+已完成最小派系行动闭环：世界卡可声明带时间 / 地点条件的一次性行动，正式回合推进后服务端原子更新当前存档的关系、影响力和资源，并投影为带来源的世界事件；稳定事件 ID 与 receipt 防止重复提交重复行动，Prompt 仅注入当前地点相关或最近发生的派系。
 
 当前限制：
 

@@ -827,6 +827,11 @@
           <textarea id="world-draft-events" name="worldDraftEvents" rows="6" maxlength="30000" spellcheck="false" placeholder='[{"id":"event-id","title":"事件标题","trigger":{"at":10},"visibility":"public","once":true}]'></textarea>
           <p class="hint">trigger 支持 <code>at</code>（世界时间）、<code>afterTurns</code>（成功回合数）和 <code>locationId</code>（地点条件）；条件同时存在时需全部满足。</p>
         </div>
+        <div class="field">
+          <label for="world-draft-factions">派系与时间行动 <span class="hint-inline">JSON；行动在正式回合推进后结算</span></label>
+          <textarea id="world-draft-factions" name="worldDraftFactions" rows="8" maxlength="50000" spellcheck="false" placeholder='[{"id":"north-guild","name":"北方公会","actions":[{"id":"patrol","title":"巡逻山口","description":"派出巡逻队。","trigger":{"at":9,"locationId":"wolf-tooth-inn"},"changes":{"resources":{"funds":-5}}}]}]'></textarea>
+          <p class="hint">行动支持 <code>at</code> / <code>afterTurns</code> 与可选 <code>locationId</code>；每个行动默认只结算一次，变化只写入当前存档。</p>
+        </div>
         <section class="world-draft-collection world-draft-map" aria-labelledby="world-draft-map-title">
           <div class="world-draft-collection-head">
             <div>

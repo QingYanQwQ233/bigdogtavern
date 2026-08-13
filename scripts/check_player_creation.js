@@ -10,7 +10,7 @@ const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tavern-player-'));
 const defaults = JSON.parse(fs.readFileSync(path.join(root, 'public', 'data', '_defaults.json'), 'utf8'));
 const world = defaults.worlds[0];
 world.npcIds = ['npc-lily'];
-world.factions = [{ id: 'north-guild', name: 'North Guild', goals: ['Protect the pass'], resources: [{ id: 'funds', label: 'Funds', min: 0, max: 100, initial: 40 }], initialState: { relation: 10, influence: 4, resources: { funds: 30 } } }];
+world.factions = [{ id: 'north-guild', name: 'North Guild', goals: ['Protect the pass'], resources: [{ id: 'funds', label: 'Funds', min: 0, max: 100, initial: 40 }], initialState: { relation: 10, influence: 4, resources: { funds: 30 } }, actions: [{ id: 'patrol-pass', title: '巡逻山口', description: '北方公会派出巡逻队。', trigger: { at: 9, locationId: 'wolf-tooth-inn' }, changes: { relation: 2, resources: { funds: -5 } }, consequences: ['山口暂时安全。'] }] }];
 world.npcs = [{ id: 'npc-lily', name: '莉莉', role: 'innkeeper' }];
 world.playerCreation.relations = [{ npcId: 'npc-lily', label: '与莉莉的关系', min: -100, max: 100, default: 5 }];
 world.events.push({ id: 'inn-echo', title: '旅店回响', description: '炉火后传来一声短促的回响。', trigger: { locationId: 'wolf-tooth-inn' }, visibility: 'local', once: true });
@@ -98,7 +98,10 @@ async function main() {
     assert.strictEqual(freeTurn.body.state.goals[0].status, 'failed', 'expired goals fail after the server advances time');
     assert.strictEqual(freeTurn.body.state.goals[0].deadlineStatus, 'expired');
     assert.deepStrictEqual(freeTurn.body.receipts.at(-1).deadlineIds, ['goals:deadline-goal']);
-    assert.deepStrictEqual(freeTurn.body.state.worldEvents.map(event => event.eventId), ['inn-echo']);
+    assert.deepStrictEqual(freeTurn.body.state.worldEvents.map(event => event.eventId), ['inn-echo', 'faction-north-guild-patrol-pass']);
+    assert.strictEqual(freeTurn.body.state.factionStates['north-guild'].relation, 12);
+    assert.strictEqual(freeTurn.body.state.factionStates['north-guild'].resources.funds, 25);
+    assert.deepStrictEqual(freeTurn.body.receipts.at(-1).factionActionIds, ['north-guild:patrol-pass']);
     const tamperedDice = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ commandId: 'turn-check-2', expectedRevision: freeTurn.body.revision, actionIntent: { raw: '掷骰', dice: [{ expr: '1d20', rolls: [20], bonus: 0, total: 1 }] }, state: freeTurn.body.state, turns: [{ role: 'user', content: '掷骰', ts: Date.now() }, { role: 'assistant', content: '结果。', ts: Date.now() }], options: [] }),
@@ -110,7 +113,8 @@ async function main() {
     });
     assert.strictEqual(eventTurn.response.status, 200);
     assert.strictEqual(eventTurn.body.state.time.value, 10);
-    assert.deepStrictEqual(eventTurn.body.state.worldEvents.map(event => event.eventId), ['inn-echo', 'aurora-omen']);
+    assert.deepStrictEqual(eventTurn.body.state.worldEvents.map(event => event.eventId), ['inn-echo', 'faction-north-guild-patrol-pass', 'aurora-omen']);
+    assert.deepStrictEqual(eventTurn.body.receipts.at(-1).factionActionIds, [], 'faction action does not repeat on later turns');
     assert.strictEqual(eventTurn.body.state.goals[0].id, 'find-aurora');
     assert.strictEqual(eventTurn.body.state.leads[0].id, 'inn-rumor');
     assert.strictEqual(eventTurn.body.state.player.attributes.might, 4);
@@ -125,7 +129,7 @@ async function main() {
       body: JSON.stringify({ commandId: 'turn-check-3', expectedRevision: 0, actionIntent: { raw: '重试' }, state: eventTurn.body.state, turns: [{ role: 'assistant', content: '重试。' }], options: [] }),
     });
     assert.strictEqual(eventRetry.response.status, 200, 'event turn retry is idempotent');
-    assert.strictEqual(eventRetry.body.state.worldEvents.length, 2, 'event retry does not duplicate event');
+    assert.strictEqual(eventRetry.body.state.worldEvents.length, 3, 'event retry does not duplicate event');
     const invalidObjective = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ commandId: 'turn-check-4', expectedRevision: eventTurn.body.revision, actionIntent: { raw: '检查目标' }, state: { ...eventTurn.body.state, goals: [{ id: 'bad-goal', title: '越界目标', locationId: 'missing-location' }] }, turns: [{ role: 'assistant', content: '拒绝。' }], options: [] }),
@@ -144,6 +148,8 @@ async function main() {
     assert.notStrictEqual(first.body.id, second.body.id);
     assert.strictEqual(second.body.player.snapshot.name, '焰');
     assert.strictEqual(second.body.npcStates['npc-lily'].relation.player, -20);
+    assert.strictEqual(second.body.state.factionStates['north-guild'].relation, 10, 'faction relation is isolated per save');
+    assert.strictEqual(second.body.state.factionStates['north-guild'].resources.funds, 30, 'faction resources are isolated per save');
     assert.strictEqual(first.body.player.snapshot.name, '澪', 'first save remains isolated');
 
     const invalidDerivedPlayer = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {

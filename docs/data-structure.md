@@ -311,6 +311,8 @@ RPG 控制块的 `player.attributes` / `player.resources` 使用相对数值变�
 
 世界卡的 `factions` 保存静态定义：`{ id, name, description?, goals?, resources?, initialState? }`。资源定义包含 `id/label/min/max/initial`，初始关系与影响力也可写在 `initialState`。创建 `WorldSave` 时，服务端把这些定义投影为当前存档独立的 `state.factionStates[factionId]`，其中保存目标、资源、关系和影响力；正式回合与存档 PUT 必须提交完整的已有派系状态，服务端按世界卡白名单校验，禁止未知派系、未知资源或越界数值。世界升级只为目标版本的派系补齐初始状态，不会引用其他存档。
 
+派系可声明一次性 `actions`：`{ id, title, description, trigger: { at?, afterTurns?, locationId? }, changes: { relation?, influence?, resources? }, consequences?, visibility? }`。正式回合推进时间后，服务端只结算满足时间与地点条件的行动，把变化写入当前存档，并生成带 `factionId/actionId` 的 `state.worldEvents`；同一行动通过稳定 event ID 去重，receipt 记录 `factionActionIds`。Prompt 只注入当前地点相关或最近已发生的派系，避免无关派系污染回合上下文。
+
 ### Legacy RPG session migration (W6)
 
 `POST /api/rpg-migrations` receives `{ raw }`, where `raw` is a browser legacy session envelope containing the target `worldId/worldVersion`. The server seals the exact source at `data/rpg-migrations/<migrationId>.json` and returns only a hash, source/target summary, state counts, and warnings. The raw session is never echoed by the GET endpoint. A second, explicit `POST /api/rpg-migrations/<migrationId>` creates `data/saves/migrated-<migrationId>.json`.

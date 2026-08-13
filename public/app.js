@@ -584,6 +584,7 @@ function fillWorldDraftForm(draft) {
   $('world-draft-turn-contract').value = world.turnContract ? JSON.stringify(world.turnContract, null, 2) : '';
   $('world-draft-time').value = world.time ? JSON.stringify(world.time, null, 2) : '';
   $('world-draft-events').value = Array.isArray(world.events) ? JSON.stringify(world.events, null, 2) : '';
+  $('world-draft-factions').value = Array.isArray(world.factions) ? JSON.stringify(world.factions, null, 2) : '';
   fillWorldDraftMapForm(world);
   renderWorldDraftCollections(world);
   $('world-draft-base').textContent = `基于已发布 v${draft.baseVersion}；草稿修改不会影响旧版本或已有存档。`;
@@ -657,6 +658,14 @@ async function saveWorldDraft() {
       if (!Array.isArray(events)) throw new Error('必须是数组');
     } catch { setWorldDraftStatus('世界事件不是有效 JSON 数组。', 'error'); $('world-draft-events').focus(); return false; }
   }
+  let factions = null;
+  const factionsText = $('world-draft-factions').value.trim();
+  if (factionsText) {
+    try {
+      factions = JSON.parse(factionsText);
+      if (!Array.isArray(factions)) throw new Error('必须是数组');
+    } catch { setWorldDraftStatus('派系不是有效 JSON 数组。', 'error'); $('world-draft-factions').focus(); return false; }
+  }
   const titleInput = $('world-draft-name');
   if (!title) {
     setWorldDraftStatus('世界标题不能为空。', 'error');
@@ -672,7 +681,7 @@ async function saveWorldDraft() {
     const res = await fetch('/api/world-drafts/' + encodeURIComponent(worldDraft.worldId), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
-      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds, mapGeneration, locations, npcs, playerCreation, turnContract, time, events }),
+      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds, mapGeneration, locations, npcs, playerCreation, turnContract, time, events, factions }),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error(worldApiError(data, '世界草稿保存失败（HTTP ' + res.status + '）'));
@@ -3377,9 +3386,13 @@ function buildWorldEventPromptPart() {
 function buildWorldFactionPromptPart() {
   if (!worldModeActive()) return '';
   const world = currentWorldCard();
-  const definitions = Array.isArray(world?.factions) ? world.factions : [];
+  const state = currentWorldSave?.state || {};
+  const currentLocationId = state.locationId || null;
+  const recentFactionIds = new Set((Array.isArray(state.worldEvents) ? state.worldEvents : []).slice(-32).map(event => event?.factionId).filter(Boolean));
+  const definitions = (Array.isArray(world?.factions) ? world.factions : []).filter(faction => recentFactionIds.has(faction.id)
+    || (Array.isArray(faction.actions) && faction.actions.some(action => !action?.trigger?.locationId || action.trigger.locationId === currentLocationId)));
   if (!definitions.length) return '';
-  const states = currentWorldSave?.state?.factionStates && typeof currentWorldSave.state.factionStates === 'object' ? currentWorldSave.state.factionStates : {};
+  const states = state.factionStates && typeof state.factionStates === 'object' ? state.factionStates : {};
   return '【当前作用域派系】\n派系定义属于当前世界卡；动态状态属于当前存档，禁止跨世界或跨存档引用。\n' + definitions.map(faction => {
     const state = states[faction.id] || {};
     const goals = Array.isArray(state.goals) && state.goals.length ? state.goals : (Array.isArray(faction.goals) ? faction.goals : []);
