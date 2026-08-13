@@ -6,7 +6,7 @@
 >
 > 架构底座与历史实施记录仍见 [world-card-architecture.md](world-card-architecture.md) 和 [world-card-implementation-plan.md](world-card-implementation-plan.md)。本文是后续 RPG 产品功能的主路线图。
 
-> 当前执行：R0 契约冻结已落地；R1 正在实现动态玩家创建与独立存档闭环。GitHub 检索未发现可直接兼容本项目的零依赖实现，因此不引入新依赖。
+> 当前执行：R5.1 已完成，下一步进入 R5.2 的可配置字段闭环。GitHub 检索未发现可直接兼容本项目的零依赖实现，因此不引入新依赖。
 
 ## 0. 结论
 
@@ -367,6 +367,13 @@ PlayerCommand
 ### R5. 可配置资源、冲突和成长
 
 **阶段结果**：卡作者能用同一声明式机制定义不同题材的数值，并跑通战斗与非战斗冲突。
+
+**R5.1 研究记录（2026-08-13）**：
+
+- **OpenRPG/OpenRpg（MIT）**：采用“静态模板与运行态数据分离”、可组合的效果 / 物品 / 冲突模型作为概念参考；其 .NET 运行时与对象模型不能直接接入本项目的零依赖 Node 服务，也不复制代码。
+- **CacheControl/json-rules-engine（ISC）**：采用 `all / any / not` 条件树、事实引用和事件结果的 JSON 形状作为规则 Schema 参考；项目依赖 npm、异步引擎生命周期与本项目的 `WorldSave` 原子提交边界不同，因此不引入。
+- **SillyTavern-LALib（仓库按其许可文件执行）**：采用比较运算符白名单和表达式“安全子集”思路；不执行 STScript、模板或任意 JavaScript，避免把可执行内容写入世界卡。
+- **最终边界**：R5 只复用标准 JSON、现有 `validate*` 校验器、`WorldCard → WorldSave` owner 链和已有 CAS / receipt；新增规则必须声明式、可拒绝、可追溯，AI 结果仍只是候选，不直接写正式状态。
 
 | ID | 小任务 | 依赖 | 验收 |
 |---|---|---|---|
