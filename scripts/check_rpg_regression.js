@@ -109,6 +109,10 @@ async function main() {
       assert.strictEqual(advanced.response.status, 200, `${id} conflict advance commits`);
       assert.ok(advanced.body.receipts.at(-1).combatChecks.length === 1, `${id} server rolls combat`);
       assert.strictEqual(advanced.body.receipts.at(-1).conflictChecks[0].type, 'social', `${id} server records social check`);
+      const turnLedger = advanced.body.eventLedger.find(entry => entry.commandId === `${id}-advance-1`);
+      assert.ok(turnLedger, `${id} committed turn has an event ledger entry`);
+      assert.strictEqual(turnLedger.sourceRevision, advanced.body.revision, `${id} ledger keeps source revision`);
+      assert.deepStrictEqual(turnLedger.turnIds, advanced.body.receipts.at(-1).turnIds, `${id} ledger points to committed turns`);
 
       const candidate = world.playerCreation.growth.candidates[0];
       const candidateRecord = { id: `${id}-growth-1`, candidateId: candidate.id, sourceId: candidate.sourceId, reason: '回归测试产生候选', status: 'proposed' };
@@ -125,9 +129,12 @@ async function main() {
       assert.strictEqual(accepted.body.state.growthApplications.at(-1).decision, 'accepted');
       assert.strictEqual(accepted.body.state.experiences.at(-1).candidateId, candidate.id);
       assert.strictEqual(accepted.body.state.player[candidate.bucket][candidate.targetId], player[candidate.bucket][candidate.targetId] + candidate.delta);
+      const growthLedger = accepted.body.eventLedger.find(entry => entry.commandId === `${id}-growth-accept`);
+      assert.strictEqual(growthLedger.growthApplicationId, accepted.body.state.growthApplications.at(-1).id, `${id} growth ledger points to application`);
       const reloaded = await jsonRequest(base, `/api/world-saves/${save.id}`);
       assert.strictEqual(reloaded.response.status, 200);
       assert.strictEqual(reloaded.body.state.experiences.at(-1).id, accepted.body.state.experiences.at(-1).id, `${id} growth survives reload`);
+      assert.strictEqual(reloaded.body.eventLedger.length, accepted.body.eventLedger.length, `${id} ledger survives reload`);
       created[id] = reloaded.body;
     }
 
@@ -147,6 +154,8 @@ async function main() {
     assert.deepStrictEqual(migrated.body.save.state.growthApplications, []);
     assert.deepStrictEqual(migrated.body.save.state.experiences, []);
     assert.strictEqual(migrated.body.save.state.locationId, 'grey-dock');
+    assert.strictEqual(migrated.body.save.eventLedger[0].kind, 'migration', 'legacy migration records its source event');
+    assert.strictEqual(migrated.body.save.eventLedger[0].sourceRevision, 0, 'migration ledger starts at revision 0');
     assert.strictEqual(created['world-grey-harbor'].state.experiences.length, 1, 'sample saves remain isolated');
     console.log('RPG regression check passed');
   } finally {

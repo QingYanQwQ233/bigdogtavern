@@ -155,6 +155,7 @@
     { id: 'turn-13', role: 'assistant', content: '你推开了旅店的门。', options: [], ts: 0 },
   ],
   receipts: [], // commandId 幂等记录，按上限裁剪
+  eventLedger: [], // 长期提交索引：每条记录带 sourceRevision，引用已提交事实而不复制第二份状态
   generatedEntities: {}, // save:* ID 的临时 NPC、道具、任务或地点；只属于此存档
   migrationHistory: [],
 }

@@ -83,6 +83,7 @@ async function ensureDataFiles() {
 
 const SAFE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 const COMMAND_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{7,95}$/;
+const EVENT_LEDGER_MAX = 4096;
 const worldSaveLocks = new Map();
 let worldWriteChain = Promise.resolve();
 
@@ -1273,6 +1274,33 @@ function validateWorldEventLog(value) {
   return null;
 }
 
+function validateEventLedger(value) {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value) || value.length > EVENT_LEDGER_MAX) return `eventLedger 最多 ${EVENT_LEDGER_MAX} 项`;
+  const ids = new Set();
+  const kinds = new Set(['opening', 'turn', 'growth', 'world-version-upgrade', 'migration']);
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return 'eventLedger 含有无效记录';
+    const id = typeof entry?.id === 'string' ? entry.id.trim() : '';
+    if (!isSafeId(id) || ids.has(id)) return 'eventLedger 含有重复或无效 ID';
+    if (!kinds.has(entry.kind)) return `eventLedger.${id}.kind 无效`;
+    if (typeof entry.commandId !== 'string' || !COMMAND_ID_RE.test(entry.commandId)) return `eventLedger.${id}.commandId 无效`;
+    if (!Number.isInteger(entry.sourceRevision) || entry.sourceRevision < 0) return `eventLedger.${id}.sourceRevision 无效`;
+    if (entry.revision !== undefined && (!Number.isInteger(entry.revision) || entry.revision !== entry.sourceRevision)) return `eventLedger.${id}.revision 无效`;
+    if (entry.locationId !== undefined && entry.locationId !== null && !isSafeId(entry.locationId)) return `eventLedger.${id}.locationId 无效`;
+    if (entry.time !== undefined && entry.time !== null && (!entry.time || typeof entry.time !== 'object' || Array.isArray(entry.time) || typeof entry.time.unit !== 'string' || !Number.isFinite(entry.time.value))) return `eventLedger.${id}.time 无效`;
+    for (const key of ['turnIds', 'worldEventIds', 'factionActionIds', 'deadlineIds']) {
+      if (entry[key] !== undefined && (!Array.isArray(entry[key]) || entry[key].length > 64 || entry[key].some(item => typeof item !== 'string' || item.length > 160))) return `eventLedger.${id}.${key} 无效`;
+    }
+    for (const key of ['growthApplicationId', 'migrationId']) {
+      if (entry[key] !== undefined && entry[key] !== null && !isSafeId(entry[key])) return `eventLedger.${id}.${key} 无效`;
+    }
+    if (entry.createdAt !== undefined && (!Number.isFinite(entry.createdAt) || entry.createdAt < 0)) return `eventLedger.${id}.createdAt 无效`;
+    ids.add(id);
+  }
+  return null;
+}
+
 function validateWorldObjectiveList(value, label, world = null) {
   if (value === undefined || value === null) return null;
   if (!Array.isArray(value) || value.length > 256) return `${label} 最多 256 项`;
@@ -1437,6 +1465,38 @@ function advanceWorldTime(current, world) {
 function committedTurnCount(save) {
   const receipts = Array.isArray(save?.receipts) ? save.receipts : [];
   return receipts.filter(receipt => receipt && (receipt.kind === 'turn' || Array.isArray(receipt.turnIds))).length;
+}
+
+function committedCommand(save, commandId) {
+  const receipts = Array.isArray(save?.receipts) ? save.receipts : [];
+  if (receipts.some(receipt => receipt && receipt.commandId === commandId)) return true;
+  const ledger = Array.isArray(save?.eventLedger) ? save.eventLedger : [];
+  return ledger.some(entry => entry && entry.commandId === commandId);
+}
+
+function ledgerEventId(saveId, revision) {
+  const hash = crypto.createHash('sha256').update(`${saveId}:${revision}`).digest('hex').slice(0, 24);
+  return `ledger-${revision}-${hash}`;
+}
+
+function appendEventLedger(save, entry) {
+  const sourceRevision = Number(entry.sourceRevision);
+  const record = {
+    id: ledgerEventId(save.id, sourceRevision),
+    kind: entry.kind,
+    commandId: entry.commandId,
+    sourceRevision,
+    revision: sourceRevision,
+    locationId: entry.locationId ?? null,
+    time: entry.time ? cloneJson(entry.time) : null,
+    createdAt: entry.createdAt || Date.now(),
+  };
+  for (const key of ['turnIds', 'worldEventIds', 'factionActionIds', 'deadlineIds', 'growthApplicationId', 'migrationId']) {
+    if (entry[key] !== undefined) record[key] = cloneJson(entry[key]);
+  }
+  const invalid = validateEventLedger([record]);
+  if (invalid) throw new Error(invalid);
+  return [...(Array.isArray(save.eventLedger) ? save.eventLedger : []), record].slice(-EVENT_LEDGER_MAX);
 }
 
 function settleWorldEvents(world, current, nextState, commandId, revision) {
@@ -2153,6 +2213,7 @@ async function handleRpgMigrationCommit(req, res, migrationId) {
         worldId: world.id, worldVersion: Number(world.version), createdAt: now, updatedAt: now, revision: 0,
         player: { characterId: playerId, snapshot: player }, party: { memberIds: [playerId], leaderId: playerId }, state,
         npcStates: initialNpcStates(world, { locationId: state.locationId }), opening: String(session.opening || ''), turns: normalizeLegacyTurns(session.messages), receipts: [], generatedEntities: {},
+        eventLedger: [{ id: ledgerEventId(saveId, 0), kind: 'migration', commandId: migrationId, sourceRevision: 0, revision: 0, locationId: state.locationId || null, time: state.time ? cloneJson(state.time) : null, migrationId, createdAt: now }],
         migrationHistory: [], migrationInfo: { kind: 'legacy-rpg-session', migrationId, sourceSessionId: report.source.sessionId, sourceHash: record.rawHash, migratedAt: now, redactedPaths },
       };
       const invalidSave = validateWorldSavePatch({ expectedRevision: 0, state: save.state, turns: save.turns, opening: save.opening });
@@ -3010,6 +3071,7 @@ async function handleWorldSaveUpgrade(req, res, saveId) {
         npcStates,
         state: { ...current.state, factionStates, ...(targetConflictState !== undefined ? { conflicts: cloneJson(targetConflictState) } : {}), ...(targetGrowthCandidates !== undefined ? { growthCandidates: cloneJson(targetGrowthCandidates) } : {}), ...(targetGrowthApplications !== undefined ? { growthApplications: cloneJson(targetGrowthApplications) } : {}), ...(targetExperiences !== undefined ? { experiences: cloneJson(targetExperiences) } : {}) },
         migrationHistory: [...history, migration],
+        eventLedger: appendEventLedger(current, { kind: 'world-version-upgrade', commandId: payload.commandId, sourceRevision: revision, locationId: current.state?.locationId ?? null, time: current.state?.time ?? null, migrationId: payload.commandId }),
         revision,
         updatedAt: migratedAt,
       };
@@ -3137,6 +3199,7 @@ async function handleWorldSaveCreate(req, res) {
     openingCommandId: null,
     turns: [],
     receipts: [],
+    eventLedger: [],
     generatedEntities: {},
     migrationHistory: [],
   };
@@ -3347,6 +3410,7 @@ async function handleWorldSaveOpeningPost(req, res, saveId) {
         openingOptions: payload.options.map(option => option.trim()),
         openingCommandId: payload.commandId,
         receipts: [...(Array.isArray(current.receipts) ? current.receipts : []), { commandId: payload.commandId, kind: 'opening', revision, committedAt: Date.now() }].slice(-200),
+        eventLedger: appendEventLedger(current, { kind: 'opening', commandId: payload.commandId, sourceRevision: revision, locationId: current.state?.locationId ?? null, time: current.state?.time ?? null }),
         revision,
         updatedAt: Date.now(),
       };
@@ -3378,8 +3442,7 @@ async function handleWorldGrowthPost(req, res, saveId) {
       const current = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
       if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
       const world = findWorldVersion(await loadWorlds(), current.worldId, current.worldVersion);
-      const existingReceipt = Array.isArray(current.receipts) ? current.receipts.find(receipt => receipt && receipt.commandId === payload.commandId) : null;
-      if (existingReceipt) return send(res, 200, JSON.stringify(current), 'application/json; charset=utf-8');
+      if (committedCommand(current, payload.commandId)) return send(res, 200, JSON.stringify(current), 'application/json; charset=utf-8');
       if (current.revision !== payload.expectedRevision) return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
       const currentCandidates = Array.isArray(current.state?.growthCandidates) ? current.state.growthCandidates : [];
       const growthCandidateInvalid = validateGrowthCandidates(world, currentCandidates);
@@ -3438,6 +3501,7 @@ async function handleWorldGrowthPost(req, res, saveId) {
           growthApplication: cloneJson(application),
           committedAt: Date.now(),
         }].slice(-200),
+        eventLedger: appendEventLedger(current, { kind: 'growth', commandId: payload.commandId, sourceRevision: revision, locationId: nextState.locationId ?? null, time: nextState.time ?? null, growthApplicationId: application.id }),
         revision,
         updatedAt: Date.now(),
       };
@@ -3623,10 +3687,7 @@ async function handleWorldTurnPost(req, res, saveId) {
       }
       const invalidNpcIds = validateNpcStates(payload.npcStates, allowedNpcIds);
       if (invalidNpcIds) return send(res, 400, JSON.stringify({ error: invalidNpcIds }), 'application/json');
-      const existingReceipt = Array.isArray(current.receipts)
-        ? current.receipts.find(receipt => receipt && receipt.commandId === payload.commandId)
-        : null;
-      if (existingReceipt) return send(res, 200, JSON.stringify(current), 'application/json; charset=utf-8');
+      if (committedCommand(current, payload.commandId)) return send(res, 200, JSON.stringify(current), 'application/json; charset=utf-8');
       if (current.revision !== payload.expectedRevision) {
         return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
       }
@@ -3674,6 +3735,17 @@ async function handleWorldTurnPost(req, res, saveId) {
           deadlineIds,
           committedAt: Date.now(),
         }].slice(-200),
+        eventLedger: appendEventLedger(current, {
+          kind: 'turn',
+          commandId: payload.commandId,
+          sourceRevision: revision,
+          locationId: nextState.locationId ?? null,
+          time: nextState.time ?? null,
+          turnIds: committedTurns.map(turn => turn.id).filter(Boolean),
+          worldEventIds: settledEvents.eventIds,
+          factionActionIds: settledFactionActions.eventIds,
+          deadlineIds,
+        }),
         revision,
         updatedAt: Date.now(),
       };

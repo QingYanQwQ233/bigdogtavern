@@ -118,6 +118,8 @@ WorldNPC 的静态资料按公开边界读取：`role`、`description`、`person
 
 `events[]` 是不可执行的声明式事件模板：`trigger.at`、`trigger.afterTurns` 和 `trigger.locationId` 可组合为 AND 条件，默认只触发一次；`visibility` 控制后续上下文可见范围。每次成功回合由服务端在同一存档锁内推进时间并结算到期事件，结果写入 `state.worldEvents` 与回合 receipt；重复 commandId 不会重复触发，未提交回合不会推进时间。
 
+`eventLedger[]` 是服务端维护的长期提交索引（当前最多 4096 条），不接受客户端直接改写。每条记录带稳定 `id`、`kind`、`commandId`、`sourceRevision` 和时间 / 地点作用域，并引用已提交的回合、世界事件或成长应用；它与按上限裁剪的 `receipts[]` 分离，后续长期记忆应引用账本记录而不是复制一份状态摘要。
+
 正式回合 receipt 采用 `{ kind: 'turn', commandId, revision, turnIds, eventIds, committedAt }`，开场等其他 receipt 不计入成功回合数。
 
 `state.goals` 与 `state.leads` 是存档级目标 / 线索投影，使用稳定 `id`、`title`、`desc`、`status`，可选引用当前世界的 `actorId` / `locationId` 与 `deadline`；它们与旧 `quests` 并存，AI 只能通过本回合结构化控制块增量 upsert，服务端会校验 ID、状态和地点引用。
@@ -146,7 +148,7 @@ RPG 控制块的 `player.attributes` / `player.skills` / `player.resources` 使�
   opening: '世界卡 start.opening 的开局叙事',
   openingMode: 'static' | 'ai', openingOptions: [], openingCommandId: null,
   turns: [{ id, role: 'user' | 'assistant' | 'system', content, ts, options?, actionIntent?: { raw, verb?, target?, method?, risk? } }],
-  receipts: [], generatedEntities: {},
+  receipts: [], eventLedger: [], generatedEntities: {},
   migrationHistory: [{ kind: 'world-version-upgrade', commandId, fromVersion, toVersion, changes, addedNpcStateIds, revision, migratedAt }]
 }
 ```
