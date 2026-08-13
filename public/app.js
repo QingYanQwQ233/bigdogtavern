@@ -210,6 +210,15 @@ function hydrateWorldSave(data) {
   if (!data || typeof data !== 'object') return data;
   if (!data.state || typeof data.state !== 'object') data.state = {};
   if (!Array.isArray(data.turns)) data.turns = [];
+  if (data.state.goals === undefined && Array.isArray(data.state.quests) && data.state.quests.length) {
+    data.state.goals = data.state.quests.map((quest, index) => ({
+      id: /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(String(quest?.id || '')) ? `legacy-${quest.id}`.slice(0, 64) : `legacy-goal-${index + 1}`,
+      title: String(quest?.title || `旧任务 ${index + 1}`).slice(0, 240),
+      desc: String(quest?.desc || '').slice(0, 4000),
+      status: quest?.status === 'done' ? 'done' : 'active',
+      legacyQuestId: quest?.id || null,
+    }));
+  }
   const map = data.state.map;
   if (map && map.data && window.MapGen?.hydrateMap) map.data = window.MapGen.hydrateMap(map.data);
   return data;
