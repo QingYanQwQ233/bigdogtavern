@@ -408,6 +408,16 @@ function worldTurnOptionRules(world) {
   return { min: Number.isInteger(options?.min) ? options.min : 4, max: Number.isInteger(options?.max) ? options.max : 4 };
 }
 
+function validateActionIntent(value) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'actionIntent 必须是对象';
+  if (typeof value.raw !== 'string' || !value.raw.trim() || value.raw.length > 10000) return 'actionIntent.raw 无效';
+  for (const key of ['verb', 'target', 'method', 'risk']) {
+    if (value[key] !== undefined && (typeof value[key] !== 'string' || value[key].length > 240)) return `actionIntent.${key} 无效`;
+  }
+  return null;
+}
+
 function validatePlayerCreationInput(world, input) {
   const schema = playerCreationSchema(world);
   if (input === undefined || input === null) return { snapshot: cloneJson(world?.start?.playerTemplate || { name: '未命名冒险者', race: '待定', role: '旅人', profileFields: [] }), statePlayer: null, relations: {} };
@@ -2119,6 +2129,8 @@ function validateWorldTurn(payload, optionRules = { min: 4, max: 4 }) {
   if (new Set(options.map(o => o.trim())).size !== options.length) return 'options 不能重复';
   const invalidCreateEntities = validateCreateEntities(payload.createEntities);
   if (invalidCreateEntities) return invalidCreateEntities;
+  const invalidActionIntent = validateActionIntent(payload.actionIntent);
+  if (invalidActionIntent) return invalidActionIntent;
   return null;
 }
 
@@ -2169,7 +2181,12 @@ async function handleWorldTurnPost(req, res, saveId) {
         return send(res, 400, JSON.stringify({ error: '存档临时实体数量不能超过 1024' }), 'application/json');
       }
       const revision = current.revision + 1;
-      const committedTurns = payload.turns.map(turn => ({ ...cloneJson(turn), commandId: payload.commandId, revision }));
+      const committedTurns = payload.turns.map((turn, index) => ({
+        ...cloneJson(turn),
+        ...(index === 0 && payload.actionIntent ? { actionIntent: cloneJson(payload.actionIntent) } : {}),
+        commandId: payload.commandId,
+        revision,
+      }));
       const next = {
         ...current,
         state: cloneJson(payload.state),

@@ -289,6 +289,7 @@ async function submitWorldTurn(pending) {
       turns: cloneValue(pending.messages),
       options: pending.options,
       createEntities: pending.createEntities || undefined,
+      actionIntent: pending.actionIntent,
     }),
   });
   const data = await res.json().catch(() => null);
@@ -4417,6 +4418,7 @@ async function sendMessage() {
         beforeState: cloneValue(serializeWorldState(currentWorldSave)),
         state: serializeWorldState(currentWorldSave),
         messages: [{ id: uid(), role: 'user', content: text, ts: Date.now() }],
+        actionIntent: { raw: text },
         options: null,
         createEntities: null,
       };

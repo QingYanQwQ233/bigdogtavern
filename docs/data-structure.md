@@ -119,7 +119,7 @@ WorldNPC 的静态资料按公开边界读取：`role`、`description`、`person
   },
   opening: '世界卡 start.opening 的开局叙事',
   openingMode: 'static' | 'ai', openingOptions: [], openingCommandId: null,
-  turns: [{ id, role: 'user' | 'assistant' | 'system', content, ts, options? }],
+  turns: [{ id, role: 'user' | 'assistant' | 'system', content, ts, options?, actionIntent?: { raw, verb?, target?, method?, risk? } }],
   receipts: [], generatedEntities: {},
   migrationHistory: [{ kind: 'world-version-upgrade', commandId, fromVersion, toVersion, changes, addedNpcStateIds, revision, migratedAt }]
 }
@@ -273,7 +273,7 @@ WorldNPC 的静态资料按公开边界读取：`role`、`description`、`person
 | `POST /api/world-saves/<saveId>/opening` | 以 `commandId + expectedRevision` 幂等提交 AI 开场正文与 4 个选项；只更新当前存档的 `opening` / `openingOptions` |
 | `GET /api/world-saves/<saveId>` | 读取一个完整 WorldSave |
 | `PUT /api/world-saves/<saveId>` | 使用 `expectedRevision` 原子提交当前存档的 `state`、`turns` 与 `opening`；版本冲突返回 409 |
-| `POST /api/world-saves/<saveId>` | 提交一次 RPG 回合候选；校验 `commandId`、assistant 回合、4 个唯一选项、状态数值/背包/任务边界和 revision，成功后追加带 revision 的回合并记录 receipt；相同 commandId 幂等返回 |
+| `POST /api/world-saves/<saveId>` | 提交一次 RPG 回合候选；校验 `commandId`、assistant 回合、卡片允许数量的唯一选项、玩家 `actionIntent.raw`、状态数值/背包/任务边界和 revision，成功后把行动意图附着到本回合并记录 receipt；相同 commandId 幂等返回 |
 | `GET /api/world-saves/<saveId>/upgrade?targetVersion=<n>` | 只读预演存档升级；返回地点/NPC/任务增删与硬错误，不修改 revision |
 | `POST /api/world-saves/<saveId>/upgrade` | 提交 `commandId`、`expectedRevision` 与 `targetVersion`；服务端在存档锁内重新预演，无硬错误时升级并写入迁移历史，相同命令幂等 |
 
