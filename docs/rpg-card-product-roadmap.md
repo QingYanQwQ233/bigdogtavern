@@ -6,7 +6,7 @@
 >
 > 架构底座与历史实施记录仍见 [world-card-architecture.md](world-card-architecture.md) 和 [world-card-implementation-plan.md](world-card-implementation-plan.md)。本文是后续 RPG 产品功能的主路线图。
 
-> 当前执行：R5.3–R6.10、R7.1–R7.6 已完成，下一步进入 R7.7 发布前完整性检查。R7.6 延续 SillyTavern / JSON Editor 的双视图思路，但保持零依赖声明式 JSON，不引入运行时编辑器依赖。
+> 当前执行：R5.3–R6.10、R7.1–R7.7 已完成，下一步进入 R7.8 声明式 UI 投影。R7.6 延续 SillyTavern / JSON Editor 的双视图思路，但保持零依赖声明式 JSON，不引入运行时编辑器依赖。
 
 ## 0. 结论
 
@@ -617,6 +617,10 @@ Implemented the minimal faction contract: static `WorldCard.factions`, save-owne
 ### R7.6 当前进度
 
 已完成高级 JSON 原始视图与可视化编辑器的双向校验：玩家创建规则、成长来源 / 候选、失败模式、结局、事件、派系和冲突均提供显式 JSON 校验入口；解析失败会标红原始输入并保留最近一次有效可视化草稿，只有通过校验后点击“载入编辑器”才会替换草稿。可视化条目输入继续逐条校验 JSON 对象，保存前由前端聚合并交给服务端最终 schema 校验。
+
+### R7.7 当前进度
+
+已完成世界草稿的发布前完整性检查。作者页增加“检查发布条件”入口，会先保存当前草稿，再返回可定位到对应表单的错误列表；发布入口也会先执行同一检查。服务端在真正发布前重复验证世界定义、稳定引用、开局运行态，以及世界书存在性与正则有效性等 Prompt 契约，任何错误都会阻止版本创建，避免绕过前端直接发布。`GET /api/world-drafts/<worldId>/check` 只读取并返回检查报告；`scripts/check_world_storage.js` 覆盖通过、Prompt 契约失败和服务端直接发布拦截。
 
 ### R4.10 当前进度
 

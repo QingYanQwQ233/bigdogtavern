@@ -2458,10 +2458,59 @@ function worldDraftView(draft) {
   return cloneJson(draft);
 }
 
-function prepareWorldDraftPublication(draft) {
+const WORLD_DRAFT_PUBLICATION_CHECKS = [
+  ['definition', '世界定义'], ['references', '稳定引用'], ['runtime', '开局运行态'], ['prompt', 'Prompt 契约'],
+];
+
+function worldDraftPublicationIssue(section, target, message) {
+  return { section, target, message };
+}
+
+function validateWorldConflictModifierBindings(world) {
+  const schema = playerCreationSchema(world) || {};
+  const buckets = Object.fromEntries(['attributes', 'skills', 'resources'].map(key => [key, new Set((Array.isArray(schema[key]) ? schema[key] : []).map(item => item?.id))]));
+  for (const conflict of Array.isArray(world?.conflicts) ? world.conflicts : []) {
+    for (const action of Array.isArray(conflict?.actions) ? conflict.actions : []) {
+      for (const [path, modifier] of [['check.modifier', action?.check?.modifier], ['check.damage.modifier', action?.check?.damage?.modifier]]) {
+        if (modifier && !buckets[modifier.bucket]?.has(modifier.id)) return `conflicts.${conflict.id}.actions.${action.id}.${path} 引用了未声明的玩家字段`;
+      }
+    }
+  }
+  return null;
+}
+
+function validateWorldFailureResourceBindings(world) {
+  const schema = playerCreationSchema(world) || {};
+  const resourceIds = new Set([
+    ...(Array.isArray(schema.resources) ? schema.resources : []).map(item => item?.id),
+    ...(Array.isArray(schema.economy?.currencies) ? schema.economy.currencies : []).map(item => item?.id),
+  ]);
+  for (const mode of Array.isArray(world?.failure?.modes) ? world.failure.modes : []) {
+    for (const id of Object.keys(mode?.resourceLoss || {})) if (!resourceIds.has(id)) return `failure.modes.${mode?.id || 'unknown'}.resourceLoss.${id} 未声明为玩家资源或货币`;
+  }
+  return null;
+}
+
+function validateWorldDraftStart(world) {
+  if (world?.start === undefined || world?.start === null) return null;
+  const start = world.start;
+  if (!start || typeof start !== 'object' || Array.isArray(start)) return 'start 必须是对象';
+  if (start.locationId !== undefined && start.locationId !== null && (!isSafeId(start.locationId) || !worldLocationIds(world).has(start.locationId))) return 'start.locationId 必须引用已登记地点';
+  if (start.playerTemplateId !== undefined && start.playerTemplateId !== null && !isSafeId(start.playerTemplateId)) return 'start.playerTemplateId 无效';
+  if (start.opening !== undefined && (typeof start.opening !== 'string' || start.opening.length > 100000)) return 'start.opening 无效';
+  if (start.openingMode !== undefined && !['static', 'ai'].includes(start.openingMode)) return 'start.openingMode 无效';
+  if (start.playerTemplate !== undefined && (!start.playerTemplate || typeof start.playerTemplate !== 'object' || Array.isArray(start.playerTemplate))) return 'start.playerTemplate 必须是对象';
+  if (start.initialState !== undefined && (!start.initialState || typeof start.initialState !== 'object' || Array.isArray(start.initialState))) return 'start.initialState 必须是对象';
+  return null;
+}
+
+function worldDraftPublicationReport(draft) {
   const world = cloneJson(draft?.world);
+  const errors = [];
+  const add = (section, target, message) => { if (message) errors.push(worldDraftPublicationIssue(section, target, message)); };
   if (!world || world.id !== draft.worldId || Number(world.version) !== Number(draft.baseVersion)) {
-    return { error: '草稿世界标识或基础版本不一致' };
+    add('definition', 'world-draft-name', '草稿世界标识或基础版本不一致');
+    return { world: null, errors, checks: WORLD_DRAFT_PUBLICATION_CHECKS.map(([id, label]) => ({ id, label, ok: false })) };
   }
   let mapGeneration = world.map?.generation;
   if (mapGeneration && typeof mapGeneration === 'object' && !Array.isArray(mapGeneration)) {
@@ -2492,8 +2541,101 @@ function prepareWorldDraftPublication(draft) {
     locations: Array.isArray(world.locations) ? world.locations : [],
     npcs: Array.isArray(world.npcs) ? world.npcs : [],
   };
-  const invalid = worldDraftFieldsValid(payload) || validatePlayerCreationSchema(payload.playerCreation, world) || validateWorldDraftCollections(payload, world) || validateWorldEvents(payload.events, world);
-  return invalid ? { error: invalid } : { world };
+  add('definition', 'world-draft-name', worldDraftFieldsValid(payload));
+  add('references', 'world-draft-player-creation', validatePlayerCreationSchema(payload.playerCreation, world));
+  add('references', 'world-draft-locations', validateWorldDraftCollections(payload, world));
+  add('references', 'world-draft-events', validateWorldEvents(payload.events, world));
+  add('references', 'world-draft-factions', validateWorldFactions(payload.factions, world));
+  add('references', 'world-draft-conflicts', validateWorldConflictModifierBindings(world));
+  add('references', 'world-draft-failure', validateWorldFailureResourceBindings(world));
+
+  const start = world.start && typeof world.start === 'object' && !Array.isArray(world.start) ? world.start : {};
+  const initial = start.initialState && typeof start.initialState === 'object' && !Array.isArray(start.initialState) ? start.initialState : {};
+  add('runtime', 'world-draft-locations', validateWorldDraftStart(world));
+  const state = {
+    locationId: start.locationId ?? null,
+    stats: initial.stats === undefined ? {} : initial.stats,
+    time: { unit: String(world.time?.unit || 'tick'), value: Number(world.time?.start || 0) },
+    inventory: initial.inventory === undefined ? [] : initial.inventory,
+    quests: initial.quests === undefined ? [] : initial.quests,
+    goals: initial.goals === undefined ? [] : initial.goals,
+    leads: initial.leads === undefined ? [] : initial.leads,
+    worldEvents: [],
+    ...(initial.player !== undefined ? { player: initial.player } : {}),
+    ...(initial.conflicts !== undefined ? { conflicts: initial.conflicts } : {}),
+    ...(initial.growthCandidates !== undefined ? { growthCandidates: initial.growthCandidates } : {}),
+    ...(initial.growthApplications !== undefined ? { growthApplications: initial.growthApplications } : {}),
+    ...(initial.experiences !== undefined ? { experiences: initial.experiences } : {}),
+  };
+  const factionStates = initialFactionStates(world);
+  const economyState = materializePlayerEconomyState(world, initial, initial.player);
+  Object.assign(state, playerEconomySchema(world) ? economyState : {}, { factionStates });
+  add('runtime', 'world-draft-name', validateWorldSavePatch({ expectedRevision: 0, state, turns: [] }));
+  add('runtime', 'world-draft-name', validateDynamicPlayerState(world, initial.player));
+  add('runtime', 'world-draft-name', validateWorldLocationIds(world, state, initialNpcStates(world, start)));
+  add('runtime', 'world-draft-factions', validateFactionStates(world, factionStates));
+  add('runtime', 'world-draft-conflicts', validateConflictStates(world, state.conflicts || {}));
+  add('runtime', 'world-draft-player-creation', validateGrowthCandidates(world, state.growthCandidates || []));
+  add('runtime', 'world-draft-player-creation', validateGrowthApplications(world, state.growthApplications || []));
+  add('runtime', 'world-draft-player-creation', validateGrowthExperiences(world, state.experiences || []));
+  add('runtime', 'world-draft-player-creation', validateGrowthStateCrossRefs(state));
+  add('runtime', 'world-draft-player-creation', validatePlayerEconomyState(world, economyState));
+  const seen = new Set();
+  const uniqueErrors = errors.filter(issue => {
+    const key = `${issue.section}\0${issue.target}\0${issue.message}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return {
+    world,
+    errors: uniqueErrors,
+    checks: WORLD_DRAFT_PUBLICATION_CHECKS.map(([id, label]) => ({ id, label, ok: !uniqueErrors.some(issue => issue.section === id) })),
+  };
+}
+
+async function worldDraftPromptIssues(world) {
+  let lorebooks;
+  try { lorebooks = await loadDataDocument('lorebooks'); }
+  catch { return [worldDraftPublicationIssue('prompt', 'world-draft-lorebooks', '无法读取世界书，不能确认 Prompt 引用')]; }
+  if (!lorebooks || typeof lorebooks !== 'object' || Array.isArray(lorebooks)) return [worldDraftPublicationIssue('prompt', 'world-draft-lorebooks', '世界书数据格式无效')];
+  const issues = [];
+  const lorebookIds = Array.isArray(world?.lorebookIds) && world.lorebookIds.length ? world.lorebookIds : ['default'];
+  for (const id of [...new Set(lorebookIds)]) {
+    const lorebook = lorebooks[id];
+    if (!lorebook) { issues.push(worldDraftPublicationIssue('prompt', 'world-draft-lorebooks', `缺少世界书引用：${id}`)); continue; }
+    if (!Array.isArray(lorebook.entries)) { issues.push(worldDraftPublicationIssue('prompt', 'world-draft-lorebooks', `世界书 ${id} 的 entries 无效`)); continue; }
+    for (const [index, entry] of lorebook.entries.entries()) {
+      for (const key of String(entry?.keys || '').split(',').map(value => value.trim()).filter(Boolean)) {
+        if (!key.startsWith('/') || key.lastIndexOf('/') <= 0) continue;
+        const end = key.lastIndexOf('/');
+        const pattern = key.slice(1, end);
+        const flags = key.slice(end + 1);
+        try {
+          if (pattern.length > 500 || !/^[dgimsuvy]*$/.test(flags)) throw new Error('invalid');
+          new RegExp(pattern, flags);
+        } catch { issues.push(worldDraftPublicationIssue('prompt', 'world-draft-lorebooks', `世界书 ${id}.entries[${index}] 的正则触发器无效`)); }
+      }
+    }
+  }
+  return issues;
+}
+
+async function worldDraftPublicationCheck(draft, worlds) {
+  const report = worldDraftPublicationReport(draft);
+  const latest = latestWorld(worlds, draft?.worldId);
+  if (!latest) report.errors.push(worldDraftPublicationIssue('definition', 'world-draft-name', '世界卡不存在'));
+  else if (Number(latest.version) !== Number(draft?.baseVersion)) report.errors.push(worldDraftPublicationIssue('definition', 'world-draft-base', `草稿基于 v${draft.baseVersion}，但当前最新版本是 v${latest.version}`));
+  if (report.world) report.errors.push(...await worldDraftPromptIssues(report.world));
+  const seen = new Set();
+  report.errors = report.errors.filter(issue => {
+    const key = `${issue.section}\0${issue.target}\0${issue.message}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  report.checks = WORLD_DRAFT_PUBLICATION_CHECKS.map(([id, label]) => ({ id, label, ok: !report.errors.some(issue => issue.section === id) }));
+  return { ...report, ready: report.errors.length === 0, nextVersion: Number(draft?.baseVersion) + 1 };
 }
 
 function worldNpcIds(world) {
@@ -2972,6 +3114,20 @@ async function handleWorldDraftPut(req, res, worldId) {
   });
 }
 
+async function handleWorldDraftCheck(req, res, worldId) {
+  if (!isSafeId(worldId)) return send(res, 400, JSON.stringify({ error: '无效的 worldId' }), 'application/json');
+  try {
+    const [drafts, worlds] = await Promise.all([loadWorldDrafts(), loadWorlds()]);
+    const draft = drafts.find(item => item?.worldId === worldId);
+    if (!draft) return send(res, 404, JSON.stringify({ error: '世界草稿不存在' }), 'application/json');
+    const report = await worldDraftPublicationCheck(draft, worlds);
+    send(res, 200, JSON.stringify({ ...report, worldId, updatedAt: draft.updatedAt, baseVersion: draft.baseVersion }), 'application/json; charset=utf-8');
+  } catch (err) {
+    console.error('[world-drafts] 发布检查失败:', err.message);
+    send(res, 500, JSON.stringify({ error: '发布检查失败: ' + err.message }), 'application/json');
+  }
+}
+
 async function handleWorldDraftPublish(req, res, worldId) {
   if (!isSafeId(worldId)) return send(res, 400, JSON.stringify({ error: '无效的 worldId' }), 'application/json');
   let payload;
@@ -3017,10 +3173,10 @@ async function handleWorldDraftPublish(req, res, worldId) {
           latestVersion: Number(latest.version),
         }), 'application/json');
       }
-      const prepared = prepareWorldDraftPublication(current);
-      if (prepared.error) return send(res, 400, JSON.stringify({ error: prepared.error }), 'application/json');
+      const report = await worldDraftPublicationCheck(current, worlds);
+      if (!report.ready) return send(res, 400, JSON.stringify({ error: report.errors[0].message, report }), 'application/json');
       const publishedAt = Date.now();
-      const nextWorld = prepared.world;
+      const nextWorld = report.world;
       nextWorld.version = Number(current.baseVersion) + 1;
       nextWorld.publication = {
         source: 'draft',
@@ -4820,6 +4976,13 @@ const server = http.createServer((req, res) => {
     try { worldId = decodeURIComponent(worldDraftPublishMatch[1]); }
     catch { return send(res, 400, JSON.stringify({ error: '无效的 worldId' }), 'application/json'); }
     return handleWorldDraftPublish(req, res, worldId);
+  }
+  const worldDraftCheckMatch = url.pathname.match(/^\/api\/world-drafts\/([^/]+)\/check\/?$/);
+  if (worldDraftCheckMatch && req.method === 'GET') {
+    let worldId;
+    try { worldId = decodeURIComponent(worldDraftCheckMatch[1]); }
+    catch { return send(res, 400, JSON.stringify({ error: '无效的 worldId' }), 'application/json'); }
+    return handleWorldDraftCheck(req, res, worldId);
   }
   const worldDraftMatch = url.pathname.match(/^\/api\/world-drafts\/([^/]+)\/?$/);
   if (worldDraftMatch && (req.method === 'GET' || req.method === 'PUT')) {

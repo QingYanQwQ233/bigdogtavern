@@ -401,13 +401,59 @@ async function main() {
       }),
     });
     assert.strictEqual(secondDraftUpdate.response.status, 200);
+    const readyPublishCheck = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(secondWorld.id) + '/check');
+    assert.strictEqual(readyPublishCheck.response.status, 200);
+    assert.strictEqual(readyPublishCheck.body.ready, true, 'a valid draft passes the full publication check');
+    assert.ok(readyPublishCheck.body.checks.every(check => check.ok), 'all publication check groups are reported as ready');
+    const missingLorebookDraft = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(secondWorld.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        expectedUpdatedAt: secondDraftUpdate.body.updatedAt,
+        baseVersion: secondWorld.version,
+        title: secondDraftUpdate.body.world.title,
+        summary: secondDraftUpdate.body.world.summary || '',
+        tags: secondDraftUpdate.body.world.tags || [],
+        lorebookIds: ['missing-lorebook'],
+        mapGeneration: secondDraftUpdate.body.world.map.generation,
+        locations: secondDraftUpdate.body.world.locations || [],
+        npcs: secondDraftUpdate.body.world.npcs || [],
+      }),
+    });
+    assert.strictEqual(missingLorebookDraft.response.status, 200);
+    const blockedPublishCheck = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(secondWorld.id) + '/check');
+    assert.strictEqual(blockedPublishCheck.response.status, 200);
+    assert.strictEqual(blockedPublishCheck.body.ready, false, 'missing Prompt lorebooks block publication');
+    assert.ok(blockedPublishCheck.body.errors.some(error => error.section === 'prompt' && error.target === 'world-draft-lorebooks'));
+    const blockedPublish = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(secondWorld.id) + '/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'publish-second-blocked', expectedUpdatedAt: missingLorebookDraft.body.updatedAt, baseVersion: secondWorld.version }),
+    });
+    assert.strictEqual(blockedPublish.response.status, 400, 'publish repeats the full check instead of trusting the client');
+    const restoredDraft = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(secondWorld.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        expectedUpdatedAt: missingLorebookDraft.body.updatedAt,
+        baseVersion: secondWorld.version,
+        title: missingLorebookDraft.body.world.title,
+        summary: missingLorebookDraft.body.world.summary || '',
+        tags: missingLorebookDraft.body.world.tags || [],
+        lorebookIds: secondDraftUpdate.body.world.lorebookIds || [],
+        mapGeneration: missingLorebookDraft.body.world.map.generation,
+        locations: missingLorebookDraft.body.world.locations || [],
+        npcs: missingLorebookDraft.body.world.npcs || [],
+      }),
+    });
+    assert.strictEqual(restoredDraft.response.status, 200);
     const invalidPublish = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(secondWorld.id) + '/publish', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ commandId: 'bad', expectedUpdatedAt: secondDraftUpdate.body.updatedAt, baseVersion: secondWorld.version }),
+      body: JSON.stringify({ commandId: 'bad', expectedUpdatedAt: restoredDraft.body.updatedAt, baseVersion: secondWorld.version }),
     });
     assert.strictEqual(invalidPublish.response.status, 400, 'invalid publication command IDs are rejected');
-    const publishPayload = { commandId: 'publish-second-0001', expectedUpdatedAt: secondDraftUpdate.body.updatedAt, baseVersion: secondWorld.version };
+    const publishPayload = { commandId: 'publish-second-0001', expectedUpdatedAt: restoredDraft.body.updatedAt, baseVersion: secondWorld.version };
     const secondPublish = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(secondWorld.id) + '/publish', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -143,7 +143,7 @@ async function main() {
     assert.ok(freeTurn.body.receipts.at(-1).conflictTransitions.some(item => item.id === 'wolf-encounter-2' && item.op === 'start'));
     const tamperedCombatHp = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ commandId: 'turn-check-combat-hp', expectedRevision: freeTurn.body.revision, actionIntent: { raw: '伪造伤害' }, state: { ...freeTurn.body.state, conflicts: { ...freeTurn.body.state.conflicts, 'wolf-encounter-1': { ...freeTurn.body.state.conflicts['wolf-encounter-1'], participants: freeTurn.body.state.conflicts['wolf-encounter-1'].participants.map(item => item.id === 'wolf-alpha' ? { ...item, hp: 0 } : item) } } }, turns: [{ role: 'assistant', content: '拒绝。' }], options: [] }),
+      body: JSON.stringify({ commandId: 'turn-check-combat-hp', expectedRevision: freeTurn.body.revision, actionIntent: { raw: '伪造伤害' }, state: { ...freeTurn.body.state, conflicts: { ...freeTurn.body.state.conflicts, 'wolf-encounter-1': { ...freeTurn.body.state.conflicts['wolf-encounter-1'], participants: freeTurn.body.state.conflicts['wolf-encounter-1'].participants.map(item => item.id === 'wolf-alpha' ? { ...item, hp: item.hp === 0 ? 1 : 0 } : item) } } }, turns: [{ role: 'assistant', content: '拒绝。' }], options: [] }),
     });
     assert.strictEqual(tamperedCombatHp.response.status, 400, 'combat participant HP is server-owned');
     const invalidGrowthCandidate = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {

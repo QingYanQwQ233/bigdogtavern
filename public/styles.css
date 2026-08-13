@@ -1588,6 +1588,13 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
 .world-draft-status { min-height: 20px; margin: 3px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.5; }
 .world-draft-status.error { color: var(--danger); }
 .world-draft-status.ok { color: var(--ok); }
+.world-draft-check-report { display: grid; gap: 8px; margin: 10px 0 2px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(var(--bg-0-rgb), 0.32); font-size: 11.5px; line-height: 1.5; }
+.world-draft-check-report[data-ready="true"] { border-color: var(--ok); }
+.world-draft-check-summary { margin: 0; color: var(--text); }
+.world-draft-check-summary b { color: var(--accent); }
+.world-draft-check-list { display: grid; gap: 5px; margin: 0; padding-left: 18px; }
+.world-draft-check-list button { width: fit-content; padding: 0; border: 0; background: none; color: var(--danger); font: inherit; text-align: left; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.world-draft-check-pass { color: var(--ok); }
 .world-player-dialog { width: min(620px, calc(100vw - 32px)); }
 .world-player-fields { display: grid; gap: 12px; }
 .world-player-fields .field { margin: 0; }

@@ -421,6 +421,73 @@ function setWorldDraftStatus(message, kind = '') {
   el.textContent = message || '';
   el.className = 'world-draft-status' + (kind ? ' ' + kind : '');
 }
+function clearWorldDraftCheckReport() {
+  const report = $('world-draft-check-report');
+  if (!report) return;
+  report.hidden = true;
+  report.replaceChildren();
+  delete report.dataset.ready;
+}
+function focusWorldDraftCheckTarget(targetId) {
+  const target = $(targetId) || $('world-draft-check-report');
+  if (!target) return;
+  target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  if (!/^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(target.tagName)) target.tabIndex = -1;
+  target.focus({ preventScroll: true });
+}
+function renderWorldDraftCheckReport(report, { focus = false } = {}) {
+  const host = $('world-draft-check-report');
+  if (!host) return;
+  const errors = Array.isArray(report?.errors) ? report.errors : [];
+  const checks = Array.isArray(report?.checks) ? report.checks : [];
+  host.hidden = false;
+  host.dataset.ready = errors.length === 0 ? 'true' : 'false';
+  const summary = document.createElement('p');
+  summary.className = 'world-draft-check-summary';
+  const passed = checks.filter(check => check?.ok).length;
+  summary.textContent = errors.length ? `发布被阻止：${errors.length} 项问题需要处理。` : `发布检查通过：${passed}/${checks.length} 项契约已确认。`;
+  host.replaceChildren(summary);
+  if (!errors.length) {
+    const detail = document.createElement('p');
+    detail.className = 'world-draft-check-pass';
+    detail.textContent = '起点、稳定引用、开局运行态和 Prompt 注入均可用。';
+    host.append(detail);
+    return;
+  }
+  const list = document.createElement('ol');
+  list.className = 'world-draft-check-list';
+  for (const issue of errors) {
+    const item = document.createElement('li');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.worldDraftCheckTarget = issue?.target || '';
+    button.textContent = issue?.message || '发布检查失败';
+    item.append(button);
+    list.append(item);
+  }
+  host.append(list);
+  if (focus) focusWorldDraftCheckTarget(errors[0]?.target);
+}
+async function checkWorldDraftPublishability({ save = true, focus = false } = {}) {
+  if (!worldDraft || !$('world-draft-form').reportValidity()) return false;
+  if (save && worldDraftDirty && !await saveWorldDraft()) return false;
+  setWorldDraftStatus('正在检查发布条件…');
+  try {
+    const res = await fetch('/api/world-drafts/' + encodeURIComponent(worldDraft.worldId) + '/check');
+    const report = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(worldApiError(report, '发布检查失败（HTTP ' + res.status + '）'));
+    renderWorldDraftCheckReport(report, { focus });
+    if (!report?.ready) {
+      setWorldDraftStatus(`发布检查发现 ${Array.isArray(report?.errors) ? report.errors.length : 1} 项问题。`, 'error');
+      return false;
+    }
+    setWorldDraftStatus(`发布检查通过，可发布 v${report.nextVersion}。`, 'ok');
+    return true;
+  } catch (err) {
+    setWorldDraftStatus(err.message, 'error');
+    return false;
+  }
+}
 function setWorldDraftJsonRawState(target, state = '') {
   const raw = typeof target === 'string' ? $(target) : target;
   if (!raw) return;
@@ -978,8 +1045,9 @@ function syncWorldDraftJsonArraysFromForm({ showError = false } = {}) {
 }
 function collectWorldDraftJsonArraysForSave() {
   const raw = Object.fromEntries(WORLD_DRAFT_JSON_ARRAY_DEFS.map(({ key, rawId }) => [key, $(rawId || `world-draft-${key}`)?.value.trim() || '']));
+  const rawMatchesEditor = Object.fromEntries(WORLD_DRAFT_JSON_ARRAY_DEFS.map(({ key }) => [key, raw[key] === worldDraftJsonArrayRawText(key)]));
   for (const { key } of WORLD_DRAFT_JSON_ARRAY_DEFS) {
-    if (raw[key] !== worldDraftJsonArrayRawText(key)) {
+    if (!rawMatchesEditor[key]) {
       const result = validateWorldDraftJsonArrayRaw(key);
       if (!result.ok) return result;
     }
@@ -989,8 +1057,7 @@ function collectWorldDraftJsonArraysForSave() {
   const values = { ...editor.values };
   for (const { key } of WORLD_DRAFT_JSON_ARRAY_DEFS) {
     const definition = worldDraftJsonArrayDefinition(key);
-    const preview = worldDraftJsonArrayRawText(key);
-    if (raw[key] === preview) continue;
+    if (rawMatchesEditor[key]) continue;
     if (!raw[key]) values[key] = null;
     else {
       try {
@@ -1125,6 +1192,7 @@ function collectWorldDraftCollections() {
 }
 function fillWorldDraftForm(draft) {
   const world = draft?.world || {};
+  clearWorldDraftCheckReport();
   $('world-draft-name').value = world.title || '';
   $('world-draft-summary').value = world.summary || '';
   $('world-draft-setting').value = world.setting ? JSON.stringify(world.setting, null, 2) : '';
@@ -1299,6 +1367,7 @@ async function saveWorldDraft() {
 async function publishWorldDraft() {
   if (!worldDraft || !$('world-draft-form').reportValidity()) return;
   if (worldDraftDirty && !await saveWorldDraft()) return;
+  if (!await checkWorldDraftPublishability({ save: false, focus: true })) return;
   const title = worldDraft.world?.title || '未命名世界';
   const nextVersion = Number(worldDraft.baseVersion) + 1;
   if (!confirm(`将“${title}”发布为 v${nextVersion}？\n\n已发布版本不可覆盖；现有存档仍绑定各自原版本。`)) return;
@@ -6989,7 +7058,7 @@ function bindEvents() {
   $('world-import-dialog').addEventListener('click', e => { if (e.target === e.currentTarget) closeWorldPackageImport(); });
   $('world-export').addEventListener('click', exportCurrentWorldPackage);
   $('world-edit-draft').addEventListener('click', openWorldDraftEditor);
-  $('world-draft-form').addEventListener('input', () => { worldDraftDirty = true; worldDraftPublishId = null; });
+  $('world-draft-form').addEventListener('input', () => { worldDraftDirty = true; worldDraftPublishId = null; clearWorldDraftCheckReport(); });
   $('world-draft-map-regions').addEventListener('input', updateWorldDraftMapOutputs);
   $('world-draft-map-land').addEventListener('input', updateWorldDraftMapOutputs);
   $('world-draft-map-random').addEventListener('click', randomizeWorldDraftMapSeed);
@@ -7010,6 +7079,11 @@ function bindEvents() {
   }
   $('world-draft-add-location').addEventListener('click', addWorldDraftLocation);
   $('world-draft-add-npc').addEventListener('click', addWorldDraftNpc);
+  $('world-draft-check').addEventListener('click', () => checkWorldDraftPublishability({ focus: true }));
+  $('world-draft-check-report').addEventListener('click', event => {
+    const button = event.target.closest('[data-world-draft-check-target]');
+    if (button) focusWorldDraftCheckTarget(button.dataset.worldDraftCheckTarget);
+  });
   $('world-draft-form').addEventListener('submit', async e => { e.preventDefault(); await saveWorldDraft(); });
   $('world-draft-publish').addEventListener('click', publishWorldDraft);
   $('world-draft-close').addEventListener('click', requestCloseWorldDraft);
