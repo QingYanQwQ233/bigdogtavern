@@ -472,6 +472,26 @@ function validateWorldEventLog(value) {
   return null;
 }
 
+function validateWorldObjectiveList(value, label, world = null) {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value) || value.length > 256) return `${label} 最多 256 项`;
+  const locationIds = world ? worldLocationIds(world) : null;
+  const ids = new Set();
+  for (const objective of value) {
+    const id = typeof objective?.id === 'string' ? objective.id.trim() : '';
+    if (!isSafeId(id) || ids.has(id)) return `${label} 含有重复或无效 ID`;
+    if (!draftTextValid(objective.title, 240, true) || !draftTextValid(objective.desc ?? '', 4000)) return `${label}.${id} 文本无效`;
+    if (objective.status !== undefined && !['active', 'done', 'failed', 'paused'].includes(objective.status)) return `${label}.${id}.status 无效`;
+    for (const key of ['actorId', 'locationId']) {
+      if (objective[key] !== undefined && objective[key] !== null && (!isSafeId(objective[key]) || (key === 'locationId' && locationIds && !locationIds.has(objective[key])))) return `${label}.${id}.${key} 无效`;
+    }
+    if (objective.deadline !== undefined && (!objective.deadline || typeof objective.deadline !== 'object' || Array.isArray(objective.deadline) || typeof objective.deadline.unit !== 'string' || !objective.deadline.unit.trim() || objective.deadline.unit.length > 40 || !Number.isFinite(objective.deadline.value) || objective.deadline.value < 0 || objective.deadline.value > 1000000000)) return `${label}.${id}.deadline 无效`;
+    if (objective.tags !== undefined && !draftStringListValid(objective.tags, 32, 120)) return `${label}.${id}.tags 无效`;
+    ids.add(id);
+  }
+  return null;
+}
+
 function advanceWorldTime(current, world) {
   const config = world?.time && typeof world.time === 'object' ? world.time : {};
   const unit = typeof current?.unit === 'string' ? current.unit : String(config.unit || 'tick');
@@ -1976,6 +1996,10 @@ async function handleWorldSaveCreate(req, res) {
   if (schemaInvalid) return send(res, 400, JSON.stringify({ error: schemaInvalid }), 'application/json');
   const timeInvalid = validateWorldTime(world.time);
   if (timeInvalid) return send(res, 400, JSON.stringify({ error: timeInvalid }), 'application/json');
+  for (const [key, label] of [['goals', 'start.initialState.goals'], ['leads', 'start.initialState.leads']]) {
+    const invalidObjectives = validateWorldObjectiveList(initial[key], label, world);
+    if (invalidObjectives) return send(res, 400, JSON.stringify({ error: invalidObjectives }), 'application/json');
+  }
   const playerResult = validatePlayerCreationInput(world, payload.player);
   if (playerResult.error) return send(res, 400, JSON.stringify({ error: playerResult.error }), 'application/json');
   const player = playerResult.snapshot;
@@ -2002,6 +2026,8 @@ async function handleWorldSaveCreate(req, res) {
       time: { unit: String(world.time?.unit || 'tick'), value: Number(world.time?.start || 0) },
       ...(playerState ? { player: playerState } : {}),
       worldEvents: [],
+      goals: Array.isArray(initial.goals) ? cloneJson(initial.goals) : [],
+      leads: Array.isArray(initial.leads) ? cloneJson(initial.leads) : [],
       inventory: Array.isArray(initial.inventory) ? cloneJson(initial.inventory) : [],
       quests: Array.isArray(initial.quests) ? cloneJson(initial.quests) : [],
       map: {
@@ -2070,6 +2096,10 @@ function validateWorldSavePatch(payload) {
   }
   const worldEventsInvalid = validateWorldEventLog(state.worldEvents);
   if (worldEventsInvalid) return worldEventsInvalid;
+  for (const [key, label] of [['goals', 'state.goals'], ['leads', 'state.leads']]) {
+    const invalidObjectives = validateWorldObjectiveList(state[key], label);
+    if (invalidObjectives) return invalidObjectives;
+  }
   for (const item of state.inventory) {
     if (!item || typeof item !== 'object' || typeof item.name !== 'string' || !item.name.trim() || item.name.length > 200) return '背包条目无效';
     if (item.count !== undefined && (!Number.isInteger(item.count) || item.count < 0 || item.count > 1000000)) return '背包数量无效';
@@ -2252,6 +2282,10 @@ async function handleWorldSavePut(req, res, saveId) {
       const world = findWorldVersion(await loadWorlds(), current.worldId, current.worldVersion);
       const invalidLocation = validateWorldLocationIds(world, payload.state, current.npcStates);
       if (invalidLocation) return send(res, 400, JSON.stringify({ error: invalidLocation }), 'application/json');
+      for (const [key, label] of [['goals', 'state.goals'], ['leads', 'state.leads']]) {
+        const invalidObjectives = validateWorldObjectiveList(payload.state[key], label, world);
+        if (invalidObjectives) return send(res, 400, JSON.stringify({ error: invalidObjectives }), 'application/json');
+      }
       if (current.revision !== payload.expectedRevision) {
         return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
       }
@@ -2319,6 +2353,10 @@ async function handleWorldTurnPost(req, res, saveId) {
       if (contractInvalid) return send(res, 400, JSON.stringify({ error: contractInvalid }), 'application/json');
       const invalidLocation = validateWorldLocationIds(world, payload.state, payload.npcStates, payload.createEntities);
       if (invalidLocation) return send(res, 400, JSON.stringify({ error: invalidLocation }), 'application/json');
+      for (const [key, label] of [['goals', 'state.goals'], ['leads', 'state.leads']]) {
+        const invalidObjectives = validateWorldObjectiveList(payload.state[key], label, world);
+        if (invalidObjectives) return send(res, 400, JSON.stringify({ error: invalidObjectives }), 'application/json');
+      }
       const worldEventsInvalid = validateWorldEventLog(payload.state.worldEvents);
       if (worldEventsInvalid) return send(res, 400, JSON.stringify({ error: worldEventsInvalid }), 'application/json');
       let allowedNpcIds = new Set(Object.keys(current.npcStates || {}));

@@ -106,6 +106,8 @@ WorldNPC 的静态资料按公开边界读取：`role`、`description`、`person
 
 正式回合 receipt 采用 `{ kind: 'turn', commandId, revision, turnIds, eventIds, committedAt }`，开场等其他 receipt 不计入成功回合数。
 
+`state.goals` 与 `state.leads` 是存档级目标 / 线索投影，使用稳定 `id`、`title`、`desc`、`status`，可选引用当前世界的 `actorId` / `locationId` 与 `deadline`；它们与旧 `quests` 并存，AI 只能通过本回合结构化控制块增量 upsert，服务端会校验 ID、状态和地点引用。
+
 `generatedEntities` 按 `npcs` / `items` / `quests` / `locations` 分桶保存 AI 提出的临时实体。回合请求只能提交候选 `createEntities`（最多 32 个），服务端按当前 `saveId` 生成 `save:<saveId>:<kind>:<n>` ID 后写入当前存档；重复命令不会重复创建，其他世界存档不可见。
 
 如需把存档 NPC 收录为长期世界 NPC，客户端必须显式调用 `POST /api/worlds/<worldId>/versions`，提交 `sourceSaveId`、`expectedRevision` 和该存档生成的 `npcId`。服务端会复制来源世界卡为下一 `version`，分配新的稳定 NPC ID 并写入来源映射；来源世界版本与来源存档均不改写。同一来源 NPC 重复调用会返回已创建版本（幂等）。
@@ -120,7 +122,7 @@ WorldNPC 的静态资料按公开边界读取：`role`、`description`、`person
   party: { memberIds: [], leaderId: null },
   npcStates: { [npcId]: { locationId, relation, knowledge: [], status: [] } },
   state: {
-    stats, player: { fields, attributes, resources, traits, relations, effects: [] }, time: { unit, value }, worldEvents: [], inventory: [], quests: [], locationId,
+    stats, player: { fields, attributes, resources, traits, relations, effects: [] }, time: { unit, value }, worldEvents: [], goals: [], leads: [], inventory: [], quests: [], locationId,
     map: { strategy: 'perSave', data: null, imagePath: null, markers: [] }
   },
   opening: '世界卡 start.opening 的开局叙事',
@@ -280,7 +282,7 @@ WorldNPC 的静态资料按公开边界读取：`role`、`description`、`person
 | `POST /api/world-saves/<saveId>/opening` | 以 `commandId + expectedRevision` 幂等提交 AI 开场正文与 4 个选项；只更新当前存档的 `opening` / `openingOptions` |
 | `GET /api/world-saves/<saveId>` | 读取一个完整 WorldSave |
 | `PUT /api/world-saves/<saveId>` | 使用 `expectedRevision` 原子提交当前存档的 `state`、`turns` 与 `opening`；版本冲突返回 409 |
-| `POST /api/world-saves/<saveId>` | 提交一次 RPG 回合候选；校验 `commandId`、assistant 回合、卡片允许数量的唯一选项、玩家 `actionIntent.raw`、状态数值/背包/任务边界和 revision，成功后在原子提交中推进时间、结算 `events`、把行动意图附着到本回合并记录 receipt；相同 commandId 幂等返回 |
+| `POST /api/world-saves/<saveId>` | 提交一次 RPG 回合候选；校验 `commandId`、assistant 回合、卡片允许数量的唯一选项、玩家 `actionIntent.raw`、状态数值/背包/任务/目标/线索边界和 revision，成功后在原子提交中推进时间、结算 `events`、把行动意图附着到本回合并记录 receipt；相同 commandId 幂等返回 |
 | `GET /api/world-saves/<saveId>/upgrade?targetVersion=<n>` | 只读预演存档升级；返回地点/NPC/任务增删与硬错误，不修改 revision |
 | `POST /api/world-saves/<saveId>/upgrade` | 提交 `commandId`、`expectedRevision` 与 `targetVersion`；服务端在存档锁内重新预演，无硬错误时升级并写入迁移历史，相同命令幂等 |
 

@@ -98,11 +98,13 @@ async function main() {
     assert.strictEqual(tamperedDice.response.status, 400, 'tampered dice result is rejected');
     const eventTurn = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ commandId: 'turn-check-3', expectedRevision: freeTurn.body.revision, actionIntent: { raw: '继续观察' }, state: freeTurn.body.state, turns: [{ role: 'user', content: '继续观察', ts: Date.now() }, { role: 'assistant', content: '极光忽然亮起。', ts: Date.now() }], options: [] }),
+      body: JSON.stringify({ commandId: 'turn-check-3', expectedRevision: freeTurn.body.revision, actionIntent: { raw: '继续观察' }, state: { ...freeTurn.body.state, goals: [{ id: 'find-aurora', title: '查明极光异动', desc: '找到山脊上的异常光源。', status: 'active', locationId: 'wolf-tooth-inn' }], leads: [{ id: 'inn-rumor', title: '旅店传闻', desc: '有人听见山脊方向的回响。', status: 'active', locationId: 'wolf-tooth-inn' }] }, turns: [{ role: 'user', content: '继续观察', ts: Date.now() }, { role: 'assistant', content: '极光忽然亮起。', ts: Date.now() }], options: [] }),
     });
     assert.strictEqual(eventTurn.response.status, 200);
     assert.strictEqual(eventTurn.body.state.time.value, 10);
     assert.deepStrictEqual(eventTurn.body.state.worldEvents.map(event => event.eventId), ['inn-echo', 'aurora-omen']);
+    assert.strictEqual(eventTurn.body.state.goals[0].id, 'find-aurora');
+    assert.strictEqual(eventTurn.body.state.leads[0].id, 'inn-rumor');
     assert.deepStrictEqual(eventTurn.body.receipts.at(-1).eventIds, ['aurora-omen']);
     const eventRetry = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -110,6 +112,11 @@ async function main() {
     });
     assert.strictEqual(eventRetry.response.status, 200, 'event turn retry is idempotent');
     assert.strictEqual(eventRetry.body.state.worldEvents.length, 2, 'event retry does not duplicate event');
+    const invalidObjective = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'turn-check-4', expectedRevision: eventTurn.body.revision, actionIntent: { raw: '检查目标' }, state: { ...eventTurn.body.state, goals: [{ id: 'bad-goal', title: '越界目标', locationId: 'missing-location' }] }, turns: [{ role: 'assistant', content: '拒绝。' }], options: [] }),
+    });
+    assert.strictEqual(invalidObjective.response.status, 400, 'objective locations are validated against the world');
 
     const second = await jsonRequest(base, '/api/world-saves', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

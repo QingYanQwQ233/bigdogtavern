@@ -1416,6 +1416,8 @@ function defaultRpgState() {
     buffs: Array.isArray(init.buffs) ? init.buffs : [],
     inventory: Array.isArray(init.inventory) ? init.inventory : [],
     quests: Array.isArray(init.quests) ? init.quests : [],
+    goals: Array.isArray(init.goals) ? init.goals : [],
+    leads: Array.isArray(init.leads) ? init.leads : [],
   };
 }
 
@@ -1433,6 +1435,8 @@ function worldRpgState() {
         buffs: Array.isArray(stats.buffs) ? stats.buffs : [],
         inventory: Array.isArray(state.inventory) ? state.inventory : [],
         quests: Array.isArray(state.quests) ? state.quests : [],
+        goals: Array.isArray(state.goals) ? state.goals : [],
+        leads: Array.isArray(state.leads) ? state.leads : [],
       }, writable: true, configurable: true,
     });
   }
@@ -1446,6 +1450,8 @@ function commitRpgState(rs) {
     state.locationId = rs.location || null;
     state.inventory = cloneValue(rs.inventory || []);
     state.quests = cloneValue(rs.quests || []);
+    state.goals = cloneValue(rs.goals || []);
+    state.leads = cloneValue(rs.leads || []);
     if (worldTurnPendingActive()) {
       worldTurnPending.state = serializeWorldState(currentWorldSave);
       return;
@@ -1506,6 +1512,16 @@ function renderRPG() {
       ? rs.quests.map((x, idx) => `<div class="rpg-item${x.status === 'done' ? ' done' : ''}" data-kind="quest" data-idx="${idx}" title="点击切换进行/完成"><span class="rpg-item-name">${esc(x.title)}</span> ${x.status === 'done' ? '✅' : '●'}<span class="rpg-del" data-kind="quest-del" data-idx="${idx}" title="删除">✕</span><div class="rpg-item-sub">${esc(x.desc || '')}</div></div>`).join('')
       : '<p class="hint">（无）</p>';
   }
+  const renderObjectives = (id, list, empty) => {
+    const el = $(id);
+    if (!el) return;
+    const values = Array.isArray(list) ? list : [];
+    el.innerHTML = values.length
+      ? values.map(item => `<article class="rpg-item${item.status && item.status !== 'active' ? ' done' : ''}"><div class="rpg-item-name">${esc(item.title || item.id)}${item.status && item.status !== 'active' ? ` <small>${esc(item.status)}</small>` : ''}</div><div class="rpg-item-sub">${esc(item.desc || '（暂无描述）')}</div></article>`).join('')
+      : `<p class="hint">${empty}</p>`;
+  };
+  renderObjectives('rpg-goals', worldModeActive() ? currentWorldSave.state?.goals : rs.goals, '暂无目标。');
+  renderObjectives('rpg-leads', worldModeActive() ? currentWorldSave.state?.leads : rs.leads, '暂无线索。');
   const eventList = $('rpg-world-events');
   if (eventList) {
     const currentLocationId = currentWorldSave?.state?.locationId || null;
@@ -1608,6 +1624,25 @@ function applyRpgUpdate(payload) {
       }
     }
   }
+  const upsertObjectives = (key, values) => {
+    if (!Array.isArray(values)) return;
+    if (!Array.isArray(rs[key])) rs[key] = [];
+    for (const item of values) {
+      if (!item || typeof item !== 'object' || !String(item.title || '').trim()) continue;
+      const title = String(item.title).trim();
+      const existing = rs[key].find(value => (item.id && value.id === item.id) || value.title === title);
+      const next = existing || { id: /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(String(item.id || '')) ? String(item.id) : uid(), title, desc: '' };
+      next.title = title;
+      if (item.desc !== undefined) next.desc = String(item.desc).slice(0, 4000);
+      if (['active', 'done', 'failed', 'paused'].includes(item.status)) next.status = item.status;
+      for (const field of ['actorId', 'locationId']) if (item[field] !== undefined) next[field] = item[field] || null;
+      if (item.deadline && typeof item.deadline === 'object') next.deadline = cloneValue(item.deadline);
+      if (Array.isArray(item.tags)) next.tags = item.tags.filter(tag => typeof tag === 'string').slice(0, 32);
+      if (!existing) rs[key].push(next);
+    }
+  };
+  upsertObjectives('goals', upd.goals);
+  upsertObjectives('leads', upd.leads);
   const options = Array.isArray(upd.options)
     ? upd.options.filter(o => typeof o === 'string' && o.trim()).slice(0, worldOptionRules().max)
     : null;
@@ -3185,6 +3220,8 @@ function buildRpgPromptPart() {
       + (rs.buffs?.length ? `，状态效果：${rs.buffs.join('、')}` : ''));
     parts.push('【背包】' + (rs.inventory.length ? rs.inventory.map(i => `${i.name}×${i.count}${i.desc ? `（${i.desc}）` : ''}`).join('、') : '（空）'));
     parts.push('【任务】' + (rs.quests.length ? rs.quests.map(x => `${x.title}${x.status === 'done' ? '（已完成）' : ''}`).join('、') : '（无）'));
+    parts.push('【目标】' + (rs.goals?.length ? rs.goals.map(x => `${x.title}${x.status && x.status !== 'active' ? `（${x.status}）` : ''}`).join('、') : '（无）'));
+    parts.push('【线索】' + (rs.leads?.length ? rs.leads.map(x => `${x.title}${x.status && x.status !== 'active' ? `（${x.status}）` : ''}`).join('、') : '（无）'));
     const mapCtx = buildMapContext();
     if (mapCtx) parts.push(mapCtx);
   }
