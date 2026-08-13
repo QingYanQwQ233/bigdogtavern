@@ -573,6 +573,7 @@ function fillWorldDraftForm(draft) {
   $('world-draft-lorebooks').value = Array.isArray(world.lorebookIds) ? world.lorebookIds.join(', ') : '';
   $('world-draft-player-creation').value = world.playerCreation ? JSON.stringify(world.playerCreation, null, 2) : '';
   $('world-draft-turn-contract').value = world.turnContract ? JSON.stringify(world.turnContract, null, 2) : '';
+  $('world-draft-time').value = world.time ? JSON.stringify(world.time, null, 2) : '';
   fillWorldDraftMapForm(world);
   renderWorldDraftCollections(world);
   $('world-draft-base').textContent = `基于已发布 v${draft.baseVersion}；草稿修改不会影响旧版本或已有存档。`;
@@ -632,6 +633,12 @@ async function saveWorldDraft() {
     try { turnContract = JSON.parse(turnContractText); }
     catch { setWorldDraftStatus('回合契约不是有效 JSON。', 'error'); $('world-draft-turn-contract').focus(); return false; }
   }
+  let time = null;
+  const timeText = $('world-draft-time').value.trim();
+  if (timeText) {
+    try { time = JSON.parse(timeText); }
+    catch { setWorldDraftStatus('世界时间不是有效 JSON。', 'error'); $('world-draft-time').focus(); return false; }
+  }
   const titleInput = $('world-draft-name');
   if (!title) {
     setWorldDraftStatus('世界标题不能为空。', 'error');
@@ -647,7 +654,7 @@ async function saveWorldDraft() {
     const res = await fetch('/api/world-drafts/' + encodeURIComponent(worldDraft.worldId), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
-      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds, mapGeneration, locations, npcs, playerCreation, turnContract }),
+      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds, mapGeneration, locations, npcs, playerCreation, turnContract, time }),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error(worldApiError(data, '世界草稿保存失败（HTTP ' + res.status + '）'));
@@ -3132,6 +3139,8 @@ function buildRpgPromptPart() {
   if (worldModeActive()) {
     const world = currentWorldCard();
     if (world) {
+      const worldTime = currentWorldSave.state?.time;
+      if (worldTime) parts.unshift(`【世界时间】${worldTime.value} ${worldTime.unit}（每次正式回合由服务端推进，AI 不得直接篡改）`);
       parts.unshift('【当前世界卡】\n' + [
         `世界：${world.title || world.id}（v${world.version || 1}）`,
         world.summary || '',

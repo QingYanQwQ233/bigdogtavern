@@ -811,6 +811,10 @@
           <label for="world-draft-turn-contract">回合契约 <span class="hint-inline">JSON；选项数量 0-4</span></label>
           <textarea id="world-draft-turn-contract" name="worldDraftTurnContract" rows="4" maxlength="10000" spellcheck="false" placeholder='{"options":{"min":0,"max":4},"actionIntent":true}'></textarea>
         </div>
+        <div class="field">
+          <label for="world-draft-time">世界时间 <span class="hint-inline">JSON；服务端每回合推进</span></label>
+          <textarea id="world-draft-time" name="worldDraftTime" rows="3" maxlength="5000" spellcheck="false" placeholder='{"unit":"hour","start":8,"turnAdvance":1}'></textarea>
+        </div>
         <section class="world-draft-collection world-draft-map" aria-labelledby="world-draft-map-title">
           <div class="world-draft-collection-head">
             <div>

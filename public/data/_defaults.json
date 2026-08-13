@@ -503,6 +503,7 @@
         "options": { "min": 0, "max": 4 },
         "actionIntent": true
       },
+      "time": { "unit": "hour", "start": 8, "turnAdvance": 1 },
       "start": {
         "locationId": "wolf-tooth-inn",
         "openingMode": "ai",

@@ -87,6 +87,7 @@ async function main() {
     });
     assert.strictEqual(freeTurn.response.status, 200, 'world card can allow zero suggestions');
     assert.strictEqual(freeTurn.body.turns.at(-2).actionIntent.raw, '观察四周');
+    assert.strictEqual(freeTurn.body.state.time.value, 9, 'server advances world time once per committed turn');
     const tamperedDice = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ commandId: 'turn-check-2', expectedRevision: freeTurn.body.revision, actionIntent: { raw: '掷骰', dice: [{ expr: '1d20', rolls: [20], bonus: 0, total: 1 }] }, state: freeTurn.body.state, turns: [{ role: 'user', content: '掷骰', ts: Date.now() }, { role: 'assistant', content: '结果。', ts: Date.now() }], options: [] }),

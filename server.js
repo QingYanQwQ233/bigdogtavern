@@ -279,6 +279,8 @@ function worldDraftFieldsValid(payload, requireRevision = false) {
   if (playerCreationInvalid) return playerCreationInvalid;
   const turnContractInvalid = validateTurnContract(payload.turnContract);
   if (turnContractInvalid) return turnContractInvalid;
+  const timeInvalid = validateWorldTime(payload.time);
+  if (timeInvalid) return timeInvalid;
   return null;
 }
 
@@ -406,6 +408,22 @@ function validateTurnContract(value) {
 function worldTurnOptionRules(world) {
   const options = world?.turnContract?.options;
   return { min: Number.isInteger(options?.min) ? options.min : 4, max: Number.isInteger(options?.max) ? options.max : 4 };
+}
+
+function validateWorldTime(value) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'time 必须是对象';
+  if (typeof value.unit !== 'string' || !value.unit.trim() || value.unit.length > 40) return 'time.unit 无效';
+  for (const key of ['start', 'turnAdvance']) if (value[key] !== undefined && (!Number.isFinite(value[key]) || value[key] < 0 || value[key] > 1000000)) return `time.${key} 无效`;
+  if (value.turnAdvance !== undefined && value.turnAdvance <= 0) return 'time.turnAdvance 必须大于 0';
+  return null;
+}
+
+function advanceWorldTime(current, world) {
+  const config = world?.time && typeof world.time === 'object' ? world.time : {};
+  const unit = typeof current?.unit === 'string' ? current.unit : String(config.unit || 'tick');
+  const value = Number.isFinite(current?.value) ? current.value : Number(config.start || 0);
+  return { unit, value: value + Number(config.turnAdvance || 1) };
 }
 
 function validateActionIntent(value) {
@@ -632,6 +650,7 @@ function applyWorldDraftFields(world, payload) {
   next.lorebookIds = [...new Set(payload.lorebookIds.map(value => value.trim()))];
   if (payload.playerCreation !== undefined) next.playerCreation = cloneJson(payload.playerCreation);
   if (payload.turnContract !== undefined) next.turnContract = cloneJson(payload.turnContract);
+  if (payload.time !== undefined) next.time = cloneJson(payload.time);
   if (payload.mapGeneration !== undefined) {
     const map = next.map && typeof next.map === 'object' && !Array.isArray(next.map) ? next.map : {};
     next.map = { ...map, generation: normalizeWorldDraftMapGeneration(payload.mapGeneration) };
@@ -670,6 +689,7 @@ function prepareWorldDraftPublication(draft) {
     lorebookIds: world.lorebookIds,
     ...(world.playerCreation !== undefined ? { playerCreation: world.playerCreation } : {}),
     ...(world.turnContract !== undefined ? { turnContract: world.turnContract } : {}),
+    ...(world.time !== undefined ? { time: world.time } : {}),
     ...(mapGeneration ? { mapGeneration } : {}),
     locations: Array.isArray(world.locations) ? world.locations : [],
     npcs: Array.isArray(world.npcs) ? world.npcs : [],
@@ -1394,6 +1414,8 @@ function worldPackageImportReport(pkg) {
     if (playerCreationInvalid) errors.push(playerCreationInvalid);
     const turnContractInvalid = validateTurnContract(world.turnContract);
     if (turnContractInvalid) errors.push(turnContractInvalid);
+    const timeInvalid = validateWorldTime(world.time);
+    if (timeInvalid) errors.push(timeInvalid);
   }
   if (!Array.isArray(content?.characters) || content.characters.length > 256) errors.push('characters 必须是至多 256 项的数组');
   if (!content?.lorebooks || typeof content.lorebooks !== 'object' || Array.isArray(content.lorebooks)) errors.push('lorebooks 必须是对象');
@@ -1860,6 +1882,8 @@ async function handleWorldSaveCreate(req, res) {
   const stats = initial.stats && typeof initial.stats === 'object' ? cloneJson(initial.stats) : {};
   const schemaInvalid = validatePlayerCreationSchema(world.playerCreation, world);
   if (schemaInvalid) return send(res, 400, JSON.stringify({ error: schemaInvalid }), 'application/json');
+  const timeInvalid = validateWorldTime(world.time);
+  if (timeInvalid) return send(res, 400, JSON.stringify({ error: timeInvalid }), 'application/json');
   const playerResult = validatePlayerCreationInput(world, payload.player);
   if (playerResult.error) return send(res, 400, JSON.stringify({ error: playerResult.error }), 'application/json');
   const player = playerResult.snapshot;
@@ -1883,6 +1907,7 @@ async function handleWorldSaveCreate(req, res) {
     state: {
       locationId: start.locationId || null,
       stats: derivedStats,
+      time: { unit: String(world.time?.unit || 'tick'), value: Number(world.time?.start || 0) },
       ...(playerState ? { player: playerState } : {}),
       inventory: Array.isArray(initial.inventory) ? cloneJson(initial.inventory) : [],
       quests: Array.isArray(initial.quests) ? cloneJson(initial.quests) : [],
@@ -1946,6 +1971,9 @@ function validateWorldSavePatch(payload) {
     }
     if (state.player.traits !== undefined && (!Array.isArray(state.player.traits) || state.player.traits.length > 128 || state.player.traits.some(id => typeof id !== 'string' || !isSafeId(id)))) return 'state.player.traits 无效';
     if (state.player.effects !== undefined && (!Array.isArray(state.player.effects) || state.player.effects.length > 128)) return 'state.player.effects 无效';
+  }
+  if (state.time !== undefined) {
+    if (!state.time || typeof state.time !== 'object' || Array.isArray(state.time) || typeof state.time.unit !== 'string' || state.time.unit.length > 40 || !Number.isFinite(state.time.value) || state.time.value < 0 || state.time.value > 1000000000) return 'state.time 无效';
   }
   for (const item of state.inventory) {
     if (!item || typeof item !== 'object' || typeof item.name !== 'string' || !item.name.trim() || item.name.length > 200) return '背包条目无效';
@@ -2132,9 +2160,11 @@ async function handleWorldSavePut(req, res, saveId) {
       if (current.revision !== payload.expectedRevision) {
         return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
       }
+      const nextState = cloneJson(payload.state);
+      if (current.state?.time !== undefined) nextState.time = cloneJson(current.state.time);
       const next = {
         ...current,
-        state: cloneJson(payload.state),
+        state: nextState,
         turns: cloneJson(payload.turns),
         opening: payload.opening === undefined ? current.opening : payload.opening,
         revision: current.revision + 1,
@@ -2217,6 +2247,8 @@ async function handleWorldTurnPost(req, res, saveId) {
         return send(res, 400, JSON.stringify({ error: '存档临时实体数量不能超过 1024' }), 'application/json');
       }
       const revision = current.revision + 1;
+      const nextState = cloneJson(payload.state);
+      nextState.time = advanceWorldTime(current.state?.time, world);
       const committedTurns = payload.turns.map((turn, index) => ({
         ...cloneJson(turn),
         ...(index === 0 && payload.actionIntent ? { actionIntent: cloneJson(payload.actionIntent) } : {}),
@@ -2225,7 +2257,7 @@ async function handleWorldTurnPost(req, res, saveId) {
       }));
       const next = {
         ...current,
-        state: cloneJson(payload.state),
+        state: nextState,
         npcStates: payload.npcStates === undefined ? (current.npcStates || {}) : cloneJson(payload.npcStates),
         generatedEntities: payload.createEntities && payload.createEntities.length
           ? materializeGeneratedEntities(current, payload.createEntities, saveId, payload.commandId, revision)

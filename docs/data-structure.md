@@ -80,6 +80,7 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
     relations: [{ npcId: 'npc-lily', label: '起始关系', min: -100, max: 100, default: 0 }]
   },
   turnContract: { options: { min: 0, max: 4 }, actionIntent: true },
+  time: { unit: 'hour', start: 8, turnAdvance: 1 },
   start: {
     locationId: 'wolf-tooth-inn', opening: '…',
     playerTemplateId: null, playerTemplate: { name: '未命名冒险者', ... },
@@ -114,7 +115,7 @@ WorldNPC 的静态资料按公开边界读取：`role`、`description`、`person
   party: { memberIds: [], leaderId: null },
   npcStates: { [npcId]: { locationId, relation, knowledge: [], status: [] } },
   state: {
-    stats, player: { fields, attributes, resources, traits, relations, effects: [] }, inventory: [], quests: [], locationId,
+    stats, player: { fields, attributes, resources, traits, relations, effects: [] }, time: { unit, value }, inventory: [], quests: [], locationId,
     map: { strategy: 'perSave', data: null, imagePath: null, markers: [] }
   },
   opening: '世界卡 start.opening 的开局叙事',
@@ -266,7 +267,7 @@ WorldNPC 的静态资料按公开边界读取：`role`、`description`、`person
 | `GET /api/world-drafts?worldId=<worldId>` | 列出世界草稿摘要；不传 worldId 时列出全部草稿 |
 | `GET /api/world-drafts/<worldId>` | 读取指定世界草稿 |
 | `POST /api/world-drafts` | 从指定 `worldId` / `baseVersion` 创建草稿；同一世界重复调用幂等 |
-| `PUT /api/world-drafts/<worldId>` | 使用 `expectedUpdatedAt` 乐观锁保存标题、简介、标签、`lorebookIds`、地图生成参数、声明式 `playerCreation`、`turnContract`、`locations` 与 `npcs`；建角字段、回合选项范围、地点/NPC ID 必须唯一且受服务端白名单校验 |
+| `PUT /api/world-drafts/<worldId>` | 使用 `expectedUpdatedAt` 乐观锁保存标题、简介、标签、`lorebookIds`、地图生成参数、声明式 `playerCreation`、`turnContract`、`time`、`locations` 与 `npcs`；建角字段、回合选项范围、时间参数、地点/NPC ID 必须唯一且受服务端白名单校验 |
 | `POST /api/world-drafts/<worldId>/publish` | 提交 `commandId`、`expectedUpdatedAt` 与 `baseVersion`，把草稿发布为不可变的下一版本。命令可幂等重试；草稿落后最新版本时返回 409 并保留草稿 |
 | `POST /api/worlds/<worldId>/versions` | 显式把来源存档中的生成 NPC 收录进下一不可变世界版本；要求 `sourceSaveId`、`npcId`，可选 `expectedRevision` / `title` |
 | `GET /api/world-saves?worldId=<worldId>` | 列出指定世界的存档摘要 |
