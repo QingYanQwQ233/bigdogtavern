@@ -47,13 +47,7 @@ const PRESET_MARKER_IDS = new Set(PRESET_MARKERS.map(([id]) => id));
 const PAW_SVG = '<span class="avatar-mark">✦</span>';
 
 /* 风格主题（色调）——UI 设计配置，保留在代码（驱动 CSS 变量） */
-const THEMES = {
-  tavern:   { label: '酒馆 · 暖木烛光', hues: [38, 24] },
-  washi:    { label: '和纸 · 明亮日系', hues: [12, 148] },
-  night:    { label: '夜霓虹 · 暗夜光影', hues: [214, 328] },
-  moss:     { label: '林间 · 苔绿自然', hues: [95, 42] },
-  vibrancy: { label: 'macOS 毛玻璃', hues: [0, 0] },
-};
+const FIXED_THEME = 'vibrancy';
 
 const DEFAULT_SETTINGS = {
   preset: '', baseUrl: '', apiKey: '', model: '',
@@ -124,7 +118,7 @@ let worldImport = null;
 let worldImportOpener = null;
 let rpgMigration = null;
 let rpgMigrationOpener = null;
-let theme = localStorage.getItem(LS_THEME) || 'tavern';
+let theme = FIXED_THEME;
 let mode = localStorage.getItem(LS_MODE) || 'tavern'; // 'tavern' 酒馆模式 | 'rpg' RPG 模式
 let sending = false;
 const debugTraces = new Map(); // 仅内存、按 session.id 隔离，不把完整 Prompt 写入存档
@@ -4827,55 +4821,14 @@ function switchView(name) {
 /* ─────────── 主题 / 布局 ─────────── */
 let bgRaf = null;
 function initBackground() {
-  const canvas = $('bg-fx');
-  if (!canvas) return;
   if (bgRaf) cancelAnimationFrame(bgRaf);
-  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  const ctx = canvas.getContext('2d');
-  const hues = (THEMES[theme] || THEMES.tavern).hues;
-  let w = 0, h = 0;
-  const parts = [];
-  const resize = () => { w = canvas.width = window.innerWidth; h = canvas.height = window.innerHeight; };
-  resize();
-  window.addEventListener('resize', resize);
-  const N = 26;
-  for (let i = 0; i < N; i++) {
-    parts.push({
-      x: Math.random() * w, y: Math.random() * h,
-      r: 0.7 + Math.random() * 1.7,
-      vx: (Math.random() - 0.5) * 0.16,
-      vy: -0.06 - Math.random() * 0.22,
-      a: 0.14 + Math.random() * 0.34,
-      hue: hues[Math.random() < 0.72 ? 0 : 1],
-      ph: Math.random() * Math.PI * 2,
-    });
-  }
-  function tick(t) {
-    ctx.clearRect(0, 0, w, h);
-    for (const p of parts) {
-      p.x += p.vx; p.y += p.vy;
-      if (p.y < -8) { p.y = h + 8; p.x = Math.random() * w; }
-      if (p.x < -8) p.x = w + 8;
-      if (p.x > w + 8) p.x = -8;
-      const tw = 0.55 + 0.45 * Math.sin(t / 900 + p.ph);
-      ctx.beginPath();
-      ctx.fillStyle = `hsla(${p.hue}, 62%, 62%, ${p.a * tw})`;
-      ctx.shadowColor = `hsla(${p.hue}, 62%, 58%, 0.85)`;
-      ctx.shadowBlur = 7;
-      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    bgRaf = requestAnimationFrame(tick);
-  }
-  bgRaf = requestAnimationFrame(tick);
+  bgRaf = null;
 }
 
-function applyTheme(name) {
-  theme = THEMES[name] ? name : 'tavern';
+function applyTheme() {
+  theme = FIXED_THEME;
   document.body.dataset.theme = theme;
   localStorage.setItem(LS_THEME, theme);
-  document.querySelectorAll('.theme-dot').forEach(b =>
-    b.classList.toggle('active', b.dataset.theme === theme));
   initBackground();
 }
 
@@ -5821,9 +5774,6 @@ function bindEvents() {
   // 回到对话
   document.querySelectorAll('[data-back-chat]').forEach(b =>
     b.addEventListener('click', () => switchView('chat')));
-  // 主题 / 布局
-  document.querySelectorAll('.theme-dot').forEach(b =>
-    b.addEventListener('click', () => applyTheme(b.dataset.theme)));
   // 载入示例数据
   $('btn-seed').addEventListener('click', async () => {
     const changed = await seedExamples(true);
@@ -5914,7 +5864,7 @@ async function init() {
   saveJSON(LS_PREFS, prefs);
   if (presetsMigrated) savePresets();
   ensureSessions();
-  applyTheme(theme);
+  applyTheme();
   applyMode(mode);
   bindEvents();
   renderMessages();

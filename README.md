@@ -123,7 +123,7 @@ RPG 的末尾控制块只在 RPG 模式解析；流式生成时不会显示未�
 server.js                     # 本地服务器：静态服务 + /api/chat + /api/image + /api/image-save + /api/models + /api/data + /api/worlds + /api/world-saves（零依赖）
 public/
   index.html                  # 双模式布局（酒馆三区 / RPG 五区）+ 设置弹窗 + 角色/世界库 + 地图窗口
-  styles.css                  # 语义化 CSS 变量 + 5 套色调（含 macOS 毛玻璃）+ 双模式布局
+  styles.css                  # 语义化 CSS 变量 + macOS 深色主题 + 双模式布局
   app.js                      # 前端逻辑：模式/会话/角色/预设/世界书/记忆/生图/RPG 状态机/掷骰/地图窗口/AI 美化
   mapgen.js                   # 世界地图：mapgen2 适配 + 自研 fallback + 渲染 + biome 气候
   manifest.json + sw.js       # PWA（离线壳）
@@ -159,7 +159,7 @@ scripts/                      # 辅助脚本（图标生成 / 打包上传 zip�
 - [x] 地图参数可视化调节（seed / size / regionCount / landRatio / mapgenSize）
 - [ ] 地图生成调优（海岸占比偏大、山脉偏少）
 - [ ] 短期 / 长期记忆分层
-- [ ] 风格定稿（5 套色调对比中）
+- [x] 风格定稿（macOS 深色主题）
 
 ## 安全提醒
 

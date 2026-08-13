@@ -1,111 +1,16 @@
 /* ═══════════════════════════════════════════════════════════
-   Tavern · AI RP 框架 — 多布局版本 × 多色调主题
+   Tavern · AI RP 框架 — 多布局版本 × macOS 深色主题
    ────────────────────────────────────────────────
    布局版本（整体结构，body[data-layout]）：
      classic  酒馆 · 三栏工作台（左导航 / 对话 / 右侧栏）
      letter   书信 · 单栏沉浸（顶条导航 + 居中窄栏对话）
      hud      游戏 HUD（顶部状态条 + 大对白 + 底部动作区）
      rail     会话栏 · Discord 式（图标导航 / 会话列表 / 对话）
-   色调主题（body[data-theme]，叠加于任意布局之上）：
-     tavern 暖木烛光 · washi 明亮日系 · night 暗夜光影 · moss 苔绿自然
+   主题（body[data-theme]，叠加于任意布局之上）：
+     vibrancy macOS 深色毛玻璃
    ═══════════════════════════════════════════════════════════ */
 
-/* ─────────── 色调 1/4：酒馆（默认） ─────────── */
-:root,
-body[data-theme="tavern"] {
-  --bg-0: #171310;  --bg-0-rgb: 23, 19, 16;
-  --bg-1: #201a14;
-  --panel: #241d15; --panel-rgb: 36, 29, 21;
-  --panel-2: #2c2319;
-  --accent: #d9a45b; --accent-rgb: 217, 164, 91; --accent-2: #8a5f33;
-  --danger: #b0442f; --danger-rgb: 176, 68, 47; --danger-2: #7e2b22;
-  --ok: #8aa86f;
-  --text: #f0e6d2; --muted: #a08b6d;
-  --on-accent: #1a1308;
-  --line: rgba(217, 164, 91, 0.16); --line-soft: rgba(217, 164, 91, 0.08);
-  --glow: rgba(217, 164, 91, 0.35);
-  --scrim: rgba(15, 13, 9, 0.55);
-  --font-display: Georgia, "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", serif;
-  --font-body: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
-  --bg-scene:
-    radial-gradient(1000px 700px at 72% -18%, rgba(217, 164, 91, 0.09), transparent 60%),
-    radial-gradient(820px 520px at -12% 112%, rgba(138, 168, 111, 0.06), transparent 55%),
-    linear-gradient(168deg, #171310 0%, #1c1712 48%, #14110d 100%);
-  --radius: 12px;
-  --motion-out: cubic-bezier(0.23, 1, 0.32, 1);
-  --motion-in-out: cubic-bezier(0.77, 0, 0.175, 1);
-}
-
-/* ─────────── 色调 2/4：和纸 · 明亮日系 ─────────── */
-body[data-theme="washi"] {
-  --bg-0: #f4efe4;  --bg-0-rgb: 244, 239, 228;
-  --bg-1: #ece4d3;
-  --panel: #fffdf6; --panel-rgb: 255, 253, 246;
-  --panel-2: #faf5e9;
-  --accent: #b5483a; --accent-rgb: 181, 72, 58; --accent-2: #8f3a30;
-  --danger: #b5483a; --danger-rgb: 181, 72, 58; --danger-2: #8f3a30;
-  --ok: #4a6b5d;
-  --text: #3a322a; --muted: #8d8478;
-  --on-accent: #fdf8ec;
-  --line: rgba(90, 70, 40, 0.14); --line-soft: rgba(90, 70, 40, 0.07);
-  --glow: rgba(181, 72, 58, 0.22);
-  --scrim: rgba(244, 239, 228, 0.55);
-  --font-display: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", serif;
-  --font-body: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
-  --bg-scene:
-    radial-gradient(900px 600px at 75% -15%, rgba(181, 72, 58, 0.07), transparent 60%),
-    radial-gradient(800px 500px at -10% 110%, rgba(74, 107, 93, 0.08), transparent 55%),
-    linear-gradient(168deg, #f4efe4 0%, #efe7d6 60%, #ece4d3 100%);
-  --radius: 14px;
-}
-
-/* ─────────── 色调 3/4：夜霓虹 · 暗夜光影 ─────────── */
-body[data-theme="night"] {
-  --bg-0: #0b0e15;  --bg-0-rgb: 11, 14, 21;
-  --bg-1: #0f1522;
-  --panel: #121a29; --panel-rgb: 18, 26, 41;
-  --panel-2: #182338;
-  --accent: #8b9cf5; --accent-rgb: 139, 156, 245; --accent-2: #5d6fc9;
-  --danger: #ff6b9d; --danger-rgb: 255, 107, 157; --danger-2: #c74e7e;
-  --ok: #3ddc97;
-  --text: #e8ecf8; --muted: #8b93a8;
-  --on-accent: #0b0e15;
-  --line: rgba(139, 156, 245, 0.18); --line-soft: rgba(139, 156, 245, 0.09);
-  --glow: rgba(139, 156, 245, 0.40);
-  --scrim: rgba(8, 10, 16, 0.62);
-  --font-display: "Segoe UI", "Noto Sans SC", "Microsoft YaHei", sans-serif;
-  --font-body: "Segoe UI", "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif;
-  --bg-scene:
-    radial-gradient(1000px 700px at 70% -20%, rgba(139, 156, 245, 0.10), transparent 60%),
-    radial-gradient(800px 500px at 110% 110%, rgba(255, 107, 157, 0.06), transparent 55%),
-    linear-gradient(168deg, #0b0e15 0%, #0d1220 55%, #0a0d13 100%);
-  --radius: 10px;
-}
-
-/* ─────────── 色调 4/4：林间 · 苔绿自然 ─────────── */
-body[data-theme="moss"] {
-  --bg-0: #121b15;  --bg-0-rgb: 18, 27, 21;
-  --bg-1: #16221a;
-  --panel: #1a2820; --panel-rgb: 26, 40, 32;
-  --panel-2: #20302a;
-  --accent: #a3c585; --accent-rgb: 163, 197, 133; --accent-2: #6f8f5a;
-  --danger: #c4653f; --danger-rgb: 196, 101, 63; --danger-2: #8f4630;
-  --ok: #a3c585;
-  --text: #e6ecdc; --muted: #93a08a;
-  --on-accent: #131b10;
-  --line: rgba(163, 197, 133, 0.15); --line-soft: rgba(163, 197, 133, 0.08);
-  --glow: rgba(163, 197, 133, 0.30);
-  --scrim: rgba(10, 16, 12, 0.55);
-  --font-display: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", Georgia, serif;
-  --font-body: "Noto Sans SC", "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
-  --bg-scene:
-    radial-gradient(1000px 700px at 70% -18%, rgba(163, 197, 133, 0.08), transparent 60%),
-    radial-gradient(800px 500px at -10% 110%, rgba(196, 101, 63, 0.05), transparent 55%),
-    linear-gradient(168deg, #121b15 0%, #131d17 55%, #101711 100%);
-  --radius: 12px;
-}
-
-/* ─────────── 色调 5/5：macOS 毛玻璃（参考风格） ─────────── */
+/* ─────────── macOS 深色毛玻璃主题 ─────────── */
 body[data-theme="vibrancy"] {
   --bg-0: #1c1c1e;  --bg-0-rgb: 28, 28, 30;
   --bg-1: #232326;
@@ -123,6 +28,8 @@ body[data-theme="vibrancy"] {
   --font-body: -apple-system, "SF Pro Text", "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
   --bg-scene: #1c1c1e;
   --radius: 10px;
+  --motion-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --motion-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 }
 
 /* ═══════════════════ 基础 ═══════════════════ */
@@ -530,7 +437,6 @@ body[data-mode="rpg"] #rpg-status { display: flex; grid-area: status; }
 .map-info-title { font-weight: 700; color: var(--text); margin-bottom: 2px; }
 .map-info-title .tag { font-weight: 400; font-size: 11px; color: var(--accent); margin-left: 6px; }
 .map-info-desc { color: var(--muted); }
-body[data-theme="washi"] #map-canvas { image-rendering: auto; }
 .msg.image-msg .img-fail {
   color: var(--muted);
   font-size: 12.5px;
@@ -1286,22 +1192,6 @@ textarea#input:focus {
   background: rgba(var(--accent-rgb), 0.1);
   box-shadow: 0 0 10px var(--glow);
 }
-.theme-dots { display: flex; gap: 8px; }
-.theme-dot {
-  width: 24px; height: 24px;
-  border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  cursor: pointer;
-  padding: 0;
-  transition: transform 0.12s, box-shadow 0.15s, border-color 0.15s;
-}
-.theme-dot:hover { transform: scale(1.15); }
-.theme-dot.active { border-color: var(--text); box-shadow: 0 0 10px var(--glow); }
-.theme-dot[data-theme="tavern"] { background: linear-gradient(135deg, #d9a45b, #8a5f33); }
-.theme-dot[data-theme="washi"]  { background: linear-gradient(135deg, #b5483a, #f4efe4); }
-.theme-dot[data-theme="night"]  { background: linear-gradient(135deg, #8b9cf5, #0b0e15); }
-.theme-dot[data-theme="moss"]   { background: linear-gradient(135deg, #a3c585, #1a2820); }
-.theme-dot[data-theme="vibrancy"] { background: #2c2c2e; border-color: rgba(255, 255, 255, 0.4); }
 .fm-actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
 
 /* ── 弹窗 ── */
@@ -1404,7 +1294,6 @@ body[data-theme="vibrancy"] .msg.user .bubble {
 }
 body[data-theme="vibrancy"] .soul-line i,
 body[data-theme="vibrancy"] #floating-toggle,
-body[data-theme="vibrancy"] .theme-dot.active,
 body[data-theme="vibrancy"] .fm-layout.active { box-shadow: none; }
 body[data-theme="vibrancy"] .card { background: rgba(255, 255, 255, 0.03); }
 body[data-theme="vibrancy"] textarea#input,
@@ -1864,7 +1753,7 @@ body[data-theme="vibrancy"] .dropdown { box-shadow: none; }
   .debug-panel[open], .debug-panel::backdrop, .msg.typing .bubble::after {
     animation: none;
   }
-  .chip:hover, .theme-dot:hover { transform: none; }
+  .chip:hover { transform: none; }
 }
 .debug-head {
   min-height: 54px;

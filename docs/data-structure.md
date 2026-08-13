@@ -21,6 +21,8 @@ localStorage（前缀 rpg-airp:）→ server JSON 的离线缓存，server 为�
   current-world / current-world-save（只保存最近打开的 ID，不保存正式世界状态）
 ```
 
+`theme` 仅为兼容旧缓存保留，界面固定使用 `vibrancy`（macOS 深色主题）。
+
 ## 二、_defaults.json（唯一数据源）的 9 个段
 
 | 段 | 结构 | 用途 |
