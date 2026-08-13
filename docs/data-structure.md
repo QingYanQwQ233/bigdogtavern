@@ -101,6 +101,8 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 
 `map.generation` 是世界版本的地图生成配置：`seed`、`size`、`regionCount`、`landRatio` 与 `mapgenSize`。`landRatio` 在 fallback 引擎中是目标陆地占比，在 Mapgen2 中映射为大陆膨胀参数，因此 UI 预览会另外显示实际陆地占比。地图首次生成后，完整数据和生成参数一起写入所属 `WorldSave.state.map.data`；重生成只影响当前存档。
 
+`playerCreation.economy` 是可选的声明式经济规则：`inventory.enabled/maxSlots/maxWeight/items[]` 控制背包、物品重量与堆叠；`equipment.enabled/slots[]` 控制装备位；`currencies[]` 控制货币 ID、范围和初始值。启用后，存档状态使用 `state.inventory`、`state.equipment` 与 `state.currencies`，每次创建、普通保存和正式回合都会按当前世界卡重新校验；未声明该段的旧世界继续使用兼容的自由背包 / `stats.gold`。
+
 其中 `locations[].id` 是世界内稳定的地点主键；`start.locationId`、`WorldSave.state.locationId` 和 `npcStates[*].locationId` 只能引用当前世界已登记的 ID，地点名称只用于展示与叙事。RPG Prompt 只注入当前地点 NPC、队伍成员和当前任务引用的 NPC；未命中的世界 NPC 不进入上下文。世界模式的世界书只读取当前 `WorldCard.lorebookIds`，不会使用全局酒馆世界书选择；旧世界卡未声明时仅兼容读取 `default`。
 
 WorldNPC 的静态资料按公开边界读取：`role`、`description`、`persona`、`personality`、`appearance`、`speechStyle`、`publicFacts`、`publicGoals`、`desires`、`fears`、`goals`、`activity` 可进入当前作用域 Prompt；`secrets` 采用 `[{ id, content }]`，只有当前存档 `npcStates[npcId].knowledge` 包含对应 `id` 时才注入。其他静态字段不会自动展开，跨存档的 `knowledge` / `relation` 永不共享。
@@ -129,7 +131,7 @@ RPG 控制块的 `player.attributes` / `player.skills` / `player.resources` 使�
   party: { memberIds: [], leaderId: null },
   npcStates: { [npcId]: { locationId, relation, knowledge: [], status: [] } },
   state: {
-    stats, player: { fields, attributes, skills, resources, traits, relations, effects: [] }, time: { unit, value }, worldEvents: [], goals: [], leads: [], inventory: [], quests: [], locationId,
+    stats, player: { fields, attributes, skills, resources, traits, relations, effects: [] }, time: { unit, value }, worldEvents: [], goals: [], leads: [], inventory: [], equipment: {}, currencies: {}, quests: [], locationId,
     map: { strategy: 'perSave', data: null, imagePath: null, markers: [] }
   },
   opening: '世界卡 start.opening 的开局叙事',

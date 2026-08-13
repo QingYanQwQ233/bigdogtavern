@@ -503,6 +503,127 @@ function validatePlayerCreationSchema(schema, world = null) {
       relationIds.add(npcId);
     }
   }
+  const economyInvalid = validatePlayerEconomySchema(schema.economy);
+  if (economyInvalid) return economyInvalid;
+  return null;
+}
+
+function validatePlayerEconomySchema(economy) {
+  if (economy === undefined || economy === null) return null;
+  if (!economy || typeof economy !== 'object' || Array.isArray(economy)) return 'playerCreation.economy 必须是对象';
+  const inventory = economy.inventory === undefined ? {} : economy.inventory;
+  if (!inventory || typeof inventory !== 'object' || Array.isArray(inventory)) return 'playerCreation.economy.inventory 无效';
+  for (const key of ['enabled', 'allowUnknownItems']) {
+    if (inventory[key] !== undefined && typeof inventory[key] !== 'boolean') return `playerCreation.economy.inventory.${key} 无效`;
+  }
+  if (inventory.maxSlots !== undefined && (!Number.isInteger(inventory.maxSlots) || inventory.maxSlots < 1 || inventory.maxSlots > 256)) return 'playerCreation.economy.inventory.maxSlots 无效';
+  if (inventory.maxWeight !== undefined && inventory.maxWeight !== null && !validBoundedNumber(inventory.maxWeight, 0, 1000000000)) return 'playerCreation.economy.inventory.maxWeight 无效';
+  const itemIds = new Set();
+  const items = inventory.items === undefined ? [] : inventory.items;
+  if (!Array.isArray(items) || items.length > 256) return 'playerCreation.economy.inventory.items 最多 256 项';
+  for (const item of items) {
+    const id = typeof item?.id === 'string' ? item.id.trim() : '';
+    if (!isSafeId(id) || itemIds.has(id) || !draftTextValid(item.label, 160, true)) return 'playerCreation.economy.inventory.items 含有重复或无效条目';
+    if (item.weight !== undefined && !validBoundedNumber(item.weight, 0, 1000000)) return `playerCreation.economy.inventory.items.${id}.weight 无效`;
+    if (item.maxStack !== undefined && (!Number.isInteger(item.maxStack) || item.maxStack < 1 || item.maxStack > 1000000)) return `playerCreation.economy.inventory.items.${id}.maxStack 无效`;
+    if (item.slot !== undefined && item.slot !== null && !isSafeId(String(item.slot))) return `playerCreation.economy.inventory.items.${id}.slot 无效`;
+    itemIds.add(id);
+  }
+  const equipment = economy.equipment === undefined ? {} : economy.equipment;
+  if (!equipment || typeof equipment !== 'object' || Array.isArray(equipment)) return 'playerCreation.economy.equipment 无效';
+  if (equipment.enabled !== undefined && typeof equipment.enabled !== 'boolean') return 'playerCreation.economy.equipment.enabled 无效';
+  const slotIds = new Set();
+  const slots = equipment.slots === undefined ? [] : equipment.slots;
+  if (!Array.isArray(slots) || slots.length > 32) return 'playerCreation.economy.equipment.slots 最多 32 项';
+  for (const slot of slots) {
+    const id = typeof slot?.id === 'string' ? slot.id.trim() : '';
+    if (!isSafeId(id) || slotIds.has(id) || !draftTextValid(slot.label, 120, true)) return 'playerCreation.economy.equipment.slots 含有重复或无效条目';
+    slotIds.add(id);
+  }
+  for (const item of items) if (item.slot !== undefined && item.slot !== null && !slotIds.has(String(item.slot))) return `playerCreation.economy.inventory.items.${item.id}.slot 引用了不存在的装备位`;
+  const currencyIds = new Set();
+  const currencies = economy.currencies === undefined ? [] : economy.currencies;
+  if (!Array.isArray(currencies) || currencies.length > 32) return 'playerCreation.economy.currencies 最多 32 项';
+  for (const currency of currencies) {
+    const id = typeof currency?.id === 'string' ? currency.id.trim() : '';
+    const min = currency.min ?? 0;
+    const max = currency.max ?? 1000000000000;
+    if (!isSafeId(id) || currencyIds.has(id) || !draftTextValid(currency.label, 120, true)
+      || !validBoundedNumber(min, 0, 1000000000000) || !validBoundedNumber(max, min, 1000000000000)
+      || !validBoundedNumber(currency.initial ?? min, min, max)) return 'playerCreation.economy.currencies 含有重复或无效条目';
+    currencyIds.add(id);
+  }
+  return null;
+}
+
+function playerEconomySchema(world) {
+  const economy = playerCreationSchema(world)?.economy;
+  return economy && typeof economy === 'object' && !Array.isArray(economy) ? economy : null;
+}
+
+function materializePlayerEconomyState(world, initial = {}, playerState = null) {
+  const economy = playerEconomySchema(world);
+  if (!economy) return {};
+  const currencies = initial.currencies && typeof initial.currencies === 'object' && !Array.isArray(initial.currencies) ? cloneJson(initial.currencies) : {};
+  for (const currency of Array.isArray(economy.currencies) ? economy.currencies : []) {
+    if (currencies[currency.id] === undefined && Number.isFinite(playerState?.resources?.[currency.id])) currencies[currency.id] = playerState.resources[currency.id];
+    if (currencies[currency.id] === undefined) currencies[currency.id] = currency.initial ?? currency.min ?? 0;
+  }
+  return {
+    inventory: Array.isArray(initial.inventory) ? cloneJson(initial.inventory) : [],
+    equipment: initial.equipment && typeof initial.equipment === 'object' && !Array.isArray(initial.equipment) ? cloneJson(initial.equipment) : {},
+    currencies,
+  };
+}
+
+function validatePlayerEconomyState(world, state, current = null) {
+  const economy = playerEconomySchema(world);
+  if (!economy) return null;
+  if (!state || typeof state !== 'object' || Array.isArray(state)) return 'state 必须是对象';
+  const inventoryRules = economy.inventory && typeof economy.inventory === 'object' ? economy.inventory : {};
+  const inventory = state.inventory;
+  if (!Array.isArray(inventory)) return 'state.inventory 必须是数组';
+  if (inventoryRules.enabled === false && inventory.length) return '当前世界卡已关闭背包';
+  if (inventoryRules.maxSlots !== undefined && inventory.length > inventoryRules.maxSlots) return `state.inventory 不能超过 ${inventoryRules.maxSlots} 格`;
+  const itemDefinitions = new Map((Array.isArray(inventoryRules.items) ? inventoryRules.items : []).map(item => [item.id, item]));
+  let weight = 0;
+  for (const item of inventory) {
+    if (!item || typeof item !== 'object' || Array.isArray(item) || typeof item.name !== 'string' || !item.name.trim() || item.name.length > 200) return '背包条目无效';
+    if (item.itemId !== undefined && (!isSafeId(String(item.itemId)) || (itemDefinitions.size && !itemDefinitions.has(String(item.itemId)) && inventoryRules.allowUnknownItems !== true))) return '背包条目引用了未知物品';
+    const definition = itemDefinitions.get(String(item.itemId || ''));
+    const count = item.count === undefined ? 1 : item.count;
+    if (!Number.isInteger(count) || count < 1 || count > 1000000) return '背包数量无效';
+    if (definition?.maxStack !== undefined && count > definition.maxStack) return `背包物品 ${definition.id} 超过堆叠上限`;
+    const itemWeight = item.weight ?? definition?.weight ?? 0;
+    if (!validBoundedNumber(itemWeight, 0, 1000000)) return '背包重量无效';
+    if (item.desc !== undefined && (typeof item.desc !== 'string' || item.desc.length > 2000)) return '背包描述无效';
+    weight += itemWeight * count;
+  }
+  if (inventoryRules.maxWeight !== undefined && inventoryRules.maxWeight !== null && weight > inventoryRules.maxWeight + 1e-9) return `背包重量不能超过 ${inventoryRules.maxWeight}`;
+  const equipmentRules = economy.equipment && typeof economy.equipment === 'object' ? economy.equipment : {};
+  const equipment = state.equipment === undefined ? {} : state.equipment;
+  if (current?.equipment !== undefined && state.equipment === undefined) return 'state.equipment 不能省略';
+  if (!equipment || typeof equipment !== 'object' || Array.isArray(equipment)) return 'state.equipment 必须是对象';
+  const slotIds = new Set((Array.isArray(equipmentRules.slots) ? equipmentRules.slots : []).map(slot => slot.id));
+  if (equipmentRules.enabled === false && Object.keys(equipment).length) return '当前世界卡已关闭装备位';
+  if (Object.keys(equipment).some(slotId => !slotIds.has(slotId))) return 'state.equipment 含有未声明的装备位';
+  const inventoryById = new Map(inventory.filter(item => item?.itemId).map(item => [String(item.itemId), item]));
+  for (const [slotId, itemId] of Object.entries(equipment)) {
+    if (itemId === null || itemId === undefined || itemId === '') continue;
+    if (typeof itemId !== 'string' || !isSafeId(itemId) || !inventoryById.has(itemId)) return `state.equipment.${slotId} 引用了不在背包中的物品`;
+    const definition = itemDefinitions.get(itemId);
+    if (definition?.slot && definition.slot !== slotId) return `state.equipment.${slotId} 与物品装备位不匹配`;
+  }
+  const currenciesRules = Array.isArray(economy.currencies) ? economy.currencies : [];
+  const currencies = state.currencies === undefined ? {} : state.currencies;
+  if (current?.currencies !== undefined && state.currencies === undefined) return 'state.currencies 不能省略';
+  if (!currencies || typeof currencies !== 'object' || Array.isArray(currencies)) return 'state.currencies 必须是对象';
+  const currencyDefinitions = new Map(currenciesRules.map(currency => [currency.id, currency]));
+  for (const [id, value] of Object.entries(currencies)) {
+    const definition = currencyDefinitions.get(id);
+    if (!definition || !validBoundedNumber(value, definition.min ?? 0, definition.max ?? 1000000000000)) return `state.currencies.${id} 超出世界卡范围`;
+  }
+  for (const definition of currenciesRules) if (currencies[definition.id] === undefined && current?.currencies?.[definition.id] !== undefined) return `state.currencies.${definition.id} 不能省略`;
   return null;
 }
 
@@ -1391,13 +1512,14 @@ function legacyState(envelope, world, report) {
     imagePath: /^\/images\/[A-Za-z0-9._-]{1,160}$/.test(map.imagePath || '') ? map.imagePath : null,
     discoveredLocationIds: report.state.locationId ? [report.state.locationId] : [], markers: [],
   };
-  return {
+  const state = {
     locationId: report.state.locationId,
     stats,
     inventory: Array.isArray(source.inventory) ? cloneJson(source.inventory).slice(0, 256) : [],
     quests: Array.isArray(source.quests) ? cloneJson(source.quests).slice(0, 256) : [],
     map: safeMap,
   };
+  return { ...state, ...materializePlayerEconomyState(world, state, null) };
 }
 
 async function readRpgMigrationRecord(migrationId) {
@@ -1491,6 +1613,8 @@ async function handleRpgMigrationCommit(req, res, migrationId) {
       };
       const invalidSave = validateWorldSavePatch({ expectedRevision: 0, state: save.state, turns: save.turns, opening: save.opening });
       if (invalidSave) return send(res, 422, JSON.stringify({ error: '旧 RPG 状态无法安全写入', detail: invalidSave }), 'application/json');
+      const economyStateInvalid = validatePlayerEconomyState(world, save.state);
+      if (economyStateInvalid) return send(res, 422, JSON.stringify({ error: '旧 RPG 经济状态无法安全写入', detail: economyStateInvalid }), 'application/json');
       await fs.promises.mkdir(SAVES_DIR, { recursive: true });
       await writeJsonAtomic(fp, save);
       record.status = 'committed'; record.saveId = saveId; record.committedAt = now; record.report = report;
@@ -2375,6 +2499,9 @@ async function handleWorldSaveCreate(req, res) {
   const player = playerResult.snapshot;
   const playerId = String(start.playerTemplateId || ('pc-' + id));
   const playerState = playerResult.statePlayer || (initial.player && typeof initial.player === 'object' ? cloneJson(initial.player) : null);
+  const economyState = materializePlayerEconomyState(world, initial, playerState);
+  const economyStateInvalid = validatePlayerEconomyState(world, economyState);
+  if (economyStateInvalid) return send(res, 400, JSON.stringify({ error: economyStateInvalid }), 'application/json');
   const derivedStats = { ...stats };
   for (const key of ['hp', 'mp', 'gold']) {
     if (playerState?.resources && Number.isFinite(playerState.resources[key])) derivedStats[key] = playerState.resources[key];
@@ -2395,6 +2522,7 @@ async function handleWorldSaveCreate(req, res) {
       stats: derivedStats,
       time: { unit: String(world.time?.unit || 'tick'), value: Number(world.time?.start || 0) },
       ...(playerState ? { player: playerState } : {}),
+      ...(playerEconomySchema(world) ? economyState : {}),
       worldEvents: [],
       goals: Array.isArray(initial.goals) ? cloneJson(initial.goals) : [],
       leads: Array.isArray(initial.leads) ? cloneJson(initial.leads) : [],
@@ -2667,6 +2795,8 @@ async function handleWorldSavePut(req, res, saveId) {
       if (current.state?.player && payload.state.player === undefined) return send(res, 400, JSON.stringify({ error: 'state.player 不能省略' }), 'application/json');
       const dynamicPlayerInvalid = validateDynamicPlayerState(world, payload.state.player, current.state?.player);
       if (dynamicPlayerInvalid) return send(res, 400, JSON.stringify({ error: dynamicPlayerInvalid }), 'application/json');
+      const economyStateInvalid = validatePlayerEconomyState(world, payload.state, current.state);
+      if (economyStateInvalid) return send(res, 400, JSON.stringify({ error: economyStateInvalid }), 'application/json');
       if (current.revision !== payload.expectedRevision) {
         return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
       }
@@ -2748,6 +2878,8 @@ async function handleWorldTurnPost(req, res, saveId) {
       if (current.state?.player && payload.state.player === undefined) return send(res, 400, JSON.stringify({ error: 'state.player 不能省略' }), 'application/json');
       const dynamicPlayerInvalid = validateDynamicPlayerState(world, payload.state.player, current.state?.player, true);
       if (dynamicPlayerInvalid) return send(res, 400, JSON.stringify({ error: dynamicPlayerInvalid }), 'application/json');
+      const economyStateInvalid = validatePlayerEconomyState(world, payload.state, current.state);
+      if (economyStateInvalid) return send(res, 400, JSON.stringify({ error: economyStateInvalid }), 'application/json');
       const worldEventsInvalid = validateWorldEventLog(payload.state.worldEvents);
       if (worldEventsInvalid) return send(res, 400, JSON.stringify({ error: worldEventsInvalid }), 'application/json');
       let allowedNpcIds = new Set(Object.keys(current.npcStates || {}));

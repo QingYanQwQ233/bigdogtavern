@@ -1449,6 +1449,8 @@ function worldRpgState() {
         gold: numberOr(stats.gold, 0), location: state.locationId || '未知地点',
         buffs: Array.isArray(stats.buffs) ? stats.buffs : [],
         inventory: Array.isArray(state.inventory) ? state.inventory : [],
+        equipment: state.equipment && typeof state.equipment === 'object' ? state.equipment : {},
+        currencies: state.currencies && typeof state.currencies === 'object' ? state.currencies : {},
         quests: Array.isArray(state.quests) ? state.quests : [],
         goals: Array.isArray(state.goals) ? state.goals : [],
         leads: Array.isArray(state.leads) ? state.leads : [],
@@ -1548,6 +1550,10 @@ function commitRpgState(rs) {
     state.stats = { ...(state.stats || {}), level: rs.level, exp: rs.exp, expNext: rs.expNext, hp: rs.hp, maxHp: rs.maxHp, mp: rs.mp, maxMp: rs.maxMp, gold: rs.gold, buffs: cloneValue(rs.buffs || []) };
     state.locationId = rs.location || null;
     state.inventory = cloneValue(rs.inventory || []);
+    if (currentWorldCard()?.playerCreation?.economy) {
+      state.equipment = cloneValue(rs.equipment || {});
+      state.currencies = cloneValue(rs.currencies || {});
+    }
     state.quests = cloneValue(rs.quests || []);
     state.goals = cloneValue(rs.goals || []);
     state.leads = cloneValue(rs.leads || []);
@@ -1613,10 +1619,35 @@ function renderRPG() {
     }).join('');
   }
   const inv = $('rpg-inventory');
+  const economy = worldModeActive() ? currentWorldCard()?.playerCreation?.economy : null;
+  const inventoryMeta = $('rpg-inventory-meta');
+  if (inventoryMeta) {
+    const rules = economy?.inventory || {};
+    const itemDefinitions = new Map((Array.isArray(rules.items) ? rules.items : []).map(item => [item.id, item]));
+    const weight = rs.inventory.reduce((total, item) => total + Number(item?.weight ?? itemDefinitions.get(item?.itemId)?.weight ?? 0) * Number(item?.count || 0), 0);
+    const slots = rules.maxSlots ? `${rs.inventory.length}/${rules.maxSlots} 格` : `${rs.inventory.length} 格`;
+    const burden = rules.maxWeight === undefined || rules.maxWeight === null ? '' : ` · 重量 ${Number(weight.toFixed(2))}/${rules.maxWeight}`;
+    inventoryMeta.textContent = economy?.inventory?.enabled === false ? '世界卡已关闭背包' : slots + burden;
+  }
   if (inv) {
     inv.innerHTML = rs.inventory.length
       ? rs.inventory.map((i, idx) => `<div class="rpg-item"><span class="rpg-item-name">${esc(i.name)}</span> ×${i.count}<span class="rpg-del" data-kind="inv" data-idx="${idx}" title="删除">✕</span><div class="rpg-item-sub">${esc(i.desc || '')}</div></div>`).join('')
       : '<p class="hint">（空）</p>';
+  }
+  const equipmentEl = $('rpg-equipment');
+  if (equipmentEl) {
+    const rules = economy?.equipment || {};
+    const slots = Array.isArray(rules.slots) ? rules.slots : [];
+    equipmentEl.innerHTML = !economy || rules.enabled === false
+      ? '<p class="hint">世界卡未启用装备位</p>'
+      : (slots.length ? slots.map(slot => `<div class="rpg-item"><span class="rpg-item-name">${esc(slot.label || slot.id)}</span><div class="rpg-item-sub">${esc(rs.equipment?.[slot.id] || '空')}</div></div>`).join('') : '<p class="hint">未声明装备位</p>');
+  }
+  const currenciesEl = $('rpg-currencies');
+  if (currenciesEl) {
+    const currencies = Array.isArray(economy?.currencies) ? economy.currencies : [];
+    currenciesEl.innerHTML = currencies.length
+      ? currencies.map(currency => `<div class="rpg-item"><span class="rpg-item-name">${esc(currency.label || currency.id)}</span><b>${esc(rs.currencies?.[currency.id] ?? currency.initial ?? currency.min ?? 0)}</b></div>`).join('')
+      : '<p class="hint">未声明额外货币</p>';
   }
   const q = $('rpg-quests');
   if (q) {
@@ -1742,27 +1773,64 @@ function applyRpgUpdate(payload) {
   const rs = curRpgState();
   if (!rs || typeof upd !== 'object') return null;
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const economy = worldModeActive() ? currentWorldCard()?.playerCreation?.economy : null;
+  const currencyUpdates = upd.currencies && typeof upd.currencies === 'object' && !Array.isArray(upd.currencies) ? upd.currencies : null;
+  const hasDeclaredGold = Array.isArray(economy?.currencies) && economy.currencies.some(currency => currency?.id === 'gold');
   if (typeof upd.hp === 'number') rs.hp = clamp(rs.hp + upd.hp, 0, rs.maxHp);
   if (typeof upd.mp === 'number') rs.mp = clamp(rs.mp + upd.mp, 0, rs.maxMp);
   if (typeof upd.maxHp === 'number') { rs.maxHp = Math.max(1, rs.maxHp + upd.maxHp); rs.hp = Math.min(rs.hp, rs.maxHp); }
   if (typeof upd.maxMp === 'number') { rs.maxMp = Math.max(1, rs.maxMp + upd.maxMp); rs.mp = Math.min(rs.mp, rs.maxMp); }
-  if (typeof upd.gold === 'number') rs.gold = Math.max(0, rs.gold + upd.gold);
+  if (typeof upd.gold === 'number' && !(hasDeclaredGold && currencyUpdates && Object.prototype.hasOwnProperty.call(currencyUpdates, 'gold'))) {
+    rs.gold = Math.max(0, rs.gold + upd.gold);
+    if (hasDeclaredGold) {
+      if (!rs.currencies || typeof rs.currencies !== 'object') rs.currencies = {};
+      rs.currencies.gold = rs.gold;
+    }
+  }
   if (typeof upd.level === 'number') rs.level = Math.max(1, rs.level + (upd.level || 0));
   if (typeof upd.exp === 'number') rs.exp = Math.max(0, rs.exp + upd.exp);
   if (typeof upd.location === 'string' && upd.location.trim()) rs.location = upd.location.trim();
   if (Array.isArray(upd.buffs)) rs.buffs = upd.buffs;
+  if (worldModeActive() && economy && currencyUpdates) {
+    const definitions = new Map((Array.isArray(economy.currencies) ? economy.currencies : []).map(currency => [currency.id, currency]));
+    if (!rs.currencies || typeof rs.currencies !== 'object') rs.currencies = {};
+    for (const [id, delta] of Object.entries(currencyUpdates)) {
+      const definition = definitions.get(id);
+      if (!definition || typeof delta !== 'number' || !Number.isFinite(delta)) continue;
+      const current = Number(rs.currencies[id] ?? definition.initial ?? definition.min ?? 0);
+      rs.currencies[id] = clamp(current + delta, definition.min ?? 0, definition.max ?? 1000000000000);
+      if (id === 'gold') rs.gold = rs.currencies[id];
+    }
+  }
   if (Array.isArray(upd.inventory)) {
     for (const it of upd.inventory) {
       if (!it || !it.name) continue;
       const count = (typeof it.count === 'number') ? it.count : 1;
-      const exist = rs.inventory.find(x => x.name === it.name);
+      const exist = rs.inventory.find(x => (it.itemId && x.itemId === it.itemId) || (!it.itemId && x.name === it.name));
       if (it.add === false || count < 0) {
         const remove = Math.abs(count);
-        if (exist) { exist.count -= remove; if (exist.count <= 0) rs.inventory = rs.inventory.filter(x => x !== exist); }
+        if (exist) {
+          exist.count -= remove;
+          if (exist.count <= 0) {
+            if (exist.itemId && rs.equipment && typeof rs.equipment === 'object') {
+              for (const slotId of Object.keys(rs.equipment)) if (rs.equipment[slotId] === exist.itemId) rs.equipment[slotId] = null;
+            }
+            rs.inventory = rs.inventory.filter(x => x !== exist);
+          }
+        }
       } else {
         if (exist) exist.count += count;
-        else rs.inventory.push({ name: it.name, count, desc: it.desc || '' });
+        else rs.inventory.push({ ...(it.itemId ? { itemId: String(it.itemId) } : {}), name: it.name, count, ...(it.weight !== undefined ? { weight: Number(it.weight) } : {}), desc: it.desc || '' });
       }
+    }
+  }
+  if (worldModeActive() && economy && upd.equipment && typeof upd.equipment === 'object' && !Array.isArray(upd.equipment)) {
+    const slotIds = new Set((Array.isArray(economy.equipment?.slots) ? economy.equipment.slots : []).map(slot => slot.id));
+    if (!rs.equipment || typeof rs.equipment !== 'object') rs.equipment = {};
+    const inventoryIds = new Set(rs.inventory.filter(item => item?.itemId).map(item => String(item.itemId)));
+    for (const [slotId, itemId] of Object.entries(upd.equipment)) {
+      if (!slotIds.has(slotId) || itemId !== null && (typeof itemId !== 'string' || !inventoryIds.has(itemId))) continue;
+      rs.equipment[slotId] = itemId;
     }
   }
   if (Array.isArray(upd.quests)) {
@@ -3409,6 +3477,21 @@ function buildRpgPromptPart() {
     parts.push('【RPG 状态】' + `等级 ${rs.level}（经验 ${rs.exp}/${rs.expNext}），HP ${rs.hp}/${rs.maxHp}，MP ${rs.mp}/${rs.maxMp}，金币 ${rs.gold}，当前位置：${rs.location}`
       + (rs.buffs?.length ? `，状态效果：${rs.buffs.join('、')}` : ''));
     parts.push('【背包】' + (rs.inventory.length ? rs.inventory.map(i => `${i.name}×${i.count}${i.desc ? `（${i.desc}）` : ''}`).join('、') : '（空）'));
+    if (worldModeActive()) {
+      const economy = currentWorldCard()?.playerCreation?.economy;
+      if (economy) {
+        const rules = economy.inventory || {};
+        const currencies = Array.isArray(economy.currencies) ? economy.currencies.map(currency => `${currency.id}=${rs.currencies?.[currency.id] ?? currency.initial ?? currency.min ?? 0}`).join('、') : '';
+        const equipment = economy.equipment?.enabled !== false && Array.isArray(economy.equipment?.slots)
+          ? economy.equipment.slots.map(slot => `${slot.id}=${rs.equipment?.[slot.id] || '空'}`).join('、') : '';
+        parts.push('【物品 / 装备 / 经济规则】' + [
+          rules.enabled === false ? '背包关闭' : `背包 ${rs.inventory.length}/${rules.maxSlots || '∞'} 格`,
+          rules.maxWeight === undefined || rules.maxWeight === null ? '' : `最大重量 ${rules.maxWeight}`,
+          currencies ? `货币：${currencies}` : '',
+          equipment ? `装备位：${equipment}` : '',
+        ].filter(Boolean).join('；') + '。只能使用世界卡声明的物品、装备位和货币，不能突破格数、堆叠或重量限制。');
+      }
+    }
     parts.push('【任务】' + (rs.quests.length ? rs.quests.map(x => `${x.title}${x.status === 'done' ? '（已完成）' : ''}`).join('、') : '（无）'));
     parts.push('【目标】' + (rs.goals?.length ? rs.goals.map(x => `${x.title}${x.status && x.status !== 'active' ? `（${x.status}）` : ''}`).join('、') : '（无）'));
     parts.push('【线索】' + (rs.leads?.length ? rs.leads.map(x => `${x.title}${x.status && x.status !== 'active' ? `（${x.status}）` : ''}`).join('、') : '（无）'));

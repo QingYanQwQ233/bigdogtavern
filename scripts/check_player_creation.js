@@ -17,6 +17,8 @@ world.playerCreation.relations = [{ npcId: 'npc-lily', label: '与莉莉的关�
 world.playerCreation.derived.push({ id: 'skill-readiness', label: '技能准备', formula: 'skills.scouting + attributes.wits' });
 world.events.push({ id: 'inn-echo', title: '旅店回响', description: '炉火后传来一声短促的回响。', trigger: { locationId: 'wolf-tooth-inn' }, visibility: 'local', once: true });
 world.start.initialState.goals = [{ id: 'deadline-goal', title: 'Deadline', desc: 'expires at start', status: 'active', deadline: { unit: 'hour', value: 8 } }];
+world.start.initialState.inventory = [{ itemId: 'iron-sword', name: '铁剑', count: 1 }];
+world.start.initialState.equipment = { 'main-hand': 'iron-sword' };
 fs.writeFileSync(path.join(tempDir, '_defaults.json'), JSON.stringify(defaults, null, 2));
 fs.writeFileSync(path.join(tempDir, 'worlds.json'), JSON.stringify(defaults.worlds, null, 2));
 process.env.TAVERN_DATA_DIR = tempDir;
@@ -75,6 +77,9 @@ async function main() {
     assert.deepStrictEqual(first.body.player.snapshot.traits, validPlayer.traits);
     assert.strictEqual(first.body.state.player.resources.hp, 24);
     assert.strictEqual(first.body.state.stats.hp, 24);
+    assert.deepStrictEqual(first.body.state.equipment, { 'main-hand': 'iron-sword' });
+    assert.strictEqual(first.body.state.inventory[0].itemId, 'iron-sword');
+    assert.strictEqual(first.body.state.currencies.gold, 30);
     assert.strictEqual(first.body.npcStates['npc-lily'].relation.player, 25);
     assert.strictEqual(first.body.state.factionStates['north-guild'].relation, 10);
     assert.strictEqual(first.body.state.factionStates['north-guild'].resources.funds, 30);
@@ -115,7 +120,7 @@ async function main() {
     assert.strictEqual(tamperedDice.response.status, 400, 'tampered dice result is rejected');
     const eventTurn = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ commandId: 'turn-check-3', expectedRevision: freeTurn.body.revision, actionIntent: { raw: '继续观察' }, state: { ...freeTurn.body.state, player: { ...freeTurn.body.state.player, attributes: { ...freeTurn.body.state.player.attributes, might: 4 }, skills: { ...freeTurn.body.state.player.skills, scouting: 5 } }, goals: [{ id: 'find-aurora', title: '查明极光异动', desc: '找到山脊上的异常光源。', status: 'active', locationId: 'wolf-tooth-inn' }], leads: [{ id: 'inn-rumor', title: '旅店传闻', desc: '有人听见山脊方向的回响。', status: 'active', locationId: 'wolf-tooth-inn' }] }, turns: [{ role: 'user', content: '继续观察', ts: Date.now() }, { role: 'assistant', content: '极光忽然亮起。', ts: Date.now() }], options: [] }),
+      body: JSON.stringify({ commandId: 'turn-check-3', expectedRevision: freeTurn.body.revision, actionIntent: { raw: '继续观察' }, state: { ...freeTurn.body.state, currencies: { ...freeTurn.body.state.currencies, gold: 35 }, player: { ...freeTurn.body.state.player, attributes: { ...freeTurn.body.state.player.attributes, might: 4 }, skills: { ...freeTurn.body.state.player.skills, scouting: 5 } }, goals: [{ id: 'find-aurora', title: '查明极光异动', desc: '找到山脊上的异常光源。', status: 'active', locationId: 'wolf-tooth-inn' }], leads: [{ id: 'inn-rumor', title: '旅店传闻', desc: '有人听见山脊方向的回响。', status: 'active', locationId: 'wolf-tooth-inn' }] }, turns: [{ role: 'user', content: '继续观察', ts: Date.now() }, { role: 'assistant', content: '极光忽然亮起。', ts: Date.now() }], options: [] }),
     });
     assert.strictEqual(eventTurn.response.status, 200);
     assert.strictEqual(eventTurn.body.state.time.value, 10);
@@ -125,6 +130,7 @@ async function main() {
     assert.strictEqual(eventTurn.body.state.leads[0].id, 'inn-rumor');
     assert.strictEqual(eventTurn.body.state.player.attributes.might, 4);
     assert.strictEqual(eventTurn.body.state.player.skills.scouting, 5);
+    assert.strictEqual(eventTurn.body.state.currencies.gold, 35);
     assert.deepStrictEqual(eventTurn.body.receipts.at(-1).eventIds, ['aurora-omen']);
     const invalidFactionState = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -147,6 +153,11 @@ async function main() {
       body: JSON.stringify({ commandId: 'turn-check-5', expectedRevision: eventTurn.body.revision, actionIntent: { raw: '越界属性' }, state: { ...eventTurn.body.state, player: { ...eventTurn.body.state.player, attributes: { ...eventTurn.body.state.player.attributes, might: 99 } } }, turns: [{ role: 'assistant', content: '拒绝。' }], options: [] }),
     });
     assert.strictEqual(invalidDynamicPlayer.response.status, 400, 'dynamic player values respect world schema ranges');
+    const invalidEconomy = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'turn-check-economy-invalid', expectedRevision: eventTurn.body.revision, actionIntent: { raw: '越界背包' }, state: { ...eventTurn.body.state, inventory: [{ itemId: 'iron-sword', name: '铁剑', count: 1, weight: 121 }] }, turns: [{ role: 'assistant', content: '拒绝。' }], options: [] }),
+    });
+    assert.strictEqual(invalidEconomy.response.status, 400, 'inventory weight is enforced per world card');
     const second = await jsonRequest(base, '/api/world-saves', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ worldId: 'world-aurora', worldVersion: 1, name: '另一条世界线', player: { ...validPlayer, fields: { ...validPlayer.fields, name: '焰' }, relations: { 'npc-lily': -20 }, traits: [] } }),
