@@ -1929,7 +1929,7 @@ function validateFactionGoalList(value, label) {
   return null;
 }
 
-function validateFactionActionList(factionId, value, resources) {
+function validateFactionActionList(factionId, value, resources, locationIds = null) {
   if (value === undefined || value === null) return null;
   if (!Array.isArray(value) || value.length > 64) return `factions.${factionId}.actions 无效`;
   const ids = new Set();
@@ -1944,7 +1944,7 @@ function validateFactionActionList(factionId, value, resources) {
     if (!hasAt && !hasAfterTurns) return `factions.${factionId}.actions.${id}.trigger 至少声明 at 或 afterTurns`;
     if (hasAt && (!validBoundedNumber(trigger.at, 0, 1000000000))) return `factions.${factionId}.actions.${id}.trigger.at 无效`;
     if (hasAfterTurns && (!Number.isInteger(trigger.afterTurns) || trigger.afterTurns < 1 || trigger.afterTurns > 1000000)) return `factions.${factionId}.actions.${id}.trigger.afterTurns 无效`;
-    if (trigger.locationId !== undefined && !isSafeId(trigger.locationId)) return `factions.${factionId}.actions.${id}.trigger.locationId 无效`;
+    if (trigger.locationId !== undefined && (!isSafeId(trigger.locationId) || (locationIds && !locationIds.has(trigger.locationId)))) return `factions.${factionId}.actions.${id}.trigger.locationId 必须引用已登记地点`;
     if (action.visibility !== undefined && !['public', 'local', 'hidden'].includes(action.visibility)) return `factions.${factionId}.actions.${id}.visibility 无效`;
     if (action.once !== undefined && action.once !== true) return `factions.${factionId}.actions.${id}.once 目前必须为 true`;
     const changes = action.changes === undefined ? {} : action.changes;
@@ -1961,10 +1961,11 @@ function validateFactionActionList(factionId, value, resources) {
   return null;
 }
 
-function validateWorldFactions(value) {
+function validateWorldFactions(value, world = null) {
   if (value === undefined || value === null) return null;
   if (!Array.isArray(value) || value.length > 128) return 'factions 最多 128 项';
   const factionIds = new Set();
+  const locationIds = world ? worldLocationIds(world) : null;
   for (const faction of value) {
     const id = typeof faction?.id === 'string' ? faction.id.trim() : '';
     if (!isSafeId(id) || factionIds.has(id) || !draftTextValid(faction.name, 200, true)) return 'factions 含有重复或无效条目';
@@ -1984,7 +1985,7 @@ function validateWorldFactions(value) {
         || !validBoundedNumber(initial, min, max)) return `factions.${id}.resources 无效`;
       resourceIds.add(resourceId);
     }
-    const actionInvalid = validateFactionActionList(id, faction.actions, resources);
+    const actionInvalid = validateFactionActionList(id, faction.actions, resources, locationIds);
     if (actionInvalid) return actionInvalid;
     const initial = faction.initialState;
     if (initial !== undefined) {
@@ -2957,6 +2958,8 @@ async function handleWorldDraftPut(req, res, worldId) {
       if (collectionsInvalid) return send(res, 400, JSON.stringify({ error: collectionsInvalid }), 'application/json');
       const eventsInvalid = validateWorldEvents(payload.events, { ...current.world, locations: payload.locations ?? current.world.locations });
       if (eventsInvalid) return send(res, 400, JSON.stringify({ error: eventsInvalid }), 'application/json');
+      const factionsInvalid = validateWorldFactions(payload.factions, { ...current.world, locations: payload.locations ?? current.world.locations });
+      if (factionsInvalid) return send(res, 400, JSON.stringify({ error: factionsInvalid }), 'application/json');
       const updatedAt = Math.max(Date.now(), current.updatedAt + 1);
       const next = { ...current, world: applyWorldDraftFields(current.world, payload), updatedAt };
       drafts[index] = next;
@@ -3252,7 +3255,7 @@ function worldPackageImportReport(pkg) {
     if (endingInvalid) errors.push(endingInvalid);
     const timeInvalid = validateWorldTime(world.time);
     if (timeInvalid) errors.push(timeInvalid);
-    const factionsInvalid = validateWorldFactions(world.factions);
+    const factionsInvalid = validateWorldFactions(world.factions, world);
     if (factionsInvalid) errors.push(factionsInvalid);
     const conflictsInvalid = validateConflictTemplates(world.conflicts);
     if (conflictsInvalid) errors.push(conflictsInvalid);
@@ -3885,7 +3888,7 @@ async function handleWorldSaveCreate(req, res) {
   if (schemaInvalid) return send(res, 400, JSON.stringify({ error: schemaInvalid }), 'application/json');
   const timeInvalid = validateWorldTime(world.time);
   if (timeInvalid) return send(res, 400, JSON.stringify({ error: timeInvalid }), 'application/json');
-  const factionsInvalid = validateWorldFactions(world.factions);
+  const factionsInvalid = validateWorldFactions(world.factions, world);
   if (factionsInvalid) return send(res, 400, JSON.stringify({ error: factionsInvalid }), 'application/json');
   const conflictsInvalid = validateConflictTemplates(world.conflicts);
   if (conflictsInvalid) return send(res, 400, JSON.stringify({ error: conflictsInvalid }), 'application/json');

@@ -260,6 +260,12 @@ async function main() {
       body: JSON.stringify({ expectedUpdatedAt: draftUpdate.body.updatedAt, baseVersion: world.version, title: 'invalid', summary: '', tags: [], lorebookIds: [], events: [{ id: 'bad-event', title: '越界事件', trigger: { locationId: 'missing-location' } }], locations: draftLocations, npcs: draftNpcs }),
     });
     assert.strictEqual(invalidDraftEvent.response.status, 400, 'event location references are validated against draft locations');
+    const invalidDraftFactionAction = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedUpdatedAt: draftUpdate.body.updatedAt, baseVersion: world.version, title: 'invalid', summary: '', tags: [], lorebookIds: [], factions: [{ id: 'north-guild', name: 'North Guild', actions: [{ id: 'patrol', title: '巡逻', description: '', trigger: { locationId: 'missing-location' }, changes: {} }] }], locations: draftLocations, npcs: draftNpcs }),
+    });
+    assert.strictEqual(invalidDraftFactionAction.response.status, 400, 'faction action location references are validated against draft locations');
     const invalidDraftMap = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

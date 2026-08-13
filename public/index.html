@@ -860,16 +860,36 @@
           <label for="world-draft-time">世界时间 <span class="hint-inline">JSON；服务端每回合推进</span></label>
           <textarea id="world-draft-time" name="worldDraftTime" rows="3" maxlength="5000" spellcheck="false" placeholder='{"unit":"hour","start":8,"turnAdvance":1}'></textarea>
         </div>
-        <div class="field">
-          <label for="world-draft-events">世界事件 <span class="hint-inline">JSON；提交回合后结算到期事件</span></label>
+        <section class="world-draft-collection" aria-labelledby="world-draft-events-title">
+          <div class="world-draft-collection-head">
+            <div>
+              <h3 id="world-draft-events-title">世界事件</h3>
+              <p>事件按稳定 ID 声明触发条件；正式回合推进后由服务端结算。</p>
+            </div>
+            <button class="ghost-btn small" type="button" data-world-add="events">＋世界事件</button>
+          </div>
+          <div id="world-draft-events-editor" class="world-draft-array-editor" aria-label="世界事件条目"></div>
+          <div class="world-draft-array-advanced"><label for="world-draft-events">高级 JSON</label><button class="ghost-btn small" id="world-draft-events-load-json" type="button">载入编辑器</button></div>
           <textarea id="world-draft-events" name="worldDraftEvents" rows="6" maxlength="30000" spellcheck="false" placeholder='[{"id":"event-id","title":"事件标题","trigger":{"at":10},"visibility":"public","once":true}]'></textarea>
+          <label class="world-draft-array-preview-label" for="world-draft-events-preview">事件模板预览</label>
+          <pre id="world-draft-events-preview" class="world-draft-array-preview" aria-live="polite"></pre>
           <p class="hint">trigger 支持 <code>at</code>（世界时间）、<code>afterTurns</code>（成功回合数）和 <code>locationId</code>（地点条件）；条件同时存在时需全部满足。</p>
-        </div>
-        <div class="field">
-          <label for="world-draft-factions">派系与时间行动 <span class="hint-inline">JSON；行动在正式回合推进后结算</span></label>
+        </section>
+        <section class="world-draft-collection" aria-labelledby="world-draft-factions-title">
+          <div class="world-draft-collection-head">
+            <div>
+              <h3 id="world-draft-factions-title">派系与时间行动</h3>
+              <p>派系、资源和行动模板保持独立条目；行动在正式回合推进后结算。</p>
+            </div>
+            <button class="ghost-btn small" type="button" data-world-add="factions">＋派系</button>
+          </div>
+          <div id="world-draft-factions-editor" class="world-draft-array-editor" aria-label="派系条目"></div>
+          <div class="world-draft-array-advanced"><label for="world-draft-factions">高级 JSON</label><button class="ghost-btn small" id="world-draft-factions-load-json" type="button">载入编辑器</button></div>
           <textarea id="world-draft-factions" name="worldDraftFactions" rows="8" maxlength="50000" spellcheck="false" placeholder='[{"id":"north-guild","name":"北方公会","actions":[{"id":"patrol","title":"巡逻山口","description":"派出巡逻队。","trigger":{"at":9,"locationId":"wolf-tooth-inn"},"changes":{"resources":{"funds":-5}}}]}]'></textarea>
+          <label class="world-draft-array-preview-label" for="world-draft-factions-preview">派系模板预览</label>
+          <pre id="world-draft-factions-preview" class="world-draft-array-preview" aria-live="polite"></pre>
           <p class="hint">行动支持 <code>at</code> / <code>afterTurns</code> 与可选 <code>locationId</code>；每个行动默认只结算一次，变化只写入当前存档。</p>
-        </div>
+        </section>
         <section class="world-draft-collection world-draft-map" aria-labelledby="world-draft-map-title">
           <div class="world-draft-collection-head">
             <div>

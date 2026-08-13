@@ -110,6 +110,8 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 
 世界草稿编辑器对 `playerCreation.fields/attributes/skills/resources/traits` 提供分组条目操作；条目顺序就是数组顺序，新增、删除和排序只改变当前世界草稿，不会改写已发布世界版本或已有存档。每条可保留 schema 允许之外的扩展键，保存时仍由服务端 `validatePlayerCreationSchema` 负责最终校验；高级 JSON 可显式载入编辑器，若直接修改后保存也会按原始文本校验，解析失败不会覆盖最近一次有效草稿。
 
+世界草稿的 `locations[]` 与 `npcs[]` 使用结构化编辑器；`events[]` 与 `factions[]` 使用条目编辑器，支持新增、删除、排序和 JSON 预览，嵌套的派系资源 / 时间行动保留在单条 JSON 内。服务端保存和发布时以稳定 ID 校验重复项，并检查事件、NPC 以及派系行动的 `locationId` 是否引用当前草稿已登记地点；发布后这些定义属于对应的不可变世界版本。
+
 默认种子还包含 `world-grey-harbor` 与 `world-orbit-station` 两张不同题材卡；服务端加载世界库时只在内存补入缺失的默认世界，不覆盖用户已有的 `worlds.json` 内容；后续创建草稿、发布或导入等写操作才会按现有流程落盘。
 
 RPG 前端角色状态面板按 `playerCreation.attributes/skills/resources/derived/traits/relations` 和存档 `state.player` 动态投影；不会根据固定 ID 绘制新字段。装备面板按 `economy.equipment.slots` 与 `economy.inventory.items` 显示声明的装备位和物品名，冲突面板按 `conflicts[]` 模板与 `state.conflicts` 显示实例；缺少声明时保留空状态提示，旧存档继续使用兼容的固定状态栏。
