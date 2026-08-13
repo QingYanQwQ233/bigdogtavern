@@ -114,6 +114,9 @@ let worldDraft = null;
 let worldDraftDirty = false;
 let worldDraftOpener = null;
 let worldDraftPublishId = null;
+let worldPlayerOpener = null;
+let pendingWorldSaveName = '';
+let pendingWorldSaveButton = null;
 let worldUpgrade = null;
 let worldUpgradeOpener = null;
 let worldImport = null;
@@ -554,6 +557,7 @@ function fillWorldDraftForm(draft) {
   $('world-draft-summary').value = world.summary || '';
   $('world-draft-tags').value = Array.isArray(world.tags) ? world.tags.join(', ') : '';
   $('world-draft-lorebooks').value = Array.isArray(world.lorebookIds) ? world.lorebookIds.join(', ') : '';
+  $('world-draft-player-creation').value = world.playerCreation ? JSON.stringify(world.playerCreation, null, 2) : '';
   fillWorldDraftMapForm(world);
   renderWorldDraftCollections(world);
   $('world-draft-base').textContent = `基于已发布 v${draft.baseVersion}；草稿修改不会影响旧版本或已有存档。`;
@@ -601,6 +605,12 @@ async function saveWorldDraft() {
   const lorebookIds = splitWorldDraftList($('world-draft-lorebooks').value);
   const mapGeneration = collectWorldDraftMapGeneration();
   const { locations, npcs } = collectWorldDraftCollections();
+  let playerCreation;
+  const playerCreationText = $('world-draft-player-creation').value.trim();
+  if (playerCreationText) {
+    try { playerCreation = JSON.parse(playerCreationText); }
+    catch { setWorldDraftStatus('玩家创建规则不是有效 JSON。', 'error'); $('world-draft-player-creation').focus(); return false; }
+  }
   const titleInput = $('world-draft-name');
   if (!title) {
     setWorldDraftStatus('世界标题不能为空。', 'error');
@@ -616,7 +626,7 @@ async function saveWorldDraft() {
     const res = await fetch('/api/world-drafts/' + encodeURIComponent(worldDraft.worldId), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
-      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds, mapGeneration, locations, npcs }),
+      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds, mapGeneration, locations, npcs, playerCreation }),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error(worldApiError(data, '世界草稿保存失败（HTTP ' + res.status + '）'));
@@ -707,14 +717,107 @@ async function openWorldSave(saveId, expectedToken = worldLoadToken) {
   renderWorldDetail();
   return currentWorldSave;
 }
-async function createWorldSave(name) {
+function setWorldPlayerStatus(message, kind = '') {
+  const el = $('world-player-status');
+  if (el) { el.textContent = message || ''; el.className = `world-draft-status${kind ? ' ' + kind : ''}`; }
+}
+function playerFieldInput(field, value = '') {
+  const id = String(field.id);
+  const label = esc(field.label || id);
+  const required = field.required ? ' required' : '';
+  if (field.type === 'textarea') return `<label class="field"><span>${label}${field.required ? ' *' : ''}</span><textarea data-player-field="${esc(id)}" rows="3" maxlength="${esc(field.maxLength || 2000)}" placeholder="${esc(field.placeholder || '')}"${required}>${esc(value)}</textarea></label>`;
+  if (field.type === 'select') {
+    const options = (field.options || []).map(option => {
+      const optionValue = typeof option === 'string' ? option : option.value;
+      const optionLabel = typeof option === 'string' ? option : option.label;
+      return `<option value="${esc(optionValue)}"${String(value) === String(optionValue) ? ' selected' : ''}>${esc(optionLabel)}</option>`;
+    }).join('');
+    return `<label class="field"><span>${label}${field.required ? ' *' : ''}</span><select data-player-field="${esc(id)}"${required}>${options}</select></label>`;
+  }
+  const type = field.type === 'number' ? 'number' : 'text';
+  const attrs = field.type === 'number'
+    ? ` min="${esc(field.min ?? '')}" max="${esc(field.max ?? '')}" step="${esc(field.step || 'any')}" inputmode="decimal"`
+    : ` maxlength="${esc(field.maxLength || 2000)}"`;
+  return `<label class="field"><span>${label}${field.required ? ' *' : ''}</span><input type="${type}" data-player-field="${esc(id)}" value="${esc(value)}"${attrs}${required}></label>`;
+}
+function renderWorldPlayerForm(world) {
+  const schema = world?.playerCreation || {};
+  $('world-player-title').textContent = schema.title || '创建你的冒险者';
+  $('world-player-intro').textContent = schema.description || '填写的内容只属于当前存档。';
+  const body = $('world-player-fields');
+  const fields = Array.isArray(schema.fields) ? schema.fields : [];
+  const attributes = Array.isArray(schema.attributes) ? schema.attributes : [];
+  const resources = Array.isArray(schema.resources) ? schema.resources : [];
+  const traits = Array.isArray(schema.traits) ? schema.traits : [];
+  const relations = Array.isArray(schema.relations) ? schema.relations : [];
+  const initialFields = world.start?.playerTemplate || {};
+  const sections = [];
+  if (schema.pointBudget) sections.push(`<p class="world-player-budget">${esc(schema.pointBudget.label || '属性点')}：<strong data-player-budget>${esc(schema.pointBudget.total)}</strong> / ${esc(schema.pointBudget.total)}</p>`);
+  if (fields.length) sections.push(fields.map(field => playerFieldInput(field, initialFields[field.id] ?? field.default ?? '')).join(''));
+  if (attributes.length) sections.push(`<section class="field"><span>属性</span><div class="world-player-attribute-grid">${attributes.map(attribute => `<label class="field"><span>${esc(attribute.label)} <small>${esc(attribute.min ?? 0)}-${esc(attribute.max ?? 100)}</small></span><input type="number" data-player-attribute="${esc(attribute.id)}" value="${esc(attribute.default ?? attribute.min ?? 0)}" min="${esc(attribute.min ?? 0)}" max="${esc(attribute.max ?? 100)}" step="${esc(attribute.step || 1)}" inputmode="numeric"></label>`).join('')}</div></section>`);
+  if (resources.length) sections.push(`<section class="field"><span>初始资源</span><div class="world-player-resource-grid">${resources.map(resource => `<label class="field"><span>${esc(resource.label)}</span><input type="number" data-player-resource="${esc(resource.id)}" value="${esc(resource.initial ?? resource.min ?? 0)}" min="${esc(resource.min ?? 0)}" max="${esc(resource.max ?? 1000000)}" step="any" inputmode="decimal"></label>`).join('')}</div></section>`);
+  if (traits.length) sections.push(`<fieldset class="field world-player-traits"><legend>特质（可选）</legend>${traits.map(trait => `<div class="world-player-trait"><input id="world-player-trait-${esc(trait.id)}" type="checkbox" data-player-trait="${esc(trait.id)}"><div><label for="world-player-trait-${esc(trait.id)}">${esc(trait.label)}</label>${trait.description ? `<small>${esc(trait.description)}</small>` : ''}</div></div>`).join('')}</fieldset>`);
+  if (relations.length) {
+    const npcs = new Map((world.npcs || []).map(npc => [npc.id, npc.name || npc.id]));
+    sections.push(`<section class="field"><span>起始关系</span><div class="world-player-resource-grid">${relations.map(rule => `<label class="field"><span>${esc(npcs.get(rule.npcId) || rule.npcId)}</span><input type="number" data-player-relation="${esc(rule.npcId)}" value="${esc(rule.default ?? 0)}" min="${esc(rule.min ?? -100)}" max="${esc(rule.max ?? 100)}" step="1" inputmode="numeric"></label>`).join('')}</div></section>`);
+  }
+  body.innerHTML = sections.join('') || '<p class="world-empty">当前世界卡没有额外建角字段，将使用默认玩家模板。</p>';
+  body.querySelectorAll('[data-player-attribute]').forEach(input => input.addEventListener('input', updateWorldPlayerBudget));
+  updateWorldPlayerBudget();
+}
+function updateWorldPlayerBudget() {
+  const world = currentWorldCard();
+  const total = Number(world?.playerCreation?.pointBudget?.total);
+  const el = document.querySelector('[data-player-budget]');
+  if (!el || !Number.isFinite(total)) return;
+  const spent = [...document.querySelectorAll('[data-player-attribute]')].reduce((sum, input) => sum + (Number(input.value) || 0), 0);
+  el.textContent = String(Math.max(0, total - spent));
+  el.parentElement?.classList.toggle('world-player-budget-over', spent > total);
+}
+function collectWorldPlayerInput() {
+  const player = { fields: {}, attributes: {}, resources: {}, traits: [], relations: {} };
+  document.querySelectorAll('[data-player-field]').forEach(input => { player.fields[input.dataset.playerField] = input.type === 'number' ? Number(input.value) : input.value; });
+  document.querySelectorAll('[data-player-attribute]').forEach(input => { player.attributes[input.dataset.playerAttribute] = Number(input.value); });
+  document.querySelectorAll('[data-player-resource]').forEach(input => { player.resources[input.dataset.playerResource] = Number(input.value); });
+  document.querySelectorAll('[data-player-trait]:checked').forEach(input => player.traits.push(input.dataset.playerTrait));
+  document.querySelectorAll('[data-player-relation]').forEach(input => { player.relations[input.dataset.playerRelation] = Number(input.value); });
+  return player;
+}
+function closeWorldPlayerDialog(result = 'cancel') {
+  const dialog = $('world-player-dialog');
+  if (!dialog?.open) return;
+  const saveButton = pendingWorldSaveButton;
+  dialog.close(result);
+  worldPlayerOpener?.focus?.();
+  if (saveButton) saveButton.disabled = false;
+  worldPlayerOpener = null;
+  pendingWorldSaveButton = null;
+  pendingWorldSaveName = '';
+}
+async function openWorldPlayerCreation(name, button) {
+  const world = worldCardById(currentWorldId);
+  if (!world) throw new Error('请先选择一个世界卡');
+  await loadWorldCardVersion(world.id, world.version);
+  const fullWorld = currentWorldCard();
+  if (!fullWorld?.playerCreation || fullWorld.playerCreation.mode === 'preset') return createWorldSave(name);
+  pendingWorldSaveName = name;
+  pendingWorldSaveButton = button;
+  worldPlayerOpener = button || document.activeElement;
+  renderWorldPlayerForm(fullWorld);
+  setWorldPlayerStatus('创建后，玩家快照与当前存档绑定。', '');
+  const dialog = $('world-player-dialog');
+  if (!dialog.open) dialog.showModal();
+  requestAnimationFrame(() => dialog.querySelector('input, textarea, select')?.focus());
+  return null;
+}
+async function createWorldSave(name, player) {
   if (worldTurnPending) discardWorldTurnPending();
   const world = worldCardById(currentWorldId);
   if (!world) throw new Error('请先选择一个世界卡');
   const res = await fetch('/api/world-saves', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
-    body: JSON.stringify({ worldId: world.id, worldVersion: world.version, name }),
+    body: JSON.stringify({ worldId: world.id, worldVersion: world.version, name, ...(player ? { player } : {}) }),
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new Error(worldApiError(data, '存档创建失败（HTTP ' + res.status + '）'));
@@ -5182,6 +5285,33 @@ function bindEvents() {
   $('world-draft-cancel').addEventListener('click', requestCloseWorldDraft);
   $('world-draft-dialog').addEventListener('cancel', e => { e.preventDefault(); requestCloseWorldDraft(); });
   $('world-draft-dialog').addEventListener('click', e => { if (e.target === e.currentTarget) requestCloseWorldDraft(); });
+  $('world-player-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const form = $('world-player-form');
+    if (!form.reportValidity() || !pendingWorldSaveName) return;
+    const createButton = $('world-player-create');
+    const worldButton = pendingWorldSaveButton;
+    createButton.disabled = true;
+    setWorldPlayerStatus('正在创建独立存档…');
+    try {
+      await createWorldSave(pendingWorldSaveName, collectWorldPlayerInput());
+      const input = $('world-save-name');
+      if (input) input.value = '';
+      closeWorldPlayerDialog('created');
+      const status = $('world-open-status');
+      if (status) status.textContent = `已创建并打开「${currentWorldSave.name}」——玩家、世界状态、地图和叙事已绑定当前存档；当前存档 ID：${currentWorldSave.id}`;
+      enterWorldWorkspace();
+    } catch (err) {
+      setWorldPlayerStatus(err.message, 'error');
+    } finally {
+      createButton.disabled = false;
+      if (worldButton) worldButton.disabled = false;
+    }
+  });
+  $('world-player-close').addEventListener('click', () => closeWorldPlayerDialog());
+  $('world-player-cancel').addEventListener('click', () => closeWorldPlayerDialog());
+  $('world-player-dialog').addEventListener('cancel', e => { e.preventDefault(); closeWorldPlayerDialog(); });
+  $('world-player-dialog').addEventListener('click', e => { if (e.target === e.currentTarget) closeWorldPlayerDialog(); });
   $('world-upgrade-target').addEventListener('change', previewWorldSaveUpgrade);
   $('world-upgrade-form').addEventListener('submit', async e => { e.preventDefault(); await commitWorldSaveUpgrade(); });
   $('world-upgrade-close').addEventListener('click', closeWorldSaveUpgrade);
@@ -5204,16 +5334,18 @@ function bindEvents() {
     btn.disabled = true;
     btn.textContent = '创建中…';
     try {
-      await createWorldSave(name);
-      input.value = '';
-      const status = $('world-open-status');
-      if (status) status.textContent = `已创建并打开「${currentWorldSave.name}」——世界状态、地图和叙事已绑定当前存档；当前存档 ID：${currentWorldSave.id}`;
-      enterWorldWorkspace();
+      const created = await openWorldPlayerCreation(name, btn);
+      if (created) {
+        input.value = '';
+        const status = $('world-open-status');
+        if (status) status.textContent = `已创建并打开「${currentWorldSave.name}」——世界状态、地图和叙事已绑定当前存档；当前存档 ID：${currentWorldSave.id}`;
+        enterWorldWorkspace();
+      }
     } catch (err) {
       showWorldError(err.message);
       input.focus();
     } finally {
-      btn.disabled = false;
+      if (!$('world-player-dialog')?.open) btn.disabled = false;
       btn.textContent = old;
     }
   });

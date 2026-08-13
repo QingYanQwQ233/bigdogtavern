@@ -467,6 +467,38 @@
       "summary": "福瑞种族共存的日式西幻大陆，从断牙之角开始你的第一段旅程。",
       "coverImage": "",
       "tags": ["日式西幻", "福瑞", "开放世界"],
+      "playerCreation": {
+        "mode": "custom",
+        "title": "创建你的冒险者",
+        "description": "这些字段只属于当前世界存档，不会写回角色库或其他存档。",
+        "pointBudget": { "label": "属性点", "total": 8, "min": 0 },
+        "fields": [
+          { "id": "name", "label": "名字", "type": "text", "required": true, "maxLength": 80 },
+          { "id": "race", "label": "种族", "type": "select", "required": true, "options": [
+            { "value": "狐人", "label": "狐人" },
+            { "value": "狼族", "label": "狼族" },
+            { "value": "猫族", "label": "猫族" },
+            { "value": "鹿族", "label": "鹿族" }
+          ] },
+          { "id": "role", "label": "身份 / 职业", "type": "text", "required": true, "maxLength": 120, "default": "旅人" },
+          { "id": "background", "label": "背景", "type": "textarea", "maxLength": 1200, "placeholder": "一句话说明你为何来到断牙之角。" }
+        ],
+        "attributes": [
+          { "id": "might", "label": "力量", "min": 1, "max": 5, "default": 2, "step": 1 },
+          { "id": "wits", "label": "灵巧", "min": 1, "max": 5, "default": 2, "step": 1 },
+          { "id": "spirit", "label": "精神", "min": 1, "max": 5, "default": 2, "step": 1 },
+          { "id": "fortune", "label": "幸运", "min": 1, "max": 5, "default": 2, "step": 1 }
+        ],
+        "resources": [
+          { "id": "hp", "label": "生命", "type": "number", "min": 1, "max": 999, "initial": 20 },
+          { "id": "mp", "label": "魔力", "type": "number", "min": 0, "max": 999, "initial": 5 },
+          { "id": "gold", "label": "金币", "type": "number", "min": 0, "max": 1000000, "initial": 10 }
+        ],
+        "traits": [
+          { "id": "keen-sense", "label": "敏锐感知", "description": "更容易发现环境中的细节。" },
+          { "id": "steady-hand", "label": "稳健之手", "description": "在紧张场面中保持专注。" }
+        ]
+      },
       "start": {
         "locationId": "wolf-tooth-inn",
         "opening": "雨幕笼罩着断牙之角。炉火、湿木与远方山风交织成一段等待被写下的旅程。",

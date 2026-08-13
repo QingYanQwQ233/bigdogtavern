@@ -802,6 +802,11 @@
             <input id="world-draft-lorebooks" name="worldDraftLorebooks" maxlength="1000" placeholder="default, lore-aurora" spellcheck="false" />
           </div>
         </div>
+        <div class="field">
+          <label for="world-draft-player-creation">玩家创建规则 <span class="hint-inline">JSON；字段由世界卡声明</span></label>
+          <textarea id="world-draft-player-creation" name="worldDraftPlayerCreation" rows="8" maxlength="30000" spellcheck="false" placeholder='{"mode":"custom","fields":[],"attributes":[],"resources":[],"traits":[]}'></textarea>
+          <p class="hint">只写当前世界的建角规则。创建存档时会复制为 player.snapshot，之后与其他存档独立。</p>
+        </div>
         <section class="world-draft-collection world-draft-map" aria-labelledby="world-draft-map-title">
           <div class="world-draft-collection-head">
             <div>
@@ -853,6 +858,26 @@
         <span class="world-draft-action-spacer" aria-hidden="true"></span>
         <button class="ghost-btn" id="world-draft-cancel" type="button">取消</button>
         <button class="btn gold" id="world-draft-save" type="submit">保存草稿</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="world-player-dialog" class="world-draft-dialog world-player-dialog" aria-labelledby="world-player-title">
+    <form id="world-player-form" class="world-draft-card">
+      <header class="world-draft-head">
+        <div>
+          <p class="world-eyebrow">WORLD SAVE · PLAYER</p>
+          <h2 id="world-player-title">创建你的冒险者</h2>
+          <p id="world-player-intro" class="world-draft-base"></p>
+        </div>
+        <button class="ghost-btn small" id="world-player-close" type="button" aria-label="关闭玩家创建">✕</button>
+      </header>
+      <div id="world-player-fields" class="world-draft-body world-player-fields"></div>
+      <footer class="world-draft-actions">
+        <p id="world-player-status" class="world-draft-status" role="status" aria-live="polite"></p>
+        <span class="world-draft-action-spacer" aria-hidden="true"></span>
+        <button class="ghost-btn" id="world-player-cancel" type="button">取消</button>
+        <button class="btn gold" id="world-player-create" type="submit">创建并打开存档</button>
       </footer>
     </form>
   </dialog>

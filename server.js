@@ -234,7 +234,14 @@ async function loadWorlds() {
   const raw = await fs.promises.readFile(path.join(DATA_DIR, 'worlds.json'), 'utf-8');
   const worlds = JSON.parse(raw);
   if (!Array.isArray(worlds)) throw new Error('worlds.json 必须是数组');
-  return worlds;
+  // 旧 worlds.json 仍可运行：只在内存中补上默认的声明式建角规则，不改写世界卡文件。
+  const defaults = loadDefaults();
+  const defaultByKey = new Map((defaults.worlds || []).map(world => [`${world.id}:${world.version}`, world]));
+  return worlds.map(world => {
+    if (!world || world.playerCreation !== undefined) return world;
+    const fallback = defaultByKey.get(`${world.id}:${world.version}`)?.playerCreation;
+    return fallback ? { ...world, playerCreation: cloneJson(fallback) } : world;
+  });
 }
 
 function worldVersions(worlds, worldId) {
@@ -268,7 +275,190 @@ function worldDraftFieldsValid(payload, requireRevision = false) {
   if (!Array.isArray(payload.lorebookIds) || payload.lorebookIds.length > 64 || payload.lorebookIds.some(value => typeof value !== 'string' || !isSafeId(value.trim()))) return 'lorebookIds 包含无效 ID';
   const mapInvalid = validateWorldDraftMapGeneration(payload.mapGeneration);
   if (mapInvalid) return mapInvalid;
+  const playerCreationInvalid = validatePlayerCreationSchema(payload.playerCreation);
+  if (playerCreationInvalid) return playerCreationInvalid;
   return null;
+}
+
+function validBoundedNumber(value, min, max, integer = false) {
+  return Number.isFinite(value) && value >= min && value <= max && (!integer || Number.isInteger(value));
+}
+
+function validatePlayerCreationSchema(schema, world = null) {
+  if (schema === undefined || schema === null) return null;
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return 'playerCreation 必须是对象';
+  if (!['custom', 'preset'].includes(schema.mode || 'custom')) return 'playerCreation.mode 无效';
+  if (schema.title !== undefined && (!draftTextValid(schema.title, 160, true))) return 'playerCreation.title 无效';
+  if (schema.description !== undefined && !draftTextValid(schema.description, 2000)) return 'playerCreation.description 无效';
+  if (schema.pointBudget !== undefined) {
+    const budget = schema.pointBudget;
+    if (!budget || typeof budget !== 'object' || Array.isArray(budget)
+      || !validBoundedNumber(budget.total, 0, 999, true)
+      || (budget.min !== undefined && !validBoundedNumber(budget.min, 0, budget.total, true))) return 'playerCreation.pointBudget 无效';
+  }
+  const fieldIds = new Set();
+  const fields = schema.fields === undefined ? [] : schema.fields;
+  if (!Array.isArray(fields) || fields.length > 64) return 'playerCreation.fields 最多 64 项';
+  for (const field of fields) {
+    const id = typeof field?.id === 'string' ? field.id.trim() : '';
+    if (!isSafeId(id) || fieldIds.has(id) || !draftTextValid(field.label, 120, true)) return 'playerCreation.fields 含有重复或无效条目';
+    if (!['text', 'textarea', 'select', 'number'].includes(field.type)) return `playerCreation.fields.${id}.type 无效`;
+    if (field.required !== undefined && typeof field.required !== 'boolean') return `playerCreation.fields.${id}.required 无效`;
+    if (field.maxLength !== undefined && !validBoundedNumber(field.maxLength, 1, 10000, true)) return `playerCreation.fields.${id}.maxLength 无效`;
+    if (field.type === 'select') {
+      if (!Array.isArray(field.options) || field.options.length > 128 || field.options.length === 0) return `playerCreation.fields.${id}.options 无效`;
+      const options = new Set();
+      for (const option of field.options) {
+        const value = typeof option === 'string' ? option.trim() : String(option?.value || '').trim();
+        const label = typeof option === 'string' ? option.trim() : option?.label;
+        if (!value || value.length > 160 || options.has(value) || !draftTextValid(label, 160, true)) return `playerCreation.fields.${id}.options 无效`;
+        options.add(value);
+      }
+      if (field.default !== undefined && !options.has(String(field.default))) return `playerCreation.fields.${id}.default 无效`;
+    }
+    if (field.default !== undefined) {
+      if (field.type === 'number') {
+        const value = Number(field.default);
+        if (!validBoundedNumber(value, field.min ?? -1000000, field.max ?? 1000000)) return `playerCreation.fields.${id}.default 无效`;
+      } else if (typeof field.default !== 'string' || field.default.length > (field.maxLength || 2000)) return `playerCreation.fields.${id}.default 无效`;
+    }
+    if (field.type === 'number') {
+      if (field.min !== undefined && !validBoundedNumber(field.min, -1000000, 1000000)) return `playerCreation.fields.${id}.min 无效`;
+      if (field.max !== undefined && !validBoundedNumber(field.max, -1000000, 1000000)) return `playerCreation.fields.${id}.max 无效`;
+      if (field.min !== undefined && field.max !== undefined && field.min > field.max) return `playerCreation.fields.${id}.range 无效`;
+      if (field.step !== undefined && !validBoundedNumber(field.step, 0.000001, 1000000)) return `playerCreation.fields.${id}.step 无效`;
+      if (field.default !== undefined && field.step !== undefined) {
+        const value = Number(field.default);
+        if (Math.abs((value - (field.min ?? 0)) / field.step - Math.round((value - (field.min ?? 0)) / field.step)) > 1e-9) return `playerCreation.fields.${id}.default 无效`;
+      }
+    }
+    fieldIds.add(id);
+  }
+  const attributeIds = new Set();
+  const attributes = schema.attributes === undefined ? [] : schema.attributes;
+  if (!Array.isArray(attributes) || attributes.length > 64) return 'playerCreation.attributes 最多 64 项';
+  for (const attribute of attributes) {
+    const id = typeof attribute?.id === 'string' ? attribute.id.trim() : '';
+    if (!isSafeId(id) || attributeIds.has(id) || !draftTextValid(attribute.label, 120, true)) return 'playerCreation.attributes 含有重复或无效条目';
+    const min = attribute.min ?? 0;
+    const max = attribute.max ?? 100;
+    const step = attribute.step ?? 1;
+    if (!validBoundedNumber(min, -1000000, 1000000) || !validBoundedNumber(max, min, 1000000)
+      || !validBoundedNumber(step, 0.000001, 1000000) || !validBoundedNumber(attribute.default ?? min, min, max)) return `playerCreation.attributes.${id} 范围无效`;
+    attributeIds.add(id);
+  }
+  const resourceIds = new Set();
+  const resources = schema.resources === undefined ? [] : schema.resources;
+  if (!Array.isArray(resources) || resources.length > 64) return 'playerCreation.resources 最多 64 项';
+  for (const resource of resources) {
+    const id = typeof resource?.id === 'string' ? resource.id.trim() : '';
+    if (!isSafeId(id) || resourceIds.has(id) || !draftTextValid(resource.label, 120, true) || (resource.type && resource.type !== 'number')) return 'playerCreation.resources 含有重复或无效条目';
+    const min = resource.min ?? 0;
+    const max = resource.max ?? 1000000;
+    if (!validBoundedNumber(min, -1000000, 1000000000) || !validBoundedNumber(max, min, 1000000000)
+      || !validBoundedNumber(resource.initial ?? min, min, max)) return `playerCreation.resources.${id} 范围无效`;
+    resourceIds.add(id);
+  }
+  const traitIds = new Set();
+  const traits = schema.traits === undefined ? [] : schema.traits;
+  if (!Array.isArray(traits) || traits.length > 128) return 'playerCreation.traits 最多 128 项';
+  for (const trait of traits) {
+    const id = typeof trait?.id === 'string' ? trait.id.trim() : '';
+    if (!isSafeId(id) || traitIds.has(id) || !draftTextValid(trait.label, 120, true) || (trait.description !== undefined && !draftTextValid(trait.description, 1000))) return 'playerCreation.traits 含有重复或无效条目';
+    traitIds.add(id);
+  }
+  if (schema.relations !== undefined) {
+    if (!Array.isArray(schema.relations) || schema.relations.length > 256) return 'playerCreation.relations 无效';
+    const relationIds = new Set();
+    const allowedNpcIds = world ? new Set(worldNpcIds(world)) : null;
+    for (const relation of schema.relations) {
+      const npcId = typeof relation?.npcId === 'string' ? relation.npcId.trim() : '';
+      if (!isSafeId(npcId) || relationIds.has(npcId) || (allowedNpcIds && !allowedNpcIds.has(npcId))) return 'playerCreation.relations 含有无效 NPC';
+      if (!validBoundedNumber(relation.min ?? -100, -1000000, 1000000) || !validBoundedNumber(relation.max ?? 100, relation.min ?? -100, 1000000)
+        || !validBoundedNumber(relation.default ?? 0, relation.min ?? -100, relation.max ?? 100)) return `playerCreation.relations.${npcId} 范围无效`;
+      relationIds.add(npcId);
+    }
+  }
+  return null;
+}
+
+function playerCreationSchema(world) {
+  const schema = world?.playerCreation;
+  return schema && typeof schema === 'object' && !Array.isArray(schema) ? schema : null;
+}
+
+function validatePlayerCreationInput(world, input) {
+  const schema = playerCreationSchema(world);
+  if (input === undefined || input === null) return { snapshot: cloneJson(world?.start?.playerTemplate || { name: '未命名冒险者', race: '待定', role: '旅人', profileFields: [] }), statePlayer: null, relations: {} };
+  if (!schema) return { error: '当前世界卡没有可用的玩家创建规则' };
+  if (schema.mode === 'preset') return { error: '当前世界卡使用预设玩家，不能提交自定义建角数据' };
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return { error: 'player 必须是对象' };
+  const fields = Object.fromEntries((Array.isArray(schema.fields) ? schema.fields : []).map(field => [field.id, field]));
+  const attributes = Object.fromEntries((Array.isArray(schema.attributes) ? schema.attributes : []).map(attribute => [attribute.id, attribute]));
+  const resources = Object.fromEntries((Array.isArray(schema.resources) ? schema.resources : []).map(resource => [resource.id, resource]));
+  const traits = new Map((Array.isArray(schema.traits) ? schema.traits : []).map(trait => [trait.id, trait]));
+  const values = input.fields && typeof input.fields === 'object' && !Array.isArray(input.fields) ? input.fields : {};
+  const normalizedFields = {};
+  for (const [id, field] of Object.entries(fields)) {
+    let value = values[id] ?? field.default ?? '';
+    if (field.type === 'number') value = Number(value);
+    if (field.type === 'number' && (!validBoundedNumber(value, field.min ?? -1000000, field.max ?? 1000000)
+      || (field.step && Math.abs((value - (field.min ?? 0)) / field.step - Math.round((value - (field.min ?? 0)) / field.step)) > 1e-9))) return { error: `player.fields.${id} 数值无效` };
+    if (field.type !== 'number' && typeof value !== 'string') return { error: `player.fields.${id} 必须是文本` };
+    if (field.type !== 'number' && field.required && !value.trim()) return { error: `player.fields.${id} 不能为空` };
+    if (field.type !== 'number' && value.length > (field.maxLength || 2000)) return { error: `player.fields.${id} 超出长度限制` };
+    if (field.type === 'select' && !field.options.some(option => (typeof option === 'string' ? option : option.value) === value)) return { error: `player.fields.${id} 选项无效` };
+    normalizedFields[id] = field.type === 'number' ? value : value.trim();
+  }
+  for (const id of Object.keys(values)) if (!Object.hasOwn(fields, id)) return { error: `player.fields.${id} 不是当前世界卡字段` };
+  const inputAttributes = input.attributes && typeof input.attributes === 'object' && !Array.isArray(input.attributes) ? input.attributes : {};
+  const normalizedAttributes = {};
+  let spent = 0;
+  for (const [id, attribute] of Object.entries(attributes)) {
+    const value = inputAttributes[id] ?? attribute.default ?? attribute.min ?? 0;
+    if (!validBoundedNumber(value, attribute.min ?? 0, attribute.max ?? 100)
+      || (attribute.step && Math.abs((value - (attribute.min ?? 0)) / attribute.step - Math.round((value - (attribute.min ?? 0)) / attribute.step)) > 1e-9)) return { error: `player.attributes.${id} 超出范围` };
+    normalizedAttributes[id] = value;
+    spent += value;
+  }
+  for (const id of Object.keys(inputAttributes)) if (!Object.hasOwn(attributes, id)) return { error: `player.attributes.${id} 不是当前世界卡属性` };
+  if (schema.pointBudget && spent > schema.pointBudget.total) return { error: `属性点不能超过 ${schema.pointBudget.total}` };
+  if (schema.pointBudget && spent < (schema.pointBudget.min ?? 0)) return { error: `属性点不能少于 ${schema.pointBudget.min}` };
+  const inputResources = input.resources && typeof input.resources === 'object' && !Array.isArray(input.resources) ? input.resources : {};
+  const normalizedResources = {};
+  for (const [id, resource] of Object.entries(resources)) {
+    const value = inputResources[id] ?? resource.initial ?? resource.min ?? 0;
+    if (!validBoundedNumber(value, resource.min ?? 0, resource.max ?? 1000000)) return { error: `player.resources.${id} 超出范围` };
+    normalizedResources[id] = value;
+  }
+  for (const id of Object.keys(inputResources)) if (!Object.hasOwn(resources, id)) return { error: `player.resources.${id} 不是当前世界卡资源` };
+  const selectedTraits = Array.isArray(input.traits) ? [...new Set(input.traits.map(String))] : [];
+  if (selectedTraits.length > traits.size || selectedTraits.some(id => !traits.has(id))) return { error: 'player.traits 含有无效条目' };
+  const inputRelations = input.relations && typeof input.relations === 'object' && !Array.isArray(input.relations) ? input.relations : {};
+  const relationRules = Object.fromEntries((Array.isArray(schema.relations) ? schema.relations : []).map(rule => [rule.npcId, rule]));
+  const normalizedRelations = {};
+  for (const [npcId, rule] of Object.entries(relationRules)) {
+    const value = inputRelations[npcId] ?? rule.default ?? 0;
+    if (!validBoundedNumber(value, rule.min ?? -100, rule.max ?? 100)) return { error: `player.relations.${npcId} 超出范围` };
+    normalizedRelations[npcId] = value;
+  }
+  for (const id of Object.keys(inputRelations)) if (!Object.hasOwn(relationRules, id)) return { error: `player.relations.${id} 不是当前世界卡关系` };
+  const snapshot = {
+    fields: normalizedFields,
+    attributes: normalizedAttributes,
+    resources: normalizedResources,
+    traits: selectedTraits,
+    relations: normalizedRelations,
+    name: normalizedFields.name || '未命名冒险者',
+    race: normalizedFields.race || '待定',
+    role: normalizedFields.role || '旅人',
+    profileFields: Object.entries(normalizedFields).filter(([id]) => !['name', 'race', 'role'].includes(id)).map(([key, value]) => ({ key, value })),
+  };
+  return {
+    snapshot,
+    statePlayer: { fields: normalizedFields, attributes: normalizedAttributes, resources: normalizedResources, traits: selectedTraits, relations: normalizedRelations, effects: [] },
+    relations: normalizedRelations,
+  };
 }
 
 function validateWorldDraftMapGeneration(value) {
@@ -373,6 +563,7 @@ function applyWorldDraftFields(world, payload) {
   next.summary = payload.summary;
   next.tags = [...new Set(payload.tags.map(value => value.trim()))];
   next.lorebookIds = [...new Set(payload.lorebookIds.map(value => value.trim()))];
+  if (payload.playerCreation !== undefined) next.playerCreation = cloneJson(payload.playerCreation);
   if (payload.mapGeneration !== undefined) {
     const map = next.map && typeof next.map === 'object' && !Array.isArray(next.map) ? next.map : {};
     next.map = { ...map, generation: normalizeWorldDraftMapGeneration(payload.mapGeneration) };
@@ -409,11 +600,12 @@ function prepareWorldDraftPublication(draft) {
     summary: world.summary,
     tags: world.tags,
     lorebookIds: world.lorebookIds,
+    ...(world.playerCreation !== undefined ? { playerCreation: world.playerCreation } : {}),
     ...(mapGeneration ? { mapGeneration } : {}),
     locations: Array.isArray(world.locations) ? world.locations : [],
     npcs: Array.isArray(world.npcs) ? world.npcs : [],
   };
-  const invalid = worldDraftFieldsValid(payload) || validateWorldDraftCollections(payload, world);
+  const invalid = worldDraftFieldsValid(payload) || validatePlayerCreationSchema(payload.playerCreation, world) || validateWorldDraftCollections(payload, world);
   return invalid ? { error: invalid } : { world };
 }
 
@@ -448,11 +640,11 @@ function validateWorldLocationIds(world, state, npcStates, createEntities) {
   return null;
 }
 
-function initialNpcStates(world, start) {
+function initialNpcStates(world, start, playerRelations = {}) {
   const locationId = start && typeof start.locationId === 'string' ? start.locationId : null;
   return Object.fromEntries(worldNpcIds(world).map(npcId => [npcId, {
     locationId,
-    relation: {},
+    relation: Object.hasOwn(playerRelations, npcId) ? { player: playerRelations[npcId] } : {},
     knowledge: [],
     status: [],
   }]));
@@ -842,6 +1034,8 @@ async function handleWorldDraftPut(req, res, worldId) {
       }
       const worlds = await loadWorlds();
       if (!findWorldVersion(worlds, worldId, current.baseVersion)) return send(res, 409, JSON.stringify({ error: '草稿所基于的世界版本已不存在' }), 'application/json');
+      const playerCreationInvalid = validatePlayerCreationSchema(payload.playerCreation, current.world);
+      if (playerCreationInvalid) return send(res, 400, JSON.stringify({ error: playerCreationInvalid }), 'application/json');
       const collectionsInvalid = validateWorldDraftCollections(payload, current.world);
       if (collectionsInvalid) return send(res, 400, JSON.stringify({ error: collectionsInvalid }), 'application/json');
       const updatedAt = Math.max(Date.now(), current.updatedAt + 1);
@@ -1589,8 +1783,17 @@ async function handleWorldSaveCreate(req, res) {
   const now = Date.now();
   const initial = start.initialState && typeof start.initialState === 'object' ? start.initialState : {};
   const stats = initial.stats && typeof initial.stats === 'object' ? cloneJson(initial.stats) : {};
-  const player = start.playerTemplate && typeof start.playerTemplate === 'object' ? cloneJson(start.playerTemplate) : { name: '未命名冒险者', race: '待定', role: '旅人', profileFields: [] };
+  const schemaInvalid = validatePlayerCreationSchema(world.playerCreation, world);
+  if (schemaInvalid) return send(res, 400, JSON.stringify({ error: schemaInvalid }), 'application/json');
+  const playerResult = validatePlayerCreationInput(world, payload.player);
+  if (playerResult.error) return send(res, 400, JSON.stringify({ error: playerResult.error }), 'application/json');
+  const player = playerResult.snapshot;
   const playerId = String(start.playerTemplateId || ('pc-' + id));
+  const playerState = playerResult.statePlayer || (initial.player && typeof initial.player === 'object' ? cloneJson(initial.player) : null);
+  const derivedStats = { ...stats };
+  for (const key of ['hp', 'mp', 'gold']) {
+    if (playerState?.resources && Number.isFinite(playerState.resources[key])) derivedStats[key] = playerState.resources[key];
+  }
   const save = {
     schemaVersion: 1,
     id,
@@ -1604,7 +1807,8 @@ async function handleWorldSaveCreate(req, res) {
     party: { memberIds: [playerId], leaderId: playerId },
     state: {
       locationId: start.locationId || null,
-      stats,
+      stats: derivedStats,
+      ...(playerState ? { player: playerState } : {}),
       inventory: Array.isArray(initial.inventory) ? cloneJson(initial.inventory) : [],
       quests: Array.isArray(initial.quests) ? cloneJson(initial.quests) : [],
       map: {
@@ -1616,7 +1820,7 @@ async function handleWorldSaveCreate(req, res) {
         markers: [],
       },
     },
-    npcStates: initialNpcStates(world, start),
+    npcStates: initialNpcStates(world, start, playerResult.relations),
     opening: String(start.opening || ''),
     turns: [],
     receipts: [],
@@ -1656,6 +1860,14 @@ function validateWorldSavePatch(payload) {
       if (!Number.isFinite(value) || value < min || value > max || (integer && !Number.isInteger(value))) return `state.stats.${key} 数值无效`;
     }
     if (state.stats.buffs !== undefined && (!Array.isArray(state.stats.buffs) || state.stats.buffs.length > 64 || state.stats.buffs.some(v => typeof v !== 'string' || v.length > 120))) return 'state.stats.buffs 无效';
+  }
+  if (state.player !== undefined) {
+    if (!state.player || typeof state.player !== 'object' || Array.isArray(state.player)) return 'state.player 必须是对象';
+    for (const key of ['fields', 'attributes', 'resources', 'relations']) {
+      if (state.player[key] !== undefined && (!state.player[key] || typeof state.player[key] !== 'object' || Array.isArray(state.player[key]) || Object.keys(state.player[key]).length > 128)) return `state.player.${key} 无效`;
+    }
+    if (state.player.traits !== undefined && (!Array.isArray(state.player.traits) || state.player.traits.length > 128 || state.player.traits.some(id => typeof id !== 'string' || !isSafeId(id)))) return 'state.player.traits 无效';
+    if (state.player.effects !== undefined && (!Array.isArray(state.player.effects) || state.player.effects.length > 128)) return 'state.player.effects 无效';
   }
   for (const item of state.inventory) {
     if (!item || typeof item !== 'object' || typeof item.name !== 'string' || !item.name.trim() || item.name.length > 200) return '背包条目无效';
