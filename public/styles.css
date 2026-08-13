@@ -277,6 +277,7 @@ body[data-mode="rpg"] #rpg-status { display: flex; grid-area: status; }
 .rpg-dynamic-stats { display: flex; flex-wrap: wrap; gap: 5px; }
 .rpg-dynamic-stat { padding: 3px 7px; border: 1px solid var(--line-soft); border-radius: 999px; color: var(--muted); font-size: 11px; }
 .rpg-dynamic-stat b { margin-left: 3px; color: var(--text); font-variant-numeric: tabular-nums; }
+.rpg-deadline { color: var(--muted); font-size: 10px; font-weight: 500; }
 
 .quick-hint {
   color: var(--muted);

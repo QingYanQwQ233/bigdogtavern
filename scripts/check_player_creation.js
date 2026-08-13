@@ -13,6 +13,7 @@ world.npcIds = ['npc-lily'];
 world.npcs = [{ id: 'npc-lily', name: '莉莉', role: 'innkeeper' }];
 world.playerCreation.relations = [{ npcId: 'npc-lily', label: '与莉莉的关系', min: -100, max: 100, default: 5 }];
 world.events.push({ id: 'inn-echo', title: '旅店回响', description: '炉火后传来一声短促的回响。', trigger: { locationId: 'wolf-tooth-inn' }, visibility: 'local', once: true });
+world.start.initialState.goals = [{ id: 'deadline-goal', title: 'Deadline', desc: 'expires at start', status: 'active', deadline: { unit: 'hour', value: 8 } }];
 fs.writeFileSync(path.join(tempDir, '_defaults.json'), JSON.stringify(defaults, null, 2));
 fs.writeFileSync(path.join(tempDir, 'worlds.json'), JSON.stringify(defaults.worlds, null, 2));
 process.env.TAVERN_DATA_DIR = tempDir;
@@ -91,6 +92,9 @@ async function main() {
     assert.strictEqual(freeTurn.response.status, 200, 'world card can allow zero suggestions');
     assert.strictEqual(freeTurn.body.turns.at(-2).actionIntent.raw, '观察四周');
     assert.strictEqual(freeTurn.body.state.time.value, 9, 'server advances world time once per committed turn');
+    assert.strictEqual(freeTurn.body.state.goals[0].status, 'failed', 'expired goals fail after the server advances time');
+    assert.strictEqual(freeTurn.body.state.goals[0].deadlineStatus, 'expired');
+    assert.deepStrictEqual(freeTurn.body.receipts.at(-1).deadlineIds, ['goals:deadline-goal']);
     assert.deepStrictEqual(freeTurn.body.state.worldEvents.map(event => event.eventId), ['inn-echo']);
     const tamperedDice = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

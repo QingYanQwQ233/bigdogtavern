@@ -657,6 +657,24 @@ function settleWorldEvents(world, current, nextState, commandId, revision) {
   return { events: [...existing, ...triggered].slice(-256), eventIds: triggered.map(event => event.eventId) };
 }
 
+function settleWorldDeadlines(nextState) {
+  const time = nextState?.time;
+  if (!time || !Number.isFinite(time.value) || typeof time.unit !== 'string') return [];
+  const expired = [];
+  for (const key of ['goals', 'leads']) {
+    const list = Array.isArray(nextState[key]) ? nextState[key] : [];
+    for (const objective of list) {
+      const deadline = objective?.deadline;
+      if (objective?.status !== 'active' || !deadline || deadline.unit !== time.unit || !Number.isFinite(deadline.value) || time.value < deadline.value) continue;
+      objective.status = 'failed';
+      objective.deadlineStatus = 'expired';
+      objective.deadlineResolvedAt = cloneJson(time);
+      expired.push(`${key}:${objective.id}`);
+    }
+  }
+  return expired;
+}
+
 function validateActionIntent(value) {
   if (value === undefined || value === null) return null;
   if (!value || typeof value !== 'object' || Array.isArray(value)) return 'actionIntent 必须是对象';
@@ -2514,6 +2532,7 @@ async function handleWorldTurnPost(req, res, saveId) {
       const revision = current.revision + 1;
       const nextState = cloneJson(payload.state);
       nextState.time = advanceWorldTime(current.state?.time, world);
+      const deadlineIds = settleWorldDeadlines(nextState);
       const settledEvents = settleWorldEvents(world, current, nextState, payload.commandId, revision);
       nextState.worldEvents = settledEvents.events;
       const committedTurns = payload.turns.map((turn, index) => ({
@@ -2536,6 +2555,7 @@ async function handleWorldTurnPost(req, res, saveId) {
           revision,
           turnIds: committedTurns.map(turn => turn.id).filter(Boolean),
           eventIds: settledEvents.eventIds,
+          deadlineIds,
           committedAt: Date.now(),
         }].slice(-200),
         revision,

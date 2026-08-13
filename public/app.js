@@ -1625,6 +1625,20 @@ function renderRPG() {
   };
   renderObjectives('rpg-goals', worldModeActive() ? currentWorldSave.state?.goals : rs.goals, '暂无目标。');
   renderObjectives('rpg-leads', worldModeActive() ? currentWorldSave.state?.leads : rs.leads, '暂无线索。');
+  const addDeadlineLabels = (id, list) => {
+    const el = $(id);
+    const values = Array.isArray(list) ? list : [];
+    el?.querySelectorAll('.rpg-item').forEach((item, index) => {
+      const deadline = values[index]?.deadline;
+      if (!deadline || typeof deadline.value !== 'number' || !deadline.unit) return;
+      const label = document.createElement('small');
+      label.className = 'rpg-deadline';
+      label.textContent = `截止 ${deadline.value} ${deadline.unit}`;
+      item.querySelector('.rpg-item-name')?.append(' · ', label);
+    });
+  };
+  addDeadlineLabels('rpg-goals', worldModeActive() ? currentWorldSave.state?.goals : rs.goals);
+  addDeadlineLabels('rpg-leads', worldModeActive() ? currentWorldSave.state?.leads : rs.leads);
   const eventList = $('rpg-world-events');
   if (eventList) {
     const currentLocationId = currentWorldSave?.state?.locationId || null;
@@ -3344,6 +3358,11 @@ function buildRpgPromptPart() {
     parts.push('【任务】' + (rs.quests.length ? rs.quests.map(x => `${x.title}${x.status === 'done' ? '（已完成）' : ''}`).join('、') : '（无）'));
     parts.push('【目标】' + (rs.goals?.length ? rs.goals.map(x => `${x.title}${x.status && x.status !== 'active' ? `（${x.status}）` : ''}`).join('、') : '（无）'));
     parts.push('【线索】' + (rs.leads?.length ? rs.leads.map(x => `${x.title}${x.status && x.status !== 'active' ? `（${x.status}）` : ''}`).join('、') : '（无）'));
+    const deadlineObjectives = worldModeActive()
+      ? [...(currentWorldSave.state?.goals || []), ...(currentWorldSave.state?.leads || [])]
+      : [...(rs.goals || []), ...(rs.leads || [])];
+    const deadlineText = deadlineObjectives.filter(item => item?.deadline && item.status === 'active' && Number.isFinite(item.deadline.value) && item.deadline.unit).map(item => `${item.title || item.id} 截止 ${item.deadline.value} ${item.deadline.unit}`).join('；');
+    if (deadlineText) parts.push('【目标 / 线索时限】' + deadlineText);
     const mapCtx = buildMapContext();
     if (mapCtx) parts.push(mapCtx);
   }

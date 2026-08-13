@@ -318,3 +318,7 @@ API additions: `POST /api/rpg-migrations` (preview/seal), `GET /api/rpg-migratio
 ### playerCreation.derived（R5.4）
 
 世界卡可声明只读派生值：`{ id, label, formula, visible?, description? }`。`formula` 只允许数字、`+ - * /`、括号，以及 `attributes.<id>`、`resources.<id>`、`derived.<id>` 引用；服务端拒绝非法 ID、循环依赖、除任意 JavaScript 外的表达式。派生值不写入 `WorldSave.state.player`，由当前存档的属性与资源实时计算并注入 RPG 面板和提示词，切换存档不会串值。
+
+### 目标 / 线索截止时限（R4.10）
+
+`deadline` 使用当前世界时钟的绝对值 `{ unit, value }`。每次正式回合先由服务端推进 `state.time`，再把同单位且已达到时限的 `active` 目标 / 线索原子标记为 `failed`，写入 `deadlineStatus: 'expired'`、`deadlineResolvedAt` 和回合 receipt 的 `deadlineIds`；重试不会重复结算，不同存档互不影响。
