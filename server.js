@@ -277,6 +277,8 @@ function worldDraftFieldsValid(payload, requireRevision = false) {
   if (mapInvalid) return mapInvalid;
   const playerCreationInvalid = validatePlayerCreationSchema(payload.playerCreation);
   if (playerCreationInvalid) return playerCreationInvalid;
+  const turnContractInvalid = validateTurnContract(payload.turnContract);
+  if (turnContractInvalid) return turnContractInvalid;
   return null;
 }
 
@@ -385,6 +387,25 @@ function validatePlayerCreationSchema(schema, world = null) {
 function playerCreationSchema(world) {
   const schema = world?.playerCreation;
   return schema && typeof schema === 'object' && !Array.isArray(schema) ? schema : null;
+}
+
+function validateTurnContract(value) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'turnContract 必须是对象';
+  const options = value.options;
+  if (options !== undefined) {
+    if (!options || typeof options !== 'object' || Array.isArray(options)) return 'turnContract.options 必须是对象';
+    const min = options.min ?? 4;
+    const max = options.max ?? 4;
+    if (!Number.isInteger(min) || !Number.isInteger(max) || min < 0 || max < min || max > 4) return 'turnContract.options 范围必须是 0-4';
+  }
+  if (value.actionIntent !== undefined && typeof value.actionIntent !== 'boolean') return 'turnContract.actionIntent 必须是布尔值';
+  return null;
+}
+
+function worldTurnOptionRules(world) {
+  const options = world?.turnContract?.options;
+  return { min: Number.isInteger(options?.min) ? options.min : 4, max: Number.isInteger(options?.max) ? options.max : 4 };
 }
 
 function validatePlayerCreationInput(world, input) {
@@ -564,6 +585,7 @@ function applyWorldDraftFields(world, payload) {
   next.tags = [...new Set(payload.tags.map(value => value.trim()))];
   next.lorebookIds = [...new Set(payload.lorebookIds.map(value => value.trim()))];
   if (payload.playerCreation !== undefined) next.playerCreation = cloneJson(payload.playerCreation);
+  if (payload.turnContract !== undefined) next.turnContract = cloneJson(payload.turnContract);
   if (payload.mapGeneration !== undefined) {
     const map = next.map && typeof next.map === 'object' && !Array.isArray(next.map) ? next.map : {};
     next.map = { ...map, generation: normalizeWorldDraftMapGeneration(payload.mapGeneration) };
@@ -601,6 +623,7 @@ function prepareWorldDraftPublication(draft) {
     tags: world.tags,
     lorebookIds: world.lorebookIds,
     ...(world.playerCreation !== undefined ? { playerCreation: world.playerCreation } : {}),
+    ...(world.turnContract !== undefined ? { turnContract: world.turnContract } : {}),
     ...(mapGeneration ? { mapGeneration } : {}),
     locations: Array.isArray(world.locations) ? world.locations : [],
     npcs: Array.isArray(world.npcs) ? world.npcs : [],
@@ -1036,6 +1059,8 @@ async function handleWorldDraftPut(req, res, worldId) {
       if (!findWorldVersion(worlds, worldId, current.baseVersion)) return send(res, 409, JSON.stringify({ error: '草稿所基于的世界版本已不存在' }), 'application/json');
       const playerCreationInvalid = validatePlayerCreationSchema(payload.playerCreation, current.world);
       if (playerCreationInvalid) return send(res, 400, JSON.stringify({ error: playerCreationInvalid }), 'application/json');
+      const turnContractInvalid = validateTurnContract(payload.turnContract);
+      if (turnContractInvalid) return send(res, 400, JSON.stringify({ error: turnContractInvalid }), 'application/json');
       const collectionsInvalid = validateWorldDraftCollections(payload, current.world);
       if (collectionsInvalid) return send(res, 400, JSON.stringify({ error: collectionsInvalid }), 'application/json');
       const updatedAt = Math.max(Date.now(), current.updatedAt + 1);
@@ -1321,6 +1346,8 @@ function worldPackageImportReport(pkg) {
     if (typeof world.title !== 'string' || !world.title.trim() || world.title.length > 200) errors.push('world.title 无效');
     const playerCreationInvalid = validatePlayerCreationSchema(world.playerCreation, world);
     if (playerCreationInvalid) errors.push(playerCreationInvalid);
+    const turnContractInvalid = validateTurnContract(world.turnContract);
+    if (turnContractInvalid) errors.push(turnContractInvalid);
   }
   if (!Array.isArray(content?.characters) || content.characters.length > 256) errors.push('characters 必须是至多 256 项的数组');
   if (!content?.lorebooks || typeof content.lorebooks !== 'object' || Array.isArray(content.lorebooks)) errors.push('lorebooks 必须是对象');
@@ -2077,7 +2104,7 @@ async function handleWorldSavePut(req, res, saveId) {
   });
 }
 
-function validateWorldTurn(payload) {
+function validateWorldTurn(payload, optionRules = { min: 4, max: 4 }) {
   const invalid = validateWorldSavePatch(payload);
   if (invalid) return invalid;
   if (typeof payload.commandId !== 'string' || !COMMAND_ID_RE.test(payload.commandId)) return 'commandId 无效';
@@ -2087,8 +2114,9 @@ function validateWorldTurn(payload) {
     if (!turn || typeof turn !== 'object' || !['user', 'assistant', 'system'].includes(turn.role)) return '回合消息 role 无效';
     if (typeof turn.content !== 'string' || turn.content.length > 100000) return '回合消息 content 无效';
   }
-  if (!Array.isArray(payload.options) || payload.options.length !== 4 || payload.options.some(o => typeof o !== 'string' || !o.trim())) return 'options 必须恰好包含 4 个非空字符串';
-  if (new Set(payload.options.map(o => o.trim())).size !== 4) return 'options 不能重复';
+  const options = payload.options == null ? [] : payload.options;
+  if (!Array.isArray(options) || options.length < optionRules.min || options.length > optionRules.max || options.some(o => typeof o !== 'string' || !o.trim())) return `options 必须包含 ${optionRules.min}-${optionRules.max} 个非空字符串`;
+  if (new Set(options.map(o => o.trim())).size !== options.length) return 'options 不能重复';
   const invalidCreateEntities = validateCreateEntities(payload.createEntities);
   if (invalidCreateEntities) return invalidCreateEntities;
   return null;
@@ -2103,7 +2131,7 @@ async function handleWorldTurnPost(req, res, saveId) {
     const status = err.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400;
     return send(res, status, JSON.stringify({ error: err.message }), 'application/json');
   }
-  const invalid = validateWorldTurn(payload);
+  const invalid = validateWorldTurn(payload, { min: 0, max: 4 });
   if (invalid) return send(res, 400, JSON.stringify({ error: invalid }), 'application/json');
   const invalidNpcStates = validateNpcStates(payload.npcStates);
   if (invalidNpcStates) return send(res, 400, JSON.stringify({ error: invalidNpcStates }), 'application/json');
@@ -2112,6 +2140,9 @@ async function handleWorldTurnPost(req, res, saveId) {
       const current = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
       if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
       const world = findWorldVersion(await loadWorlds(), current.worldId, current.worldVersion);
+      const optionRules = worldTurnOptionRules(world);
+      const contractInvalid = validateWorldTurn(payload, optionRules);
+      if (contractInvalid) return send(res, 400, JSON.stringify({ error: contractInvalid }), 'application/json');
       const invalidLocation = validateWorldLocationIds(world, payload.state, payload.npcStates, payload.createEntities);
       if (invalidLocation) return send(res, 400, JSON.stringify({ error: invalidLocation }), 'application/json');
       let allowedNpcIds = new Set(Object.keys(current.npcStates || {}));

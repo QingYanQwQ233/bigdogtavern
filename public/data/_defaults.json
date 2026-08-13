@@ -499,6 +499,10 @@
           { "id": "steady-hand", "label": "稳健之手", "description": "在紧张场面中保持专注。" }
         ]
       },
+      "turnContract": {
+        "options": { "min": 0, "max": 4 },
+        "actionIntent": true
+      },
       "start": {
         "locationId": "wolf-tooth-inn",
         "openingMode": "ai",

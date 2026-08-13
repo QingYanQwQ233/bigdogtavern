@@ -559,6 +559,7 @@ function fillWorldDraftForm(draft) {
   $('world-draft-tags').value = Array.isArray(world.tags) ? world.tags.join(', ') : '';
   $('world-draft-lorebooks').value = Array.isArray(world.lorebookIds) ? world.lorebookIds.join(', ') : '';
   $('world-draft-player-creation').value = world.playerCreation ? JSON.stringify(world.playerCreation, null, 2) : '';
+  $('world-draft-turn-contract').value = world.turnContract ? JSON.stringify(world.turnContract, null, 2) : '';
   fillWorldDraftMapForm(world);
   renderWorldDraftCollections(world);
   $('world-draft-base').textContent = `基于已发布 v${draft.baseVersion}；草稿修改不会影响旧版本或已有存档。`;
@@ -606,11 +607,17 @@ async function saveWorldDraft() {
   const lorebookIds = splitWorldDraftList($('world-draft-lorebooks').value);
   const mapGeneration = collectWorldDraftMapGeneration();
   const { locations, npcs } = collectWorldDraftCollections();
-  let playerCreation;
+  let playerCreation = null;
   const playerCreationText = $('world-draft-player-creation').value.trim();
   if (playerCreationText) {
     try { playerCreation = JSON.parse(playerCreationText); }
     catch { setWorldDraftStatus('玩家创建规则不是有效 JSON。', 'error'); $('world-draft-player-creation').focus(); return false; }
+  }
+  let turnContract = null;
+  const turnContractText = $('world-draft-turn-contract').value.trim();
+  if (turnContractText) {
+    try { turnContract = JSON.parse(turnContractText); }
+    catch { setWorldDraftStatus('回合契约不是有效 JSON。', 'error'); $('world-draft-turn-contract').focus(); return false; }
   }
   const titleInput = $('world-draft-name');
   if (!title) {
@@ -627,7 +634,7 @@ async function saveWorldDraft() {
     const res = await fetch('/api/world-drafts/' + encodeURIComponent(worldDraft.worldId), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
-      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds, mapGeneration, locations, npcs, playerCreation }),
+      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds, mapGeneration, locations, npcs, playerCreation, turnContract }),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error(worldApiError(data, '世界草稿保存失败（HTTP ' + res.status + '）'));
@@ -1470,7 +1477,12 @@ function renderRPG() {
 
 /* 应用 AI 输出的 ```rpg``` JSON 状态变更；返回本轮行动选项 */
 /* RPG 任务定义兜底（仅当「RPG 叙事引擎」预设被删除时使用；正常内容在预设 JSON 里可编辑） */
-const RPG_TASK_FALLBACK = '你是这个幻想世界的地下城主（DM）与世界化身，始终以“你”称呼玩家。直接呈现场景、事件与 NPC，不以作者或助手自称。根据当前状态公平裁定行动；状态变化必须先在叙事中发生，再写入回复末尾唯一一个 ```rpg``` JSON 代码块。options 必须给出恰好 4 个具体、可执行且不重复的玩家行动，禁止“继续”类空泛表述。';
+const RPG_TASK_FALLBACK = '你是这个幻想世界的地下城主（DM）与世界化身，始终以“你”称呼玩家。直接呈现场景、事件与 NPC，不以作者或助手自称。根据当前状态公平裁定行动；状态变化必须先在叙事中发生，再写入回复末尾唯一一个 ```rpg``` JSON 代码块。options 必须遵守当前世界卡回合契约（0-4 条），具体、可执行且不重复；自由输入始终可用。';
+
+function worldOptionRules() {
+  const options = currentWorldCard()?.turnContract?.options;
+  return { min: Number.isInteger(options?.min) ? options.min : 4, max: Number.isInteger(options?.max) ? options.max : 4 };
+}
 
 /* RPG 输出分为叙事正文与末尾控制块；流式输出未闭合时也不把控制 JSON 混进叙事栏。 */
 function splitRpgOutput(reply) {
@@ -1541,7 +1553,7 @@ function applyRpgUpdate(payload) {
     }
   }
   const options = Array.isArray(upd.options)
-    ? upd.options.filter(o => typeof o === 'string' && o.trim()).slice(0, 4)
+    ? upd.options.filter(o => typeof o === 'string' && o.trim()).slice(0, worldOptionRules().max)
     : null;
   const createEntities = Array.isArray(upd.createEntities) ? cloneValue(upd.createEntities) : null;
   commitRpgState(rs);
@@ -3103,6 +3115,8 @@ function buildRpgPromptPart() {
       ].filter(Boolean).join('\n'));
       const player = currentWorldSave.player?.snapshot;
       if (player) parts.unshift('【世界存档中的玩家快照】\n' + Object.entries(player).filter(([k, v]) => k !== 'profileFields' && v != null && String(v).trim()).map(([k, v]) => `${k}：${typeof v === 'object' ? JSON.stringify(v) : v}`).join('\n'));
+      const optionRules = worldOptionRules();
+      parts.push(`【回合契约】行动选项数量 ${optionRules.min}-${optionRules.max}；自由文本输入始终可用。AI 不得替玩家补写未表达的核心意图、台词或不可逆行动。`);
       const npcPrompt = buildWorldNpcPromptPart();
       if (npcPrompt) parts.push(npcPrompt);
     }
@@ -4356,8 +4370,10 @@ async function requestReply() {
     if (processed.options && processed.options.length) extra.options = processed.options;
     pushMessage('assistant', clean, extra);
     if (worldTurnPendingActive()) {
-      if (!processed.options || processed.options.length !== 4) throw new Error('RPG 回合必须返回恰好 4 个行动选项，当前候选未提交');
-      worldTurnPending.options = processed.options;
+      const optionRules = worldOptionRules();
+      const options = Array.isArray(processed.options) ? processed.options : [];
+      if (options.length < optionRules.min || options.length > optionRules.max) throw new Error(`RPG 回合需要 ${optionRules.min}-${optionRules.max} 个行动选项，当前候选未提交`);
+      worldTurnPending.options = options;
       worldTurnPending.createEntities = processed.createEntities;
       worldTurnPending.state = serializeWorldState(currentWorldSave);
       await submitWorldTurn(worldTurnPending);

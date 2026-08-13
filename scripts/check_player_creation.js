@@ -72,6 +72,14 @@ async function main() {
       body: JSON.stringify({ commandId: 'opening-check-1', expectedRevision: first.body.revision, opening: 'different', options: ['a', 'b', 'c', 'd'] }),
     });
     assert.strictEqual(openingRetry.response.status, 200, 'opening command is idempotent');
+    const freeTurn = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'turn-check-1', expectedRevision: opening.body.revision, state: opening.body.state, turns: [
+        { role: 'user', content: '观察四周', ts: Date.now() },
+        { role: 'assistant', content: '你看见雨水沿着窗棂滑落。', ts: Date.now() },
+      ], options: [] }),
+    });
+    assert.strictEqual(freeTurn.response.status, 200, 'world card can allow zero suggestions');
 
     const second = await jsonRequest(base, '/api/world-saves', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
