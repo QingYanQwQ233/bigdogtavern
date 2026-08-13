@@ -6,7 +6,7 @@
 >
 > 架构底座与历史实施记录仍见 [world-card-architecture.md](world-card-architecture.md) 和 [world-card-implementation-plan.md](world-card-implementation-plan.md)。本文是后续 RPG 产品功能的主路线图。
 
-> 当前执行：R5.3 通用状态值校验、R5.4 安全派生值、R5.5 经济规则、R5.6 统一冲突生命周期、R5.7 最小战斗、R5.8 最小非战斗冲突、R5.9 成长候选、R5.10 成长应用、R5.11 动态 RPG 面板、R5.12 题材卡和回归、R6.1 正式事件账本、R6.2 短期上下文窗口、R6.3 长期事件记忆提取、R6.4 世界卡稳定设定 / 存档变更事实分层、R6.5 按场景、NPC、目标和预算组装上下文、R6.6 派生记忆重建和调试视图与 R6.7 失败与死亡模式 Schema 均已完成，下一步进入 R6.8 开放式结局。相关 GitHub 检索未发现可直接兼容本项目的零依赖实现，因此不引入新依赖。
+> 当前执行：R5.3–R6.10 已完成，R7.1 世界观与硬 / 软规则编辑区已完成，下一步进入 R7.2 玩家创建、属性、资源和特质编辑区。相关 GitHub 检索参考了 SillyTavern 的 World Info / Prompt Manager 分层做法；本项目继续保持零依赖声明式 JSON，不引入可执行脚本。
 
 ## 0. 结论
 
@@ -593,6 +593,10 @@ Implemented the minimal faction contract: static `WorldCard.factions`, save-owne
 ### R6.10 当前进度
 
 已完成失败 / 结局重开最小闭环：终止失败或已结束世界线可通过 `/reopen` 创建确定 ID 的独立存档；新存档继承状态与长期记忆，清除终止锁并把来源结局 / 失败 / 总结放入只读 `reopenInfo`，源存档保持不变。RPG 面板提供重开入口，Prompt 会明确区分当前状态与上一条世界线背景。
+
+### R7.1 当前进度
+
+已完成世界观与硬 / 软规则的最小作者工作台：世界草稿可编辑受白名单约束的 `setting` 字段及 `rules.hard / rules.soft` 数组，服务端保存和发布时校验长度与结构；发布后的世界卡在 RPG Prompt 中只读注入，旧世界和旧存档不受影响。正式结构化结算仍由既有回合、冲突、失败、时间和结局字段负责。
 
 ### R4.10 当前进度
 

@@ -613,6 +613,8 @@ function fillWorldDraftForm(draft) {
   const world = draft?.world || {};
   $('world-draft-name').value = world.title || '';
   $('world-draft-summary').value = world.summary || '';
+  $('world-draft-setting').value = world.setting ? JSON.stringify(world.setting, null, 2) : '';
+  $('world-draft-rules').value = world.rules ? JSON.stringify(world.rules, null, 2) : '';
   $('world-draft-tags').value = Array.isArray(world.tags) ? world.tags.join(', ') : '';
   $('world-draft-lorebooks').value = Array.isArray(world.lorebookIds) ? world.lorebookIds.join(', ') : '';
   $('world-draft-player-creation').value = world.playerCreation ? JSON.stringify(world.playerCreation, null, 2) : '';
@@ -665,6 +667,18 @@ async function saveWorldDraft() {
   if (!worldDraft) return false;
   const title = $('world-draft-name').value.trim();
   const summary = $('world-draft-summary').value;
+  let setting = null;
+  const settingText = $('world-draft-setting').value.trim();
+  if (settingText) {
+    try { setting = JSON.parse(settingText); }
+    catch { setWorldDraftStatus('世界观设定不是有效 JSON。', 'error'); $('world-draft-setting').focus(); return false; }
+  }
+  let rules = null;
+  const rulesText = $('world-draft-rules').value.trim();
+  if (rulesText) {
+    try { rules = JSON.parse(rulesText); }
+    catch { setWorldDraftStatus('硬 / 软规则不是有效 JSON。', 'error'); $('world-draft-rules').focus(); return false; }
+  }
   const tags = splitWorldDraftList($('world-draft-tags').value);
   const lorebookIds = splitWorldDraftList($('world-draft-lorebooks').value);
   const mapGeneration = collectWorldDraftMapGeneration();
@@ -730,7 +744,7 @@ async function saveWorldDraft() {
     const res = await fetch('/api/world-drafts/' + encodeURIComponent(worldDraft.worldId), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
-      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds, mapGeneration, locations, npcs, playerCreation, turnContract, failure, ending, time, events, factions }),
+      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds, mapGeneration, locations, npcs, setting, rules, playerCreation, turnContract, failure, ending, time, events, factions }),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error(worldApiError(data, '世界草稿保存失败（HTTP ' + res.status + '）'));
@@ -3934,8 +3948,14 @@ function buildWorldFactLayerPromptPart() {
   const saveScope = `${save.id || currentWorldSaveId || 'save'}@r${Number.isInteger(save.revision) ? save.revision : 0}`;
   const currentLocation = state.locationId || '未指定';
   const currentTime = state.time ? `${state.time.value} ${state.time.unit}` : '未指定';
+  const setting = world?.setting && typeof world.setting === 'object' ? Object.entries(world.setting).filter(([, value]) => typeof value === 'string' && value.trim()).map(([key, value]) => `${key}：${value.trim()}`).join('\n') : '';
+  const rules = world?.rules && typeof world.rules === 'object' ? [
+    Array.isArray(world.rules.hard) && world.rules.hard.length ? `硬规则：${world.rules.hard.join('；')}` : '',
+    Array.isArray(world.rules.soft) && world.rules.soft.length ? `软规则：${world.rules.soft.join('；')}` : '',
+  ].filter(Boolean).join('\n') : '';
   return `【世界事实分层】
 稳定设定来源：WorldCard ${staticScope}。世界简介、登记地点、NPC 公共资料、派系定义、事件模板和规则属于稳定设定；不要因为某个存档的变化而改写它们。
+${setting ? `世界观设定（只读）：\n${setting}\n` : ''}${rules ? `作者规则（只读；硬规则优先，软规则用于叙事取舍）：\n${rules}\n` : ''}
 当前事实来源：WorldSave ${saveScope}。当前地点=${currentLocation}；当前时间=${currentTime}；NPC 位置 / 关系 / 认知、背包、目标、冲突、已提交事件和长期记忆等动态字段只属于这个存档。
 冲突处理：同一实体或地点同时出现静态资料与存档状态时，静态资料解释默认设定，存档状态解释当前局面；两者都要保留，不能把一次存档变化宣称为世界卡永久改写，也不能用旧静态默认值覆盖已提交状态。`;
 }

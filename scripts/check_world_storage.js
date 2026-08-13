@@ -218,6 +218,8 @@ async function main() {
         summary: '草稿简介',
         tags: ['日式西幻', '草稿'],
         lorebookIds: ['default'],
+        setting: { premise: '以契约维系的雨港边境。', history: '旧王国在三十年前分裂。', currentSituation: '港口正在封锁。' },
+        rules: { hard: ['魔法必须有媒介。'], soft: ['居民优先遵守公开契约。'] },
         mapGeneration: draftMapGeneration,
         factions: [{ id: 'north-guild', name: 'North Guild', resources: [{ id: 'funds', label: 'Funds', min: 0, max: 100, initial: 40 }] }],
         events: [{ id: 'rain-warning', title: '雨势加剧', description: '山路即将封闭。', trigger: { locationId: 'wolf-tooth-inn' }, visibility: 'public', once: true }],
@@ -228,6 +230,8 @@ async function main() {
     assert.strictEqual(draftUpdate.response.status, 200);
     assert.strictEqual(draftUpdate.body.world.title, '极光大陆（草稿）');
     assert.deepStrictEqual(draftUpdate.body.world.tags, ['日式西幻', '草稿']);
+    assert.strictEqual(draftUpdate.body.world.setting.premise, '以契约维系的雨港边境。');
+    assert.deepStrictEqual(draftUpdate.body.world.rules.hard, ['魔法必须有媒介。']);
     assert.deepStrictEqual(draftUpdate.body.world.locations, draftLocations);
     assert.deepStrictEqual(draftUpdate.body.world.npcs, draftNpcs);
     assert.deepStrictEqual(draftUpdate.body.world.npcIds, ['npc-lily']);
@@ -262,6 +266,12 @@ async function main() {
       body: JSON.stringify({ expectedUpdatedAt: draftUpdate.body.updatedAt, baseVersion: world.version, title: 'invalid', summary: '', tags: [], lorebookIds: [], mapGeneration: { ...draftMapGeneration, landRatio: 2 }, locations: draftLocations, npcs: draftNpcs }),
     });
     assert.strictEqual(invalidDraftMap.response.status, 400, 'unsafe map generation values are rejected');
+    const invalidAuthorRules = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedUpdatedAt: draftUpdate.body.updatedAt, baseVersion: world.version, title: draftUpdate.body.world.title, summary: draftUpdate.body.world.summary, tags: draftUpdate.body.world.tags, lorebookIds: draftUpdate.body.world.lorebookIds, setting: { unknown: '不允许' }, rules: { hard: [''] }, locations: draftLocations, npcs: draftNpcs }),
+    });
+    assert.strictEqual(invalidAuthorRules.response.status, 400, 'world setting and author rules are validated');
     const invalidDraftCollections = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -336,6 +346,8 @@ async function main() {
         summary: secondDraftCreated.body.world.summary || '',
         tags: secondDraftCreated.body.world.tags || [],
         lorebookIds: secondDraftCreated.body.world.lorebookIds || [],
+        setting: { premise: '第二世界的发布设定。' },
+        rules: { hard: ['只能使用登记地点。'], soft: ['优先描述环境线索。'] },
         mapGeneration: draftMapGeneration,
         locations: secondDraftCreated.body.world.locations || [],
         npcs: secondDraftCreated.body.world.npcs || [],
@@ -357,6 +369,8 @@ async function main() {
     assert.strictEqual(secondPublish.response.status, 201);
     assert.strictEqual(secondPublish.body.world.version, Number(secondWorld.version) + 1);
     assert.strictEqual(secondPublish.body.world.title, 'Second World Published');
+    assert.strictEqual(secondPublish.body.world.setting.premise, '第二世界的发布设定。');
+    assert.deepStrictEqual(secondPublish.body.world.rules.soft, ['优先描述环境线索。']);
     assert.strictEqual(secondPublish.body.world.publication.commandId, publishPayload.commandId);
     assert.strictEqual(secondPublish.body.idempotent, false);
     assert.strictEqual(secondPublish.body.draftRemoved, true);

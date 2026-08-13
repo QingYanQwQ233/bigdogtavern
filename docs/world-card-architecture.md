@@ -87,6 +87,8 @@
   version: 1,
   title: '极光大陆',
   summary: '一句话世界简介',
+  setting: { premise, history, geography, culture, technology, magic, society, economy, currentSituation },
+  rules: { hard: ['不可违反的世界约束'], soft: ['供叙事取舍的风格规则'] },
   coverImage: '/images/world-aurora.png',
   tags: ['日式西幻', '福瑞', '冒险'],
 
@@ -207,6 +209,7 @@ DM 身份与玩家主权
 - 上下文为请求级投影：当前地点、队伍、目标 / 线索、冲突参与者和已召回记忆优先；地图只给当前位置及相邻区域，事件 / 派系按地点与最近记录裁剪，并受 `prefs.worldContextBudget` 字符预算限制。
 - `eventMemory` 是可重建的派生层：`GET /api/world-saves/<saveId>/memory` 展示来源计数和脱敏预览，`POST /api/world-saves/<saveId>/memory/rebuild` 只从 `state.worldEvents`、成长应用和 `eventLedger` 引用重建，不改变正式世界 `revision`；隐藏内容在诊断预览中保持脱敏。
 - `worldLineSummary` 是可重建的世界线叙事投影：`GET /api/world-saves/<saveId>/summary` 只读，`POST /api/world-saves/<saveId>/summary/rebuild` 只从已提交事件、人物经历、关系、阵营、失败和结局生成，带 `sourceRevision/sourceHash`；源事实变化后必须重新生成，不回写 `turns` 或 `state`。
+- `setting` 与 `rules` 是世界卡稳定设定的声明式 Prompt 投影：草稿编辑器只允许预定义世界观字段和 `hard/soft` 字符串数组；它们不写入 `WorldSave`，硬规则目前作为 AI 约束注入，结构化战斗 / 时间 / 失败 / 结局校验仍由各自正式字段负责。
 - RPG 预设由世界卡引用；存档只记录其版本，不能回退到酒馆角色卡的 `presetName`。
 - 导入的 ST 正则、EJS、MVU 和脚本保留在来源 sidecar，默认不执行；展示清理规则也不得写入 RPG 正式状态。
 

@@ -815,6 +815,16 @@
         </div>
         <div class="field row2">
           <div class="field">
+            <label for="world-draft-setting">世界观设定 <span class="hint-inline">JSON；只读注入 Prompt</span></label>
+            <textarea id="world-draft-setting" name="worldDraftSetting" rows="8" maxlength="70000" spellcheck="false" placeholder='{"premise":"世界的核心前提","history":"重要历史","geography":"地理与舞台","culture":"文化与社会","technology":"科技 / 魔法","currentSituation":"当前局势"}'></textarea>
+          </div>
+          <div class="field">
+            <label for="world-draft-rules">硬 / 软规则 <span class="hint-inline">JSON；硬规则优先，软规则供叙事参考</span></label>
+            <textarea id="world-draft-rules" name="worldDraftRules" rows="8" maxlength="70000" spellcheck="false" placeholder='{"hard":["魔法需要媒介"],"soft":["城镇居民重视契约"]}'></textarea>
+          </div>
+        </div>
+        <div class="field row2">
+          <div class="field">
             <label for="world-draft-tags">标签 <span class="hint-inline">逗号分隔</span></label>
             <input id="world-draft-tags" name="worldDraftTags" maxlength="1000" placeholder="日式西幻, 福瑞, 开放世界" />
           </div>

@@ -295,6 +295,10 @@ function worldDraftFieldsValid(payload, requireRevision = false) {
   if (!Array.isArray(payload.lorebookIds) || payload.lorebookIds.length > 64 || payload.lorebookIds.some(value => typeof value !== 'string' || !isSafeId(value.trim()))) return 'lorebookIds 包含无效 ID';
   const mapInvalid = validateWorldDraftMapGeneration(payload.mapGeneration);
   if (mapInvalid) return mapInvalid;
+  const settingInvalid = validateWorldSetting(payload.setting);
+  if (settingInvalid) return settingInvalid;
+  const rulesInvalid = validateWorldAuthorRules(payload.rules);
+  if (rulesInvalid) return rulesInvalid;
   const playerCreationInvalid = validatePlayerCreationSchema(payload.playerCreation);
   if (playerCreationInvalid) return playerCreationInvalid;
   const turnContractInvalid = validateTurnContract(payload.turnContract);
@@ -312,6 +316,32 @@ function worldDraftFieldsValid(payload, requireRevision = false) {
   const conflictsInvalid = validateConflictTemplates(payload.conflicts);
   if (conflictsInvalid) return conflictsInvalid;
   return null;
+}
+
+const WORLD_SETTING_FIELDS = new Set(['premise', 'history', 'geography', 'culture', 'technology', 'magic', 'society', 'economy', 'currentSituation']);
+
+function validateWorldSetting(value) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'setting 必须是对象';
+  const keys = Object.keys(value);
+  if (keys.length > WORLD_SETTING_FIELDS.size) return 'setting 字段数量超出限制';
+  for (const key of keys) {
+    if (!WORLD_SETTING_FIELDS.has(key)) return `setting.${key} 不是可编辑字段`;
+    if (typeof value[key] !== 'string' || value[key].length > 8000) return `setting.${key} 必须是不超过 8000 个字符的字符串`;
+  }
+  return null;
+}
+
+function validateWorldAuthorRules(value) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'rules 必须是对象';
+  for (const bucket of ['hard', 'soft']) {
+    if (value[bucket] === undefined) continue;
+    if (!Array.isArray(value[bucket]) || value[bucket].length > 64 || value[bucket].some(item => typeof item !== 'string' || !item.trim() || item.length > 2000)) {
+      return `rules.${bucket} 必须是最多 64 项的不超过 2000 个字符的非空字符串数组`;
+    }
+  }
+  return Object.keys(value).some(key => !['hard', 'soft'].includes(key)) ? 'rules 只允许 hard / soft 字段' : null;
 }
 
 function validBoundedNumber(value, min, max, integer = false) {
@@ -2401,6 +2431,8 @@ function applyWorldDraftFields(world, payload) {
   next.summary = payload.summary;
   next.tags = [...new Set(payload.tags.map(value => value.trim()))];
   next.lorebookIds = [...new Set(payload.lorebookIds.map(value => value.trim()))];
+  if (payload.setting !== undefined) next.setting = payload.setting === null ? null : cloneJson(payload.setting);
+  if (payload.rules !== undefined) next.rules = payload.rules === null ? null : cloneJson(payload.rules);
   if (payload.playerCreation !== undefined) next.playerCreation = cloneJson(payload.playerCreation);
   if (payload.turnContract !== undefined) next.turnContract = cloneJson(payload.turnContract);
   if (payload.failure !== undefined) next.failure = cloneJson(payload.failure);
@@ -2445,6 +2477,8 @@ function prepareWorldDraftPublication(draft) {
     summary: world.summary,
     tags: world.tags,
     lorebookIds: world.lorebookIds,
+    ...(world.setting !== undefined ? { setting: world.setting } : {}),
+    ...(world.rules !== undefined ? { rules: world.rules } : {}),
     ...(world.playerCreation !== undefined ? { playerCreation: world.playerCreation } : {}),
     ...(world.turnContract !== undefined ? { turnContract: world.turnContract } : {}),
     ...(world.failure !== undefined ? { failure: world.failure } : {}),
@@ -3204,6 +3238,10 @@ function worldPackageImportReport(pkg) {
     if (!isSafeId(world.id)) errors.push('world.id 无效');
     if (!Number.isSafeInteger(world.version) || world.version < 1) errors.push('world.version 无效');
     if (typeof world.title !== 'string' || !world.title.trim() || world.title.length > 200) errors.push('world.title 无效');
+    const settingInvalid = validateWorldSetting(world.setting);
+    if (settingInvalid) errors.push(settingInvalid);
+    const rulesInvalid = validateWorldAuthorRules(world.rules);
+    if (rulesInvalid) errors.push(rulesInvalid);
     const playerCreationInvalid = validatePlayerCreationSchema(world.playerCreation, world);
     if (playerCreationInvalid) errors.push(playerCreationInvalid);
     const turnContractInvalid = validateTurnContract(world.turnContract);
