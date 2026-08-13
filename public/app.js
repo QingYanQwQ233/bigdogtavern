@@ -209,6 +209,7 @@ function hydrateWorldSave(data) {
   if (!Array.isArray(data.turns)) data.turns = [];
   if (data.state.ending === undefined) data.state.ending = null;
   if (data.worldLineSummary === undefined) data.worldLineSummary = null;
+  if (data.reopenInfo === undefined) data.reopenInfo = null;
   if (data.state.goals === undefined && Array.isArray(data.state.quests) && data.state.quests.length) {
     data.state.goals = data.state.quests.map((quest, index) => ({
       id: /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(String(quest?.id || '')) ? `legacy-${quest.id}`.slice(0, 64) : `legacy-goal-${index + 1}`,
@@ -1765,6 +1766,37 @@ async function endCurrentWorld() {
   }
 }
 
+async function reopenCurrentWorld() {
+  if (!worldModeActive() || !currentWorldSave || worldTurnPendingActive()) return;
+  const ending = currentWorldSave.state?.ending?.status === 'ended';
+  const terminalFailure = currentWorldSave.state?.failure?.status === 'terminal';
+  if (!ending && !terminalFailure) return;
+  const sourceLabel = ending ? '已结束' : '终止失败';
+  if (!confirm(`从当前${sourceLabel}世界线重开一份独立存档？原存档会保留不变。`)) return;
+  const suggested = `${currentWorldSave.name || '世界线'} · 重开`;
+  const name = prompt('新存档名称（留空使用默认名称）：', suggested);
+  if (name === null) return;
+  const button = $('rpg-reopen-world');
+  if (button) { button.disabled = true; button.textContent = '重开中…'; }
+  try {
+    const res = await fetch('/api/world-saves/' + encodeURIComponent(currentWorldSaveId) + '/reopen', {
+      method: 'POST', headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ commandId: 'reopen-' + uid(), name: name.trim() || suggested }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.save?.id) throw new Error(worldApiError(data, '世界线重开失败（HTTP ' + res.status + '）'));
+    await loadWorldSaves(data.save.worldId);
+    await openWorldSave(data.save.id);
+    renderRPG();
+    renderMessages();
+    renderWorldDetail();
+  } catch (err) {
+    showWorldError(err.message);
+  } finally {
+    if (button) { button.disabled = false; button.textContent = '从此世界线重开'; }
+  }
+}
+
 async function rebuildWorldLineSummary() {
   if (!worldModeActive() || !currentWorldSave || worldSummaryPending) return;
   const button = $('rpg-summary-rebuild');
@@ -1919,16 +1951,25 @@ function renderRPG() {
     endingSelect.disabled = !!ending || !endingAllowed;
     endingButton.disabled = !!ending || !endingAllowed || worldTurnPendingActive();
   }
+  const reopenButton = $('rpg-reopen-world');
+  if (reopenButton) {
+    const canReopen = worldModeActive() && (currentWorldSave?.state?.ending?.status === 'ended' || currentWorldSave?.state?.failure?.status === 'terminal');
+    reopenButton.disabled = !canReopen || worldTurnPendingActive();
+    reopenButton.title = canReopen ? '创建一份独立存档，继承过去世界线的记忆与总结' : '仅已结束或终止失败的世界线可重开';
+  }
   const summaryEl = $('rpg-world-summary');
   const summaryButton = $('rpg-summary-rebuild');
   if (summaryEl && summaryButton) {
     const summary = worldModeActive() ? currentWorldSave?.worldLineSummary : null;
+    const reopenInfo = worldModeActive() ? currentWorldSave?.reopenInfo : null;
+    const priorSummary = reopenInfo?.sourceSummary;
     const stale = !!summary && Number(summary.sourceRevision) !== Number(currentWorldSave?.revision);
-    summaryEl.innerHTML = !worldModeActive()
+    const priorCard = reopenInfo ? `<article class="rpg-item"><div class="rpg-item-name">来自上一条世界线 <small>${esc(reopenInfo.sourceStatus || 'reopen')}</small></div><div class="rpg-item-sub">源存档 ${esc(reopenInfo.sourceSaveId || '')} · revision ${esc(reopenInfo.sourceRevision ?? '')}</div><div class="rpg-item-sub">经历 ${esc(priorSummary?.experiences?.length || 0)} · 关系 ${esc(priorSummary?.relationships?.length || 0)} · 世界变化 ${esc(priorSummary?.worldChanges?.length || 0)}</div></article>` : '';
+    summaryEl.innerHTML = priorCard + (!worldModeActive()
       ? '<p class="hint">仅世界存档提供世界线总结。</p>'
       : !summary
         ? '<p class="hint">尚未生成；总结只读取已提交的经历、关系与世界变化。</p>'
-        : `<article class="rpg-item"><div class="rpg-item-name">${stale ? '需要更新' : '已生成'} <small>revision ${esc(summary.sourceRevision ?? '')}</small></div><div class="rpg-item-sub">人物经历 ${esc(summary.experiences?.length || 0)} · 关系 ${esc(summary.relationships?.length || 0)} · 世界变化 ${esc(summary.worldChanges?.length || 0)}</div><div class="rpg-item-sub">${esc(summary.status === 'ended' ? '世界线已结束' : '世界线进行中')} · ${esc(summary.location?.name || summary.location?.id || '位置未记录')}</div></article>`;
+        : `<article class="rpg-item"><div class="rpg-item-name">${stale ? '需要更新' : '已生成'} <small>revision ${esc(summary.sourceRevision ?? '')}</small></div><div class="rpg-item-sub">人物经历 ${esc(summary.experiences?.length || 0)} · 关系 ${esc(summary.relationships?.length || 0)} · 世界变化 ${esc(summary.worldChanges?.length || 0)}</div><div class="rpg-item-sub">${esc(summary.status === 'ended' ? '世界线已结束' : '世界线进行中')} · ${esc(summary.location?.name || summary.location?.id || '位置未记录')}</div></article>`);
     summaryButton.disabled = !worldModeActive() || worldSummaryPending;
     summaryButton.textContent = stale ? '更新总结' : '生成 / 更新总结';
   }
@@ -4019,6 +4060,14 @@ function buildWorldEndingPromptPart() {
   return `【开放式结局】世界卡不强制唯一结局，可用结局：${options}。AI 只能叙述候选结果，不得自行结束世界线或写入 state.ending；玩家必须通过界面明确确认，服务端才会提交结局。当前状态：${current ? `${current.endingId}/ended` : '进行中'}。`;
 }
 
+function buildWorldReopenPromptPart() {
+  if (!worldModeActive()) return '';
+  const info = currentWorldSave?.reopenInfo;
+  if (!info) return '';
+  const summary = info.sourceSummary && typeof info.sourceSummary === 'object' ? JSON.stringify(info.sourceSummary).slice(0, 12000) : '无可用总结';
+  return `【世界线重开上下文】当前存档来自 ${info.sourceSaveId || '上一条世界线'}（${info.sourceStatus || 'reopen'}）。以下内容是只读的过去世界线记录，必须作为背景连续性参考，不得直接改写当前 state、结局或回合账本：${summary}`;
+}
+
 function buildRpgPromptPart() {
   if (mode !== 'rpg') return '';
   const parts = [];
@@ -4089,6 +4138,8 @@ function buildRpgPromptPart() {
       if (failurePrompt) parts.push(failurePrompt);
       const endingPrompt = buildWorldEndingPromptPart();
       if (endingPrompt) parts.push(endingPrompt);
+      const reopenPrompt = buildWorldReopenPromptPart();
+      if (reopenPrompt) parts.push(reopenPrompt);
       const growthPrompt = buildWorldGrowthPromptPart();
       if (growthPrompt) parts.push(growthPrompt);
     }
@@ -4846,10 +4897,10 @@ function renderMessages() {
   if (mode === 'rpg') renderRPG(); // RPG 模式联动状态面板
   const msgs = curMessages();
   renderQuickActions(); // 从当前会话最后一条 AI 回复恢复选项，切换会话不串线
-  const ended = mode === 'rpg' && worldModeActive() && currentWorldSave?.state?.ending?.status === 'ended';
+  const ended = mode === 'rpg' && worldModeActive() && (currentWorldSave?.state?.ending?.status === 'ended' || currentWorldSave?.state?.failure?.status === 'terminal');
   const input = $('input');
   const sendButton = $('btn-send');
-  if (input) { input.disabled = ended; input.placeholder = ended ? '世界线已结束，创建新存档后继续…' : '写下你的话或行动（可用 *动作* 表示）… Enter 发送 · Shift+Enter 换行'; }
+  if (input) { input.disabled = ended; input.placeholder = ended ? '世界线已终止，请从右侧重开独立存档后继续…' : '写下你的话或行动（可用 *动作* 表示）… Enter 发送 · Shift+Enter 换行'; }
   if (sendButton && !sending) sendButton.disabled = ended;
   if (!msgs.length) {
     chat.innerHTML = `<div class="chat-empty"><div class="ce-icon">🐾</div><div class="ce-title">${esc(emptyTitle())}</div><div class="ce-desc">${esc(buildGuide())}</div></div>`;
@@ -5461,7 +5512,7 @@ async function requestReply() {
 }
 
 async function sendMessage() {
-  if (sending || worldTurnPreparing || worldTurnPending || (worldModeActive() && currentWorldSave?.state?.ending?.status === 'ended')) return;
+  if (sending || worldTurnPreparing || worldTurnPending || (worldModeActive() && (currentWorldSave?.state?.ending?.status === 'ended' || currentWorldSave?.state?.failure?.status === 'terminal'))) return;
   const input = $('input');
   const text = input.value.trim();
   if (!text) return;
@@ -6115,10 +6166,10 @@ function renderQuickActions() {
     return;
   }
   if (mode === 'rpg') {
-    if (worldModeActive() && currentWorldSave?.state?.ending?.status === 'ended') {
+    if (worldModeActive() && (currentWorldSave?.state?.ending?.status === 'ended' || currentWorldSave?.state?.failure?.status === 'terminal')) {
       const done = document.createElement('span');
       done.className = 'quick-hint';
-      done.textContent = '世界线已结束；如要继续，请创建新的世界存档。';
+      done.textContent = '世界线已终止；如要继续，请从右侧重开独立存档。';
       qa.appendChild(done);
       return;
     }
@@ -6346,6 +6397,7 @@ function bindEvents() {
   document.querySelectorAll('.js-settings').forEach(b => b.addEventListener('click', openSettings));
   $('btn-debug').addEventListener('click', () => $('debug-panel').open ? closeDebugTerminal() : openDebugTerminal());
   $('rpg-end-world').addEventListener('click', endCurrentWorld);
+  $('rpg-reopen-world').addEventListener('click', reopenCurrentWorld);
   $('rpg-summary-rebuild').addEventListener('click', rebuildWorldLineSummary);
   $('debug-close').addEventListener('click', closeDebugTerminal);
   $('debug-clear').addEventListener('click', clearDebugTerminal);

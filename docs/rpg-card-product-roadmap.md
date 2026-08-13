@@ -590,6 +590,10 @@ Implemented the minimal faction contract: static `WorldCard.factions`, save-owne
 
 已完成世界线总结最小闭环：服务端从当前 `WorldSave` 的正式事件、人物经历、玩家 / NPC 关系、阵营状态、失败与结局生成 `worldLineSummary`，绑定 `sourceRevision/sourceHash`；RPG 面板可手动生成 / 更新，源事实变化后会提示重新生成。总结不读取未提交叙事正文，也不会覆盖正式状态。
 
+### R6.10 当前进度
+
+已完成失败 / 结局重开最小闭环：终止失败或已结束世界线可通过 `/reopen` 创建确定 ID 的独立存档；新存档继承状态与长期记忆，清除终止锁并把来源结局 / 失败 / 总结放入只读 `reopenInfo`，源存档保持不变。RPG 面板提供重开入口，Prompt 会明确区分当前状态与上一条世界线背景。
+
 ### R4.10 当前进度
 
 已完成截止时限的最小结算：目标 / 线索使用绝对世界时钟，服务端在正式回合推进后自动标记过期，receipt 记录过期 ID，前端和 RPG Prompt 显示未过期时限。长休、移动成本和更丰富的跨地区后果留给后续 `timeCost` 切片。

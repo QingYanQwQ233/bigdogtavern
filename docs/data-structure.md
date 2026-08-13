@@ -157,6 +157,7 @@ RPG 控制块的 `player.attributes` / `player.skills` / `player.resources` 使�
   openingMode: 'static' | 'ai', openingOptions: [], openingCommandId: null,
   turns: [{ id, role: 'user' | 'assistant' | 'system', content, ts, options?, actionIntent?: { raw, verb?, target?, method?, risk? } }],
   receipts: [], eventLedger: [], eventMemory: [], memoryRebuild: null, worldLineSummary: null, generatedEntities: {},
+  reopenInfo: null, // 重开存档的只读来源摘要；不与当前回合、状态或结局共享写入
   migrationHistory: [{ kind: 'world-version-upgrade', commandId, fromVersion, toVersion, changes, addedNpcStateIds, revision, migratedAt }]
 }
 ```
@@ -316,6 +317,7 @@ RPG 控制块的 `player.attributes` / `player.skills` / `player.resources` 使�
 | `POST /api/world-saves/<saveId>/memory/rebuild` | 使用 `commandId + expectedRevision` 从世界事件、成长事实与 `eventLedger` 来源引用重建 `eventMemory`；不改变正式 world revision，重复 commandId 幂等 |
 | `GET /api/world-saves/<saveId>/summary` | 读取绑定当前存档 revision 的世界线总结；若正式事实已变化则标记 `stale` |
 | `POST /api/world-saves/<saveId>/summary/rebuild` | 使用 `commandId + expectedRevision` 从正式事件、经历、关系、阵营状态与结局重建 `worldLineSummary`；不改变正式 world revision，重复 commandId 幂等 |
+| `POST /api/world-saves/<saveId>/reopen` | 仅允许已结束或终止失败的存档；按 `commandId` 创建确定 ID 的独立重开存档，继承过去记忆与只读总结，清除当前终止锁，源存档保持不变；重复命令幂等 |
 | `GET /api/world-saves/<saveId>/upgrade?targetVersion=<n>` | 只读预演存档升级；返回地点/NPC/任务增删与硬错误，不修改 revision |
 | `POST /api/world-saves/<saveId>/upgrade` | 提交 `commandId`、`expectedRevision` 与 `targetVersion`；服务端在存档锁内重新预演，无硬错误时升级并写入迁移历史，相同命令幂等 |
 
@@ -365,3 +367,6 @@ API additions: `POST /api/rpg-migrations` (preview/seal), `GET /api/rpg-migratio
 
 ### WorldSave 世界线总结（R6.9）
 `worldLineSummary` 是当前存档的派生投影，不是第二份可写状态。服务端只读取已提交的 `state.worldEvents`、人物经历、玩家 / NPC 关系、阵营状态、失败 / 结局和 `eventLedger`，生成带 `sourceRevision` 与 `sourceHash` 的结构化总结；正式事实变化后旧总结会标记为 `stale`，重建不改变正式 world revision，也不读取未提交叙事正文或隐藏事件描述。
+
+### WorldSave 失败 / 结局重开（R6.10）
+`POST /api/world-saves/<saveId>/reopen` 只接受 `state.ending.status = 'ended'` 或 `state.failure.status = 'terminal'` 的世界线。新存档使用 `reopen-<source+command hash>` 的确定 ID，复制当前状态与长期记忆但把 `revision`、回合、receipt、账本和当前 `worldLineSummary` 重新置空；过去结局 / 失败与总结放入只读 `reopenInfo`，并在 Prompt 中标记为背景连续性。终止失败重开时仅把当前存档的 HP 恢复到至少 1，新存档的后续写入不会改动源存档；相同 `commandId` 重试返回同一重开存档。

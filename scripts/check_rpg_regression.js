@@ -80,6 +80,11 @@ async function main() {
       const save = saveResponse.body;
       created[id] = save;
       assert.strictEqual(save.state.failure, null, `${id} save starts without failure`);
+      const reopenActive = await jsonRequest(base, `/api/world-saves/${save.id}/reopen`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commandId: `${id}-reopen-active` }),
+      });
+      assert.strictEqual(reopenActive.response.status, 409, `${id} rejects reopening an active save`);
       assert.ok(world.failure && world.failure.modes.some(mode => mode.id === 'injured'), `${id} declares failure modes`);
       const firstResource = world.playerCreation.resources[0];
       assert.strictEqual(save.state.player.resources[firstResource.id], player.resources[firstResource.id]);
@@ -245,6 +250,33 @@ async function main() {
         body: JSON.stringify({ commandId: `${id}-after-ending-1`, expectedRevision: ended.body.revision, state: ended.body.state, turns: [{ role: 'assistant', content: '尝试在结束后继续。' }], options: [] }),
       });
       assert.strictEqual(afterEndTurn.response.status, 409, `${id} rejects ordinary turns after ending`);
+      const reopenCommand = `${id}-reopen-1`;
+      const reopened = await jsonRequest(base, `/api/world-saves/${save.id}/reopen`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commandId: reopenCommand, name: `${id} reopened` }),
+      });
+      assert.strictEqual(reopened.response.status, 201, `${id} reopens ended world line`);
+      assert.ok(reopened.body.save.id !== save.id, `${id} reopen gets independent save id`);
+      assert.strictEqual(reopened.body.save.reopenInfo.sourceSaveId, save.id, `${id} reopen records source save`);
+      assert.strictEqual(reopened.body.save.reopenInfo.sourceRevision, ended.body.revision, `${id} reopen binds source revision`);
+      assert.strictEqual(reopened.body.save.state.ending, null, `${id} reopen clears ending lock`);
+      assert.strictEqual(reopened.body.save.state.failure, null, `${id} reopen clears failure lock`);
+      assert.strictEqual(reopened.body.save.revision, 0, `${id} reopen starts a new revision chain`);
+      assert.deepStrictEqual(reopened.body.save.turns, [], `${id} reopen starts a fresh turn chain`);
+      assert.deepStrictEqual(reopened.body.save.eventMemory, ended.body.eventMemory, `${id} reopen carries long-term memory`);
+      assert.strictEqual(reopened.body.save.worldLineSummary, null, `${id} reopen does not reuse a stale current summary`);
+      assert.ok(Array.isArray(reopened.body.save.reopenInfo.sourceSummary.worldChanges), `${id} reopen carries source summary`);
+      const reopenRetry = await jsonRequest(base, `/api/world-saves/${save.id}/reopen`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commandId: reopenCommand, name: `${id} reopened changed` }),
+      });
+      assert.strictEqual(reopenRetry.response.status, 200, `${id} reopen command is idempotent`);
+      assert.strictEqual(reopenRetry.body.idempotent, true, `${id} reopen retry is idempotent`);
+      assert.strictEqual(reopenRetry.body.save.id, reopened.body.save.id, `${id} reopen retry keeps save id`);
+      const sourceAfterReopen = await jsonRequest(base, `/api/world-saves/${save.id}`);
+      assert.strictEqual(sourceAfterReopen.response.status, 200, `${id} source survives reopen`);
+      assert.strictEqual(sourceAfterReopen.body.revision, ended.body.revision, `${id} source revision is unchanged by reopen`);
+      assert.strictEqual(sourceAfterReopen.body.state.ending.status, 'ended', `${id} source ending remains isolated`);
       created[id] = ended.body;
     }
 

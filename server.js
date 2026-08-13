@@ -2618,6 +2618,10 @@ function newSaveId() {
   return 'save-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
 }
 
+function reopenedSaveId(saveId, commandId) {
+  return 'reopen-' + crypto.createHash('sha256').update(`${saveId}\0${commandId}`).digest('hex').slice(0, 32);
+}
+
 function migratedSaveId(migrationId) {
   return 'migrated-' + migrationId;
 }
@@ -3728,6 +3732,87 @@ async function handleWorldEndingPost(req, res, saveId) {
   });
 }
 
+async function handleWorldSaveReopen(req, res, saveId) {
+  const sourcePath = savePath(saveId);
+  if (!sourcePath) return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json');
+  let payload;
+  try { payload = await readJsonBody(req, 64 * 1024); }
+  catch (err) { return send(res, err.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400, JSON.stringify({ error: err.message }), 'application/json'); }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return send(res, 400, JSON.stringify({ error: '请求必须是 JSON 对象' }), 'application/json');
+  if (typeof payload.commandId !== 'string' || !COMMAND_ID_RE.test(payload.commandId)) return send(res, 400, JSON.stringify({ error: 'commandId 无效' }), 'application/json');
+  if (payload.name !== undefined && (typeof payload.name !== 'string' || payload.name.trim().length > 120)) return send(res, 400, JSON.stringify({ error: 'name 必须是不超过 120 个字符的字符串' }), 'application/json');
+  return withWorldSaveLock(saveId, async () => {
+    try {
+      const current = JSON.parse(await fs.promises.readFile(sourcePath, 'utf-8'));
+      if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
+      const sourceStatus = current.state?.ending?.status === 'ended' ? 'ended' : current.state?.failure?.status === 'terminal' ? 'terminal-failure' : '';
+      if (!sourceStatus) return send(res, 409, JSON.stringify({ error: '只有已结束或终止失败的世界线可以重开' }), 'application/json');
+      const nextId = reopenedSaveId(saveId, payload.commandId);
+      const nextPath = savePath(nextId);
+      const existing = await fs.promises.readFile(nextPath, 'utf-8').then(JSON.parse).catch(err => {
+        if (err.code === 'ENOENT') return null;
+        throw err;
+      });
+      if (existing) {
+        if (existing.reopenInfo?.sourceSaveId !== saveId || existing.reopenInfo?.commandId !== payload.commandId) {
+          return send(res, 409, JSON.stringify({ error: '重开命令 ID 已被占用' }), 'application/json');
+        }
+        return send(res, 200, JSON.stringify({ save: existing, idempotent: true }), 'application/json; charset=utf-8');
+      }
+      const worlds = await loadWorlds();
+      const world = findWorldVersion(worlds, current.worldId, current.worldVersion);
+      if (!world) return send(res, 409, JSON.stringify({ error: '存档绑定的世界版本不存在' }), 'application/json');
+      const now = Date.now();
+      const priorSummary = current.worldLineSummary && typeof current.worldLineSummary === 'object'
+        ? cloneJson(current.worldLineSummary)
+        : buildWorldLineSummary(current, world);
+      const next = cloneJson(current);
+      next.id = nextId;
+      next.name = payload.name?.trim() || `${current.name || '世界线'} · 重开`;
+      next.createdAt = now;
+      next.updatedAt = now;
+      next.revision = 0;
+      next.state.failure = null;
+      next.state.ending = null;
+      if (sourceStatus === 'terminal-failure' && next.state.stats && typeof next.state.stats === 'object') {
+        const maxHp = Number(next.state.stats.maxHp);
+        if (Number.isFinite(maxHp)) next.state.stats.hp = Math.max(1, maxHp);
+      }
+      if (sourceStatus === 'terminal-failure' && next.state.player?.resources && typeof next.state.player.resources === 'object') {
+        const maxHp = Number(next.state.player.resources.maxHp ?? next.state.stats?.maxHp);
+        if (Number.isFinite(maxHp)) next.state.player.resources.hp = Math.max(1, maxHp);
+      }
+      next.opening = '（世界线已从上一条终止线重开；上一条世界线的记忆、状态与总结已作为过去记录保留。）';
+      next.openingMode = 'static';
+      next.openingOptions = [];
+      next.openingCommandId = null;
+      next.turns = [];
+      next.receipts = [];
+      next.eventLedger = [];
+      next.memoryRebuild = null;
+      next.worldLineSummary = null;
+      next.reopenInfo = {
+        sourceSaveId: saveId,
+        sourceRevision: current.revision,
+        sourceStatus,
+        sourceSummaryHash: worldLineSummarySourceHash(current),
+        sourceSummary: priorSummary,
+        sourceEnding: current.state?.ending ? cloneJson(current.state.ending) : null,
+        sourceFailure: current.state?.failure ? cloneJson(current.state.failure) : null,
+        commandId: payload.commandId,
+        reopenedAt: now,
+      };
+      await fs.promises.mkdir(SAVES_DIR, { recursive: true });
+      await writeJsonAtomic(nextPath, next);
+      send(res, 201, JSON.stringify({ save: next, idempotent: false }), 'application/json; charset=utf-8');
+    } catch (err) {
+      if (err.code === 'ENOENT') return send(res, 404, JSON.stringify({ error: '存档不存在' }), 'application/json');
+      console.error('[world-saves] 重开失败:', err.message);
+      send(res, 500, JSON.stringify({ error: '存档重开失败: ' + err.message }), 'application/json');
+    }
+  });
+}
+
 async function handleWorldSaveCreate(req, res) {
   let payload;
   try { payload = await readJsonBody(req, 64 * 1024); }
@@ -4808,6 +4893,13 @@ const server = http.createServer((req, res) => {
     try { saveId = decodeURIComponent(worldEndingMatch[1]); }
     catch { return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json'); }
     return handleWorldEndingPost(req, res, saveId);
+  }
+  const worldSaveReopenMatch = url.pathname.match(/^\/api\/world-saves\/([^/]+)\/reopen\/?$/);
+  if (worldSaveReopenMatch && req.method === 'POST') {
+    let saveId;
+    try { saveId = decodeURIComponent(worldSaveReopenMatch[1]); }
+    catch { return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json'); }
+    return handleWorldSaveReopen(req, res, saveId);
   }
   const worldSaveMatch = url.pathname.match(/^\/api\/world-saves\/([^/]+)\/?$/);
   if (worldSaveMatch && (req.method === 'GET' || req.method === 'PUT' || req.method === 'POST')) {
