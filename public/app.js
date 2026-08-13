@@ -574,6 +574,7 @@ function fillWorldDraftForm(draft) {
   $('world-draft-player-creation').value = world.playerCreation ? JSON.stringify(world.playerCreation, null, 2) : '';
   $('world-draft-turn-contract').value = world.turnContract ? JSON.stringify(world.turnContract, null, 2) : '';
   $('world-draft-time').value = world.time ? JSON.stringify(world.time, null, 2) : '';
+  $('world-draft-events').value = Array.isArray(world.events) ? JSON.stringify(world.events, null, 2) : '';
   fillWorldDraftMapForm(world);
   renderWorldDraftCollections(world);
   $('world-draft-base').textContent = `基于已发布 v${draft.baseVersion}；草稿修改不会影响旧版本或已有存档。`;
@@ -639,6 +640,14 @@ async function saveWorldDraft() {
     try { time = JSON.parse(timeText); }
     catch { setWorldDraftStatus('世界时间不是有效 JSON。', 'error'); $('world-draft-time').focus(); return false; }
   }
+  let events = null;
+  const eventsText = $('world-draft-events').value.trim();
+  if (eventsText) {
+    try {
+      events = JSON.parse(eventsText);
+      if (!Array.isArray(events)) throw new Error('必须是数组');
+    } catch { setWorldDraftStatus('世界事件不是有效 JSON 数组。', 'error'); $('world-draft-events').focus(); return false; }
+  }
   const titleInput = $('world-draft-name');
   if (!title) {
     setWorldDraftStatus('世界标题不能为空。', 'error');
@@ -654,7 +663,7 @@ async function saveWorldDraft() {
     const res = await fetch('/api/world-drafts/' + encodeURIComponent(worldDraft.worldId), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
-      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds, mapGeneration, locations, npcs, playerCreation, turnContract, time }),
+      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds, mapGeneration, locations, npcs, playerCreation, turnContract, time, events }),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error(worldApiError(data, '世界草稿保存失败（HTTP ' + res.status + '）'));
@@ -3136,6 +3145,22 @@ function buildWorldNpcPromptPart() {
   return '【当前作用域 NPC】\n只允许引用以下 NPC；未列出的世界 NPC 不在本回合上下文中。静态资料仅代表公开信息；不得臆测未注入的秘密。NPC 只能使用公共资料、本存档已知事实和已解锁秘密，不得读取其他存档或其他 NPC 的知识。\n' + sections.join('\n\n');
 }
 
+function buildWorldEventPromptPart() {
+  if (!worldModeActive()) return '';
+  const state = currentWorldSave.state || {};
+  const currentLocationId = state.locationId || null;
+  const events = Array.isArray(state.worldEvents) ? state.worldEvents : [];
+  const visible = events.filter(event => event && event.visibility !== 'hidden'
+    && (event.visibility !== 'local' || !event.locationId || event.locationId === currentLocationId));
+  if (!visible.length) return '';
+  return '【已提交世界事件】\n以下事件已由服务端在成功回合后结算，只能视为已发生事实，不得跨存档引用：\n'
+    + visible.map(event => {
+      const consequences = Array.isArray(event.consequences) && event.consequences.length ? `；后果：${event.consequences.join('；')}` : '';
+      const time = event.time ? `（${event.time.value} ${event.time.unit}）` : '';
+      return `- ${event.title || event.eventId}${time}：${event.description || '（无公开描述）'}${consequences}`;
+    }).join('\n');
+}
+
 function buildRpgPromptPart() {
   if (mode !== 'rpg') return '';
   const parts = [];
@@ -3166,6 +3191,8 @@ function buildRpgPromptPart() {
       parts.push(`【回合契约】行动选项数量 ${optionRules.min}-${optionRules.max}；自由文本输入始终可用。AI 不得替玩家补写未表达的核心意图、台词或不可逆行动。`);
       const npcPrompt = buildWorldNpcPromptPart();
       if (npcPrompt) parts.push(npcPrompt);
+      const eventPrompt = buildWorldEventPromptPart();
+      if (eventPrompt) parts.push(eventPrompt);
     }
   }
   parts.push((defaults?.rpg?.stateInstruction) || '每次回复末尾输出包含 options 的 ```rpg``` JSON 状态块。');

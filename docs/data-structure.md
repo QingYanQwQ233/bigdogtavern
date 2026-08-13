@@ -81,6 +81,7 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
   },
   turnContract: { options: { min: 0, max: 4 }, actionIntent: true },
   time: { unit: 'hour', start: 8, turnAdvance: 1 },
+  events: [{ id: 'aurora-omen', title: '极光异动', description: '…', trigger: { at: 10 }, visibility: 'public', once: true, consequences: ['…'] }],
   start: {
     locationId: 'wolf-tooth-inn', opening: '…',
     playerTemplateId: null, playerTemplate: { name: '未命名冒险者', ... },
@@ -101,6 +102,10 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 
 WorldNPC 的静态资料按公开边界读取：`role`、`description`、`persona`、`personality`、`appearance`、`speechStyle`、`publicFacts`、`publicGoals`、`desires`、`fears`、`goals`、`activity` 可进入当前作用域 Prompt；`secrets` 采用 `[{ id, content }]`，只有当前存档 `npcStates[npcId].knowledge` 包含对应 `id` 时才注入。其他静态字段不会自动展开，跨存档的 `knowledge` / `relation` 永不共享。
 
+`events[]` 是不可执行的声明式事件模板：`trigger.at`、`trigger.afterTurns` 和 `trigger.locationId` 可组合为 AND 条件，默认只触发一次；`visibility` 控制后续上下文可见范围。每次成功回合由服务端在同一存档锁内推进时间并结算到期事件，结果写入 `state.worldEvents` 与回合 receipt；重复 commandId 不会重复触发，未提交回合不会推进时间。
+
+正式回合 receipt 采用 `{ kind: 'turn', commandId, revision, turnIds, eventIds, committedAt }`，开场等其他 receipt 不计入成功回合数。
+
 `generatedEntities` 按 `npcs` / `items` / `quests` / `locations` 分桶保存 AI 提出的临时实体。回合请求只能提交候选 `createEntities`（最多 32 个），服务端按当前 `saveId` 生成 `save:<saveId>:<kind>:<n>` ID 后写入当前存档；重复命令不会重复创建，其他世界存档不可见。
 
 如需把存档 NPC 收录为长期世界 NPC，客户端必须显式调用 `POST /api/worlds/<worldId>/versions`，提交 `sourceSaveId`、`expectedRevision` 和该存档生成的 `npcId`。服务端会复制来源世界卡为下一 `version`，分配新的稳定 NPC ID 并写入来源映射；来源世界版本与来源存档均不改写。同一来源 NPC 重复调用会返回已创建版本（幂等）。
@@ -115,7 +120,7 @@ WorldNPC 的静态资料按公开边界读取：`role`、`description`、`person
   party: { memberIds: [], leaderId: null },
   npcStates: { [npcId]: { locationId, relation, knowledge: [], status: [] } },
   state: {
-    stats, player: { fields, attributes, resources, traits, relations, effects: [] }, time: { unit, value }, inventory: [], quests: [], locationId,
+    stats, player: { fields, attributes, resources, traits, relations, effects: [] }, time: { unit, value }, worldEvents: [], inventory: [], quests: [], locationId,
     map: { strategy: 'perSave', data: null, imagePath: null, markers: [] }
   },
   opening: '世界卡 start.opening 的开局叙事',
@@ -267,7 +272,7 @@ WorldNPC 的静态资料按公开边界读取：`role`、`description`、`person
 | `GET /api/world-drafts?worldId=<worldId>` | 列出世界草稿摘要；不传 worldId 时列出全部草稿 |
 | `GET /api/world-drafts/<worldId>` | 读取指定世界草稿 |
 | `POST /api/world-drafts` | 从指定 `worldId` / `baseVersion` 创建草稿；同一世界重复调用幂等 |
-| `PUT /api/world-drafts/<worldId>` | 使用 `expectedUpdatedAt` 乐观锁保存标题、简介、标签、`lorebookIds`、地图生成参数、声明式 `playerCreation`、`turnContract`、`time`、`locations` 与 `npcs`；建角字段、回合选项范围、时间参数、地点/NPC ID 必须唯一且受服务端白名单校验 |
+| `PUT /api/world-drafts/<worldId>` | 使用 `expectedUpdatedAt` 乐观锁保存标题、简介、标签、`lorebookIds`、地图生成参数、声明式 `playerCreation`、`turnContract`、`time`、`events`、`locations` 与 `npcs`；事件条件、建角字段、回合选项范围、时间参数、地点/NPC ID 必须受服务端白名单校验 |
 | `POST /api/world-drafts/<worldId>/publish` | 提交 `commandId`、`expectedUpdatedAt` 与 `baseVersion`，把草稿发布为不可变的下一版本。命令可幂等重试；草稿落后最新版本时返回 409 并保留草稿 |
 | `POST /api/worlds/<worldId>/versions` | 显式把来源存档中的生成 NPC 收录进下一不可变世界版本；要求 `sourceSaveId`、`npcId`，可选 `expectedRevision` / `title` |
 | `GET /api/world-saves?worldId=<worldId>` | 列出指定世界的存档摘要 |
@@ -275,7 +280,7 @@ WorldNPC 的静态资料按公开边界读取：`role`、`description`、`person
 | `POST /api/world-saves/<saveId>/opening` | 以 `commandId + expectedRevision` 幂等提交 AI 开场正文与 4 个选项；只更新当前存档的 `opening` / `openingOptions` |
 | `GET /api/world-saves/<saveId>` | 读取一个完整 WorldSave |
 | `PUT /api/world-saves/<saveId>` | 使用 `expectedRevision` 原子提交当前存档的 `state`、`turns` 与 `opening`；版本冲突返回 409 |
-| `POST /api/world-saves/<saveId>` | 提交一次 RPG 回合候选；校验 `commandId`、assistant 回合、卡片允许数量的唯一选项、玩家 `actionIntent.raw`、状态数值/背包/任务边界和 revision，成功后把行动意图附着到本回合并记录 receipt；相同 commandId 幂等返回 |
+| `POST /api/world-saves/<saveId>` | 提交一次 RPG 回合候选；校验 `commandId`、assistant 回合、卡片允许数量的唯一选项、玩家 `actionIntent.raw`、状态数值/背包/任务边界和 revision，成功后在原子提交中推进时间、结算 `events`、把行动意图附着到本回合并记录 receipt；相同 commandId 幂等返回 |
 | `GET /api/world-saves/<saveId>/upgrade?targetVersion=<n>` | 只读预演存档升级；返回地点/NPC/任务增删与硬错误，不修改 revision |
 | `POST /api/world-saves/<saveId>/upgrade` | 提交 `commandId`、`expectedRevision` 与 `targetVersion`；服务端在存档锁内重新预演，无硬错误时升级并写入迁移历史，相同命令幂等 |
 

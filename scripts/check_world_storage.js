@@ -219,6 +219,7 @@ async function main() {
         tags: ['日式西幻', '草稿'],
         lorebookIds: ['default'],
         mapGeneration: draftMapGeneration,
+        events: [{ id: 'rain-warning', title: '雨势加剧', description: '山路即将封闭。', trigger: { locationId: 'wolf-tooth-inn' }, visibility: 'public', once: true }],
         locations: draftLocations,
         npcs: draftNpcs,
       }),
@@ -230,6 +231,13 @@ async function main() {
     assert.deepStrictEqual(draftUpdate.body.world.npcs, draftNpcs);
     assert.deepStrictEqual(draftUpdate.body.world.npcIds, ['npc-lily']);
     assert.deepStrictEqual(draftUpdate.body.world.map.generation, draftMapGeneration);
+    assert.strictEqual(draftUpdate.body.world.events[0].id, 'rain-warning');
+    const invalidDraftEvent = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedUpdatedAt: draftUpdate.body.updatedAt, baseVersion: world.version, title: 'invalid', summary: '', tags: [], lorebookIds: [], events: [{ id: 'bad-event', title: '越界事件', trigger: { locationId: 'missing-location' } }], locations: draftLocations, npcs: draftNpcs }),
+    });
+    assert.strictEqual(invalidDraftEvent.response.status, 400, 'event location references are validated against draft locations');
     const invalidDraftMap = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

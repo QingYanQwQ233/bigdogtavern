@@ -238,9 +238,14 @@ async function loadWorlds() {
   const defaults = loadDefaults();
   const defaultByKey = new Map((defaults.worlds || []).map(world => [`${world.id}:${world.version}`, world]));
   return worlds.map(world => {
-    if (!world || world.playerCreation !== undefined) return world;
-    const fallback = defaultByKey.get(`${world.id}:${world.version}`)?.playerCreation;
-    return fallback ? { ...world, playerCreation: cloneJson(fallback) } : world;
+    if (!world) return world;
+    const fallback = defaultByKey.get(`${world.id}:${world.version}`);
+    if (!fallback) return world;
+    const next = { ...world };
+    for (const key of ['playerCreation', 'turnContract', 'time', 'events']) {
+      if (next[key] === undefined && fallback[key] !== undefined) next[key] = cloneJson(fallback[key]);
+    }
+    return next;
   });
 }
 
@@ -281,6 +286,8 @@ function worldDraftFieldsValid(payload, requireRevision = false) {
   if (turnContractInvalid) return turnContractInvalid;
   const timeInvalid = validateWorldTime(payload.time);
   if (timeInvalid) return timeInvalid;
+  const eventsInvalid = validateWorldEvents(payload.events);
+  if (eventsInvalid) return eventsInvalid;
   return null;
 }
 
@@ -419,11 +426,92 @@ function validateWorldTime(value) {
   return null;
 }
 
+function validateWorldEvents(value, world = null) {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value) || value.length > 256) return 'events 最多 256 项';
+  const ids = new Set();
+  const locationIds = world ? worldLocationIds(world) : null;
+  for (const event of value) {
+    const id = typeof event?.id === 'string' ? event.id.trim() : '';
+    if (!isSafeId(id) || ids.has(id)) return 'events 含有重复或无效 ID';
+    if (!draftTextValid(event.title, 200, true) || !draftTextValid(event.description ?? '', 4000)) return `events.${id} 文本无效`;
+    const trigger = event.trigger;
+    if (!trigger || typeof trigger !== 'object' || Array.isArray(trigger)) return `events.${id}.trigger 必须是对象`;
+    const hasAt = trigger.at !== undefined;
+    const hasAfterTurns = trigger.afterTurns !== undefined;
+    const hasLocation = trigger.locationId !== undefined && trigger.locationId !== null;
+    if (!hasAt && !hasAfterTurns && !hasLocation) return `events.${id}.trigger 至少声明一个条件`;
+    if (hasAt && (!Number.isFinite(trigger.at) || trigger.at < 0 || trigger.at > 1000000000)) return `events.${id}.trigger.at 无效`;
+    if (hasAfterTurns && (!Number.isInteger(trigger.afterTurns) || trigger.afterTurns < 1 || trigger.afterTurns > 1000000)) return `events.${id}.trigger.afterTurns 无效`;
+    if (hasLocation && (!isSafeId(trigger.locationId) || (locationIds && !locationIds.has(trigger.locationId)))) return `events.${id}.trigger.locationId 必须引用已登记地点`;
+    if (event.visibility !== undefined && !['public', 'local', 'hidden'].includes(event.visibility)) return `events.${id}.visibility 无效`;
+    if (event.once !== undefined && event.once !== true) return `events.${id}.once 目前必须为 true`;
+    if (event.tags !== undefined && !draftStringListValid(event.tags, 32, 120)) return `events.${id}.tags 无效`;
+    if (event.consequences !== undefined && !draftStringListValid(event.consequences, 16, 1000)) return `events.${id}.consequences 无效`;
+    ids.add(id);
+  }
+  return null;
+}
+
+function validateWorldEventLog(value) {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value) || value.length > 256) return 'state.worldEvents 最多 256 项';
+  const ids = new Set();
+  for (const event of value) {
+    const id = typeof event?.eventId === 'string' ? event.eventId.trim() : '';
+    if (!isSafeId(id) || ids.has(id)) return 'state.worldEvents 含有重复或无效 eventId';
+    if (!draftTextValid(event.title, 200, true) || !draftTextValid(event.description ?? '', 4000)) return `state.worldEvents.${id} 文本无效`;
+    if (event.visibility !== undefined && !['public', 'local', 'hidden'].includes(event.visibility)) return `state.worldEvents.${id}.visibility 无效`;
+    if (event.locationId !== undefined && event.locationId !== null && !isSafeId(event.locationId)) return `state.worldEvents.${id}.locationId 无效`;
+    if (event.time !== undefined && (!event.time || typeof event.time !== 'object' || Array.isArray(event.time) || typeof event.time.unit !== 'string' || !Number.isFinite(event.time.value))) return `state.worldEvents.${id}.time 无效`;
+    if (event.consequences !== undefined && !draftStringListValid(event.consequences, 16, 1000)) return `state.worldEvents.${id}.consequences 无效`;
+    if (event.commandId !== undefined && (typeof event.commandId !== 'string' || !COMMAND_ID_RE.test(event.commandId))) return `state.worldEvents.${id}.commandId 无效`;
+    if (event.revision !== undefined && (!Number.isInteger(event.revision) || event.revision < 0)) return `state.worldEvents.${id}.revision 无效`;
+    ids.add(id);
+  }
+  return null;
+}
+
 function advanceWorldTime(current, world) {
   const config = world?.time && typeof world.time === 'object' ? world.time : {};
   const unit = typeof current?.unit === 'string' ? current.unit : String(config.unit || 'tick');
   const value = Number.isFinite(current?.value) ? current.value : Number(config.start || 0);
   return { unit, value: value + Number(config.turnAdvance || 1) };
+}
+
+function committedTurnCount(save) {
+  const receipts = Array.isArray(save?.receipts) ? save.receipts : [];
+  return receipts.filter(receipt => receipt && (receipt.kind === 'turn' || Array.isArray(receipt.turnIds))).length;
+}
+
+function settleWorldEvents(world, current, nextState, commandId, revision) {
+  const definitions = Array.isArray(world?.events) ? world.events : [];
+  const existing = Array.isArray(current?.state?.worldEvents) ? cloneJson(current.state.worldEvents) : [];
+  const triggeredIds = new Set(existing.map(event => event && event.eventId).filter(Boolean));
+  const turnNumber = committedTurnCount(current) + 1;
+  const time = nextState?.time;
+  const locationId = nextState?.locationId ?? null;
+  const triggered = [];
+  for (const event of definitions) {
+    if (!event || typeof event !== 'object' || !isSafeId(event.id)) continue;
+    if (triggeredIds.has(event.id)) continue;
+    const trigger = event.trigger || {};
+    if (trigger.at !== undefined && (!time || Number(time.value) < Number(trigger.at))) continue;
+    if (trigger.afterTurns !== undefined && turnNumber < Number(trigger.afterTurns)) continue;
+    if (trigger.locationId !== undefined && trigger.locationId !== locationId) continue;
+    triggered.push({
+      eventId: event.id,
+      title: String(event.title || event.id).trim(),
+      description: String(event.description || '').trim(),
+      consequences: Array.isArray(event.consequences) ? event.consequences.map(item => String(item).trim()).filter(Boolean) : [],
+      visibility: ['public', 'local', 'hidden'].includes(event.visibility) ? event.visibility : 'public',
+      locationId: trigger.locationId ?? locationId,
+      time: time ? cloneJson(time) : null,
+      commandId,
+      revision,
+    });
+  }
+  return { events: [...existing, ...triggered].slice(-256), eventIds: triggered.map(event => event.eventId) };
 }
 
 function validateActionIntent(value) {
@@ -651,6 +739,7 @@ function applyWorldDraftFields(world, payload) {
   if (payload.playerCreation !== undefined) next.playerCreation = cloneJson(payload.playerCreation);
   if (payload.turnContract !== undefined) next.turnContract = cloneJson(payload.turnContract);
   if (payload.time !== undefined) next.time = cloneJson(payload.time);
+  if (payload.events !== undefined) next.events = Array.isArray(payload.events) ? cloneJson(payload.events) : [];
   if (payload.mapGeneration !== undefined) {
     const map = next.map && typeof next.map === 'object' && !Array.isArray(next.map) ? next.map : {};
     next.map = { ...map, generation: normalizeWorldDraftMapGeneration(payload.mapGeneration) };
@@ -690,11 +779,12 @@ function prepareWorldDraftPublication(draft) {
     ...(world.playerCreation !== undefined ? { playerCreation: world.playerCreation } : {}),
     ...(world.turnContract !== undefined ? { turnContract: world.turnContract } : {}),
     ...(world.time !== undefined ? { time: world.time } : {}),
+    ...(world.events !== undefined ? { events: world.events } : {}),
     ...(mapGeneration ? { mapGeneration } : {}),
     locations: Array.isArray(world.locations) ? world.locations : [],
     npcs: Array.isArray(world.npcs) ? world.npcs : [],
   };
-  const invalid = worldDraftFieldsValid(payload) || validatePlayerCreationSchema(payload.playerCreation, world) || validateWorldDraftCollections(payload, world);
+  const invalid = worldDraftFieldsValid(payload) || validatePlayerCreationSchema(payload.playerCreation, world) || validateWorldDraftCollections(payload, world) || validateWorldEvents(payload.events, world);
   return invalid ? { error: invalid } : { world };
 }
 
@@ -1129,6 +1219,8 @@ async function handleWorldDraftPut(req, res, worldId) {
       if (turnContractInvalid) return send(res, 400, JSON.stringify({ error: turnContractInvalid }), 'application/json');
       const collectionsInvalid = validateWorldDraftCollections(payload, current.world);
       if (collectionsInvalid) return send(res, 400, JSON.stringify({ error: collectionsInvalid }), 'application/json');
+      const eventsInvalid = validateWorldEvents(payload.events, { ...current.world, locations: payload.locations ?? current.world.locations });
+      if (eventsInvalid) return send(res, 400, JSON.stringify({ error: eventsInvalid }), 'application/json');
       const updatedAt = Math.max(Date.now(), current.updatedAt + 1);
       const next = { ...current, world: applyWorldDraftFields(current.world, payload), updatedAt };
       drafts[index] = next;
@@ -1909,6 +2001,7 @@ async function handleWorldSaveCreate(req, res) {
       stats: derivedStats,
       time: { unit: String(world.time?.unit || 'tick'), value: Number(world.time?.start || 0) },
       ...(playerState ? { player: playerState } : {}),
+      worldEvents: [],
       inventory: Array.isArray(initial.inventory) ? cloneJson(initial.inventory) : [],
       quests: Array.isArray(initial.quests) ? cloneJson(initial.quests) : [],
       map: {
@@ -1975,6 +2068,8 @@ function validateWorldSavePatch(payload) {
   if (state.time !== undefined) {
     if (!state.time || typeof state.time !== 'object' || Array.isArray(state.time) || typeof state.time.unit !== 'string' || state.time.unit.length > 40 || !Number.isFinite(state.time.value) || state.time.value < 0 || state.time.value > 1000000000) return 'state.time 无效';
   }
+  const worldEventsInvalid = validateWorldEventLog(state.worldEvents);
+  if (worldEventsInvalid) return worldEventsInvalid;
   for (const item of state.inventory) {
     if (!item || typeof item !== 'object' || typeof item.name !== 'string' || !item.name.trim() || item.name.length > 200) return '背包条目无效';
     if (item.count !== undefined && (!Number.isInteger(item.count) || item.count < 0 || item.count > 1000000)) return '背包数量无效';
@@ -2162,6 +2257,7 @@ async function handleWorldSavePut(req, res, saveId) {
       }
       const nextState = cloneJson(payload.state);
       if (current.state?.time !== undefined) nextState.time = cloneJson(current.state.time);
+      nextState.worldEvents = Array.isArray(current.state?.worldEvents) ? cloneJson(current.state.worldEvents) : [];
       const next = {
         ...current,
         state: nextState,
@@ -2223,6 +2319,8 @@ async function handleWorldTurnPost(req, res, saveId) {
       if (contractInvalid) return send(res, 400, JSON.stringify({ error: contractInvalid }), 'application/json');
       const invalidLocation = validateWorldLocationIds(world, payload.state, payload.npcStates, payload.createEntities);
       if (invalidLocation) return send(res, 400, JSON.stringify({ error: invalidLocation }), 'application/json');
+      const worldEventsInvalid = validateWorldEventLog(payload.state.worldEvents);
+      if (worldEventsInvalid) return send(res, 400, JSON.stringify({ error: worldEventsInvalid }), 'application/json');
       let allowedNpcIds = new Set(Object.keys(current.npcStates || {}));
       const generatedNpcs = current.generatedEntities && current.generatedEntities.npcs;
       if (generatedNpcs && typeof generatedNpcs === 'object' && !Array.isArray(generatedNpcs)) {
@@ -2249,6 +2347,8 @@ async function handleWorldTurnPost(req, res, saveId) {
       const revision = current.revision + 1;
       const nextState = cloneJson(payload.state);
       nextState.time = advanceWorldTime(current.state?.time, world);
+      const settledEvents = settleWorldEvents(world, current, nextState, payload.commandId, revision);
+      nextState.worldEvents = settledEvents.events;
       const committedTurns = payload.turns.map((turn, index) => ({
         ...cloneJson(turn),
         ...(index === 0 && payload.actionIntent ? { actionIntent: cloneJson(payload.actionIntent) } : {}),
@@ -2265,8 +2365,10 @@ async function handleWorldTurnPost(req, res, saveId) {
         turns: [...(Array.isArray(current.turns) ? current.turns : []), ...committedTurns],
         receipts: [...(Array.isArray(current.receipts) ? current.receipts : []), {
           commandId: payload.commandId,
+          kind: 'turn',
           revision,
           turnIds: committedTurns.map(turn => turn.id).filter(Boolean),
+          eventIds: settledEvents.eventIds,
           committedAt: Date.now(),
         }].slice(-200),
         revision,

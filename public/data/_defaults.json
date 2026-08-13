@@ -504,6 +504,17 @@
         "actionIntent": true
       },
       "time": { "unit": "hour", "start": 8, "turnAdvance": 1 },
+      "events": [
+        {
+          "id": "aurora-omen",
+          "title": "极光异动",
+          "description": "夜空中的极光提前亮起，远方山脊传来低沉的回响。",
+          "trigger": { "at": 10 },
+          "visibility": "public",
+          "once": true,
+          "consequences": ["附近的旅人开始谈论山脊上的异常光源。"]
+        }
+      ],
       "start": {
         "locationId": "wolf-tooth-inn",
         "openingMode": "ai",

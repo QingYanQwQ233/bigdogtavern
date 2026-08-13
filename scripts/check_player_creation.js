@@ -12,6 +12,7 @@ const world = defaults.worlds[0];
 world.npcIds = ['npc-lily'];
 world.npcs = [{ id: 'npc-lily', name: '莉莉', role: 'innkeeper' }];
 world.playerCreation.relations = [{ npcId: 'npc-lily', label: '与莉莉的关系', min: -100, max: 100, default: 5 }];
+world.events.push({ id: 'inn-echo', title: '旅店回响', description: '炉火后传来一声短促的回响。', trigger: { locationId: 'wolf-tooth-inn' }, visibility: 'local', once: true });
 fs.writeFileSync(path.join(tempDir, '_defaults.json'), JSON.stringify(defaults, null, 2));
 fs.writeFileSync(path.join(tempDir, 'worlds.json'), JSON.stringify(defaults.worlds, null, 2));
 process.env.TAVERN_DATA_DIR = tempDir;
@@ -40,6 +41,7 @@ async function main() {
     assert.strictEqual(worldResponse.response.status, 200);
     assert.strictEqual(worldResponse.body.playerCreation.mode, 'custom');
     assert.ok(worldResponse.body.playerCreation.fields.some(field => field.id === 'name'));
+    assert.strictEqual(worldResponse.body.events[0].trigger.at, 10);
     const dice = await jsonRequest(base, '/api/dice', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expressions: ['2d6+1'] }),
     });
@@ -88,11 +90,26 @@ async function main() {
     assert.strictEqual(freeTurn.response.status, 200, 'world card can allow zero suggestions');
     assert.strictEqual(freeTurn.body.turns.at(-2).actionIntent.raw, '观察四周');
     assert.strictEqual(freeTurn.body.state.time.value, 9, 'server advances world time once per committed turn');
+    assert.deepStrictEqual(freeTurn.body.state.worldEvents.map(event => event.eventId), ['inn-echo']);
     const tamperedDice = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ commandId: 'turn-check-2', expectedRevision: freeTurn.body.revision, actionIntent: { raw: '掷骰', dice: [{ expr: '1d20', rolls: [20], bonus: 0, total: 1 }] }, state: freeTurn.body.state, turns: [{ role: 'user', content: '掷骰', ts: Date.now() }, { role: 'assistant', content: '结果。', ts: Date.now() }], options: [] }),
     });
     assert.strictEqual(tamperedDice.response.status, 400, 'tampered dice result is rejected');
+    const eventTurn = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'turn-check-3', expectedRevision: freeTurn.body.revision, actionIntent: { raw: '继续观察' }, state: freeTurn.body.state, turns: [{ role: 'user', content: '继续观察', ts: Date.now() }, { role: 'assistant', content: '极光忽然亮起。', ts: Date.now() }], options: [] }),
+    });
+    assert.strictEqual(eventTurn.response.status, 200);
+    assert.strictEqual(eventTurn.body.state.time.value, 10);
+    assert.deepStrictEqual(eventTurn.body.state.worldEvents.map(event => event.eventId), ['inn-echo', 'aurora-omen']);
+    assert.deepStrictEqual(eventTurn.body.receipts.at(-1).eventIds, ['aurora-omen']);
+    const eventRetry = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'turn-check-3', expectedRevision: 0, actionIntent: { raw: '重试' }, state: eventTurn.body.state, turns: [{ role: 'assistant', content: '重试。' }], options: [] }),
+    });
+    assert.strictEqual(eventRetry.response.status, 200, 'event turn retry is idempotent');
+    assert.strictEqual(eventRetry.body.state.worldEvents.length, 2, 'event retry does not duplicate event');
 
     const second = await jsonRequest(base, '/api/world-saves', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

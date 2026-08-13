@@ -816,6 +816,11 @@
           <label for="world-draft-time">世界时间 <span class="hint-inline">JSON；服务端每回合推进</span></label>
           <textarea id="world-draft-time" name="worldDraftTime" rows="3" maxlength="5000" spellcheck="false" placeholder='{"unit":"hour","start":8,"turnAdvance":1}'></textarea>
         </div>
+        <div class="field">
+          <label for="world-draft-events">世界事件 <span class="hint-inline">JSON；提交回合后结算到期事件</span></label>
+          <textarea id="world-draft-events" name="worldDraftEvents" rows="6" maxlength="30000" spellcheck="false" placeholder='[{"id":"event-id","title":"事件标题","trigger":{"at":10},"visibility":"public","once":true}]'></textarea>
+          <p class="hint">trigger 支持 <code>at</code>（世界时间）、<code>afterTurns</code>（成功回合数）和 <code>locationId</code>（地点条件）；条件同时存在时需全部满足。</p>
+        </div>
         <section class="world-draft-collection world-draft-map" aria-labelledby="world-draft-map-title">
           <div class="world-draft-collection-head">
             <div>
