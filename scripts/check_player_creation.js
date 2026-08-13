@@ -10,6 +10,7 @@ const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tavern-player-'));
 const defaults = JSON.parse(fs.readFileSync(path.join(root, 'public', 'data', '_defaults.json'), 'utf8'));
 assert.ok(defaults.rpg.stateInstruction.includes('"skills"'));
 const world = defaults.worlds[0];
+world.conflicts.find(conflict => conflict.id === 'wolf-skirmish').actions.find(action => action.id === 'strike').check.target = 1;
 world.npcIds = ['npc-lily'];
 world.factions = [{ id: 'north-guild', name: 'North Guild', goals: ['Protect the pass'], resources: [{ id: 'funds', label: 'Funds', min: 0, max: 100, initial: 40 }], initialState: { relation: 10, influence: 4, resources: { funds: 30 } }, actions: [{ id: 'patrol-pass', title: '巡逻山口', description: '北方公会派出巡逻队。', trigger: { at: 9, locationId: 'wolf-tooth-inn' }, changes: { relation: 2, resources: { funds: -5 } }, consequences: ['山口暂时安全。'] }] }];
 world.npcs = [{ id: 'npc-lily', name: '莉莉', role: 'innkeeper' }];
@@ -22,7 +23,7 @@ world.start.initialState.equipment = { 'main-hand': 'iron-sword' };
 world.start.initialState.conflicts = {
   'wolf-encounter-1': {
     id: 'wolf-encounter-1', templateId: 'wolf-skirmish', type: 'combat', status: 'active', phase: 'engage', round: 1,
-    participants: [{ id: 'pc-hero', role: 'player' }, { id: 'wolf-alpha', role: 'enemy' }], objectives: [{ id: 'survive', title: '撑过遭遇', status: 'active' }],
+    participants: [{ id: 'pc-hero', role: 'player', hp: 24, maxHp: 24, defense: 10 }, { id: 'wolf-alpha', role: 'enemy', hp: 8, maxHp: 8, defense: 1 }], objectives: [{ id: 'survive', title: '撑过遭遇', status: 'active' }],
     availableActions: ['strike', 'guard', 'flee'],
   },
 };
@@ -107,13 +108,13 @@ async function main() {
     assert.strictEqual(openingRetry.response.status, 200, 'opening command is idempotent');
     const freeTurn = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ commandId: 'turn-check-1', expectedRevision: opening.body.revision, actionIntent: { raw: '观察四周', risk: '低' }, state: { ...opening.body.state, conflicts: { ...opening.body.state.conflicts, 'wolf-encounter-1': { ...opening.body.state.conflicts['wolf-encounter-1'], round: 2, actionId: 'guard' }, 'wolf-encounter-2': { id: 'wolf-encounter-2', templateId: 'wolf-skirmish', type: 'combat', status: 'active', phase: 'engage', round: 1, participants: ['pc-hero', 'wolf-beta'], availableActions: ['strike', 'flee'] } } }, turns: [
+      body: JSON.stringify({ commandId: 'turn-check-1', expectedRevision: opening.body.revision, actionIntent: { raw: '攻击灰狼', risk: '高' }, state: { ...opening.body.state, conflicts: { ...opening.body.state.conflicts, 'wolf-encounter-1': { ...opening.body.state.conflicts['wolf-encounter-1'], round: 2, actionId: 'strike', targetId: 'wolf-alpha' }, 'wolf-encounter-2': { id: 'wolf-encounter-2', templateId: 'wolf-skirmish', type: 'combat', status: 'active', phase: 'engage', round: 1, participants: ['pc-hero', 'wolf-beta'], availableActions: ['strike', 'flee'] } } }, turns: [
         { role: 'user', content: '观察四周', ts: Date.now() },
         { role: 'assistant', content: '你看见雨水沿着窗棂滑落。', ts: Date.now() },
       ], options: [] }),
     });
     assert.strictEqual(freeTurn.response.status, 200, 'world card can allow zero suggestions');
-    assert.strictEqual(freeTurn.body.turns.at(-2).actionIntent.raw, '观察四周');
+    assert.strictEqual(freeTurn.body.turns.at(-2).actionIntent.raw, '攻击灰狼');
     assert.strictEqual(freeTurn.body.state.time.value, 9, 'server advances world time once per committed turn');
     assert.strictEqual(freeTurn.body.state.goals[0].status, 'failed', 'expired goals fail after the server advances time');
     assert.strictEqual(freeTurn.body.state.goals[0].deadlineStatus, 'expired');
@@ -123,8 +124,16 @@ async function main() {
     assert.strictEqual(freeTurn.body.state.factionStates['north-guild'].resources.funds, 25);
     assert.deepStrictEqual(freeTurn.body.receipts.at(-1).factionActionIds, ['north-guild:patrol-pass']);
     assert.strictEqual(freeTurn.body.state.conflicts['wolf-encounter-1'].round, 2);
+    assert.strictEqual(freeTurn.body.receipts.at(-1).combatChecks.length, 1);
+    assert.strictEqual(freeTurn.body.receipts.at(-1).combatChecks[0].attack.hit, true);
+    assert.ok(freeTurn.body.state.conflicts['wolf-encounter-1'].participants.find(item => item.id === 'wolf-alpha').hp < 8, 'server applies damage after a hit');
     assert.strictEqual(freeTurn.body.receipts.at(-1).conflictTransitions[0].op, 'advance');
     assert.ok(freeTurn.body.receipts.at(-1).conflictTransitions.some(item => item.id === 'wolf-encounter-2' && item.op === 'start'));
+    const tamperedCombatHp = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'turn-check-combat-hp', expectedRevision: freeTurn.body.revision, actionIntent: { raw: '伪造伤害' }, state: { ...freeTurn.body.state, conflicts: { ...freeTurn.body.state.conflicts, 'wolf-encounter-1': { ...freeTurn.body.state.conflicts['wolf-encounter-1'], participants: freeTurn.body.state.conflicts['wolf-encounter-1'].participants.map(item => item.id === 'wolf-alpha' ? { ...item, hp: 0 } : item) } } }, turns: [{ role: 'assistant', content: '拒绝。' }], options: [] }),
+    });
+    assert.strictEqual(tamperedCombatHp.response.status, 400, 'combat participant HP is server-owned');
     const tamperedDice = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ commandId: 'turn-check-2', expectedRevision: freeTurn.body.revision, actionIntent: { raw: '掷骰', dice: [{ expr: '1d20', rolls: [20], bonus: 0, total: 1 }] }, state: freeTurn.body.state, turns: [{ role: 'user', content: '掷骰', ts: Date.now() }, { role: 'assistant', content: '结果。', ts: Date.now() }], options: [] }),

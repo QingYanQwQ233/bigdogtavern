@@ -693,6 +693,44 @@ function validateWorldTime(value) {
 const CONFLICT_TYPES = new Set(['combat', 'social', 'stealth', 'chase', 'custom']);
 const CONFLICT_STATUSES = new Set(['active', 'resolved', 'fled', 'failed']);
 const CONFLICT_OBJECTIVE_STATUSES = new Set(['active', 'done', 'failed']);
+const DICE_EXPRESSION_RE = /^(\d*)d(\d+)([+-]\d+)?$/i;
+
+function parseDiceExpression(expression) {
+  const match = String(expression || '').trim().match(DICE_EXPRESSION_RE);
+  if (!match) return { error: '骰子表达式无效' };
+  const count = Math.min(Number(match[1] || 1), 100);
+  const sides = Number(match[2]);
+  const bonus = Number(match[3] || 0);
+  if (!Number.isInteger(count) || count < 1 || !Number.isInteger(sides) || sides < 1 || sides > 1000000 || !Number.isInteger(bonus) || Math.abs(bonus) > 1000000) return { error: '骰子范围无效' };
+  return { expr: String(expression).trim(), count, sides, bonus };
+}
+
+function validateCombatModifier(value, label) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return `${label} 必须是对象`;
+  if (!['attributes', 'skills', 'resources'].includes(value.bucket) || !isSafeId(value.id)) return `${label}.bucket/id 无效`;
+  if (value.factor !== undefined && (!Number.isFinite(value.factor) || Math.abs(value.factor) > 100)) return `${label}.factor 无效`;
+  if (value.bonus !== undefined && (!Number.isFinite(value.bonus) || Math.abs(value.bonus) > 1000000)) return `${label}.bonus 无效`;
+  return null;
+}
+
+function validateCombatCheck(value, label) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return `${label} 必须是对象`;
+  const roll = parseDiceExpression(value.roll);
+  if (roll.error) return `${label}.roll 无效`;
+  if (!Number.isFinite(value.target) || value.target < -1000000 || value.target > 1000000) return `${label}.target 无效`;
+  const modifierInvalid = validateCombatModifier(value.modifier, `${label}.modifier`);
+  if (modifierInvalid) return modifierInvalid;
+  if (value.damage !== undefined && value.damage !== null) {
+    if (!value.damage || typeof value.damage !== 'object' || Array.isArray(value.damage)) return `${label}.damage 必须是对象`;
+    const damageRoll = parseDiceExpression(value.damage.roll);
+    if (damageRoll.error) return `${label}.damage.roll 无效`;
+    const damageModifierInvalid = validateCombatModifier(value.damage.modifier, `${label}.damage.modifier`);
+    if (damageModifierInvalid) return damageModifierInvalid;
+  }
+  return null;
+}
 
 function validateConflictTemplates(value) {
   if (value === undefined || value === null) return null;
@@ -719,6 +757,8 @@ function validateConflictTemplates(value) {
       const actionId = typeof action?.id === 'string' ? action.id.trim() : '';
       if (!isSafeId(actionId) || actionIds.has(actionId) || !draftTextValid(action.label, 160, true)) return `conflicts.${id}.actions 含有重复或无效条目`;
       if (action.description !== undefined && !draftTextValid(action.description, 1000)) return `conflicts.${id}.actions.${actionId}.description 无效`;
+      const checkInvalid = validateCombatCheck(action.check, `conflicts.${id}.actions.${actionId}.check`);
+      if (checkInvalid) return checkInvalid;
       actionIds.add(actionId);
     }
     const outcomes = conflict.outcomes === undefined ? [] : conflict.outcomes;
@@ -765,19 +805,23 @@ function validateConflictStates(world, value, current = null) {
     const actions = new Set((Array.isArray(definition.actions) ? definition.actions : []).map(action => action.id));
     if (state.actionId !== undefined && state.actionId !== null && (!isSafeId(state.actionId) || (actions.size && !actions.has(state.actionId)))) return `state.conflicts.${id}.actionId 无效`;
     if (state.availableActions !== undefined && (!Array.isArray(state.availableActions) || state.availableActions.length > 64 || state.availableActions.some(actionId => !isSafeId(actionId) || (actions.size && !actions.has(actionId))))) return `state.conflicts.${id}.availableActions 无效`;
+    let participantIds = new Set();
     if (state.participants !== undefined) {
       if (!Array.isArray(state.participants) || state.participants.length > 64) return `state.conflicts.${id}.participants 无效`;
-      const participantIds = new Set();
       for (const participant of state.participants) {
         const participantId = typeof participant === 'string' ? participant : participant?.id;
         if (!isSafeId(participantId) || participantIds.has(participantId)) return `state.conflicts.${id}.participants 含有重复或无效 ID`;
         if (typeof participant === 'object' && participant !== null) {
           if (participant.role !== undefined && (typeof participant.role !== 'string' || participant.role.length > 120)) return `state.conflicts.${id}.participants.role 无效`;
           if (participant.status !== undefined && (typeof participant.status !== 'string' || participant.status.length > 120)) return `state.conflicts.${id}.participants.status 无效`;
+          if (participant.maxHp !== undefined && (!Number.isFinite(participant.maxHp) || participant.maxHp < 1 || participant.maxHp > 1000000000)) return `state.conflicts.${id}.participants.maxHp 无效`;
+          if (participant.hp !== undefined && (!Number.isFinite(participant.hp) || participant.hp < 0 || participant.hp > 1000000000 || (participant.maxHp !== undefined && participant.hp > participant.maxHp))) return `state.conflicts.${id}.participants.hp 无效`;
+          if (participant.defense !== undefined && (!Number.isFinite(participant.defense) || participant.defense < -1000000 || participant.defense > 1000000)) return `state.conflicts.${id}.participants.defense 无效`;
         }
         participantIds.add(participantId);
       }
     }
+    if (state.targetId !== undefined && state.targetId !== null && (!isSafeId(state.targetId) || (participantIds.size && !participantIds.has(state.targetId)))) return `state.conflicts.${id}.targetId 无效`;
     if (state.objectives !== undefined) {
       if (!Array.isArray(state.objectives) || state.objectives.length > 64) return `state.conflicts.${id}.objectives 无效`;
       const objectiveIds = new Set();
@@ -801,6 +845,17 @@ function validateConflictStates(world, value, current = null) {
       if (previous.templateId !== templateId) return `state.conflicts.${id}.templateId 不能改变`;
       if (round < Number(previous.round || 1) || round > Number(previous.round || 1) + 1) return `state.conflicts.${id}.round 只能推进一轮`;
       if (previous.status === 'active' && status === 'active' && state.outcome) return `state.conflicts.${id}.active 状态不能写入结束结果`;
+      if (Array.isArray(previous.participants) && Array.isArray(state.participants)) {
+        const previousParticipants = new Map(previous.participants.map(item => [typeof item === 'string' ? item : item?.id, item]));
+        for (const participant of state.participants) {
+          const participantId = typeof participant === 'string' ? participant : participant?.id;
+          const before = previousParticipants.get(participantId);
+          if (!before || typeof participant !== 'object' || typeof before !== 'object') continue;
+          for (const key of ['hp', 'maxHp', 'defense']) {
+            if (before[key] !== undefined && (participant[key] === undefined || participant[key] !== before[key])) return `state.conflicts.${id}.participants.${participantId}.${key} 由服务端结算`;
+          }
+        }
+      }
     }
   }
   return null;
@@ -832,6 +887,79 @@ function materializeConflictOutcomes(world, value) {
     if (outcome && Array.isArray(outcome.consequences)) state.consequences = cloneJson(outcome.consequences);
   }
   return next;
+}
+
+function combatModifierValue(source, rule) {
+  if (!rule) return 0;
+  const raw = Number(source?.[rule.bucket]?.[rule.id]);
+  const factor = Number.isFinite(rule.factor) ? rule.factor : 1;
+  const bonus = Number.isFinite(rule.bonus) ? rule.bonus : 0;
+  return (Number.isFinite(raw) ? raw : 0) * factor + bonus;
+}
+
+function resolveCombatChecks(world, currentState, nextState, commandId, revision) {
+  const currentConflicts = currentState?.conflicts && typeof currentState.conflicts === 'object' ? currentState.conflicts : {};
+  const nextConflicts = nextState?.conflicts && typeof nextState.conflicts === 'object' ? nextState.conflicts : {};
+  const definitions = new Map(worldConflictDefinitions(world).map(conflict => [conflict.id, conflict]));
+  const checks = [];
+  for (const [id, state] of Object.entries(nextConflicts)) {
+    const previous = currentConflicts[id];
+    if (!previous || previous.status !== 'active' || state?.status !== 'active' || Number(state.round || 1) <= Number(previous.round || 1)) continue;
+    const definition = definitions.get(state.templateId);
+    if ((definition?.type || 'custom') !== 'combat') continue;
+    const action = (Array.isArray(definition.actions) ? definition.actions : []).find(item => item.id === state.actionId);
+    const check = action?.check;
+    if (!check) continue;
+    const targetId = state.targetId || previous.targetId;
+    if (!targetId) return { error: `state.conflicts.${id}.targetId 必须指定攻击目标` };
+    const previousParticipants = Array.isArray(previous.participants) ? previous.participants : [];
+    const participants = Array.isArray(state.participants) ? state.participants : cloneJson(previousParticipants);
+    const previousMap = new Map(previousParticipants.map(item => [typeof item === 'string' ? item : item?.id, item]));
+    const target = participants.find(item => (typeof item === 'string' ? item : item?.id) === targetId);
+    const previousTarget = previousMap.get(targetId);
+    if (!target || typeof target !== 'object' || !previousTarget || typeof previousTarget !== 'object') return { error: `state.conflicts.${id}.targetId 必须引用带战斗数值的参与者` };
+    for (const participant of participants) {
+      const participantId = participant?.id;
+      const before = previousMap.get(participantId);
+      if (!before || typeof before !== 'object') continue;
+      for (const key of ['hp', 'maxHp', 'defense']) {
+        if (participant[key] !== undefined && before[key] !== undefined && participant[key] !== before[key]) return { error: `state.conflicts.${id}.participants.${participantId}.${key} 由服务端结算` };
+      }
+    }
+    const maxHp = Number(previousTarget.maxHp);
+    const hp = Number(previousTarget.hp);
+    if (!Number.isFinite(maxHp) || !Number.isFinite(hp)) return { error: `state.conflicts.${id}.targetId 缺少 hp/maxHp` };
+    const attackRoll = rollDiceExpression(check.roll);
+    if (attackRoll.error) return { error: `conflicts.${state.templateId}.actions.${state.actionId}.check.roll 无效` };
+    const attackModifier = combatModifierValue(currentState?.player, check.modifier);
+    const attackTotal = attackRoll.total + attackModifier;
+    const defense = Number.isFinite(Number(previousTarget.defense)) ? Number(previousTarget.defense) : Number(check.target);
+    const targetValue = Number.isFinite(defense) ? defense : Number(check.target);
+    const hit = attackTotal >= targetValue;
+    let damage = null;
+    let damageAmount = 0;
+    if (hit && check.damage) {
+      const damageRoll = rollDiceExpression(check.damage.roll);
+      if (damageRoll.error) return { error: `conflicts.${state.templateId}.actions.${state.actionId}.check.damage.roll 无效` };
+      const damageModifier = combatModifierValue(currentState?.player, check.damage.modifier);
+      damageAmount = Math.max(0, damageRoll.total + damageModifier);
+      damage = { ...damageRoll, modifier: damageModifier, amount: damageAmount };
+    }
+    const nextHp = Math.max(0, Math.min(maxHp, hp - damageAmount));
+    state.targetId = targetId;
+    state.participants = participants.map(participant => participant?.id === targetId ? { ...participant, hp: nextHp, maxHp } : participant);
+    checks.push({
+      conflictId: id,
+      actionId: state.actionId,
+      targetId,
+      round: Number(state.round || 1),
+      attack: { ...attackRoll, modifier: attackModifier, total: attackTotal, target: targetValue, defense, hit },
+      damage,
+      commandId,
+      revision,
+    });
+  }
+  return { checks };
 }
 
 function validateWorldEvents(value, world = null) {
@@ -1165,14 +1293,10 @@ function validateActionIntent(value) {
 }
 
 function rollDiceExpression(expression) {
-  const match = String(expression || '').trim().match(/^(\d*)d(\d+)([+-]\d+)?$/i);
-  if (!match) return { error: '骰子表达式无效' };
-  const count = Math.min(Number(match[1] || 1), 100);
-  const sides = Number(match[2]);
-  const bonus = Number(match[3] || 0);
-  if (!Number.isInteger(count) || count < 1 || !Number.isInteger(sides) || sides < 1 || sides > 1000000 || !Number.isInteger(bonus) || Math.abs(bonus) > 1000000) return { error: '骰子范围无效' };
-  const rolls = Array.from({ length: count }, () => crypto.randomInt(1, sides + 1));
-  return { expr: String(expression).trim(), rolls, bonus, total: rolls.reduce((sum, value) => sum + value, bonus) };
+  const parsed = parseDiceExpression(expression);
+  if (parsed.error) return parsed;
+  const rolls = Array.from({ length: parsed.count }, () => crypto.randomInt(1, parsed.sides + 1));
+  return { expr: parsed.expr, rolls, bonus: parsed.bonus, total: rolls.reduce((sum, value) => sum + value, parsed.bonus) };
 }
 
 async function handleDiceRoll(req, res) {
@@ -3083,7 +3207,10 @@ async function handleWorldTurnPost(req, res, saveId) {
       }
       const revision = current.revision + 1;
       const nextState = cloneJson(payload.state);
+      nextState.conflicts = materializeConflictOutcomes(world, nextState.conflicts);
       if (payload.state.factionStates === undefined && factionStatePayload !== undefined) nextState.factionStates = factionStatePayload;
+      const combatResult = resolveCombatChecks(world, current.state, nextState, payload.commandId, revision);
+      if (combatResult.error) return send(res, 400, JSON.stringify({ error: combatResult.error }), 'application/json');
       nextState.time = advanceWorldTime(current.state?.time, world);
       const deadlineIds = settleWorldDeadlines(nextState);
       const settledEvents = settleWorldEvents(world, current, nextState, payload.commandId, revision);
@@ -3112,6 +3239,7 @@ async function handleWorldTurnPost(req, res, saveId) {
           eventIds: settledEvents.eventIds,
           factionActionIds: settledFactionActions.eventIds,
           conflictTransitions,
+          combatChecks: combatResult.checks,
           deadlineIds,
           committedAt: Date.now(),
         }].slice(-200),

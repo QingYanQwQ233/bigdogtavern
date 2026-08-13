@@ -1660,7 +1660,12 @@ function renderRPG() {
       ? conflicts.map(conflict => {
         const definition = definitions.get(conflict.templateId);
         const phase = (definition?.phases || []).find(item => item.id === conflict.phase)?.label || conflict.phase || '未分阶段';
-        const participants = Array.isArray(conflict.participants) ? conflict.participants.map(item => typeof item === 'string' ? item : item?.id).filter(Boolean).join('、') : '';
+        const participants = Array.isArray(conflict.participants) ? conflict.participants.map(item => {
+          if (typeof item === 'string') return item;
+          const hp = Number.isFinite(Number(item?.hp)) && Number.isFinite(Number(item?.maxHp)) ? ` ${item.hp}/${item.maxHp} HP` : '';
+          const defense = Number.isFinite(Number(item?.defense)) ? ` 防御${item.defense}` : '';
+          return `${item?.id || ''}${hp}${defense}`.trim();
+        }).filter(Boolean).join('、') : '';
         const objectives = Array.isArray(conflict.objectives) ? conflict.objectives.map(item => item?.title || item?.id).filter(Boolean).join('、') : '';
         return `<article class="rpg-item${conflict.status !== 'active' ? ' done' : ''}"><div class="rpg-item-name">${esc(definition?.label || conflict.id)} <small>${esc(statusLabels[conflict.status] || conflict.status || '进行中')}</small></div><div class="rpg-item-sub">第 ${esc(conflict.round || 1)} 轮 · ${esc(phase)}${participants ? ` · ${esc(participants)}` : ''}${objectives ? ` · 目标：${esc(objectives)}` : ''}</div></article>`;
       }).join('')
@@ -1884,6 +1889,7 @@ function applyRpgUpdate(payload) {
       if (change.phase !== undefined) next.phase = change.phase || null;
       if (Number.isInteger(change.round) && change.round > 0) next.round = change.round;
       if (change.actionId !== undefined) next.actionId = change.actionId || null;
+      if (change.targetId !== undefined) next.targetId = change.targetId || null;
       if (Array.isArray(change.participants)) next.participants = cloneValue(change.participants);
       if (Array.isArray(change.objectives)) next.objectives = cloneValue(change.objectives);
       if (Array.isArray(change.availableActions)) next.availableActions = change.availableActions.slice();
@@ -3538,16 +3544,25 @@ function buildWorldConflictPromptPart() {
   const lines = states.length ? states.map(state => {
     const definition = definitions.get(state.templateId);
     const actions = Array.isArray(state.availableActions) ? state.availableActions.join('、') : '';
-    const participants = Array.isArray(state.participants) ? state.participants.map(item => typeof item === 'string' ? item : item?.id).filter(Boolean).join('、') : '';
-    return `- ${state.id}：${definition?.label || state.templateId}，状态=${state.status || 'active'}，阶段=${state.phase || '未分阶段'}，第 ${state.round || 1} 轮${participants ? `，参与者=${participants}` : ''}${actions ? `，可用行动=${actions}` : ''}${state.outcome ? `，结果=${state.outcome}` : ''}`;
+    const participants = Array.isArray(state.participants) ? state.participants.map(item => {
+      if (typeof item === 'string') return item;
+      const hp = Number.isFinite(Number(item?.hp)) && Number.isFinite(Number(item?.maxHp)) ? ` HP=${item.hp}/${item.maxHp}` : '';
+      const defense = Number.isFinite(Number(item?.defense)) ? ` 防御=${item.defense}` : '';
+      return `${item?.id || ''}${hp}${defense}`.trim();
+    }).filter(Boolean).join('、') : '';
+    return `- ${state.id}：${definition?.label || state.templateId}，状态=${state.status || 'active'}，阶段=${state.phase || '未分阶段'}，第 ${state.round || 1} 轮${state.targetId ? `，目标=${state.targetId}` : ''}${participants ? `，参与者=${participants}` : ''}${actions ? `，可用行动=${actions}` : ''}${state.outcome ? `，结果=${state.outcome}` : ''}`;
   }).join('\n') : '（当前没有进行中的冲突）';
   const templates = [...definitions.values()].map(definition => {
-    const actions = Array.isArray(definition.actions) ? definition.actions.map(action => `${action.id}:${action.label}`).join('、') : '';
+    const actions = Array.isArray(definition.actions) ? definition.actions.map(action => {
+      const check = action.check;
+      const checkText = check ? ` [${check.roll}+${check.modifier?.bucket || 'none'}.${check.modifier?.id || 'none'} vs ${check.target}${check.damage ? `; damage ${check.damage.roll}` : ''}]` : '';
+      return `${action.id}:${action.label}${checkText}`;
+    }).join('、') : '';
     const phases = Array.isArray(definition.phases) ? definition.phases.map(phase => `${phase.id}:${phase.label}`).join('、') : '';
     const outcomes = Array.isArray(definition.outcomes) ? definition.outcomes.map(outcome => `${outcome.id}:${outcome.label}`).join('、') : '';
     return `- ${definition.id}（${definition.type || 'custom'}）：阶段=${phases || '无'}；行动=${actions || '无'}；结果=${outcomes || '无'}`;
   }).join('\n');
-  return `【冲突状态】\n冲突是当前世界存档独立拥有的状态，不得跨存档引用。只能使用已声明模板；生命周期只能 start（开始）、advance（推进一轮）或 end（以 declared outcome 结束），已结束冲突不可重开。\n当前状态：\n${lines}\n可用模板：\n${templates}`;
+  return `【冲突状态】\n冲突是当前世界存档独立拥有的状态，不得跨存档引用。只能使用已声明模板；生命周期只能 start（开始）、advance（推进一轮）或 end（以 declared outcome 结束），已结束冲突不可重开。战斗 action 的 check 由服务端掷骰并写回参与者 HP；AI 只选择 actionId 与 targetId，不得伪造 hp、攻击或伤害结果。\n当前状态：\n${lines}\n可用模板：\n${templates}`;
 }
 
 function buildRpgPromptPart() {
