@@ -219,6 +219,7 @@ async function main() {
         tags: ['日式西幻', '草稿'],
         lorebookIds: ['default'],
         mapGeneration: draftMapGeneration,
+        factions: [{ id: 'north-guild', name: 'North Guild', resources: [{ id: 'funds', label: 'Funds', min: 0, max: 100, initial: 40 }] }],
         events: [{ id: 'rain-warning', title: '雨势加剧', description: '山路即将封闭。', trigger: { locationId: 'wolf-tooth-inn' }, visibility: 'public', once: true }],
         locations: draftLocations,
         npcs: draftNpcs,
@@ -231,6 +232,7 @@ async function main() {
     assert.deepStrictEqual(draftUpdate.body.world.npcs, draftNpcs);
     assert.deepStrictEqual(draftUpdate.body.world.npcIds, ['npc-lily']);
     assert.deepStrictEqual(draftUpdate.body.world.map.generation, draftMapGeneration);
+    assert.strictEqual(draftUpdate.body.world.factions[0].id, 'north-guild');
     assert.strictEqual(draftUpdate.body.world.events[0].id, 'rain-warning');
     const invalidDerivedDraft = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
       method: 'PUT',

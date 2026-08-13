@@ -242,7 +242,7 @@ async function loadWorlds() {
     const fallback = defaultByKey.get(`${world.id}:${world.version}`);
     if (!fallback) return world;
     const next = { ...world };
-    for (const key of ['playerCreation', 'turnContract', 'time', 'events']) {
+    for (const key of ['playerCreation', 'turnContract', 'time', 'events', 'factions']) {
       if (next[key] === undefined && fallback[key] !== undefined) next[key] = cloneJson(fallback[key]);
     }
     return next;
@@ -288,6 +288,8 @@ function worldDraftFieldsValid(payload, requireRevision = false) {
   if (timeInvalid) return timeInvalid;
   const eventsInvalid = validateWorldEvents(payload.events);
   if (eventsInvalid) return eventsInvalid;
+  const factionsInvalid = validateWorldFactions(payload.factions);
+  if (factionsInvalid) return factionsInvalid;
   return null;
 }
 
@@ -615,6 +617,105 @@ function validateWorldObjectiveList(value, label, world = null) {
   return null;
 }
 
+function validateFactionGoalList(value, label) {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value) || value.length > 64 || value.some(goal => typeof goal !== 'string' || !goal.trim() || goal.length > 240)) return `${label} 无效`;
+  return null;
+}
+
+function validateWorldFactions(value) {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value) || value.length > 128) return 'factions 最多 128 项';
+  const factionIds = new Set();
+  for (const faction of value) {
+    const id = typeof faction?.id === 'string' ? faction.id.trim() : '';
+    if (!isSafeId(id) || factionIds.has(id) || !draftTextValid(faction.name, 200, true)) return 'factions 含有重复或无效条目';
+    if (faction.description !== undefined && !draftTextValid(faction.description, 4000)) return `factions.${id}.description 无效`;
+    const goalInvalid = validateFactionGoalList(faction.goals, `factions.${id}.goals`);
+    if (goalInvalid) return goalInvalid;
+    const resources = faction.resources === undefined ? [] : faction.resources;
+    if (!Array.isArray(resources) || resources.length > 64) return `factions.${id}.resources 无效`;
+    const resourceIds = new Set();
+    for (const resource of resources) {
+      const resourceId = typeof resource?.id === 'string' ? resource.id.trim() : '';
+      const min = resource.min ?? 0;
+      const max = resource.max ?? 1000000;
+      const initial = resource.initial ?? min;
+      if (!isSafeId(resourceId) || resourceIds.has(resourceId) || !draftTextValid(resource.label, 120, true)
+        || !validBoundedNumber(min, -1000000000, 1000000000) || !validBoundedNumber(max, min, 1000000000)
+        || !validBoundedNumber(initial, min, max)) return `factions.${id}.resources 无效`;
+      resourceIds.add(resourceId);
+    }
+    const initial = faction.initialState;
+    if (initial !== undefined) {
+      if (!initial || typeof initial !== 'object' || Array.isArray(initial)) return `factions.${id}.initialState 无效`;
+      if (initial.relation !== undefined && !validBoundedNumber(initial.relation, -100, 100)) return `factions.${id}.initialState.relation 无效`;
+      if (initial.influence !== undefined && !validBoundedNumber(initial.influence, 0, 1000000000)) return `factions.${id}.initialState.influence 无效`;
+      const initialGoalsInvalid = validateFactionGoalList(initial.goals, `factions.${id}.initialState.goals`);
+      if (initialGoalsInvalid) return initialGoalsInvalid;
+      if (initial.resources !== undefined) {
+        if (!initial.resources || typeof initial.resources !== 'object' || Array.isArray(initial.resources)) return `factions.${id}.initialState.resources 无效`;
+        for (const [resourceId, resourceValue] of Object.entries(initial.resources)) {
+          const resource = resources.find(item => item.id === resourceId);
+          if (!resource || !validBoundedNumber(resourceValue, resource.min ?? 0, resource.max ?? 1000000)) return `factions.${id}.initialState.resources.${resourceId} 无效`;
+        }
+      }
+    }
+    factionIds.add(id);
+  }
+  return null;
+}
+
+function worldFactionDefinitions(world) {
+  return Array.isArray(world?.factions) ? world.factions : [];
+}
+
+function validateFactionStates(world, value, current = null) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'state.factionStates 必须是对象';
+  const definitions = new Map(worldFactionDefinitions(world).map(faction => [faction.id, faction]));
+  if (!definitions.size && Object.keys(value).length) return 'state.factionStates 包含未登记的派系';
+  if (current && typeof current === 'object') {
+    for (const id of Object.keys(current)) if (value[id] === undefined) return `state.factionStates.${id} 不能省略`;
+  }
+  for (const [id, state] of Object.entries(value)) {
+    if (!isSafeId(id) || (definitions.size && !definitions.has(id)) || !state || typeof state !== 'object' || Array.isArray(state)) return `state.factionStates.${id} 无效`;
+    if (state.relation !== undefined && !validBoundedNumber(state.relation, -100, 100)) return `state.factionStates.${id}.relation 无效`;
+    if (state.influence !== undefined && !validBoundedNumber(state.influence, 0, 1000000000)) return `state.factionStates.${id}.influence 无效`;
+    const goalsInvalid = validateFactionGoalList(state.goals, `state.factionStates.${id}.goals`);
+    if (goalsInvalid) return goalsInvalid;
+    if (state.resources !== undefined) {
+      if (!state.resources || typeof state.resources !== 'object' || Array.isArray(state.resources)) return `state.factionStates.${id}.resources 无效`;
+      const resourceDefinitions = new Map((definitions.get(id)?.resources || []).map(resource => [resource.id, resource]));
+      for (const [resourceId, resourceValue] of Object.entries(state.resources)) {
+        const resource = resourceDefinitions.get(resourceId);
+        if (!resource || !validBoundedNumber(resourceValue, resource.min ?? 0, resource.max ?? 1000000)) return `state.factionStates.${id}.resources.${resourceId} 无效`;
+      }
+    }
+  }
+  return null;
+}
+
+function initialFactionStates(world) {
+  return Object.fromEntries(worldFactionDefinitions(world).map(faction => {
+    const initial = faction.initialState || {};
+    const initialResources = initial.resources && typeof initial.resources === 'object' && !Array.isArray(initial.resources) ? initial.resources : {};
+    const resources = Object.fromEntries((Array.isArray(faction.resources) ? faction.resources : []).map(resource => [resource.id, initialResources[resource.id] ?? resource.initial ?? resource.min ?? 0]));
+    return [faction.id, {
+      goals: Array.isArray(initial.goals) ? cloneJson(initial.goals) : (Array.isArray(faction.goals) ? cloneJson(faction.goals) : []),
+      resources,
+      relation: initial.relation ?? 0,
+      influence: initial.influence ?? 0,
+    }];
+  }));
+}
+
+function materializeFactionStates(world, current = null) {
+  const initial = initialFactionStates(world);
+  const existing = current && typeof current === 'object' && !Array.isArray(current) ? current : {};
+  return Object.fromEntries(worldFactionDefinitions(world).map(faction => [faction.id, existing[faction.id] ? cloneJson(existing[faction.id]) : initial[faction.id]]));
+}
+
 function advanceWorldTime(current, world) {
   const config = world?.time && typeof world.time === 'object' ? world.time : {};
   const unit = typeof current?.unit === 'string' ? current.unit : String(config.unit || 'tick');
@@ -901,6 +1002,7 @@ function applyWorldDraftFields(world, payload) {
   if (payload.turnContract !== undefined) next.turnContract = cloneJson(payload.turnContract);
   if (payload.time !== undefined) next.time = cloneJson(payload.time);
   if (payload.events !== undefined) next.events = Array.isArray(payload.events) ? cloneJson(payload.events) : [];
+  if (payload.factions !== undefined) next.factions = cloneJson(payload.factions);
   if (payload.mapGeneration !== undefined) {
     const map = next.map && typeof next.map === 'object' && !Array.isArray(next.map) ? next.map : {};
     next.map = { ...map, generation: normalizeWorldDraftMapGeneration(payload.mapGeneration) };
@@ -941,6 +1043,7 @@ function prepareWorldDraftPublication(draft) {
     ...(world.turnContract !== undefined ? { turnContract: world.turnContract } : {}),
     ...(world.time !== undefined ? { time: world.time } : {}),
     ...(world.events !== undefined ? { events: world.events } : {}),
+    ...(world.factions !== undefined ? { factions: world.factions } : {}),
     ...(mapGeneration ? { mapGeneration } : {}),
     locations: Array.isArray(world.locations) ? world.locations : [],
     npcs: Array.isArray(world.npcs) ? world.npcs : [],
@@ -2062,6 +2165,8 @@ async function handleWorldSaveUpgrade(req, res, saveId) {
       const targetNpcIds = worldNpcIds(resolved.targetWorld);
       const targetLocationIds = worldLocationIds(resolved.targetWorld);
       const npcStates = cloneJson(current.npcStates || {});
+      const factionStates = materializeFactionStates(resolved.targetWorld, current.state?.factionStates);
+      const addedFactionStateIds = Object.keys(factionStates).filter(id => !Object.hasOwn(current.state?.factionStates || {}, id));
       const addedNpcStateIds = [];
       for (const npcId of targetNpcIds) {
         if (Object.hasOwn(npcStates, npcId)) continue;
@@ -2082,6 +2187,7 @@ async function handleWorldSaveUpgrade(req, res, saveId) {
         targetTitle: resolved.report.targetTitle,
         changes: resolved.report.changes,
         addedNpcStateIds,
+        addedFactionStateIds,
         revision,
         migratedAt,
       };
@@ -2089,6 +2195,7 @@ async function handleWorldSaveUpgrade(req, res, saveId) {
         ...current,
         worldVersion: payload.targetVersion,
         npcStates,
+        state: { ...current.state, factionStates },
         migrationHistory: [...history, migration],
         revision,
         updatedAt: migratedAt,
@@ -2137,6 +2244,11 @@ async function handleWorldSaveCreate(req, res) {
   if (schemaInvalid) return send(res, 400, JSON.stringify({ error: schemaInvalid }), 'application/json');
   const timeInvalid = validateWorldTime(world.time);
   if (timeInvalid) return send(res, 400, JSON.stringify({ error: timeInvalid }), 'application/json');
+  const factionsInvalid = validateWorldFactions(world.factions);
+  if (factionsInvalid) return send(res, 400, JSON.stringify({ error: factionsInvalid }), 'application/json');
+  const factionStates = initialFactionStates(world);
+  const factionStateInvalid = validateFactionStates(world, factionStates);
+  if (factionStateInvalid) return send(res, 400, JSON.stringify({ error: factionStateInvalid }), 'application/json');
   for (const [key, label] of [['goals', 'start.initialState.goals'], ['leads', 'start.initialState.leads']]) {
     const invalidObjectives = validateWorldObjectiveList(initial[key], label, world);
     if (invalidObjectives) return send(res, 400, JSON.stringify({ error: invalidObjectives }), 'application/json');
@@ -2171,6 +2283,7 @@ async function handleWorldSaveCreate(req, res) {
       leads: Array.isArray(initial.leads) ? cloneJson(initial.leads) : [],
       inventory: Array.isArray(initial.inventory) ? cloneJson(initial.inventory) : [],
       quests: Array.isArray(initial.quests) ? cloneJson(initial.quests) : [],
+      factionStates,
       map: {
         strategy: world.map && world.map.strategy || 'perSave',
         baseMapId: world.map && world.map.baseMapId || null,
@@ -2235,6 +2348,7 @@ function validateWorldSavePatch(payload) {
   if (state.time !== undefined) {
     if (!state.time || typeof state.time !== 'object' || Array.isArray(state.time) || typeof state.time.unit !== 'string' || state.time.unit.length > 40 || !Number.isFinite(state.time.value) || state.time.value < 0 || state.time.value > 1000000000) return 'state.time 无效';
   }
+  if (state.factionStates !== undefined && (!state.factionStates || typeof state.factionStates !== 'object' || Array.isArray(state.factionStates) || Object.keys(state.factionStates).length > 128)) return 'state.factionStates 无效';
   const worldEventsInvalid = validateWorldEventLog(state.worldEvents);
   if (worldEventsInvalid) return worldEventsInvalid;
   for (const [key, label] of [['goals', 'state.goals'], ['leads', 'state.leads']]) {
@@ -2427,6 +2541,12 @@ async function handleWorldSavePut(req, res, saveId) {
         const invalidObjectives = validateWorldObjectiveList(payload.state[key], label, world);
         if (invalidObjectives) return send(res, 400, JSON.stringify({ error: invalidObjectives }), 'application/json');
       }
+      if (current.state?.factionStates && payload.state.factionStates === undefined) return send(res, 400, JSON.stringify({ error: 'state.factionStates 不能省略' }), 'application/json');
+      const factionStatePayload = payload.state.factionStates === undefined && worldFactionDefinitions(world).length
+        ? materializeFactionStates(world, current.state?.factionStates)
+        : payload.state.factionStates;
+      const factionStateInvalid = validateFactionStates(world, factionStatePayload, current.state?.factionStates);
+      if (factionStateInvalid) return send(res, 400, JSON.stringify({ error: factionStateInvalid }), 'application/json');
       if (current.state?.player && payload.state.player === undefined) return send(res, 400, JSON.stringify({ error: 'state.player 不能省略' }), 'application/json');
       const dynamicPlayerInvalid = validateDynamicPlayerState(world, payload.state.player, current.state?.player);
       if (dynamicPlayerInvalid) return send(res, 400, JSON.stringify({ error: dynamicPlayerInvalid }), 'application/json');
@@ -2434,6 +2554,7 @@ async function handleWorldSavePut(req, res, saveId) {
         return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
       }
       const nextState = cloneJson(payload.state);
+      if (payload.state.factionStates === undefined && factionStatePayload !== undefined) nextState.factionStates = factionStatePayload;
       if (current.state?.time !== undefined) nextState.time = cloneJson(current.state.time);
       nextState.worldEvents = Array.isArray(current.state?.worldEvents) ? cloneJson(current.state.worldEvents) : [];
       const next = {
@@ -2501,6 +2622,12 @@ async function handleWorldTurnPost(req, res, saveId) {
         const invalidObjectives = validateWorldObjectiveList(payload.state[key], label, world);
         if (invalidObjectives) return send(res, 400, JSON.stringify({ error: invalidObjectives }), 'application/json');
       }
+      if (current.state?.factionStates && payload.state.factionStates === undefined) return send(res, 400, JSON.stringify({ error: 'state.factionStates 不能省略' }), 'application/json');
+      const factionStatePayload = payload.state.factionStates === undefined && worldFactionDefinitions(world).length
+        ? materializeFactionStates(world, current.state?.factionStates)
+        : payload.state.factionStates;
+      const factionStateInvalid = validateFactionStates(world, factionStatePayload, current.state?.factionStates);
+      if (factionStateInvalid) return send(res, 400, JSON.stringify({ error: factionStateInvalid }), 'application/json');
       if (current.state?.player && payload.state.player === undefined) return send(res, 400, JSON.stringify({ error: 'state.player 不能省略' }), 'application/json');
       const dynamicPlayerInvalid = validateDynamicPlayerState(world, payload.state.player, current.state?.player, true);
       if (dynamicPlayerInvalid) return send(res, 400, JSON.stringify({ error: dynamicPlayerInvalid }), 'application/json');
@@ -2531,6 +2658,7 @@ async function handleWorldTurnPost(req, res, saveId) {
       }
       const revision = current.revision + 1;
       const nextState = cloneJson(payload.state);
+      if (payload.state.factionStates === undefined && factionStatePayload !== undefined) nextState.factionStates = factionStatePayload;
       nextState.time = advanceWorldTime(current.state?.time, world);
       const deadlineIds = settleWorldDeadlines(nextState);
       const settledEvents = settleWorldEvents(world, current, nextState, payload.commandId, revision);

@@ -10,6 +10,7 @@ const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tavern-player-'));
 const defaults = JSON.parse(fs.readFileSync(path.join(root, 'public', 'data', '_defaults.json'), 'utf8'));
 const world = defaults.worlds[0];
 world.npcIds = ['npc-lily'];
+world.factions = [{ id: 'north-guild', name: 'North Guild', goals: ['Protect the pass'], resources: [{ id: 'funds', label: 'Funds', min: 0, max: 100, initial: 40 }], initialState: { relation: 10, influence: 4, resources: { funds: 30 } } }];
 world.npcs = [{ id: 'npc-lily', name: '莉莉', role: 'innkeeper' }];
 world.playerCreation.relations = [{ npcId: 'npc-lily', label: '与莉莉的关系', min: -100, max: 100, default: 5 }];
 world.events.push({ id: 'inn-echo', title: '旅店回响', description: '炉火后传来一声短促的回响。', trigger: { locationId: 'wolf-tooth-inn' }, visibility: 'local', once: true });
@@ -69,6 +70,8 @@ async function main() {
     assert.strictEqual(first.body.state.player.resources.hp, 24);
     assert.strictEqual(first.body.state.stats.hp, 24);
     assert.strictEqual(first.body.npcStates['npc-lily'].relation.player, 25);
+    assert.strictEqual(first.body.state.factionStates['north-guild'].relation, 10);
+    assert.strictEqual(first.body.state.factionStates['north-guild'].resources.funds, 30);
     assert.strictEqual(first.body.openingMode, 'ai');
     const opening = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}/opening`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -112,6 +115,11 @@ async function main() {
     assert.strictEqual(eventTurn.body.state.leads[0].id, 'inn-rumor');
     assert.strictEqual(eventTurn.body.state.player.attributes.might, 4);
     assert.deepStrictEqual(eventTurn.body.receipts.at(-1).eventIds, ['aurora-omen']);
+    const invalidFactionState = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'turn-check-faction-invalid', expectedRevision: eventTurn.body.revision, actionIntent: { raw: 'faction' }, state: { ...eventTurn.body.state, factionStates: { 'north-guild': { ...eventTurn.body.state.factionStates['north-guild'], relation: 101 } } }, turns: [{ role: 'assistant', content: 'reject' }], options: [] }),
+    });
+    assert.strictEqual(invalidFactionState.response.status, 400, 'faction state ranges are enforced per world card');
     const eventRetry = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ commandId: 'turn-check-3', expectedRevision: 0, actionIntent: { raw: '重试' }, state: eventTurn.body.state, turns: [{ role: 'assistant', content: '重试。' }], options: [] }),

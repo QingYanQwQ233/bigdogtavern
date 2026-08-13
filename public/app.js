@@ -1640,6 +1640,33 @@ function renderRPG() {
   addDeadlineLabels('rpg-goals', worldModeActive() ? currentWorldSave.state?.goals : rs.goals);
   addDeadlineLabels('rpg-leads', worldModeActive() ? currentWorldSave.state?.leads : rs.leads);
   const eventList = $('rpg-world-events');
+  let factionList = $('rpg-factions');
+  if (!factionList && eventList?.parentElement) {
+    const heading = document.createElement('div');
+    heading.className = 'rpg-panel-head';
+    heading.style.marginTop = '10px';
+    heading.textContent = '🏛 派系';
+    factionList = document.createElement('div');
+    factionList.id = 'rpg-factions';
+    factionList.className = 'rpg-list';
+    factionList.setAttribute('role', 'list');
+    factionList.setAttribute('aria-label', '当前派系');
+    eventList.parentElement.insertBefore(heading, eventList);
+    eventList.parentElement.insertBefore(factionList, eventList);
+  }
+  if (factionList) {
+    const world = worldModeActive() ? currentWorldCard() : null;
+    const definitions = Array.isArray(world?.factions) ? world.factions : [];
+    const states = currentWorldSave?.state?.factionStates && typeof currentWorldSave.state.factionStates === 'object' ? currentWorldSave.state.factionStates : {};
+    factionList.innerHTML = definitions.length
+      ? definitions.map(faction => {
+        const state = states[faction.id] || {};
+        const resources = Array.isArray(faction.resources) ? faction.resources.map(resource => `${resource.label || resource.id}: ${state.resources?.[resource.id] ?? resource.initial ?? resource.min ?? 0}`).join(' · ') : '';
+        const goals = Array.isArray(state.goals) && state.goals.length ? state.goals.join('、') : (Array.isArray(faction.goals) ? faction.goals.join('、') : '暂无公开目标');
+        return `<article class="rpg-item"><div class="rpg-item-name">${esc(faction.name || faction.id)} <small>关系 ${esc(state.relation ?? 0)} · 影响 ${esc(state.influence ?? 0)}</small></div><div class="rpg-item-sub">目标：${esc(goals)}</div>${resources ? `<div class="rpg-item-sub">资源：${esc(resources)}</div>` : ''}</article>`;
+      }).join('')
+      : '<p class="hint">当前世界暂无派系。</p>';
+  }
   if (eventList) {
     const currentLocationId = currentWorldSave?.state?.locationId || null;
     const events = (worldModeActive() && Array.isArray(currentWorldSave.state?.worldEvents) ? currentWorldSave.state.worldEvents : [])
@@ -3347,6 +3374,20 @@ function buildWorldEventPromptPart() {
     }).join('\n');
 }
 
+function buildWorldFactionPromptPart() {
+  if (!worldModeActive()) return '';
+  const world = currentWorldCard();
+  const definitions = Array.isArray(world?.factions) ? world.factions : [];
+  if (!definitions.length) return '';
+  const states = currentWorldSave?.state?.factionStates && typeof currentWorldSave.state.factionStates === 'object' ? currentWorldSave.state.factionStates : {};
+  return '【当前作用域派系】\n派系定义属于当前世界卡；动态状态属于当前存档，禁止跨世界或跨存档引用。\n' + definitions.map(faction => {
+    const state = states[faction.id] || {};
+    const goals = Array.isArray(state.goals) && state.goals.length ? state.goals : (Array.isArray(faction.goals) ? faction.goals : []);
+    const resources = Array.isArray(faction.resources) ? faction.resources.map(resource => `${resource.id}=${state.resources?.[resource.id] ?? resource.initial ?? resource.min ?? 0}`).join(', ') : '';
+    return [`ID: ${faction.id}`, `名称: ${faction.name || faction.id}`, faction.description, goals.length ? `目标: ${goals.join('；')}` : '', `关系: ${state.relation ?? 0}`, `影响力: ${state.influence ?? 0}`, resources ? `资源: ${resources}` : ''].filter(Boolean).join('\n');
+  }).join('\n\n');
+}
+
 function buildRpgPromptPart() {
   if (mode !== 'rpg') return '';
   const parts = [];
@@ -3388,6 +3429,8 @@ function buildRpgPromptPart() {
       parts.push(`【回合契约】行动选项数量 ${optionRules.min}-${optionRules.max}；自由文本输入始终可用。AI 不得替玩家补写未表达的核心意图、台词或不可逆行动。`);
       const npcPrompt = buildWorldNpcPromptPart();
       if (npcPrompt) parts.push(npcPrompt);
+      const factionPrompt = buildWorldFactionPromptPart();
+      if (factionPrompt) parts.push(factionPrompt);
       const eventPrompt = buildWorldEventPromptPart();
       if (eventPrompt) parts.push(eventPrompt);
     }

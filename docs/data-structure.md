@@ -307,6 +307,10 @@ RPG 控制块的 `player.attributes` / `player.resources` 使用相对数值变�
 - `settings.systemPrompt/postHistory/firstMes` 与 `__global__` 预设语义重叠：`__global__` 是提示词栏的编辑入口，settings 三字段仅作最后兜底（兼容旧数据）
 - 数据双写 localStorage + JSON：server 文件权威，localStorage 为离线降级
 - 命名易混淆：`settings.preset`（服务商）vs `prefs.currentPresetByMode`（酒馆/RPG 当前提示词预设）
+### 派系定义与存档状态（R4.11）
+
+世界卡的 `factions` 保存静态定义：`{ id, name, description?, goals?, resources?, initialState? }`。资源定义包含 `id/label/min/max/initial`，初始关系与影响力也可写在 `initialState`。创建 `WorldSave` 时，服务端把这些定义投影为当前存档独立的 `state.factionStates[factionId]`，其中保存目标、资源、关系和影响力；正式回合与存档 PUT 必须提交完整的已有派系状态，服务端按世界卡白名单校验，禁止未知派系、未知资源或越界数值。世界升级只为目标版本的派系补齐初始状态，不会引用其他存档。
+
 ### Legacy RPG session migration (W6)
 
 `POST /api/rpg-migrations` receives `{ raw }`, where `raw` is a browser legacy session envelope containing the target `worldId/worldVersion`. The server seals the exact source at `data/rpg-migrations/<migrationId>.json` and returns only a hash, source/target summary, state counts, and warnings. The raw session is never echoed by the GET endpoint. A second, explicit `POST /api/rpg-migrations/<migrationId>` creates `data/saves/migrated-<migrationId>.json`.

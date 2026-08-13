@@ -496,6 +496,10 @@ node scripts/check_recovery.js
 node scripts/check_pwa.js
 ```
 
+### R4.11 Current progress
+
+Implemented the minimal faction contract: static `WorldCard.factions`, save-owned `WorldSave.state.factionStates`, server-side allowlist/range validation, initialization on create and world upgrade, and RPG panel/prompt projection. R4.12 will add time-point faction actions and event projection.
+
 当前限制：
 
 - 本轮没有浏览器控制授权，因此不能把真实页面闭环标为已验收。

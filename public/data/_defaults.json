@@ -549,6 +549,7 @@
       "rpgPresetName": "RPG 叙事引擎（示例）",
       "npcIds": [],
       "factionIds": [],
+      "factions": [],
       "itemIds": [],
       "questTemplateIds": [],
       "locations": [
