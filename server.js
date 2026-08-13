@@ -84,6 +84,7 @@ async function ensureDataFiles() {
 const SAFE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 const COMMAND_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{7,95}$/;
 const EVENT_LEDGER_MAX = 4096;
+const EVENT_MEMORY_MAX = 512;
 const worldSaveLocks = new Map();
 let worldWriteChain = Promise.resolve();
 
@@ -1301,6 +1302,83 @@ function validateEventLedger(value) {
   return null;
 }
 
+function validateEventMemoryCandidates(value, world = null) {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value) || value.length > 8) return 'eventMemory 每回合最多 8 项';
+  const locationIds = world ? worldLocationIds(world) : null;
+  for (const [index, item] of value.entries()) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return `eventMemory[${index}] 无效`;
+    if (!draftTextValid(item.summary, 2000, true)) return `eventMemory[${index}].summary 无效`;
+    if (item.entityIds !== undefined && (!Array.isArray(item.entityIds) || item.entityIds.length > 32 || item.entityIds.some(id => !isSafeId(id)))) return `eventMemory[${index}].entityIds 无效`;
+    if (item.locationId !== undefined && item.locationId !== null && (!isSafeId(item.locationId) || (locationIds && !locationIds.has(item.locationId)))) return `eventMemory[${index}].locationId 无效`;
+    if (item.time !== undefined && item.time !== null && (!item.time || typeof item.time !== 'object' || Array.isArray(item.time) || typeof item.time.unit !== 'string' || !item.time.unit.trim() || item.time.unit.length > 40 || !Number.isFinite(item.time.value) || item.time.value < 0 || item.time.value > 1000000000)) return `eventMemory[${index}].time 无效`;
+    if (item.visibility !== undefined && !['public', 'local', 'hidden'].includes(item.visibility)) return `eventMemory[${index}].visibility 无效`;
+  }
+  return null;
+}
+
+function validateEventMemory(value, world = null, current = null) {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value) || value.length > EVENT_MEMORY_MAX) return `eventMemory 最多 ${EVENT_MEMORY_MAX} 项`;
+  const ids = new Set();
+  const locationIds = world ? worldLocationIds(world) : null;
+  for (const item of value) {
+    const id = typeof item?.id === 'string' ? item.id.trim() : '';
+    if (!isSafeId(id) || ids.has(id)) return 'eventMemory 含有重复或无效 ID';
+    if (!['event', 'fact', 'relationship'].includes(item.kind)) return `eventMemory.${id}.kind 无效`;
+    if (!draftTextValid(item.summary, 2000, true)) return `eventMemory.${id}.summary 无效`;
+    if (!Array.isArray(item.entityIds) || item.entityIds.length > 32 || item.entityIds.some(entityId => !isSafeId(entityId))) return `eventMemory.${id}.entityIds 无效`;
+    if (item.locationId !== null && item.locationId !== undefined && (!isSafeId(item.locationId) || (locationIds && !locationIds.has(item.locationId)))) return `eventMemory.${id}.locationId 无效`;
+    if (!item.time || typeof item.time !== 'object' || Array.isArray(item.time) || typeof item.time.unit !== 'string' || !item.time.unit.trim() || item.time.unit.length > 40 || !Number.isFinite(item.time.value) || item.time.value < 0 || item.time.value > 1000000000) return `eventMemory.${id}.time 无效`;
+    if (!Number.isInteger(item.sourceRevision) || item.sourceRevision < 0) return `eventMemory.${id}.sourceRevision 无效`;
+    if (!Array.isArray(item.sourceTurnIds) || !item.sourceTurnIds.length || item.sourceTurnIds.length > 32 || item.sourceTurnIds.some(turnId => typeof turnId !== 'string' || !turnId.trim() || turnId.length > 160)) return `eventMemory.${id}.sourceTurnIds 无效`;
+    if (!Array.isArray(item.sourceEventIds) || item.sourceEventIds.length > 64 || item.sourceEventIds.some(eventId => typeof eventId !== 'string' || !eventId.trim() || eventId.length > 160)) return `eventMemory.${id}.sourceEventIds 无效`;
+    if (!['public', 'local', 'hidden'].includes(item.visibility)) return `eventMemory.${id}.visibility 无效`;
+    if (!Number.isFinite(item.createdAt) || item.createdAt < 0) return `eventMemory.${id}.createdAt 无效`;
+    ids.add(id);
+  }
+  if (current && Array.isArray(current)) {
+    for (const previous of current) {
+      const next = value.find(item => item?.id === previous?.id);
+      if (!next || canonicalJson(next) !== canonicalJson(previous)) return `eventMemory.${previous?.id || 'unknown'} 只能追加，不能改写`;
+    }
+  }
+  return null;
+}
+
+function memoryEventId(saveId, revision, index) {
+  const hash = crypto.createHash('sha256').update(`${saveId}:${revision}:${index}`).digest('hex').slice(0, 24);
+  return `memory-${revision}-${index}-${hash}`;
+}
+
+function committedTurnId(saveId, revision, index) {
+  const hash = crypto.createHash('sha256').update(`${saveId}:turn:${revision}:${index}`).digest('hex').slice(0, 24);
+  return `turn-${revision}-${index}-${hash}`;
+}
+
+function appendEventMemory(save, candidates, { world, revision, turns, eventIds, time, locationId }) {
+  if (!Array.isArray(candidates) || !candidates.length) return Array.isArray(save.eventMemory) ? save.eventMemory : [];
+  const sourceTurnIds = turns.map(turn => turn.id).filter(id => typeof id === 'string' && id.trim());
+  const sourceEventIds = [...new Set(eventIds.filter(id => typeof id === 'string' && id.trim()))];
+  const entries = candidates.map((item, index) => ({
+    id: memoryEventId(save.id, revision, index),
+    kind: 'event',
+    summary: item.summary.trim(),
+    entityIds: Array.isArray(item.entityIds) ? [...new Set(item.entityIds)] : [],
+    locationId: locationId ?? null,
+    time: time ? cloneJson(time) : { unit: 'turn', value: revision },
+    sourceRevision: revision,
+    sourceTurnIds: [...sourceTurnIds],
+    sourceEventIds: [...sourceEventIds],
+    visibility: item.visibility || 'public',
+    createdAt: Date.now(),
+  }));
+  const next = [...(Array.isArray(save.eventMemory) ? save.eventMemory : []), ...entries].slice(-EVENT_MEMORY_MAX);
+  const invalid = validateEventMemory(next, world);
+  if (invalid) throw new Error(invalid);
+  return next;
+}
+
 function validateWorldObjectiveList(value, label, world = null) {
   if (value === undefined || value === null) return null;
   if (!Array.isArray(value) || value.length > 256) return `${label} 最多 256 项`;
@@ -2214,6 +2292,7 @@ async function handleRpgMigrationCommit(req, res, migrationId) {
         player: { characterId: playerId, snapshot: player }, party: { memberIds: [playerId], leaderId: playerId }, state,
         npcStates: initialNpcStates(world, { locationId: state.locationId }), opening: String(session.opening || ''), turns: normalizeLegacyTurns(session.messages), receipts: [], generatedEntities: {},
         eventLedger: [{ id: ledgerEventId(saveId, 0), kind: 'migration', commandId: migrationId, sourceRevision: 0, revision: 0, locationId: state.locationId || null, time: state.time ? cloneJson(state.time) : null, migrationId, createdAt: now }],
+        eventMemory: [],
         migrationHistory: [], migrationInfo: { kind: 'legacy-rpg-session', migrationId, sourceSessionId: report.source.sessionId, sourceHash: record.rawHash, migratedAt: now, redactedPaths },
       };
       const invalidSave = validateWorldSavePatch({ expectedRevision: 0, state: save.state, turns: save.turns, opening: save.opening });
@@ -3200,6 +3279,7 @@ async function handleWorldSaveCreate(req, res) {
     turns: [],
     receipts: [],
     eventLedger: [],
+    eventMemory: [],
     generatedEntities: {},
     migrationHistory: [],
   };
@@ -3615,6 +3695,8 @@ function validateWorldTurn(payload, optionRules = { min: 4, max: 4 }) {
   if (new Set(options.map(o => o.trim())).size !== options.length) return 'options 不能重复';
   const invalidCreateEntities = validateCreateEntities(payload.createEntities);
   if (invalidCreateEntities) return invalidCreateEntities;
+  const invalidEventMemory = validateEventMemoryCandidates(payload.eventMemory);
+  if (invalidEventMemory) return invalidEventMemory;
   const invalidActionIntent = validateActionIntent(payload.actionIntent);
   if (invalidActionIntent) return invalidActionIntent;
   return null;
@@ -3641,6 +3723,8 @@ async function handleWorldTurnPost(req, res, saveId) {
       const optionRules = worldTurnOptionRules(world);
       const contractInvalid = validateWorldTurn(payload, optionRules);
       if (contractInvalid) return send(res, 400, JSON.stringify({ error: contractInvalid }), 'application/json');
+      const eventMemoryInvalid = validateEventMemoryCandidates(payload.eventMemory, world);
+      if (eventMemoryInvalid) return send(res, 400, JSON.stringify({ error: eventMemoryInvalid }), 'application/json');
       const invalidLocation = validateWorldLocationIds(world, payload.state, payload.npcStates, payload.createEntities);
       if (invalidLocation) return send(res, 400, JSON.stringify({ error: invalidLocation }), 'application/json');
       for (const [key, label] of [['goals', 'state.goals'], ['leads', 'state.leads']]) {
@@ -3710,6 +3794,7 @@ async function handleWorldTurnPost(req, res, saveId) {
       const conflictTransitions = conflictTransitionRecords(current.state?.conflicts, nextState.conflicts, payload.commandId, revision);
       const committedTurns = payload.turns.map((turn, index) => ({
         ...cloneJson(turn),
+        id: typeof turn.id === 'string' && turn.id.trim() ? turn.id.trim() : committedTurnId(saveId, revision, index),
         ...(index === 0 && payload.actionIntent ? { actionIntent: cloneJson(payload.actionIntent) } : {}),
         commandId: payload.commandId,
         revision,
@@ -3745,6 +3830,14 @@ async function handleWorldTurnPost(req, res, saveId) {
           worldEventIds: settledEvents.eventIds,
           factionActionIds: settledFactionActions.eventIds,
           deadlineIds,
+        }),
+        eventMemory: appendEventMemory(current, payload.eventMemory, {
+          world,
+          revision,
+          turns: committedTurns,
+          eventIds: [...settledEvents.eventIds, ...settledFactionActions.eventIds, ...deadlineIds],
+          time: nextState.time,
+          locationId: nextState.locationId ?? null,
         }),
         revision,
         updatedAt: Date.now(),

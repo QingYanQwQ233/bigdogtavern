@@ -122,6 +122,8 @@ WorldNPC 的静态资料按公开边界读取：`role`、`description`、`person
 
 RPG Prompt 的短期窗口由前端 `buildWorldRecentContext()` 在请求前从当前 `WorldSave.turns`、待提交消息和 `eventLedger` 重建：默认使用设置中的最近 N 条消息；若账本记录出当前位置切换，则优先保留当前位置之后的消息。该窗口只作为本次请求的 history 投影，不写入存档，也不替代 `turns`、`state` 或账本事实。
 
+`eventMemory[]` 是服务端在正式回合提交后规范化的长期事件记忆（最多 512 条），只接受 AI 提交的本回合候选摘要；来源回合、来源事件、`sourceRevision`、地点和时间由服务端绑定，不能由客户端伪造或改写。每项带 `entityIds`、`locationId`、`time`、`visibility` 与来源 ID，Prompt 只注入当前存档可见且地点匹配的记忆；删除或清理派生记忆不会改变 `turns`、`state` 或 `eventLedger`。
+
 正式回合 receipt 采用 `{ kind: 'turn', commandId, revision, turnIds, eventIds, committedAt }`，开场等其他 receipt 不计入成功回合数。
 
 `state.goals` 与 `state.leads` 是存档级目标 / 线索投影，使用稳定 `id`、`title`、`desc`、`status`，可选引用当前世界的 `actorId` / `locationId` 与 `deadline`；它们与旧 `quests` 并存，AI 只能通过本回合结构化控制块增量 upsert，服务端会校验 ID、状态和地点引用。
@@ -150,7 +152,7 @@ RPG 控制块的 `player.attributes` / `player.skills` / `player.resources` 使�
   opening: '世界卡 start.opening 的开局叙事',
   openingMode: 'static' | 'ai', openingOptions: [], openingCommandId: null,
   turns: [{ id, role: 'user' | 'assistant' | 'system', content, ts, options?, actionIntent?: { raw, verb?, target?, method?, risk? } }],
-  receipts: [], eventLedger: [], generatedEntities: {},
+  receipts: [], eventLedger: [], eventMemory: [], generatedEntities: {},
   migrationHistory: [{ kind: 'world-version-upgrade', commandId, fromVersion, toVersion, changes, addedNpcStateIds, revision, migratedAt }]
 }
 ```

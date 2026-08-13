@@ -216,6 +216,7 @@ assert.ok(rpgDefault.modules.some(x => x.id === 'rpgAdjudication' && x.enabled))
 assert.ok(rpgDefault.modules.some(x => x.id === 'rpgContinuity' && x.enabled));
 assert.deepStrictEqual(defaultData.prefs.currentPresetByMode, { tavern: 'RP 基础（示例）', rpg: 'RPG 叙事引擎（示例）' });
 assert.match(defaultData.rpg.stateInstruction, /恰好 4 个/);
+assert.match(defaultData.rpg.eventMemoryInstruction, /eventMemory/);
 const exampleState = JSON.parse(defaultData.rpg.exampleTurn.assistant.match(/```rpg\n([\s\S]*?)\n```/)[1]);
 assert.strictEqual(exampleState.options.length, 4);
 

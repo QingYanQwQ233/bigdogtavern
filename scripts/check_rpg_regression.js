@@ -104,7 +104,7 @@ async function main() {
       }
       const advanced = await jsonRequest(base, `/api/world-saves/${save.id}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ commandId: `${id}-advance-1`, expectedRevision: started.body.revision, state: { ...started.body.state, conflicts: nextConflicts }, turns: [{ role: 'assistant', content: '冲突判定完成。' }], options: [] }),
+        body: JSON.stringify({ commandId: `${id}-advance-1`, expectedRevision: started.body.revision, state: { ...started.body.state, conflicts: nextConflicts }, turns: [{ role: 'assistant', content: '冲突判定完成。' }], options: [], eventMemory: [{ summary: '冲突中的一次判定已经完成。', locationId: started.body.state.locationId, time: { unit: 'tick', value: 2 }, visibility: 'local' }] }),
       });
       assert.strictEqual(advanced.response.status, 200, `${id} conflict advance commits`);
       assert.ok(advanced.body.receipts.at(-1).combatChecks.length === 1, `${id} server rolls combat`);
@@ -113,6 +113,17 @@ async function main() {
       assert.ok(turnLedger, `${id} committed turn has an event ledger entry`);
       assert.strictEqual(turnLedger.sourceRevision, advanced.body.revision, `${id} ledger keeps source revision`);
       assert.deepStrictEqual(turnLedger.turnIds, advanced.body.receipts.at(-1).turnIds, `${id} ledger points to committed turns`);
+      const memory = advanced.body.eventMemory.at(-1);
+      assert.ok(memory, `${id} committed turn extracts event memory`);
+      assert.strictEqual(memory.sourceRevision, advanced.body.revision, `${id} memory keeps source revision`);
+      assert.deepStrictEqual(memory.sourceTurnIds, turnLedger.turnIds, `${id} memory points to committed turns`);
+      assert.strictEqual(memory.locationId, advanced.body.state.locationId, `${id} memory keeps location scope`);
+      assert.deepStrictEqual(memory.time, advanced.body.state.time, `${id} memory binds committed time scope`);
+      const invalidMemory = await jsonRequest(base, `/api/world-saves/${save.id}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commandId: `${id}-invalid-memory-1`, expectedRevision: advanced.body.revision, state: advanced.body.state, turns: [{ role: 'assistant', content: '无效记忆。' }], options: [], eventMemory: [{ summary: '跨地点伪造的记忆。', locationId: 'not-a-registered-location' }] }),
+      });
+      assert.strictEqual(invalidMemory.response.status, 400, `${id} rejects memory outside the world location scope`);
 
       const candidate = world.playerCreation.growth.candidates[0];
       const candidateRecord = { id: `${id}-growth-1`, candidateId: candidate.id, sourceId: candidate.sourceId, reason: '回归测试产生候选', status: 'proposed' };
@@ -135,6 +146,7 @@ async function main() {
       assert.strictEqual(reloaded.response.status, 200);
       assert.strictEqual(reloaded.body.state.experiences.at(-1).id, accepted.body.state.experiences.at(-1).id, `${id} growth survives reload`);
       assert.strictEqual(reloaded.body.eventLedger.length, accepted.body.eventLedger.length, `${id} ledger survives reload`);
+      assert.strictEqual(reloaded.body.eventMemory.at(-1).id, accepted.body.eventMemory.at(-1).id, `${id} event memory survives reload`);
       created[id] = reloaded.body;
     }
 

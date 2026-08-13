@@ -156,6 +156,7 @@
   ],
   receipts: [], // commandId 幂等记录，按上限裁剪
   eventLedger: [], // 长期提交索引：每条记录带 sourceRevision，引用已提交事实而不复制第二份状态
+  eventMemory: [], // 服务端从已提交回合规范化的长期事件记忆；带来源、实体、地点和时间作用域
   generatedEntities: {}, // save:* ID 的临时 NPC、道具、任务或地点；只属于此存档
   migrationHistory: [],
 }

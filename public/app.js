@@ -278,6 +278,7 @@ function resetWorldTurnPending(pending) {
   pending.messages = pending.messages.filter(message => message && message.role !== 'assistant' && message.role !== 'image');
   pending.options = null;
   pending.createEntities = null;
+  pending.eventMemory = null;
   pending.state = cloneValue(pending.beforeState);
   if (currentWorldSave && pending.saveId === currentWorldSaveId) {
     currentWorldSave.state = cloneValue(pending.beforeState);
@@ -325,6 +326,7 @@ async function submitWorldTurn(pending) {
       turns: cloneValue(pending.messages),
       options: pending.options,
       createEntities: pending.createEntities || undefined,
+      eventMemory: pending.eventMemory || undefined,
       actionIntent: pending.actionIntent,
     }),
   });
@@ -1949,7 +1951,7 @@ function processAIOutput(reply) {
     pushMessage('user', `🎲 掷骰 ${r.expr} = ${r.total} ${detail}`, { meta: true });
   }
   const update = applyRpgUpdate(parsed.payload); // ```rpg``` 状态/物品/任务/位置/options 应用
-  return { content: parsed.content, options: update?.options || null, createEntities: update?.createEntities || null };
+  return { content: parsed.content, options: update?.options || null, createEntities: update?.createEntities || null, eventMemory: update?.eventMemory || null };
 }
 
 function applyRpgUpdate(payload) {
@@ -2134,9 +2136,10 @@ function applyRpgUpdate(payload) {
     ? upd.options.filter(o => typeof o === 'string' && o.trim()).slice(0, worldOptionRules().max)
     : null;
   const createEntities = Array.isArray(upd.createEntities) ? cloneValue(upd.createEntities) : null;
+  const eventMemory = worldModeActive() && Array.isArray(upd.eventMemory) ? cloneValue(upd.eventMemory) : null;
   commitRpgState(rs);
   renderRPG();
-  return { options, createEntities };
+  return { options, createEntities, eventMemory };
 }
 
 /* ─────────── 掷骰（D&D 风格：d20+5 / 2d6-1 自动掷骰） ─────────── */
@@ -3698,6 +3701,24 @@ function buildWorldEventPromptPart() {
     }).join('\n');
 }
 
+function buildWorldEventMemoryPromptPart() {
+  if (!worldModeActive()) return '';
+  const save = currentWorldSave;
+  const currentLocationId = save.state?.locationId || null;
+  const memories = (Array.isArray(save.eventMemory) ? save.eventMemory : [])
+    .filter(memory => memory && memory.visibility !== 'hidden'
+      && (memory.visibility !== 'local' || !memory.locationId || memory.locationId === currentLocationId))
+    .slice(-32);
+  if (!memories.length) return '';
+  return '【长期事件记忆】\n以下记忆只来自当前世界存档已提交的回合，带有来源 revision；不得跨世界或跨存档引用，也不得把记忆摘要当作未发生事实。\n'
+    + memories.map(memory => {
+      const entities = Array.isArray(memory.entityIds) && memory.entityIds.length ? `；实体：${memory.entityIds.join('、')}` : '';
+      const time = memory.time ? `；时间：${memory.time.value} ${memory.time.unit}` : '';
+      const location = memory.locationId ? `；地点：${memory.locationId}` : '';
+      return `- ${memory.summary}${entities}${location}${time}（来源 revision ${memory.sourceRevision}）`;
+    }).join('\n');
+}
+
 function buildWorldFactionPromptPart() {
   if (!worldModeActive()) return '';
   const world = currentWorldCard();
@@ -3825,6 +3846,8 @@ function buildRpgPromptPart() {
       if (factionPrompt) parts.push(factionPrompt);
       const eventPrompt = buildWorldEventPromptPart();
       if (eventPrompt) parts.push(eventPrompt);
+      const eventMemoryPrompt = buildWorldEventMemoryPromptPart();
+      if (eventMemoryPrompt) parts.push(eventMemoryPrompt);
       const conflictPrompt = buildWorldConflictPromptPart();
       if (conflictPrompt) parts.push(conflictPrompt);
       const growthPrompt = buildWorldGrowthPromptPart();
@@ -3832,6 +3855,7 @@ function buildRpgPromptPart() {
     }
   }
   parts.push((defaults?.rpg?.stateInstruction) || '每次回复末尾输出包含 options 的 ```rpg``` JSON 状态块。');
+  if (defaults?.rpg?.eventMemoryInstruction) parts.push(defaults.rpg.eventMemoryInstruction);
   return parts.join('\n\n');
 }
 
@@ -5086,6 +5110,7 @@ async function requestReply() {
       if (options.length < optionRules.min || options.length > optionRules.max) throw new Error(`RPG 回合需要 ${optionRules.min}-${optionRules.max} 个行动选项，当前候选未提交`);
       worldTurnPending.options = options;
       worldTurnPending.createEntities = processed.createEntities;
+      worldTurnPending.eventMemory = processed.eventMemory;
       worldTurnPending.state = serializeWorldState(currentWorldSave);
       await submitWorldTurn(worldTurnPending);
     }
@@ -5131,6 +5156,7 @@ async function sendMessage() {
         actionIntent: { raw: text },
         options: null,
         createEntities: null,
+        eventMemory: null,
       };
       renderMessages();
       const rolls = await rollWorldDice(text);
