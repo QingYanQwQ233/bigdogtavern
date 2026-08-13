@@ -962,6 +962,38 @@ function resolveCombatChecks(world, currentState, nextState, commandId, revision
   return { checks };
 }
 
+function resolveNonCombatChecks(world, currentState, nextState, commandId, revision) {
+  const currentConflicts = currentState?.conflicts && typeof currentState.conflicts === 'object' ? currentState.conflicts : {};
+  const nextConflicts = nextState?.conflicts && typeof nextState.conflicts === 'object' ? nextState.conflicts : {};
+  const definitions = new Map(worldConflictDefinitions(world).map(conflict => [conflict.id, conflict]));
+  const checks = [];
+  for (const [id, state] of Object.entries(nextConflicts)) {
+    const previous = currentConflicts[id];
+    if (!previous || previous.status !== 'active' || state?.status !== 'active' || Number(state.round || 1) <= Number(previous.round || 1)) continue;
+    const definition = definitions.get(state.templateId);
+    if (!['social', 'stealth'].includes(definition?.type)) continue;
+    const action = (Array.isArray(definition.actions) ? definition.actions : []).find(item => item.id === state.actionId);
+    const check = action?.check;
+    if (!check) continue;
+    const roll = rollDiceExpression(check.roll);
+    if (roll.error) return { error: `conflicts.${state.templateId}.actions.${state.actionId}.check.roll 无效` };
+    const modifier = combatModifierValue(currentState?.player, check.modifier);
+    const total = roll.total + modifier;
+    const target = Number(check.target);
+    const success = total >= target;
+    checks.push({
+      conflictId: id,
+      type: definition.type,
+      actionId: state.actionId,
+      round: Number(state.round || 1),
+      check: { ...roll, modifier, total, target, success },
+      commandId,
+      revision,
+    });
+  }
+  return { checks };
+}
+
 function validateWorldEvents(value, world = null) {
   if (value === undefined || value === null) return null;
   if (!Array.isArray(value) || value.length > 256) return 'events 最多 256 项';
@@ -3211,6 +3243,8 @@ async function handleWorldTurnPost(req, res, saveId) {
       if (payload.state.factionStates === undefined && factionStatePayload !== undefined) nextState.factionStates = factionStatePayload;
       const combatResult = resolveCombatChecks(world, current.state, nextState, payload.commandId, revision);
       if (combatResult.error) return send(res, 400, JSON.stringify({ error: combatResult.error }), 'application/json');
+      const nonCombatResult = resolveNonCombatChecks(world, current.state, nextState, payload.commandId, revision);
+      if (nonCombatResult.error) return send(res, 400, JSON.stringify({ error: nonCombatResult.error }), 'application/json');
       nextState.time = advanceWorldTime(current.state?.time, world);
       const deadlineIds = settleWorldDeadlines(nextState);
       const settledEvents = settleWorldEvents(world, current, nextState, payload.commandId, revision);
@@ -3240,6 +3274,7 @@ async function handleWorldTurnPost(req, res, saveId) {
           factionActionIds: settledFactionActions.eventIds,
           conflictTransitions,
           combatChecks: combatResult.checks,
+          conflictChecks: nonCombatResult.checks,
           deadlineIds,
           committedAt: Date.now(),
         }].slice(-200),

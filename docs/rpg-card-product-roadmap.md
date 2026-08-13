@@ -6,7 +6,7 @@
 >
 > 架构底座与历史实施记录仍见 [world-card-architecture.md](world-card-architecture.md) 和 [world-card-implementation-plan.md](world-card-implementation-plan.md)。本文是后续 RPG 产品功能的主路线图。
 
-> 当前执行：R5.3 通用状态值校验、R5.4 安全派生值、R5.5 经济规则与 R5.6 统一冲突生命周期切片已完成，下一步进入 R5.7 的最小战斗配置。相关 GitHub 检索未发现可直接兼容本项目的零依赖实现，因此不引入新依赖。
+> 当前执行：R5.3 通用状态值校验、R5.4 安全派生值、R5.5 经济规则、R5.6 统一冲突生命周期、R5.7 最小战斗与 R5.8 最小非战斗冲突均已完成，下一步进入 R5.9 成长来源与候选变化。相关 GitHub 检索未发现可直接兼容本项目的零依赖实现，因此不引入新依赖。
 
 ## 0. 结论
 
@@ -384,7 +384,7 @@ PlayerCommand
 | R5.5 | 定义物品、装备位、货币和可选负重规则 | R5.2 | 已支持世界卡声明物品目录、装备位、货币范围、背包格数 / 重量，并在创建 / 保存 / 回合提交时服务端复核 |
 | R5.6 | 定义统一 `ConflictState` 与开始 / 推进 / 退出生命周期 | R2 | 已支持世界卡冲突模板、存档级冲突实例和 start / advance / end CAS 校验；战斗、谈判等仍复用同一内核 |
 | R5.7 | 实现一套最小战斗配置 | R5.6 | 已支持声明式攻击 check、服务端 d20 + 属性修正对抗 target/防御、命中后伤害骰扣 HP，并将结果写入 receipt；撤退和失败沿用 R5.6 outcome 生命周期 |
-| R5.8 | 实现一套最小非战斗冲突配置 | R5.6 | 谈判或潜行不被伪装成 HP 战斗 |
+| R5.8 | 实现一套最小非战斗冲突配置 | R5.6 | 已支持 social / stealth 的技能判定与 `conflictChecks` receipt；不读取或扣除 HP，仍沿用同一冲突生命周期 |
 | R5.9 | 定义成长来源和候选变化 | R5.2 | 训练、学习、探索、关系和事件均可成为来源 |
 | R5.10 | 把成长写入能力变化、身份 / 声望和人物经历 | R5.9 | 不只显示等级数字变化 |
 | R5.11 | 动态渲染属性、资源、特质、装备和冲突面板 | R5.3 | 更换测试卡无需改前端代码 |
@@ -533,6 +533,10 @@ Implemented the minimal faction contract: static `WorldCard.factions`, save-owne
 ### R5.7 当前进度
 
 已完成最小战斗闭环：战斗行动可声明 `check`（攻击骰、属性 / 技能修正、目标值和伤害骰），AI 只提交行动与 `targetId`；正式回合由服务端用当前存档玩家数值掷攻击骰，命中后才掷伤害骰并写回目标参与者 HP。参与者的 `hp/maxHp/defense` 由服务端保护，结果写入当前回合 receipt 的 `combatChecks`，撤退与失败仍沿用冲突 outcome。
+
+### R5.8 当前进度
+
+已完成最小非战斗闭环：默认世界卡提供谈判与潜行模板；social / stealth 行动可声明 `d20 + 技能修正 vs target`，服务端只把判定写入 `conflictChecks`，不读取或改变参与者 HP。最近判定会进入 RPG Prompt，AI 可据此决定继续推进或以 declared outcome 结束冲突。
 
 ### R4.10 当前进度
 

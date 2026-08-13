@@ -552,6 +552,48 @@
             { "id": "defeat", "label": "失败", "consequences": ["冲突结束，玩家承担当前场景的失败后果。"] },
             { "id": "fled", "label": "撤退", "consequences": ["玩家离开当前冲突。"] }
           ]
+        },
+        {
+          "id": "gate-negotiation",
+          "label": "关卡交涉",
+          "type": "social",
+          "description": "用谈判与观察推进交涉，不使用 HP 战斗数值。",
+          "maxRounds": 8,
+          "phases": [
+            { "id": "exchange", "label": "交涉" },
+            { "id": "resolve", "label": "定案" }
+          ],
+          "actions": [
+            { "id": "persuade", "label": "说服", "description": "用可靠的理由争取对方让步。", "check": { "roll": "1d20", "modifier": { "bucket": "skills", "id": "empathy", "factor": 1 }, "target": 12 } },
+            { "id": "probe", "label": "试探", "description": "先观察对方的顾虑，再选择下一步。" },
+            { "id": "withdraw", "label": "暂退", "description": "离开谈判现场，保留后续交涉机会。" }
+          ],
+          "outcomes": [
+            { "id": "agreed", "label": "达成协议", "consequences": ["对方接受了当前提案。"] },
+            { "id": "rejected", "label": "谈判失败", "consequences": ["对方拒绝提案，玩家需要改变策略。"] },
+            { "id": "fled", "label": "暂时离开", "consequences": ["玩家暂时离开交涉现场。"] }
+          ]
+        },
+        {
+          "id": "watcher-infiltration",
+          "label": "哨线潜行",
+          "type": "stealth",
+          "description": "以潜行技能对抗警戒难度，不扣除 HP。",
+          "maxRounds": 8,
+          "phases": [
+            { "id": "approach", "label": "接近" },
+            { "id": "resolve", "label": "穿越" }
+          ],
+          "actions": [
+            { "id": "sneak", "label": "潜行", "description": "利用阴影与地形穿过哨线。", "check": { "roll": "1d20", "modifier": { "bucket": "skills", "id": "scouting", "factor": 1 }, "target": 13 } },
+            { "id": "observe", "label": "观察", "description": "等待巡逻间隙，寻找更安全的路线。" },
+            { "id": "retreat", "label": "撤回", "description": "退回隐蔽处，结束本次潜入尝试。" }
+          ],
+          "outcomes": [
+            { "id": "passed", "label": "通过哨线", "consequences": ["玩家无声地穿过了哨线。"] },
+            { "id": "detected", "label": "被发现", "consequences": ["哨兵发现了玩家的踪迹。"] },
+            { "id": "fled", "label": "撤回", "consequences": ["玩家退回安全位置。"] }
+          ]
         }
       ],
       "time": { "unit": "hour", "start": 8, "turnAdvance": 1 },
