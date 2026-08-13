@@ -104,7 +104,7 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 
 `playerCreation.economy` 是可选的声明式经济规则：`inventory.enabled/maxSlots/maxWeight/items[]` 控制背包、物品重量与堆叠；`equipment.enabled/slots[]` 控制装备位；`currencies[]` 控制货币 ID、范围和初始值。启用后，存档状态使用 `state.inventory`、`state.equipment` 与 `state.currencies`，每次创建、普通保存和正式回合都会按当前世界卡重新校验；未声明该段的旧世界继续使用兼容的自由背包 / `stats.gold`。
 
-`playerCreation.growth` 是可选的成长声明：`sources[]` 记录训练、学习、探索、关系与事件等来源，`candidates[]` 只声明允许的目标 bucket、目标 ID 与 delta。运行态 `WorldSave.state.growthCandidates` 只保存当前存档的 `proposed` 候选及其 `reason`；正式回合会按世界卡白名单复核，候选不会自动改变属性、技能或资源，接受与应用留给后续成长切片。
+`playerCreation.growth` 是可选的成长声明：`sources[]` 记录训练、学习、探索、关系与事件等来源，`candidates[]` 只声明允许的目标 bucket、目标 ID 与 delta/value；bucket 可为属性、技能、资源、特质、NPC 关系、阵营声望或身份标签。运行态 `WorldSave.state.growthCandidates` 只保存当前存档的 `proposed` 候选及其 `reason`；玩家通过 `POST /api/world-saves/<saveId>/growth` 的 `accepted/rejected` 决策处理候选，服务端才会应用世界卡声明的变化。接受结果写入 `state.growthApplications` 与 `state.experiences`，人物经历带有 candidate/source、效果、地点和 revision，可回溯且不会跨存档共享。
 
 `conflicts[]` 是世界卡声明的冲突模板：`type`、`phases[]`、`actions[]`、`outcomes[]` 与可选 `maxRounds` 只定义规则；运行态只属于当前存档的 `state.conflicts`，按实例 ID 保存 `templateId/status/phase/round/participants/objectives/availableActions/outcome`。行动可声明 `check: { roll, modifier: { bucket, id, factor?, bonus? }, target, damage?: { roll, modifier? } }`；参与者可带 `hp/maxHp/defense`，实例用 `targetId` 指向目标。AI 只能通过 `start`、`advance`、`end` 候选推进，服务端在同一 CAS 回合边界校验模板引用、轮次、阶段和结束结果；combat 按当前存档玩家数值执行 `d20 + 修正 >= target/防御`，命中后才掷伤害骰并写回目标 HP；social / stealth 只执行 `d20 + 技能修正 >= target`，结果写入 receipt 的 `conflictChecks`，不读取或扣除 HP。AI 不能提交伪造的骰子、判定或战斗数值；已结束冲突不可重开，receipt 会记录冲突生命周期变化。
 
@@ -136,7 +136,7 @@ RPG 控制块的 `player.attributes` / `player.skills` / `player.resources` 使�
   party: { memberIds: [], leaderId: null },
   npcStates: { [npcId]: { locationId, relation, knowledge: [], status: [] } },
   state: {
-    stats, player: { fields, attributes, skills, resources, traits, relations, effects: [] }, time: { unit, value }, worldEvents: [], goals: [], leads: [], inventory: [], equipment: {}, currencies: {}, conflicts: {}, growthCandidates: [], quests: [], locationId,
+    stats, player: { fields, attributes, skills, resources, traits, relations, identity: {}, effects: [] }, time: { unit, value }, worldEvents: [], goals: [], leads: [], inventory: [], equipment: {}, currencies: {}, conflicts: {}, growthCandidates: [], growthApplications: [], experiences: [], quests: [], locationId,
     map: { strategy: 'perSave', data: null, imagePath: null, markers: [] }
   },
   opening: '世界卡 start.opening 的开局叙事',
@@ -297,6 +297,7 @@ RPG 控制块的 `player.attributes` / `player.skills` / `player.resources` 使�
 | `GET /api/world-saves/<saveId>` | 读取一个完整 WorldSave |
 | `PUT /api/world-saves/<saveId>` | 使用 `expectedRevision` 原子提交当前存档的 `state`、`turns` 与 `opening`；版本冲突返回 409 |
 | `POST /api/world-saves/<saveId>` | 提交一次 RPG 回合候选；校验 `commandId`、assistant 回合、卡片允许数量的唯一选项、玩家 `actionIntent.raw`、状态数值/背包/任务/目标/线索边界和 revision，成功后在原子提交中推进时间、结算 `events`、把行动意图附着到本回合并记录 receipt；相同 commandId 幂等返回 |
+| `POST /api/world-saves/<saveId>/growth` | 使用 `commandId + expectedRevision` 接受或拒绝一个当前存档的成长候选；接受时服务端应用能力 / 特质 / 关系 / 阵营声望 / 身份标签并追加人物经历，拒绝时只追加处理记录；相同 commandId 幂等返回 |
 | `GET /api/world-saves/<saveId>/upgrade?targetVersion=<n>` | 只读预演存档升级；返回地点/NPC/任务增删与硬错误，不修改 revision |
 | `POST /api/world-saves/<saveId>/upgrade` | 提交 `commandId`、`expectedRevision` 与 `targetVersion`；服务端在存档锁内重新预演，无硬错误时升级并写入迁移历史，相同命令幂等 |
 

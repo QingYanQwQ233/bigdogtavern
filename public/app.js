@@ -1453,6 +1453,8 @@ function worldRpgState() {
         currencies: state.currencies && typeof state.currencies === 'object' ? state.currencies : {},
         conflicts: state.conflicts && typeof state.conflicts === 'object' ? state.conflicts : {},
         growthCandidates: Array.isArray(state.growthCandidates) ? state.growthCandidates : [],
+        growthApplications: Array.isArray(state.growthApplications) ? state.growthApplications : [],
+        experiences: Array.isArray(state.experiences) ? state.experiences : [],
         quests: Array.isArray(state.quests) ? state.quests : [],
         goals: Array.isArray(state.goals) ? state.goals : [],
         leads: Array.isArray(state.leads) ? state.leads : [],
@@ -1558,6 +1560,8 @@ function commitRpgState(rs) {
     }
     if (currentWorldCard()?.conflicts || state.conflicts !== undefined) state.conflicts = cloneValue(rs.conflicts || {});
     if (currentWorldCard()?.playerCreation?.growth || state.growthCandidates !== undefined) state.growthCandidates = cloneValue(rs.growthCandidates || []);
+    if (currentWorldCard()?.playerCreation?.growth || state.growthApplications !== undefined) state.growthApplications = cloneValue(rs.growthApplications || []);
+    if (currentWorldCard()?.playerCreation?.growth || state.experiences !== undefined) state.experiences = cloneValue(rs.experiences || []);
     state.quests = cloneValue(rs.quests || []);
     state.goals = cloneValue(rs.goals || []);
     state.leads = cloneValue(rs.leads || []);
@@ -1581,6 +1585,41 @@ function curRpgState() {
   if (!s || s.kind !== 'rpg') return null;
   if (!s.rpgState) s.rpgState = defaultRpgState();
   return s.rpgState;
+}
+
+function growthEffectLabel(candidate) {
+  if (!candidate) return '';
+  const bucketLabels = { attributes: '属性', skills: '技能', resources: '资源', traits: '特质', relations: '关系', factions: '阵营声望', identity: '身份' };
+  const target = candidate.targetId || '';
+  if (candidate.bucket === 'identity') return `${bucketLabels.identity} · ${target}：${candidate.value || ''}`;
+  if (candidate.bucket === 'factions') return `${bucketLabels.factions} · ${target}（${candidate.metric || 'relation'}）${candidate.delta > 0 ? '+' : ''}${candidate.delta}`;
+  if (candidate.bucket === 'traits') return `${bucketLabels.traits} · ${target}`;
+  return `${bucketLabels[candidate.bucket] || candidate.bucket} · ${target} ${candidate.delta > 0 ? '+' : ''}${candidate.delta}`;
+}
+
+async function decideGrowthCandidate(candidateId, decision) {
+  if (!worldModeActive() || !candidateId || worldTurnPendingActive()) return;
+  const buttons = [...document.querySelectorAll('[data-growth-action]')].filter(item => item.dataset.growthId === candidateId);
+  buttons.forEach(item => { item.disabled = true; });
+  try {
+    const res = await fetch('/api/world-saves/' + encodeURIComponent(currentWorldSaveId) + '/growth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ commandId: uid(), expectedRevision: currentWorldSave.revision, candidateId, decision }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(worldApiError(data, '成长处理失败（HTTP ' + res.status + '）'));
+    hydrateWorldSave(data);
+    currentWorldSave = data;
+    renderRPG();
+    renderMessages();
+    renderWorldDetail();
+  } catch (err) {
+    console.error('[Tavern] 成长处理失败:', err.message);
+    buttons.forEach(item => { item.disabled = false; });
+    const status = $('world-open-status');
+    if (status) status.textContent = `成长处理失败：${err.message}`;
+  }
 }
 
 /* 渲染 RPG 面板：顶栏（等级/金币/位置）、状态条（HP/MP/EXP）、背包、任务、角色摘要 */
@@ -1751,6 +1790,25 @@ function renderRPG() {
     cs.innerHTML = c
       ? `<div class="rpg-item"><span class="rpg-item-name">${esc(c.name || '未命名冒险者')}</span><div class="rpg-item-sub">${esc([c.race, c.role].filter(Boolean).join(' · ') || '种族/身份待定')}</div></div>`
       : '<p class="hint">未选择角色</p>';
+  }
+  const growthEl = $('rpg-growth-candidates');
+  if (growthEl) {
+    const world = worldModeActive() ? currentWorldCard() : null;
+    const definitions = new Map((Array.isArray(world?.playerCreation?.growth?.candidates) ? world.playerCreation.growth.candidates : []).map(candidate => [candidate.id, candidate]));
+    const candidates = worldModeActive() && Array.isArray(currentWorldSave.state?.growthCandidates) ? currentWorldSave.state.growthCandidates : [];
+    growthEl.innerHTML = candidates.length
+      ? candidates.slice(-32).reverse().map(candidate => {
+        const definition = definitions.get(candidate.candidateId) || {};
+        return `<article class="rpg-item rpg-growth-item" data-growth-id="${esc(candidate.id)}"><div class="rpg-item-name">${esc(definition.label || candidate.candidateId)}</div><div class="rpg-growth-effect">${esc(growthEffectLabel(definition))}</div><div class="rpg-item-sub">${esc(candidate.reason || definition.description || '剧情成果待确认')}</div><div class="rpg-growth-actions"><button class="ghost-btn growth-accept" type="button" data-growth-action="accepted" data-growth-id="${esc(candidate.id)}" aria-label="接受成长：${esc(definition.label || candidate.candidateId)}">接受</button><button class="ghost-btn growth-reject" type="button" data-growth-action="rejected" data-growth-id="${esc(candidate.id)}" aria-label="拒绝成长：${esc(definition.label || candidate.candidateId)}">拒绝</button></div></article>`;
+      }).join('')
+      : '<p class="hint">暂无待确认成长</p>';
+  }
+  const experienceEl = $('rpg-experiences');
+  if (experienceEl) {
+    const experiences = worldModeActive() && Array.isArray(currentWorldSave.state?.experiences) ? currentWorldSave.state.experiences : [];
+    experienceEl.innerHTML = experiences.length
+      ? experiences.slice(-16).reverse().map(item => `<article class="rpg-item rpg-experience-item"><div class="rpg-item-name">${esc(item.title)} <small>${esc(item.sourceId || 'growth')}</small></div><div class="rpg-item-sub">${esc(item.summary)}</div></article>`).join('')
+      : '<p class="hint">暂无人物经历</p>';
   }
   renderMap(); // 世界地图（数据层 + 美化图显示）
 }
@@ -3595,10 +3653,12 @@ function buildWorldGrowthPromptPart() {
   const growth = currentWorldCard()?.playerCreation?.growth;
   if (!growth || typeof growth !== 'object') return '';
   const sources = (Array.isArray(growth.sources) ? growth.sources : []).map(source => `${source.id}:${source.label}`).join('、');
-  const candidates = (Array.isArray(growth.candidates) ? growth.candidates : []).map(candidate => `${candidate.id}:${candidate.label}（${candidate.sourceId} → ${candidate.bucket}.${candidate.targetId} ${candidate.delta > 0 ? '+' : ''}${candidate.delta}）`).join('、');
+  const candidates = (Array.isArray(growth.candidates) ? growth.candidates : []).map(candidate => `${candidate.id}:${candidate.label}（${candidate.sourceId} → ${growthEffectLabel(candidate)}）`).join('、');
   const proposed = Array.isArray(currentWorldSave?.state?.growthCandidates) ? currentWorldSave.state.growthCandidates : [];
   const proposedText = proposed.length ? proposed.map(candidate => `${candidate.candidateId}（${candidate.sourceId}，待确认）`).join('、') : '（暂无）';
-  return `【成长候选】\n成长来源属于当前世界卡，候选记录只属于当前存档；来源=${sources || '无'}。可提议候选=${candidates || '无'}。当前待确认=${proposedText}。当剧情确实产生训练、学习、探索、关系或事件成果时，才在 rpg JSON 输出 growth:[{candidateId,sourceId,reason}]；这只是待确认候选，不会立即改变属性/技能/资源，也不得伪造 delta。`;
+  const experiences = Array.isArray(currentWorldSave?.state?.experiences) ? currentWorldSave.state.experiences.slice(-8) : [];
+  const experienceText = experiences.length ? experiences.map(item => `${item.title}：${item.summary}`).join('；') : '（暂无）';
+  return `【成长候选与人物经历】\n成长来源属于当前世界卡，候选记录只属于当前存档；来源=${sources || '无'}。可提议候选=${candidates || '无'}。当前待确认=${proposedText}。已确认人物经历=${experienceText}。当剧情确实产生训练、学习、探索、关系或事件成果时，才在 rpg JSON 输出 growth:[{candidateId,sourceId,reason}]；这只是待确认候选，必须等待玩家确认后才会改变能力、特质、关系、阵营声望或身份；不得伪造 delta/value，也不得自行输出 accepted/rejected。`;
 }
 
 function buildRpgPromptPart() {
@@ -3650,7 +3710,7 @@ function buildRpgPromptPart() {
       const player = currentWorldSave.player?.snapshot;
       if (player) parts.unshift('【世界存档中的玩家快照】\n' + Object.entries(player).filter(([k, v]) => k !== 'profileFields' && v != null && String(v).trim()).map(([k, v]) => `${k}：${typeof v === 'object' ? JSON.stringify(v) : v}`).join('\n'));
       const dynamicPlayer = currentWorldSave.state?.player;
-      if (dynamicPlayer) parts.unshift('【当前玩家动态状态】\n' + ['attributes', 'skills', 'resources', 'traits', 'relations', 'effects'].filter(key => dynamicPlayer[key] !== undefined).map(key => `${key}：${JSON.stringify(dynamicPlayer[key])}`).join('\n'));
+      if (dynamicPlayer) parts.unshift('【当前玩家动态状态】\n' + ['attributes', 'skills', 'resources', 'traits', 'relations', 'identity', 'effects'].filter(key => dynamicPlayer[key] !== undefined).map(key => `${key}：${JSON.stringify(dynamicPlayer[key])}`).join('\n'));
       const derivedValues = evaluateWorldDerivedValues(world.playerCreation, dynamicPlayer);
       if (derivedValues.length) parts.unshift('【当前玩家只读派生值】\n' + derivedValues.map(item => `${item.id}: ${item.value === null ? 'N/A' : item.value}`).join('\n') + '\n这些值由属性/技能/资源实时计算，仅供阅读，禁止写回 ```rpg``` 状态块。');
       const optionRules = worldOptionRules();
@@ -5681,6 +5741,12 @@ function bindEvents() {
     const el = e.target;
     if (el.dataset && el.dataset.kind === 'quest-del') removeRpgQuest(parseInt(el.dataset.idx, 10));
     else if (el.dataset && el.dataset.kind === 'quest') toggleRpgQuest(parseInt(el.dataset.idx, 10));
+  });
+  const rpgGrowth = $('rpg-growth-candidates');
+  if (rpgGrowth) rpgGrowth.addEventListener('click', e => {
+    const el = e.target?.closest?.('[data-growth-action]');
+    if (!el) return;
+    decideGrowthCandidate(el.dataset.growthId, el.dataset.growthAction);
   });
   // 导航
   document.querySelectorAll('.nav-item[data-view]').forEach(b =>

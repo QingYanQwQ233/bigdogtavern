@@ -512,7 +512,9 @@
           "candidates": [
             { "id": "scouting-training", "label": "侦察训练", "sourceId": "training", "bucket": "skills", "targetId": "scouting", "delta": 1, "description": "完成一次系统的路径与危险识别训练。" },
             { "id": "empathy-relationship", "label": "共情深化", "sourceId": "relationship", "bucket": "skills", "targetId": "empathy", "delta": 1, "description": "在一次重要关系事件中真正理解对方。" },
-            { "id": "wits-exploration", "label": "见识增长", "sourceId": "exploration", "bucket": "attributes", "targetId": "wits", "delta": 1, "description": "从危险探索中获得可迁移的判断经验。" }
+            { "id": "wits-exploration", "label": "见识增长", "sourceId": "exploration", "bucket": "attributes", "targetId": "wits", "delta": 1, "description": "从危险探索中获得可迁移的判断经验。" },
+            { "id": "steady-hand-training", "label": "稳健之手", "sourceId": "training", "bucket": "traits", "targetId": "steady-hand", "description": "训练让角色在紧张场面中保持专注。" },
+            { "id": "ridge-title", "label": "山脊见证者", "sourceId": "exploration", "bucket": "identity", "targetId": "titles", "value": "山脊见证者", "description": "完成一次改变他人看法的山脊探索。" }
           ]
         },
         "traits": [

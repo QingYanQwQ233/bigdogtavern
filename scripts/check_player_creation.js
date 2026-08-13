@@ -215,11 +215,47 @@ async function main() {
     assert.strictEqual(second.body.state.factionStates['north-guild'].resources.funds, 30, 'faction resources are isolated per save');
     assert.strictEqual(first.body.player.snapshot.name, '澪', 'first save remains isolated');
 
+    const secondProposal = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(second.body.id)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'growth-propose-2', expectedRevision: second.body.revision, actionIntent: { raw: '探索山脊' }, state: { ...second.body.state, growthCandidates: [{ id: 'growth-test-identity', candidateId: 'ridge-title', sourceId: 'exploration', reason: '完成山脊探索', status: 'proposed' }, { id: 'growth-test-trait', candidateId: 'steady-hand-training', sourceId: 'training', reason: '训练后保持专注', status: 'proposed' }] }, turns: [{ role: 'assistant', content: '你在山脊发现了极光。' }], options: [] }),
+    });
+    assert.strictEqual(secondProposal.response.status, 200);
+    const growthReject = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(second.body.id)}/growth`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'growth-reject-2', expectedRevision: secondProposal.body.revision, candidateId: 'growth-test-trait', decision: 'rejected' }),
+    });
+    assert.strictEqual(growthReject.response.status, 200, 'player can reject a pending growth candidate');
+    assert.deepStrictEqual(growthReject.body.state.growthCandidates.map(item => item.candidateId), ['ridge-title']);
+    assert.strictEqual(growthReject.body.state.growthApplications.at(-1).decision, 'rejected');
+    assert.deepStrictEqual(growthReject.body.state.experiences, []);
+    const secondAccept = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(second.body.id)}/growth`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'growth-accept-2', expectedRevision: growthReject.body.revision, candidateId: 'growth-test-identity', decision: 'accepted' }),
+    });
+    assert.strictEqual(secondAccept.response.status, 200);
+    assert.deepStrictEqual(secondAccept.body.state.player.identity.titles, ['山脊见证者']);
+    assert.strictEqual(secondAccept.body.state.experiences.at(-1).effects.bucket, 'identity');
+
     const invalidDerivedPlayer = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ commandId: 'turn-check-derived', expectedRevision: eventTurn.body.revision, actionIntent: { raw: 'derived' }, state: { ...eventTurn.body.state, player: { ...eventTurn.body.state.player, derived: { readiness: 99 } } }, turns: [{ role: 'assistant', content: 'reject' }], options: [] }),
     });
     assert.strictEqual(invalidDerivedPlayer.response.status, 400, 'derived values are read-only and cannot be persisted');
+    const growthAccept = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}/growth`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'growth-accept-1', expectedRevision: eventTurn.body.revision, candidateId: 'growth-test-1', decision: 'accepted' }),
+    });
+    assert.strictEqual(growthAccept.response.status, 200, 'player can accept a pending growth candidate');
+    assert.strictEqual(growthAccept.body.state.player.skills.scouting, 6);
+    assert.deepStrictEqual(growthAccept.body.state.growthCandidates, []);
+    assert.strictEqual(growthAccept.body.state.growthApplications.at(-1).decision, 'accepted');
+    assert.strictEqual(growthAccept.body.state.experiences.at(-1).candidateId, 'scouting-training');
+    const growthReplay = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}/growth`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'growth-accept-1', expectedRevision: eventTurn.body.revision, candidateId: 'growth-test-1', decision: 'accepted' }),
+    });
+    assert.strictEqual(growthReplay.response.status, 200, 'growth command is idempotent');
+    assert.strictEqual(growthReplay.body.revision, growthAccept.body.revision);
 
     const invalidCases = [
       { ...validPlayer, fields: { ...validPlayer.fields, name: '' } },
