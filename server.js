@@ -17,6 +17,10 @@ const path = require('path');
 const crypto = require('crypto');
 
 const PORT = process.env.PORT || 3000;
+const proxyTimeoutValue = Number(process.env.TAVERN_PROXY_TIMEOUT_MS);
+const PROXY_TIMEOUT_MS = Number.isFinite(proxyTimeoutValue) && proxyTimeoutValue > 0
+  ? Math.min(proxyTimeoutValue, 10 * 60 * 1000)
+  : 120 * 1000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const DATA_DIR = process.env.TAVERN_DATA_DIR
   ? path.resolve(process.env.TAVERN_DATA_DIR)
@@ -1994,15 +1998,9 @@ async function serveStatic(req, res, pathname) {
  * body 由前端完全控制（model / messages / temperature / stream 等）。
  */
 async function handleChat(req, res) {
-  const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
-  const raw = Buffer.concat(chunks).toString('utf-8');
   let payload;
-  try {
-    payload = JSON.parse(raw);
-  } catch {
-    return send(res, 400, 'Bad JSON');
-  }
+  try { payload = await readJsonBody(req, 4 * 1024 * 1024); }
+  catch (err) { return send(res, err.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400, err.code === 'BAD_JSON' ? 'Bad JSON' : err.message); }
 
   const { baseUrl, apiKey, body } = payload || {};
   if (!baseUrl || !body) return send(res, 400, '缺少 baseUrl 或 body');
@@ -2014,11 +2012,14 @@ async function handleChat(req, res) {
     Object.assign(headers, payload.extraHeaders); // 例如 OpenRouter 的 X-Title
   }
 
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS);
   try {
     const upstream = await fetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
+      signal: controller.signal,
     });
     res.writeHead(upstream.status, {
       'Content-Type': upstream.headers.get('content-type') || 'application/json',
@@ -2033,7 +2034,11 @@ async function handleChat(req, res) {
     res.end();
   } catch (err) {
     console.error('[proxy] 请求失败:', err.message);
-    send(res, 502, JSON.stringify({ error: { message: '代理请求失败: ' + err.message } }), 'application/json');
+    if (res.headersSent) return res.destroy();
+    const timedOut = controller.signal.aborted;
+    send(res, timedOut ? 504 : 502, JSON.stringify({ error: { message: timedOut ? '模型代理请求超时' : '代理请求失败: ' + err.message } }), 'application/json');
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -2044,14 +2049,19 @@ async function handleModels(req, res) {
   if (!baseUrl) return send(res, 400, '缺少 X-Base-Url 头');
   const headers = {};
   if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS);
   try {
-    const upstream = await fetch(baseUrl.replace(/\/+$/, '') + '/models', { headers });
+    const upstream = await fetch(baseUrl.replace(/\/+$/, '') + '/models', { headers, signal: controller.signal });
     const text = await upstream.text();
     res.writeHead(upstream.status, { 'Content-Type': 'application/json' });
     res.end(text);
   } catch (err) {
     console.error('[proxy] 获取模型失败:', err.message);
-    send(res, 502, JSON.stringify({ error: { message: '获取模型失败: ' + err.message } }), 'application/json');
+    const timedOut = controller.signal.aborted;
+    send(res, timedOut ? 504 : 502, JSON.stringify({ error: { message: timedOut ? '模型列表请求超时' : '获取模型失败: ' + err.message } }), 'application/json');
+  } finally {
+    clearTimeout(timer);
   }
 }
 
