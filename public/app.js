@@ -1452,6 +1452,9 @@ function commitRpgState(rs) {
     state.quests = cloneValue(rs.quests || []);
     state.goals = cloneValue(rs.goals || []);
     state.leads = cloneValue(rs.leads || []);
+    if (state.player?.resources && typeof state.player.resources === 'object') {
+      for (const key of ['hp', 'mp', 'gold']) if (Number.isFinite(state.player.resources[key])) state.player.resources[key] = rs[key];
+    }
     if (worldTurnPendingActive()) {
       worldTurnPending.state = serializeWorldState(currentWorldSave);
       return;
@@ -1621,6 +1624,25 @@ function applyRpgUpdate(payload) {
         if (qd.desc) exist.desc = qd.desc;
       } else {
         rs.quests.push({ id: uid(), title: qd.title, desc: qd.desc || '', status: qd.status || 'active' });
+      }
+    }
+  }
+  if (worldModeActive() && upd.player && typeof upd.player === 'object') {
+    const playerState = currentWorldSave.state?.player;
+    const schema = currentWorldCard()?.playerCreation;
+    for (const bucket of ['attributes', 'resources']) {
+      const definitions = new Map((Array.isArray(schema?.[bucket]) ? schema[bucket] : []).map(definition => [definition.id, definition]));
+      const changes = upd.player[bucket];
+      if (!playerState || !changes || typeof changes !== 'object' || Array.isArray(changes)) continue;
+      if (!playerState[bucket] || typeof playerState[bucket] !== 'object') playerState[bucket] = {};
+      for (const [id, delta] of Object.entries(changes)) {
+        const definition = definitions.get(id);
+        if (!definition || typeof delta !== 'number' || !Number.isFinite(delta)) continue;
+        const current = Number(playerState[bucket][id] ?? definition.default ?? definition.initial ?? definition.min ?? 0);
+        const min = Number(definition.min ?? 0);
+        const max = Number(definition.max ?? (bucket === 'resources' ? 1000000 : 100));
+        playerState[bucket][id] = Math.max(min, Math.min(max, current + delta));
+        if (bucket === 'resources' && ['hp', 'mp', 'gold'].includes(id)) rs[id] = playerState[bucket][id];
       }
     }
   }
@@ -3239,6 +3261,8 @@ function buildRpgPromptPart() {
       ].filter(Boolean).join('\n'));
       const player = currentWorldSave.player?.snapshot;
       if (player) parts.unshift('【世界存档中的玩家快照】\n' + Object.entries(player).filter(([k, v]) => k !== 'profileFields' && v != null && String(v).trim()).map(([k, v]) => `${k}：${typeof v === 'object' ? JSON.stringify(v) : v}`).join('\n'));
+      const dynamicPlayer = currentWorldSave.state?.player;
+      if (dynamicPlayer) parts.unshift('【当前玩家动态状态】\n' + ['attributes', 'resources', 'traits', 'relations', 'effects'].filter(key => dynamicPlayer[key] !== undefined).map(key => `${key}：${JSON.stringify(dynamicPlayer[key])}`).join('\n'));
       const optionRules = worldOptionRules();
       parts.push(`【回合契约】行动选项数量 ${optionRules.min}-${optionRules.max}；自由文本输入始终可用。AI 不得替玩家补写未表达的核心意图、台词或不可逆行动。`);
       const npcPrompt = buildWorldNpcPromptPart();

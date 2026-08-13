@@ -398,6 +398,33 @@ function playerCreationSchema(world) {
   return schema && typeof schema === 'object' && !Array.isArray(schema) ? schema : null;
 }
 
+function validateDynamicPlayerState(world, value, current = null, immutable = false) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'state.player 必须是对象';
+  const schema = playerCreationSchema(world);
+  if (!schema) return null;
+  const definitions = { attributes: schema.attributes || [], resources: schema.resources || [] };
+  for (const bucket of ['attributes', 'resources']) {
+    const map = value[bucket];
+    if (map === undefined) continue;
+    if (!map || typeof map !== 'object' || Array.isArray(map)) return `state.player.${bucket} 必须是对象`;
+    if (current?.[bucket] && typeof current[bucket] === 'object') {
+      for (const id of Object.keys(current[bucket])) if (map[id] === undefined) return `state.player.${bucket}.${id} 不能省略`;
+    }
+    const defs = new Map(definitions[bucket].map(definition => [definition.id, definition]));
+    for (const [id, number] of Object.entries(map)) {
+      const definition = defs.get(id);
+      if (!definition || !validBoundedNumber(number, definition.min ?? 0, definition.max ?? (bucket === 'resources' ? 1000000 : 100))) return `state.player.${bucket}.${id} 超出世界卡范围`;
+    }
+  }
+  if (immutable && current) {
+    for (const key of ['fields', 'traits', 'relations']) {
+      if (canonicalJson(value[key] ?? null) !== canonicalJson(current[key] ?? null)) return `state.player.${key} 只能由存档创建时确定`;
+    }
+  }
+  return null;
+}
+
 function validateTurnContract(value) {
   if (value === undefined || value === null) return null;
   if (!value || typeof value !== 'object' || Array.isArray(value)) return 'turnContract 必须是对象';
@@ -2286,6 +2313,9 @@ async function handleWorldSavePut(req, res, saveId) {
         const invalidObjectives = validateWorldObjectiveList(payload.state[key], label, world);
         if (invalidObjectives) return send(res, 400, JSON.stringify({ error: invalidObjectives }), 'application/json');
       }
+      if (current.state?.player && payload.state.player === undefined) return send(res, 400, JSON.stringify({ error: 'state.player 不能省略' }), 'application/json');
+      const dynamicPlayerInvalid = validateDynamicPlayerState(world, payload.state.player, current.state?.player);
+      if (dynamicPlayerInvalid) return send(res, 400, JSON.stringify({ error: dynamicPlayerInvalid }), 'application/json');
       if (current.revision !== payload.expectedRevision) {
         return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
       }
@@ -2357,6 +2387,9 @@ async function handleWorldTurnPost(req, res, saveId) {
         const invalidObjectives = validateWorldObjectiveList(payload.state[key], label, world);
         if (invalidObjectives) return send(res, 400, JSON.stringify({ error: invalidObjectives }), 'application/json');
       }
+      if (current.state?.player && payload.state.player === undefined) return send(res, 400, JSON.stringify({ error: 'state.player 不能省略' }), 'application/json');
+      const dynamicPlayerInvalid = validateDynamicPlayerState(world, payload.state.player, current.state?.player, true);
+      if (dynamicPlayerInvalid) return send(res, 400, JSON.stringify({ error: dynamicPlayerInvalid }), 'application/json');
       const worldEventsInvalid = validateWorldEventLog(payload.state.worldEvents);
       if (worldEventsInvalid) return send(res, 400, JSON.stringify({ error: worldEventsInvalid }), 'application/json');
       let allowedNpcIds = new Set(Object.keys(current.npcStates || {}));
