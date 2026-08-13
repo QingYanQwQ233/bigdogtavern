@@ -234,6 +234,39 @@ function worldTimelineMessages() {
   if (worldTurnPending && worldTurnPending.saveId === currentWorldSaveId) result.push(...worldTurnPending.messages);
   return result;
 }
+function worldShortTermWindowSize() {
+  const configured = Number(settings?.history);
+  return Number.isFinite(configured) && configured > 0 ? Math.min(100, Math.floor(configured)) : 20;
+}
+function buildWorldRecentContext() {
+  if (!worldModeActive()) return { messages: [], revision: null, locationId: null, time: null, sceneStartRevision: null, sourceLedgerIds: [] };
+  const save = currentWorldSave;
+  const timeline = worldTimelineMessages().filter(message => message && (message.role === 'user' || message.role === 'assistant') && typeof message.content === 'string');
+  const ledger = Array.isArray(save.eventLedger) ? save.eventLedger.filter(entry => entry && Number.isInteger(entry.sourceRevision)) : [];
+  const currentLocationId = save.state?.locationId ?? null;
+  let sceneStartRevision = null;
+  for (let i = ledger.length - 1; i > 0; i--) {
+    const current = ledger[i];
+    const previous = ledger[i - 1];
+    if (current.locationId && previous.locationId && current.locationId !== previous.locationId && current.locationId === currentLocationId) {
+      sceneStartRevision = current.sourceRevision;
+      break;
+    }
+  }
+  const candidates = sceneStartRevision === null
+    ? timeline
+    : timeline.filter(message => message._opening !== true && (message.revision === undefined || message.revision >= sceneStartRevision));
+  const selected = (candidates.length ? candidates : timeline).slice(-worldShortTermWindowSize());
+  const firstRevision = selected.find(message => Number.isInteger(message.revision))?.revision;
+  return {
+    messages: selected.map(message => ({ role: message.role, content: message.content })),
+    revision: Number.isInteger(save.revision) ? save.revision : null,
+    locationId: currentLocationId,
+    time: save.state?.time ? cloneValue(save.state.time) : null,
+    sceneStartRevision,
+    sourceLedgerIds: ledger.filter(entry => firstRevision === undefined || entry.sourceRevision >= firstRevision).map(entry => entry.id).filter(Boolean),
+  };
+}
 function worldTurnPendingActive() {
   return worldModeActive() && !!worldTurnPending && worldTurnPending.saveId === currentWorldSaveId;
 }
@@ -3895,15 +3928,16 @@ function buildPromptBlocks() {
     }
   }
 
+  const recentContext = worldModeActive() ? buildWorldRecentContext() : null;
   let history = includeHistory
-    ? curMessages().slice(-Math.max(1, settings.history || 20)).filter(m => m.role === 'user' || m.role === 'assistant').map(m => ({ role: m.role, content: m.content }))
+    ? (recentContext ? recentContext.messages : curMessages().slice(-Math.max(1, settings.history || 20)).filter(m => m.role === 'user' || m.role === 'assistant').map(m => ({ role: m.role, content: m.content })))
     : [];
   if (mode === 'rpg' && defaults?.rpg?.exampleTurn) {
     const ex = defaults.rpg.exampleTurn;
     if (ex.user && ex.assistant) history.unshift({ role: 'user', content: ex.user }, { role: 'assistant', content: ex.assistant });
   }
   history = mergeHistoryInjections(history, injections);
-  return { system: systemParts.join('\n\n'), wi, history: [...beforeHistory, ...history, ...afterHistory], post: '', worldInfoInSystem: true };
+  return { system: systemParts.join('\n\n'), wi, history: [...beforeHistory, ...history, ...afterHistory], post: '', worldInfoInSystem: true, recentContext };
 }
 
 /* ─────────── API ─────────── */

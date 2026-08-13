@@ -83,6 +83,34 @@ vm.runInContext(`
       }];
       return buildRpgPromptPart();
     })(),
+    recentContext: (() => {
+      const previousWorldId = currentWorldId;
+      const previousWorldSaveId = currentWorldSaveId;
+      const previousWorldSave = currentWorldSave;
+      currentWorldId = 'world-context';
+      currentWorldSaveId = 'save-context';
+      worldTurnPending = null;
+      currentWorldSave = {
+        id: 'save-context', worldId: 'world-context', revision: 3,
+        state: { locationId: 'new-scene', time: { unit: 'hour', value: 4 } },
+        opening: '旧开场',
+        turns: [
+          { id: 'old-user', role: 'user', content: '旧场景玩家', revision: 1 },
+          { id: 'old-assistant', role: 'assistant', content: '旧场景叙事', revision: 1 },
+          { id: 'new-user', role: 'user', content: '新场景玩家', revision: 3 },
+          { id: 'new-assistant', role: 'assistant', content: '新场景叙事', revision: 3 },
+        ],
+        eventLedger: [
+          { id: 'ledger-old', sourceRevision: 1, locationId: 'old-scene' },
+          { id: 'ledger-new', sourceRevision: 3, locationId: 'new-scene' },
+        ],
+      };
+      const result = buildWorldRecentContext();
+      currentWorldId = previousWorldId;
+      currentWorldSaveId = previousWorldSaveId;
+      currentWorldSave = previousWorldSave;
+      return result;
+    })(),
     hiddenSecretPrompt: (() => {
       currentWorldSave.npcStates['npc-local'].knowledge = ['见过玩家'];
       return buildRpgPromptPart();
@@ -144,6 +172,12 @@ assert.match(context.check.worldPrompt, /npc-quest/);
 assert.match(context.check.worldPrompt, /Generated Local/);
 assert.doesNotMatch(context.check.worldPrompt, /Generated Remote/);
 assert.doesNotMatch(context.check.worldPrompt, /npc-remote/);
+assert.deepStrictEqual(JSON.parse(JSON.stringify(context.check.recentContext.messages)), [
+  { role: 'user', content: '新场景玩家' },
+  { role: 'assistant', content: '新场景叙事' },
+]);
+assert.strictEqual(context.check.recentContext.sceneStartRevision, 3);
+assert.deepStrictEqual(JSON.parse(JSON.stringify(context.check.recentContext.sourceLedgerIds)), ['ledger-new']);
 assert.doesNotMatch(context.check.hiddenSecretPrompt, /隐藏宝库位于北墙之后/);
 assert.match(context.check.unlockedSecretPrompt, /隐藏宝库位于北墙之后/);
 assert.match(context.check.worldLoreTrace.a, /WORLD_A_LORE/);

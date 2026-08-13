@@ -120,6 +120,8 @@ WorldNPC 的静态资料按公开边界读取：`role`、`description`、`person
 
 `eventLedger[]` 是服务端维护的长期提交索引（当前最多 4096 条），不接受客户端直接改写。每条记录带稳定 `id`、`kind`、`commandId`、`sourceRevision` 和时间 / 地点作用域，并引用已提交的回合、世界事件或成长应用；它与按上限裁剪的 `receipts[]` 分离，后续长期记忆应引用账本记录而不是复制一份状态摘要。
 
+RPG Prompt 的短期窗口由前端 `buildWorldRecentContext()` 在请求前从当前 `WorldSave.turns`、待提交消息和 `eventLedger` 重建：默认使用设置中的最近 N 条消息；若账本记录出当前位置切换，则优先保留当前位置之后的消息。该窗口只作为本次请求的 history 投影，不写入存档，也不替代 `turns`、`state` 或账本事实。
+
 正式回合 receipt 采用 `{ kind: 'turn', commandId, revision, turnIds, eventIds, committedAt }`，开场等其他 receipt 不计入成功回合数。
 
 `state.goals` 与 `state.leads` 是存档级目标 / 线索投影，使用稳定 `id`、`title`、`desc`、`status`，可选引用当前世界的 `actorId` / `locationId` 与 `deadline`；它们与旧 `quests` 并存，AI 只能通过本回合结构化控制块增量 upsert，服务端会校验 ID、状态和地点引用。

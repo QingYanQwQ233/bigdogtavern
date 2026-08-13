@@ -6,7 +6,7 @@
 >
 > 架构底座与历史实施记录仍见 [world-card-architecture.md](world-card-architecture.md) 和 [world-card-implementation-plan.md](world-card-implementation-plan.md)。本文是后续 RPG 产品功能的主路线图。
 
-> 当前执行：R5.3 通用状态值校验、R5.4 安全派生值、R5.5 经济规则、R5.6 统一冲突生命周期、R5.7 最小战斗、R5.8 最小非战斗冲突、R5.9 成长候选、R5.10 成长应用、R5.11 动态 RPG 面板、R5.12 题材卡和回归与 R6.1 正式事件账本均已完成，下一步进入 R6.2 短期上下文窗口。相关 GitHub 检索未发现可直接兼容本项目的零依赖实现，因此不引入新依赖。
+> 当前执行：R5.3 通用状态值校验、R5.4 安全派生值、R5.5 经济规则、R5.6 统一冲突生命周期、R5.7 最小战斗、R5.8 最小非战斗冲突、R5.9 成长候选、R5.10 成长应用、R5.11 动态 RPG 面板、R5.12 题材卡和回归、R6.1 正式事件账本与 R6.2 短期上下文窗口均已完成，下一步进入 R6.3 长期事件记忆提取。相关 GitHub 检索未发现可直接兼容本项目的零依赖实现，因此不引入新依赖。
 
 ## 0. 结论
 
@@ -397,7 +397,7 @@ PlayerCommand
 | ID | 小任务 | 依赖 | 验收 |
 |---|---|---|---|
 | R6.1 | 定义正式事件账本和来源 revision | R4 | 已在 WorldSave 顶层加入服务端维护的 `eventLedger`；opening / turn / growth / world-version-upgrade / migration 都记录稳定 ID、commandId 与 sourceRevision，并与短期 receipts 分离 |
-| R6.2 | 从当前场景构建短期上下文窗口 | R6.1 | 不复制为第二份事实；窗口可重建 |
+| R6.2 | 从当前场景构建短期上下文窗口 | R6.1 | 已由 `buildWorldRecentContext()` 按存档 turns、待提交消息与账本位置变化即时重建；只投影到本次 Prompt history，不写入第二份事实 |
 | R6.3 | 提取并校验长期事件记忆 | R6.1 | 只来自已提交事实，带实体 / 地点 / 时间作用域 |
 | R6.4 | 区分世界卡稳定设定与存档中已改变事实 | R6.1 | 新旧事实不互相覆盖且能解释当前状态 |
 | R6.5 | 按场景、NPC、目标和预算组装上下文 | R6.3 | 不注入全世界历史；关键承诺仍能召回 |
@@ -557,6 +557,10 @@ Implemented the minimal faction contract: static `WorldCard.factions`, save-owne
 ### R6.1 当前进度
 
 已加入 WorldSave 顶层 `eventLedger`（当前最多 4096 条）。开场、正式回合、成长处理、世界版本升级和旧 RPG 迁移都会在服务端追加稳定账本记录；每条记录带 `commandId`、`sourceRevision`、时间 / 地点作用域，并引用已提交的回合、世界事件或成长应用。账本独立于最多 200 条的 `receipts`，为后续短期窗口和长期记忆提供可回溯来源。
+
+### R6.2 当前进度
+
+已完成可重建的短期上下文窗口：RPG Prompt 发送前从当前存档的 `turns`、待提交消息和 `eventLedger` 推导最近 N 条 history；检测到账本记录的位置切换时，优先保留新地点场景消息。窗口只存在于请求构建结果，不写回 `WorldSave`，因此刷新或删除派生结果不会改变正式事实。
 
 ### R4.10 当前进度
 
