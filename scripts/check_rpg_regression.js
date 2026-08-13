@@ -188,6 +188,12 @@ async function main() {
       assert.ok(rebuilt.body.save.eventMemory.some(item => item.visibility === 'hidden'), `${id} rebuild preserves hidden visibility`);
       assert.ok(!JSON.stringify(rebuilt.body.diagnostics.rebuild.entries).includes('secret'), `${id} rebuild response redacts hidden memory`);
       assert.strictEqual(rebuilt.body.save.memoryRebuild.sourceRevision, reloaded.body.revision, `${id} rebuild records source revision`);
+      const preEndingSummary = await jsonRequest(base, `/api/world-saves/${save.id}/summary/rebuild`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commandId: `${id}-summary-pre`, expectedRevision: rebuilt.body.save.revision }),
+      });
+      assert.strictEqual(preEndingSummary.response.status, 200, `${id} builds pre-ending summary`);
+      assert.strictEqual(preEndingSummary.body.stale, false, `${id} pre-ending summary is current`);
       const rebuildAgain = await jsonRequest(base, `/api/world-saves/${save.id}/memory/rebuild`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ commandId: rebuildCommand, expectedRevision: reloaded.body.revision }),
@@ -207,6 +213,28 @@ async function main() {
       assert.strictEqual(ended.response.status, 200, `${id} commits player ending`);
       assert.strictEqual(ended.body.state.ending.status, 'ended', `${id} marks save ended`);
       assert.strictEqual(ended.body.receipts.at(-1).kind, 'ending', `${id} records ending receipt`);
+      const staleSummaryRead = await jsonRequest(base, `/api/world-saves/${save.id}/summary`);
+      assert.strictEqual(staleSummaryRead.response.status, 200, `${id} reads stale summary after ending`);
+      assert.strictEqual(staleSummaryRead.body.stale, true, `${id} marks summary stale after new formal fact`);
+      const summaryCommand = `${id}-summary-1`;
+      const summaryRebuild = await jsonRequest(base, `/api/world-saves/${save.id}/summary/rebuild`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commandId: summaryCommand, expectedRevision: ended.body.revision }),
+      });
+      assert.strictEqual(summaryRebuild.response.status, 200, `${id} builds world-line summary`);
+      assert.strictEqual(summaryRebuild.body.stale, false, `${id} summary is current`);
+      assert.strictEqual(summaryRebuild.body.summary.sourceRevision, ended.body.revision, `${id} summary binds source revision`);
+      assert.ok(Array.isArray(summaryRebuild.body.summary.worldChanges), `${id} summary includes world changes`);
+      assert.ok(Array.isArray(summaryRebuild.body.summary.experiences), `${id} summary includes experiences`);
+      const summaryRetry = await jsonRequest(base, `/api/world-saves/${save.id}/summary/rebuild`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commandId: summaryCommand, expectedRevision: ended.body.revision }),
+      });
+      assert.strictEqual(summaryRetry.response.status, 200, `${id} summary command is idempotent`);
+      assert.strictEqual(summaryRetry.body.idempotent, true, `${id} summary retry is idempotent`);
+      const summaryRead = await jsonRequest(base, `/api/world-saves/${save.id}/summary`);
+      assert.strictEqual(summaryRead.response.status, 200, `${id} reads world-line summary`);
+      assert.strictEqual(summaryRead.body.stale, false, `${id} read summary is current`);
       const endingRetry = await jsonRequest(base, `/api/world-saves/${save.id}/end`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ commandId: `${id}-ending-1`, expectedRevision: rebuilt.body.save.revision, endingId: 'player-choice', confirm: true }),

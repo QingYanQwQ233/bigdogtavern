@@ -101,6 +101,7 @@ let worldLoadToken = 0;
 let worldSaveWriteChain = Promise.resolve();
 let worldSavePending = null;
 let worldTurnPending = null;
+let worldSummaryPending = false;
 let worldTurnError = null;
 let worldTurnPreparing = false;
 let worldTurnEpoch = 0;
@@ -207,6 +208,7 @@ function hydrateWorldSave(data) {
   if (!data.state || typeof data.state !== 'object') data.state = {};
   if (!Array.isArray(data.turns)) data.turns = [];
   if (data.state.ending === undefined) data.state.ending = null;
+  if (data.worldLineSummary === undefined) data.worldLineSummary = null;
   if (data.state.goals === undefined && Array.isArray(data.state.quests) && data.state.quests.length) {
     data.state.goals = data.state.quests.map((quest, index) => ({
       id: /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(String(quest?.id || '')) ? `legacy-${quest.id}`.slice(0, 64) : `legacy-goal-${index + 1}`,
@@ -1763,6 +1765,36 @@ async function endCurrentWorld() {
   }
 }
 
+async function rebuildWorldLineSummary() {
+  if (!worldModeActive() || !currentWorldSave || worldSummaryPending) return;
+  const button = $('rpg-summary-rebuild');
+  const oldLabel = button?.textContent || '生成 / 更新总结';
+  worldSummaryPending = true;
+  if (button) { button.disabled = true; button.textContent = '生成中…'; }
+  try {
+    const saveId = currentWorldSave.id;
+    const res = await fetch('/api/world-saves/' + encodeURIComponent(saveId) + '/summary/rebuild', {
+      method: 'POST', headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ commandId: 'world-summary-' + uid(), expectedRevision: currentWorldSave.revision }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.save?.id) throw new Error(worldApiError(data, '世界线总结生成失败（HTTP ' + res.status + '）'));
+    if (currentWorldSaveId === saveId) {
+      hydrateWorldSave(data.save);
+      currentWorldSave = data.save;
+      renderRPG();
+      renderMessages();
+      renderWorldDetail();
+    }
+  } catch (err) {
+    showWorldError(err.message);
+  } finally {
+    worldSummaryPending = false;
+    if (button) { button.disabled = false; button.textContent = oldLabel; }
+    renderRPG();
+  }
+}
+
 /* 渲染 RPG 面板：顶栏（等级/金币/位置）、状态条（HP/MP/EXP）、背包、任务、角色摘要 */
 function renderRPG() {
   const rs = curRpgState();
@@ -1886,6 +1918,19 @@ function renderRPG() {
       : endingAllowed ? '<p class="hint">当前世界线仍在进行。</p>' : '<p class="hint">当前世界卡不允许玩家主动结束。</p>';
     endingSelect.disabled = !!ending || !endingAllowed;
     endingButton.disabled = !!ending || !endingAllowed || worldTurnPendingActive();
+  }
+  const summaryEl = $('rpg-world-summary');
+  const summaryButton = $('rpg-summary-rebuild');
+  if (summaryEl && summaryButton) {
+    const summary = worldModeActive() ? currentWorldSave?.worldLineSummary : null;
+    const stale = !!summary && Number(summary.sourceRevision) !== Number(currentWorldSave?.revision);
+    summaryEl.innerHTML = !worldModeActive()
+      ? '<p class="hint">仅世界存档提供世界线总结。</p>'
+      : !summary
+        ? '<p class="hint">尚未生成；总结只读取已提交的经历、关系与世界变化。</p>'
+        : `<article class="rpg-item"><div class="rpg-item-name">${stale ? '需要更新' : '已生成'} <small>revision ${esc(summary.sourceRevision ?? '')}</small></div><div class="rpg-item-sub">人物经历 ${esc(summary.experiences?.length || 0)} · 关系 ${esc(summary.relationships?.length || 0)} · 世界变化 ${esc(summary.worldChanges?.length || 0)}</div><div class="rpg-item-sub">${esc(summary.status === 'ended' ? '世界线已结束' : '世界线进行中')} · ${esc(summary.location?.name || summary.location?.id || '位置未记录')}</div></article>`;
+    summaryButton.disabled = !worldModeActive() || worldSummaryPending;
+    summaryButton.textContent = stale ? '更新总结' : '生成 / 更新总结';
   }
   const q = $('rpg-quests');
   if (q) {
@@ -6301,6 +6346,7 @@ function bindEvents() {
   document.querySelectorAll('.js-settings').forEach(b => b.addEventListener('click', openSettings));
   $('btn-debug').addEventListener('click', () => $('debug-panel').open ? closeDebugTerminal() : openDebugTerminal());
   $('rpg-end-world').addEventListener('click', endCurrentWorld);
+  $('rpg-summary-rebuild').addEventListener('click', rebuildWorldLineSummary);
   $('debug-close').addEventListener('click', closeDebugTerminal);
   $('debug-clear').addEventListener('click', clearDebugTerminal);
   $('debug-copy').addEventListener('click', copyDebugTerminal);

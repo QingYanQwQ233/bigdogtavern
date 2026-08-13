@@ -85,6 +85,8 @@ const SAFE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 const COMMAND_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{7,95}$/;
 const EVENT_LEDGER_MAX = 4096;
 const EVENT_MEMORY_MAX = 512;
+const WORLD_SUMMARY_EVENT_MAX = 128;
+const WORLD_SUMMARY_RELATION_MAX = 128;
 const worldSaveLocks = new Map();
 let worldWriteChain = Promise.resolve();
 
@@ -1711,6 +1713,166 @@ async function handleWorldMemoryRebuild(req, res, saveId) {
   });
 }
 
+function worldLineSummarySource(save) {
+  const state = save?.state && typeof save.state === 'object' ? save.state : {};
+  return {
+    saveId: save?.id || null,
+    worldId: save?.worldId || null,
+    worldVersion: save?.worldVersion ?? null,
+    revision: Number.isInteger(save?.revision) ? save.revision : 0,
+    eventLedger: Array.isArray(save?.eventLedger) ? save.eventLedger : [],
+    worldEvents: Array.isArray(state.worldEvents) ? state.worldEvents : [],
+    growthApplications: Array.isArray(state.growthApplications) ? state.growthApplications : [],
+    experiences: Array.isArray(state.experiences) ? state.experiences : [],
+    playerRelations: state.player?.relations && typeof state.player.relations === 'object' && !Array.isArray(state.player.relations) ? state.player.relations : {},
+    npcStates: save?.npcStates && typeof save.npcStates === 'object' && !Array.isArray(save.npcStates) ? save.npcStates : {},
+    factionStates: state.factionStates && typeof state.factionStates === 'object' && !Array.isArray(state.factionStates) ? state.factionStates : {},
+    goals: Array.isArray(state.goals) ? state.goals : [],
+    leads: Array.isArray(state.leads) ? state.leads : [],
+    failure: state.failure || null,
+    ending: state.ending || null,
+    locationId: state.locationId ?? null,
+    time: state.time || null,
+  };
+}
+
+function worldLineSummarySourceHash(save) {
+  return sha256Json(worldLineSummarySource(save));
+}
+
+function buildWorldLineSummary(save, world) {
+  const state = save?.state && typeof save.state === 'object' ? save.state : {};
+  const locationNames = new Map((Array.isArray(world?.locations) ? world.locations : []).map(item => [item?.id, item?.name || item?.id]));
+  const npcNames = new Map((Array.isArray(world?.npcs) ? world.npcs : []).map(item => [item?.id, item?.name || item?.id]));
+  const factionNames = new Map(worldFactionDefinitions(world).map(item => [item?.id, item?.name || item?.id]));
+  const events = (Array.isArray(state.worldEvents) ? state.worldEvents : [])
+    .filter(event => event && event.visibility !== 'hidden')
+    .slice(-WORLD_SUMMARY_EVENT_MAX)
+    .map(event => ({
+      eventId: event.eventId,
+      title: event.title || event.eventId,
+      description: event.description || '',
+      consequences: Array.isArray(event.consequences) ? event.consequences.slice(0, 16) : [],
+      locationId: event.locationId ?? null,
+      locationName: locationNames.get(event.locationId) || null,
+      time: event.time ? cloneJson(event.time) : null,
+      factionId: event.factionId || null,
+      factionName: factionNames.get(event.factionId) || null,
+      revision: Number.isInteger(event.revision) ? event.revision : null,
+    }));
+  const visibleEventIds = new Set(events.map(event => event.eventId));
+  const experiences = (Array.isArray(state.experiences) ? state.experiences : []).slice(-WORLD_SUMMARY_EVENT_MAX).map(item => ({
+    id: item.id,
+    title: item.title,
+    summary: item.summary,
+    sourceId: item.sourceId,
+    candidateId: item.candidateId,
+    locationId: item.locationId ?? null,
+    locationName: locationNames.get(item.locationId) || null,
+    revision: item.revision,
+    effects: item.effects ? cloneJson(item.effects) : null,
+  }));
+  const playerRelations = state.player?.relations && typeof state.player.relations === 'object' && !Array.isArray(state.player.relations) ? state.player.relations : {};
+  const relationships = Object.entries(save?.npcStates && typeof save.npcStates === 'object' ? save.npcStates : {}).slice(0, WORLD_SUMMARY_RELATION_MAX).map(([npcId, npc]) => ({
+    npcId,
+    name: npcNames.get(npcId) || npcId,
+    relation: playerRelations[npcId] ?? npc?.relation?.player ?? null,
+    status: Array.isArray(npc?.status) ? npc.status.slice(0, 16) : [],
+    locationId: npc?.locationId ?? null,
+    locationName: locationNames.get(npc?.locationId) || null,
+  }));
+  const factions = Object.entries(state.factionStates && typeof state.factionStates === 'object' ? state.factionStates : {}).slice(0, WORLD_SUMMARY_RELATION_MAX).map(([factionId, faction]) => ({
+    factionId,
+    name: factionNames.get(factionId) || factionId,
+    relation: faction?.relation ?? null,
+    influence: faction?.influence ?? null,
+    goals: Array.isArray(faction?.goals) ? faction.goals.slice(0, 16) : [],
+  }));
+  const sourceHash = worldLineSummarySourceHash(save);
+  return {
+    schemaVersion: 1,
+    saveId: save.id,
+    worldId: save.worldId,
+    worldVersion: save.worldVersion,
+    sourceRevision: save.revision,
+    sourceHash,
+    generatedAt: Date.now(),
+    status: state.ending?.status === 'ended' ? 'ended' : 'ongoing',
+    location: { id: state.locationId ?? null, name: locationNames.get(state.locationId) || null },
+    time: state.time ? cloneJson(state.time) : null,
+    failure: state.failure ? { status: state.failure.status || null, mode: state.failure.mode || null, label: state.failure.label || null } : null,
+    ending: state.ending ? { status: state.ending.status || null, endingId: state.ending.endingId || null, label: state.ending.label || null, description: state.ending.description || '' } : null,
+    experiences,
+    relationships,
+    factions,
+    worldChanges: events,
+    milestones: (Array.isArray(save.eventLedger) ? save.eventLedger : []).slice(-WORLD_SUMMARY_EVENT_MAX).map(entry => ({
+      kind: entry.kind,
+      sourceRevision: entry.sourceRevision,
+      locationId: entry.locationId ?? null,
+      time: entry.time ? cloneJson(entry.time) : null,
+      worldEventIds: Array.isArray(entry.worldEventIds) ? entry.worldEventIds.filter(id => visibleEventIds.has(id)).slice(0, 64) : [],
+      growthApplicationId: entry.growthApplicationId || null,
+      endingId: entry.endingId || null,
+    })),
+    openObjectives: [...(Array.isArray(state.goals) ? state.goals : []), ...(Array.isArray(state.leads) ? state.leads : [])]
+      .filter(item => item && item.status === 'active')
+      .slice(0, WORLD_SUMMARY_EVENT_MAX)
+      .map(item => ({ id: item.id, title: item.title, description: item.desc || '', kind: state.goals?.includes(item) ? 'goal' : 'lead' })),
+  };
+}
+
+function worldLineSummaryView(save, world) {
+  const sourceHash = worldLineSummarySourceHash(save);
+  const summary = save?.worldLineSummary && typeof save.worldLineSummary === 'object' ? save.worldLineSummary : null;
+  return { saveId: save.id, worldId: save.worldId, worldVersion: save.worldVersion, revision: save.revision, sourceHash, stale: !summary || summary.sourceHash !== sourceHash, summary };
+}
+
+async function handleWorldLineSummaryGet(req, res, saveId) {
+  const fp = savePath(saveId);
+  if (!fp) return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json');
+  try {
+    const save = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
+    const world = findWorldVersion(await loadWorlds(), save.worldId, save.worldVersion);
+    if (!world) return send(res, 409, JSON.stringify({ error: '存档绑定的世界版本不存在' }), 'application/json');
+    send(res, 200, JSON.stringify(worldLineSummaryView(save, world)), 'application/json; charset=utf-8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return send(res, 404, JSON.stringify({ error: '存档不存在' }), 'application/json');
+    console.error('[world-saves] 世界线总结读取失败:', err.message);
+    send(res, 500, JSON.stringify({ error: '世界线总结读取失败: ' + err.message }), 'application/json');
+  }
+}
+
+async function handleWorldLineSummaryRebuild(req, res, saveId) {
+  const fp = savePath(saveId);
+  if (!fp) return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json');
+  let payload;
+  try { payload = await readJsonBody(req, 64 * 1024); }
+  catch (err) { return send(res, err.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400, JSON.stringify({ error: err.message }), 'application/json'); }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return send(res, 400, JSON.stringify({ error: '请求必须是 JSON 对象' }), 'application/json');
+  if (!Number.isSafeInteger(payload.expectedRevision) || payload.expectedRevision < 0) return send(res, 400, JSON.stringify({ error: 'expectedRevision 必须是非负整数' }), 'application/json');
+  if (typeof payload.commandId !== 'string' || !COMMAND_ID_RE.test(payload.commandId)) return send(res, 400, JSON.stringify({ error: 'commandId 无效' }), 'application/json');
+  return withWorldSaveLock(saveId, async () => {
+    try {
+      const current = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
+      if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
+      if (current.worldLineSummary?.commandId === payload.commandId) return send(res, 200, JSON.stringify({ save: current, ...worldLineSummaryView(current, await loadWorlds().then(worlds => findWorldVersion(worlds, current.worldId, current.worldVersion))), idempotent: true }), 'application/json; charset=utf-8');
+      if (current.revision !== payload.expectedRevision) return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
+      const world = findWorldVersion(await loadWorlds(), current.worldId, current.worldVersion);
+      if (!world) return send(res, 409, JSON.stringify({ error: '存档绑定的世界版本不存在' }), 'application/json');
+      const summary = buildWorldLineSummary(current, world);
+      summary.commandId = payload.commandId;
+      const next = { ...current, worldLineSummary: summary, updatedAt: Date.now() };
+      await writeJsonAtomic(fp, next);
+      send(res, 200, JSON.stringify({ save: next, ...worldLineSummaryView(next, world), idempotent: false }), 'application/json; charset=utf-8');
+    } catch (err) {
+      if (err.code === 'ENOENT') return send(res, 404, JSON.stringify({ error: '存档不存在' }), 'application/json');
+      console.error('[world-saves] 世界线总结重建失败:', err.message);
+      send(res, 500, JSON.stringify({ error: '世界线总结重建失败: ' + err.message }), 'application/json');
+    }
+  });
+}
+
 function validateWorldObjectiveList(value, label, world = null) {
   if (value === undefined || value === null) return null;
   if (!Array.isArray(value) || value.length > 256) return `${label} 最多 256 项`;
@@ -2629,6 +2791,7 @@ async function handleRpgMigrationCommit(req, res, migrationId) {
         npcStates: initialNpcStates(world, { locationId: state.locationId }), opening: String(session.opening || ''), turns: normalizeLegacyTurns(session.messages), receipts: [], generatedEntities: {},
         eventLedger: [{ id: ledgerEventId(saveId, 0), kind: 'migration', commandId: migrationId, sourceRevision: 0, revision: 0, locationId: state.locationId || null, time: state.time ? cloneJson(state.time) : null, migrationId, createdAt: now }],
         eventMemory: [],
+        worldLineSummary: null,
         migrationHistory: [], migrationInfo: { kind: 'legacy-rpg-session', migrationId, sourceSessionId: report.source.sessionId, sourceHash: record.rawHash, migratedAt: now, redactedPaths },
       };
       const invalidSave = validateWorldSavePatch({ expectedRevision: 0, state: save.state, turns: save.turns, opening: save.opening });
@@ -3684,6 +3847,7 @@ async function handleWorldSaveCreate(req, res) {
     eventLedger: [],
     eventMemory: [],
     memoryRebuild: null,
+    worldLineSummary: null,
     generatedEntities: {},
     migrationHistory: [],
   };
@@ -4587,6 +4751,20 @@ const server = http.createServer((req, res) => {
     try { saveId = decodeURIComponent(worldSaveMemoryMatch[1]); }
     catch { return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json'); }
     return handleWorldMemoryDiagnostics(req, res, saveId);
+  }
+  const worldSaveSummaryRebuildMatch = url.pathname.match(/^\/api\/world-saves\/([^/]+)\/summary\/rebuild\/?$/);
+  if (worldSaveSummaryRebuildMatch && req.method === 'POST') {
+    let saveId;
+    try { saveId = decodeURIComponent(worldSaveSummaryRebuildMatch[1]); }
+    catch { return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json'); }
+    return handleWorldLineSummaryRebuild(req, res, saveId);
+  }
+  const worldSaveSummaryMatch = url.pathname.match(/^\/api\/world-saves\/([^/]+)\/summary\/?$/);
+  if (worldSaveSummaryMatch && req.method === 'GET') {
+    let saveId;
+    try { saveId = decodeURIComponent(worldSaveSummaryMatch[1]); }
+    catch { return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json'); }
+    return handleWorldLineSummaryGet(req, res, saveId);
   }
   const rpgMigrationListMatch = url.pathname.match(/^\/api\/rpg-migrations\/?$/);
   if (rpgMigrationListMatch && req.method === 'POST') return handleRpgMigrationPreview(req, res);

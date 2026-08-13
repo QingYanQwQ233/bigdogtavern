@@ -156,7 +156,7 @@ RPG 控制块的 `player.attributes` / `player.skills` / `player.resources` 使�
   opening: '世界卡 start.opening 的开局叙事',
   openingMode: 'static' | 'ai', openingOptions: [], openingCommandId: null,
   turns: [{ id, role: 'user' | 'assistant' | 'system', content, ts, options?, actionIntent?: { raw, verb?, target?, method?, risk? } }],
-  receipts: [], eventLedger: [], eventMemory: [], memoryRebuild: null, generatedEntities: {},
+  receipts: [], eventLedger: [], eventMemory: [], memoryRebuild: null, worldLineSummary: null, generatedEntities: {},
   migrationHistory: [{ kind: 'world-version-upgrade', commandId, fromVersion, toVersion, changes, addedNpcStateIds, revision, migratedAt }]
 }
 ```
@@ -314,6 +314,8 @@ RPG 控制块的 `player.attributes` / `player.skills` / `player.resources` 使�
 | `POST /api/world-saves/<saveId>/growth` | 使用 `commandId + expectedRevision` 接受或拒绝一个当前存档的成长候选；接受时服务端应用能力 / 特质 / 关系 / 阵营声望 / 身份标签并追加人物经历，拒绝时只追加处理记录；相同 commandId 幂等返回 |
 | `GET /api/world-saves/<saveId>/memory` | 只读返回当前存档的派生记忆统计、正式来源数量与脱敏重建预览；隐藏记忆不展开内容 |
 | `POST /api/world-saves/<saveId>/memory/rebuild` | 使用 `commandId + expectedRevision` 从世界事件、成长事实与 `eventLedger` 来源引用重建 `eventMemory`；不改变正式 world revision，重复 commandId 幂等 |
+| `GET /api/world-saves/<saveId>/summary` | 读取绑定当前存档 revision 的世界线总结；若正式事实已变化则标记 `stale` |
+| `POST /api/world-saves/<saveId>/summary/rebuild` | 使用 `commandId + expectedRevision` 从正式事件、经历、关系、阵营状态与结局重建 `worldLineSummary`；不改变正式 world revision，重复 commandId 幂等 |
 | `GET /api/world-saves/<saveId>/upgrade?targetVersion=<n>` | 只读预演存档升级；返回地点/NPC/任务增删与硬错误，不修改 revision |
 | `POST /api/world-saves/<saveId>/upgrade` | 提交 `commandId`、`expectedRevision` 与 `targetVersion`；服务端在存档锁内重新预演，无硬错误时升级并写入迁移历史，相同命令幂等 |
 
@@ -360,3 +362,6 @@ API additions: `POST /api/rpg-migrations` (preview/seal), `GET /api/rpg-migratio
 
 ### WorldSave 开放式结局（R6.8）
 `WorldCard.ending` 只声明可用结局与可选条件；玩家通过 `/api/world-saves/<saveId>/end` 明确确认后，服务端才写入 `state.ending`、receipt 和事件账本。结局不要求唯一正确答案；`state.ending.status = 'ended'` 后普通回合、成长应用和手工存档更新都会被拒绝，重复 `commandId` 仍幂等返回原存档。
+
+### WorldSave 世界线总结（R6.9）
+`worldLineSummary` 是当前存档的派生投影，不是第二份可写状态。服务端只读取已提交的 `state.worldEvents`、人物经历、玩家 / NPC 关系、阵营状态、失败 / 结局和 `eventLedger`，生成带 `sourceRevision` 与 `sourceHash` 的结构化总结；正式事实变化后旧总结会标记为 `stale`，重建不改变正式 world revision，也不读取未提交叙事正文或隐藏事件描述。

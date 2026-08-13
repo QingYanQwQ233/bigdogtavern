@@ -167,6 +167,7 @@
   receipts: [], // commandId 幂等记录，按上限裁剪
   eventLedger: [], // 长期提交索引：每条记录带 sourceRevision，引用已提交事实而不复制第二份状态
   eventMemory: [], // 服务端从已提交回合规范化的长期事件记忆；带来源、实体、地点和时间作用域
+  worldLineSummary: null, // 派生的世界线总结：绑定 sourceRevision/sourceHash，不是第二份可写状态
   generatedEntities: {}, // save:* ID 的临时 NPC、道具、任务或地点；只属于此存档
   migrationHistory: [],
 }
@@ -205,6 +206,7 @@ DM 身份与玩家主权
 - 世界书仍可关键词触发，但必须带作用域（世界 / 地点 / NPC / 存档事件）与稳定 ID。
 - 上下文为请求级投影：当前地点、队伍、目标 / 线索、冲突参与者和已召回记忆优先；地图只给当前位置及相邻区域，事件 / 派系按地点与最近记录裁剪，并受 `prefs.worldContextBudget` 字符预算限制。
 - `eventMemory` 是可重建的派生层：`GET /api/world-saves/<saveId>/memory` 展示来源计数和脱敏预览，`POST /api/world-saves/<saveId>/memory/rebuild` 只从 `state.worldEvents`、成长应用和 `eventLedger` 引用重建，不改变正式世界 `revision`；隐藏内容在诊断预览中保持脱敏。
+- `worldLineSummary` 是可重建的世界线叙事投影：`GET /api/world-saves/<saveId>/summary` 只读，`POST /api/world-saves/<saveId>/summary/rebuild` 只从已提交事件、人物经历、关系、阵营、失败和结局生成，带 `sourceRevision/sourceHash`；源事实变化后必须重新生成，不回写 `turns` 或 `state`。
 - RPG 预设由世界卡引用；存档只记录其版本，不能回退到酒馆角色卡的 `presetName`。
 - 导入的 ST 正则、EJS、MVU 和脚本保留在来源 sidecar，默认不执行；展示清理规则也不得写入 RPG 正式状态。
 
