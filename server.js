@@ -249,7 +249,7 @@ async function loadWorlds() {
     const fallback = defaultByKey.get(`${world.id}:${world.version}`);
     if (!fallback) return world;
     const next = { ...world };
-    for (const key of ['playerCreation', 'turnContract', 'failure', 'time', 'events', 'factions', 'conflicts']) {
+    for (const key of ['playerCreation', 'turnContract', 'failure', 'ending', 'time', 'events', 'factions', 'conflicts']) {
       if (next[key] === undefined && fallback[key] !== undefined) next[key] = cloneJson(fallback[key]);
     }
     return next;
@@ -299,6 +299,8 @@ function worldDraftFieldsValid(payload, requireRevision = false) {
   if (turnContractInvalid) return turnContractInvalid;
   const failureInvalid = validateWorldFailure(payload.failure);
   if (failureInvalid) return failureInvalid;
+  const endingInvalid = validateWorldEnding(payload.ending);
+  if (endingInvalid) return endingInvalid;
   const timeInvalid = validateWorldTime(payload.time);
   if (timeInvalid) return timeInvalid;
   const eventsInvalid = validateWorldEvents(payload.events);
@@ -1021,6 +1023,80 @@ function resolveWorldFailure(world, currentState, nextState, revision) {
   return applyFailureMode(world, nextState, mode, cause, revision);
 }
 
+const BUILTIN_WORLD_ENDINGS = [
+  { id: 'player-choice', kind: 'player-choice', label: '玩家主动结束', description: '玩家确认后结束当前世界线，不要求唯一正确结局。', terminal: true },
+];
+
+function validateWorldEnding(value) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'ending 必须是对象';
+  for (const key of ['enabled', 'allowPlayerEnd', 'requireConfirm']) if (value[key] !== undefined && typeof value[key] !== 'boolean') return `ending.${key} 必须是布尔值`;
+  if (value.defaultEndingId !== undefined && (typeof value.defaultEndingId !== 'string' || !isSafeId(value.defaultEndingId))) return 'ending.defaultEndingId 无效';
+  if (value.endings !== undefined) {
+    if (!Array.isArray(value.endings) || value.endings.length > 32) return 'ending.endings 最多 32 项';
+    const ids = new Set();
+    for (const ending of value.endings) {
+      if (!ending || typeof ending !== 'object' || Array.isArray(ending) || !isSafeId(ending.id) || ids.has(ending.id)) return 'ending.endings 含有重复或无效 ID';
+      if (!draftTextValid(ending.label, 120, true) || !draftTextValid(ending.description, 2000)) return `ending.endings.${ending.id} 文本无效`;
+      if (ending.kind !== undefined && !['player-choice', 'card-defined'].includes(ending.kind)) return `ending.endings.${ending.id}.kind 无效`;
+      if (ending.terminal !== undefined && ending.terminal !== true) return `ending.endings.${ending.id}.terminal 必须为 true`;
+      if (ending.condition !== undefined) {
+        const condition = ending.condition;
+        if (!condition || typeof condition !== 'object' || Array.isArray(condition)) return `ending.endings.${ending.id}.condition 无效`;
+        if (!['always', 'goals', 'leads', 'quests', 'conflicts', 'failure'].includes(condition.source)) return `ending.endings.${ending.id}.condition.source 无效`;
+        if (condition.status !== undefined && (typeof condition.status !== 'string' || condition.status.length > 40 || !/^[A-Za-z][A-Za-z0-9_-]*$/.test(condition.status))) return `ending.endings.${ending.id}.condition.status 无效`;
+        if (condition.minCount !== undefined && (!Number.isInteger(condition.minCount) || condition.minCount < 1 || condition.minCount > 256)) return `ending.endings.${ending.id}.condition.minCount 无效`;
+      }
+      ids.add(ending.id);
+    }
+    const allowed = new Set([...BUILTIN_WORLD_ENDINGS.map(ending => ending.id), ...ids]);
+    if (value.defaultEndingId !== undefined && !allowed.has(value.defaultEndingId)) return 'ending.defaultEndingId 未声明对应结局';
+  }
+  return null;
+}
+
+function worldEndingRules(world) {
+  const configured = world?.ending && typeof world.ending === 'object' && !Array.isArray(world.ending) ? world.ending : {};
+  const endings = new Map(BUILTIN_WORLD_ENDINGS.map(ending => [ending.id, cloneJson(ending)]));
+  for (const ending of Array.isArray(configured.endings) ? configured.endings : []) {
+    if (ending && isSafeId(ending.id)) endings.set(ending.id, { ...endings.get(ending.id), ...cloneJson(ending) });
+  }
+  const defaultEndingId = configured.defaultEndingId && endings.has(configured.defaultEndingId) ? configured.defaultEndingId : 'player-choice';
+  return {
+    enabled: configured.enabled !== false,
+    allowPlayerEnd: configured.allowPlayerEnd !== false,
+    requireConfirm: configured.requireConfirm !== false,
+    defaultEndingId,
+    endings,
+  };
+}
+
+function endingStateMatches(currentState, payloadState) {
+  if (currentState?.ending === undefined) return payloadState?.ending === undefined || payloadState?.ending === null;
+  return payloadState?.ending === undefined || canonicalJson(payloadState.ending) === canonicalJson(currentState.ending);
+}
+
+function worldEndingConditionMet(ending, state) {
+  const condition = ending?.condition;
+  if (!condition || condition.source === 'always') return true;
+  const values = condition.source === 'failure'
+    ? (state?.failure ? [state.failure] : [])
+    : condition.source === 'conflicts'
+      ? Object.values(state?.conflicts && typeof state.conflicts === 'object' ? state.conflicts : {})
+      : (Array.isArray(state?.[condition.source]) ? state[condition.source] : []);
+  const matches = condition.status === undefined ? values : values.filter(value => value?.status === condition.status);
+  return matches.length >= (Number.isInteger(condition.minCount) ? condition.minCount : 1);
+}
+
+function validateWorldEndRequest(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return '请求必须是 JSON 对象';
+  if (!Number.isInteger(payload.expectedRevision) || payload.expectedRevision < 0) return 'expectedRevision 必须是非负整数';
+  if (typeof payload.commandId !== 'string' || !COMMAND_ID_RE.test(payload.commandId)) return 'commandId 无效';
+  if (payload.confirm !== undefined && typeof payload.confirm !== 'boolean') return 'confirm 必须是布尔值';
+  if (payload.endingId !== undefined && (typeof payload.endingId !== 'string' || !isSafeId(payload.endingId))) return 'endingId 无效';
+  return null;
+}
+
 function worldTurnOptionRules(world) {
   const options = world?.turnContract?.options;
   return { min: Number.isInteger(options?.min) ? options.min : 4, max: Number.isInteger(options?.max) ? options.max : 4 };
@@ -1389,7 +1465,7 @@ function validateEventLedger(value) {
   if (value === undefined || value === null) return null;
   if (!Array.isArray(value) || value.length > EVENT_LEDGER_MAX) return `eventLedger 最多 ${EVENT_LEDGER_MAX} 项`;
   const ids = new Set();
-  const kinds = new Set(['opening', 'turn', 'growth', 'world-version-upgrade', 'migration']);
+  const kinds = new Set(['opening', 'turn', 'growth', 'ending', 'world-version-upgrade', 'migration']);
   for (const entry of value) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return 'eventLedger 含有无效记录';
     const id = typeof entry?.id === 'string' ? entry.id.trim() : '';
@@ -1403,7 +1479,7 @@ function validateEventLedger(value) {
     for (const key of ['turnIds', 'worldEventIds', 'factionActionIds', 'deadlineIds']) {
       if (entry[key] !== undefined && (!Array.isArray(entry[key]) || entry[key].length > 64 || entry[key].some(item => typeof item !== 'string' || item.length > 160))) return `eventLedger.${id}.${key} 无效`;
     }
-    for (const key of ['growthApplicationId', 'migrationId']) {
+    for (const key of ['growthApplicationId', 'migrationId', 'endingId']) {
       if (entry[key] !== undefined && entry[key] !== null && !isSafeId(entry[key])) return `eventLedger.${id}.${key} 无效`;
     }
     if (entry.createdAt !== undefined && (!Number.isFinite(entry.createdAt) || entry.createdAt < 0)) return `eventLedger.${id}.createdAt 无效`;
@@ -1825,7 +1901,7 @@ function appendEventLedger(save, entry) {
     time: entry.time ? cloneJson(entry.time) : null,
     createdAt: entry.createdAt || Date.now(),
   };
-  for (const key of ['turnIds', 'worldEventIds', 'factionActionIds', 'deadlineIds', 'growthApplicationId', 'migrationId']) {
+  for (const key of ['turnIds', 'worldEventIds', 'factionActionIds', 'deadlineIds', 'growthApplicationId', 'migrationId', 'endingId']) {
     if (entry[key] !== undefined) record[key] = cloneJson(entry[key]);
   }
   const invalid = validateEventLedger([record]);
@@ -2166,6 +2242,7 @@ function applyWorldDraftFields(world, payload) {
   if (payload.playerCreation !== undefined) next.playerCreation = cloneJson(payload.playerCreation);
   if (payload.turnContract !== undefined) next.turnContract = cloneJson(payload.turnContract);
   if (payload.failure !== undefined) next.failure = cloneJson(payload.failure);
+  if (payload.ending !== undefined) next.ending = cloneJson(payload.ending);
   if (payload.time !== undefined) next.time = cloneJson(payload.time);
   if (payload.events !== undefined) next.events = Array.isArray(payload.events) ? cloneJson(payload.events) : [];
   if (payload.factions !== undefined) next.factions = cloneJson(payload.factions);
@@ -2209,6 +2286,7 @@ function prepareWorldDraftPublication(draft) {
     ...(world.playerCreation !== undefined ? { playerCreation: world.playerCreation } : {}),
     ...(world.turnContract !== undefined ? { turnContract: world.turnContract } : {}),
     ...(world.failure !== undefined ? { failure: world.failure } : {}),
+    ...(world.ending !== undefined ? { ending: world.ending } : {}),
     ...(world.time !== undefined ? { time: world.time } : {}),
     ...(world.events !== undefined ? { events: world.events } : {}),
     ...(world.factions !== undefined ? { factions: world.factions } : {}),
@@ -2672,6 +2750,8 @@ async function handleWorldDraftPut(req, res, worldId) {
       if (playerCreationInvalid) return send(res, 400, JSON.stringify({ error: playerCreationInvalid }), 'application/json');
       const turnContractInvalid = validateTurnContract(payload.turnContract);
       if (turnContractInvalid) return send(res, 400, JSON.stringify({ error: turnContractInvalid }), 'application/json');
+      const endingInvalid = validateWorldEnding(payload.ending);
+      if (endingInvalid) return send(res, 400, JSON.stringify({ error: endingInvalid }), 'application/json');
       const collectionsInvalid = validateWorldDraftCollections(payload, current.world);
       if (collectionsInvalid) return send(res, 400, JSON.stringify({ error: collectionsInvalid }), 'application/json');
       const eventsInvalid = validateWorldEvents(payload.events, { ...current.world, locations: payload.locations ?? current.world.locations });
@@ -2963,6 +3043,8 @@ function worldPackageImportReport(pkg) {
     if (turnContractInvalid) errors.push(turnContractInvalid);
     const failureInvalid = validateWorldFailure(world.failure);
     if (failureInvalid) errors.push(failureInvalid);
+    const endingInvalid = validateWorldEnding(world.ending);
+    if (endingInvalid) errors.push(endingInvalid);
     const timeInvalid = validateWorldTime(world.time);
     if (timeInvalid) errors.push(timeInvalid);
     const factionsInvalid = validateWorldFactions(world.factions);
@@ -3424,6 +3506,65 @@ async function handleWorldSaveUpgrade(req, res, saveId) {
   });
 }
 
+async function handleWorldEndingPost(req, res, saveId) {
+  const fp = savePath(saveId);
+  if (!fp) return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json');
+  let payload;
+  try { payload = await readJsonBody(req, 64 * 1024); }
+  catch (err) {
+    const status = err.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400;
+    return send(res, status, JSON.stringify({ error: err.message }), 'application/json');
+  }
+  const invalid = validateWorldEndRequest(payload);
+  if (invalid) return send(res, 400, JSON.stringify({ error: invalid }), 'application/json');
+  return withWorldSaveLock(saveId, async () => {
+    try {
+      const current = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
+      if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
+      if (committedCommand(current, payload.commandId)) return send(res, 200, JSON.stringify(current), 'application/json; charset=utf-8');
+      if (current.revision !== payload.expectedRevision) return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
+      if (current.state?.ending?.status === 'ended') return send(res, 409, JSON.stringify({ error: '当前世界线已经结束', ending: current.state.ending }), 'application/json');
+      if (current.state?.failure?.status === 'terminal') return send(res, 409, JSON.stringify({ error: '当前存档已进入终止失败状态', failure: current.state.failure }), 'application/json');
+      const world = findWorldVersion(await loadWorlds(), current.worldId, current.worldVersion);
+      const rules = worldEndingRules(world);
+      if (!rules.enabled || !rules.allowPlayerEnd) return send(res, 403, JSON.stringify({ error: '当前世界卡不允许玩家主动结束' }), 'application/json');
+      const endingId = payload.endingId || rules.defaultEndingId;
+      const ending = rules.endings.get(endingId);
+      if (!ending) return send(res, 400, JSON.stringify({ error: '未声明该结局模式' }), 'application/json');
+      if (!worldEndingConditionMet(ending, current.state)) return send(res, 409, JSON.stringify({ error: '该结局条件尚未满足', ending: { id: ending.id, label: ending.label, condition: ending.condition || null } }), 'application/json');
+      if (rules.requireConfirm && payload.confirm !== true) return send(res, 409, JSON.stringify({ error: '结束世界线需要明确确认', confirmationRequired: true, ending: { id: ending.id, label: ending.label, description: ending.description } }), 'application/json');
+      const revision = current.revision + 1;
+      const endedAt = Date.now();
+      const endingState = {
+        status: 'ended',
+        endingId: ending.id,
+        kind: ending.kind || 'card-defined',
+        label: ending.label,
+        description: ending.description || '',
+        sourceRevision: revision,
+        commandId: payload.commandId,
+        endedAt,
+      };
+      const nextState = { ...cloneJson(current.state || {}), ending: endingState };
+      const receipt = { commandId: payload.commandId, kind: 'ending', revision, ending: cloneJson(endingState), committedAt: endedAt };
+      const next = {
+        ...current,
+        state: nextState,
+        receipts: [...(Array.isArray(current.receipts) ? current.receipts : []), receipt].slice(-200),
+        eventLedger: appendEventLedger(current, { kind: 'ending', commandId: payload.commandId, sourceRevision: revision, locationId: nextState.locationId ?? null, time: nextState.time ?? null, endingId: ending.id }),
+        revision,
+        updatedAt: endedAt,
+      };
+      await writeJsonAtomic(fp, next);
+      send(res, 200, JSON.stringify(next), 'application/json; charset=utf-8');
+    } catch (err) {
+      if (err.code === 'ENOENT') return send(res, 404, JSON.stringify({ error: '存档不存在' }), 'application/json');
+      console.error('[world-saves] 结束世界线失败:', err.message);
+      send(res, 500, JSON.stringify({ error: '结束世界线失败: ' + err.message }), 'application/json');
+    }
+  });
+}
+
 async function handleWorldSaveCreate(req, res) {
   let payload;
   try { payload = await readJsonBody(req, 64 * 1024); }
@@ -3514,6 +3655,7 @@ async function handleWorldSaveCreate(req, res) {
       ...(playerEconomySchema(world) ? economyState : {}),
       ...(worldConflictDefinitions(world).length || initial.conflicts !== undefined ? { conflicts: conflictStates } : {}),
       failure: null,
+      ending: null,
       ...(playerGrowthSchema(world) || initial.growthCandidates !== undefined ? { growthCandidates } : {}),
       ...(playerGrowthSchema(world) || initial.growthApplications !== undefined ? { growthApplications } : {}),
       ...(playerGrowthSchema(world) || initial.experiences !== undefined ? { experiences } : {}),
@@ -3785,6 +3927,7 @@ async function handleWorldGrowthPost(req, res, saveId) {
       if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
       const world = findWorldVersion(await loadWorlds(), current.worldId, current.worldVersion);
       if (committedCommand(current, payload.commandId)) return send(res, 200, JSON.stringify(current), 'application/json; charset=utf-8');
+      if (current.state?.ending?.status === 'ended') return send(res, 409, JSON.stringify({ error: '当前世界线已经结束，不能继续应用成长' }), 'application/json');
       if (current.revision !== payload.expectedRevision) return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
       const currentCandidates = Array.isArray(current.state?.growthCandidates) ? current.state.growthCandidates : [];
       const growthCandidateInvalid = validateGrowthCandidates(world, currentCandidates);
@@ -3886,6 +4029,8 @@ async function handleWorldSavePut(req, res, saveId) {
       if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
       const world = findWorldVersion(await loadWorlds(), current.worldId, current.worldVersion);
       if (!failureStateMatches(current.state, payload.state)) return send(res, 400, JSON.stringify({ error: 'state.failure 由服务端失败结算，客户端不能直接修改' }), 'application/json');
+      if (!endingStateMatches(current.state, payload.state)) return send(res, 400, JSON.stringify({ error: 'state.ending 由服务端结局结算，客户端不能直接修改' }), 'application/json');
+      if (current.state?.ending?.status === 'ended') return send(res, 409, JSON.stringify({ error: '当前世界线已经结束，不能继续修改存档' }), 'application/json');
       const invalidLocation = validateWorldLocationIds(world, payload.state, current.npcStates);
       if (invalidLocation) return send(res, 400, JSON.stringify({ error: invalidLocation }), 'application/json');
       for (const [key, label] of [['goals', 'state.goals'], ['leads', 'state.leads']]) {
@@ -3922,6 +4067,7 @@ async function handleWorldSavePut(req, res, saveId) {
       }
       const nextState = cloneJson(payload.state);
       if (current.state?.failure !== undefined) nextState.failure = cloneJson(current.state.failure);
+      if (current.state?.ending !== undefined) nextState.ending = cloneJson(current.state.ending);
       nextState.conflicts = materializeConflictOutcomes(world, nextState.conflicts);
       if (payload.state.factionStates === undefined && factionStatePayload !== undefined) nextState.factionStates = factionStatePayload;
       if (current.state?.time !== undefined) nextState.time = cloneJson(current.state.time);
@@ -4037,6 +4183,8 @@ async function handleWorldTurnPost(req, res, saveId) {
       if (invalidNpcIds) return send(res, 400, JSON.stringify({ error: invalidNpcIds }), 'application/json');
       if (committedCommand(current, payload.commandId)) return send(res, 200, JSON.stringify(current), 'application/json; charset=utf-8');
       if (!failureStateMatches(current.state, payload.state)) return send(res, 400, JSON.stringify({ error: 'state.failure 由服务端失败结算，客户端不能直接修改' }), 'application/json');
+      if (!endingStateMatches(current.state, payload.state)) return send(res, 400, JSON.stringify({ error: 'state.ending 由服务端结局结算，客户端不能直接修改' }), 'application/json');
+      if (current.state?.ending?.status === 'ended') return send(res, 409, JSON.stringify({ error: '当前世界线已经结束，不能继续普通回合', ending: current.state.ending }), 'application/json');
       if (current.state?.failure?.status === 'terminal') return send(res, 409, JSON.stringify({ error: '当前存档已进入终止失败状态，请重开或等待后续结局流程', failure: current.state.failure }), 'application/json');
       if (current.revision !== payload.expectedRevision) {
         return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
@@ -4047,6 +4195,7 @@ async function handleWorldTurnPost(req, res, saveId) {
       const revision = current.revision + 1;
       const nextState = cloneJson(payload.state);
       if (current.state?.failure !== undefined) nextState.failure = cloneJson(current.state.failure);
+      if (current.state?.ending !== undefined) nextState.ending = cloneJson(current.state.ending);
       nextState.conflicts = materializeConflictOutcomes(world, nextState.conflicts);
       if (payload.state.factionStates === undefined && factionStatePayload !== undefined) nextState.factionStates = factionStatePayload;
       const combatResult = resolveCombatChecks(world, current.state, nextState, payload.commandId, revision);
@@ -4474,6 +4623,13 @@ const server = http.createServer((req, res) => {
     try { saveId = decodeURIComponent(worldGrowthMatch[1]); }
     catch { return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json'); }
     return handleWorldGrowthPost(req, res, saveId);
+  }
+  const worldEndingMatch = url.pathname.match(/^\/api\/world-saves\/([^/]+)\/end\/?$/);
+  if (worldEndingMatch && req.method === 'POST') {
+    let saveId;
+    try { saveId = decodeURIComponent(worldEndingMatch[1]); }
+    catch { return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json'); }
+    return handleWorldEndingPost(req, res, saveId);
   }
   const worldSaveMatch = url.pathname.match(/^\/api\/world-saves\/([^/]+)\/?$/);
   if (worldSaveMatch && (req.method === 'GET' || req.method === 'PUT' || req.method === 'POST')) {

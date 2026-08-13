@@ -194,7 +194,30 @@ async function main() {
       });
       assert.strictEqual(rebuildAgain.response.status, 200, `${id} rebuild is idempotent`);
       assert.strictEqual(rebuildAgain.body.idempotent, true, `${id} rebuild idempotent receipt`);
-      created[id] = reloaded.body;
+      const endingPreview = await jsonRequest(base, `/api/world-saves/${save.id}/end`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commandId: `${id}-ending-preview`, expectedRevision: rebuilt.body.save.revision, endingId: 'player-choice', confirm: false }),
+      });
+      assert.strictEqual(endingPreview.response.status, 409, `${id} requires explicit ending confirmation`);
+      assert.strictEqual(endingPreview.body.confirmationRequired, true, `${id} exposes confirmation requirement`);
+      const ended = await jsonRequest(base, `/api/world-saves/${save.id}/end`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commandId: `${id}-ending-1`, expectedRevision: rebuilt.body.save.revision, endingId: 'player-choice', confirm: true }),
+      });
+      assert.strictEqual(ended.response.status, 200, `${id} commits player ending`);
+      assert.strictEqual(ended.body.state.ending.status, 'ended', `${id} marks save ended`);
+      assert.strictEqual(ended.body.receipts.at(-1).kind, 'ending', `${id} records ending receipt`);
+      const endingRetry = await jsonRequest(base, `/api/world-saves/${save.id}/end`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commandId: `${id}-ending-1`, expectedRevision: rebuilt.body.save.revision, endingId: 'player-choice', confirm: true }),
+      });
+      assert.strictEqual(endingRetry.response.status, 200, `${id} ending command is idempotent`);
+      const afterEndTurn = await jsonRequest(base, `/api/world-saves/${save.id}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commandId: `${id}-after-ending-1`, expectedRevision: ended.body.revision, state: ended.body.state, turns: [{ role: 'assistant', content: '尝试在结束后继续。' }], options: [] }),
+      });
+      assert.strictEqual(afterEndTurn.response.status, 409, `${id} rejects ordinary turns after ending`);
+      created[id] = ended.body;
     }
 
     const legacy = {

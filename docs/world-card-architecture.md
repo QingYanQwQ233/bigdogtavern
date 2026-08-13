@@ -101,6 +101,10 @@
     defaultMode: 'continue', onZeroHp: 'injured', onConflictDefeat: 'captured',
     modes: [{ id: 'injured', label: '重伤', hpRatio: 0.25, effect: '重伤' }, { id: 'permadeath', label: '永久死亡', terminal: true }],
   },
+  ending: {
+    enabled: true, allowPlayerEnd: true, requireConfirm: true,
+    endings: [{ id: 'player-choice', kind: 'player-choice', label: '玩家主动结束', description: '玩家确认后结束当前世界线。', terminal: true }],
+  },
   npcIds: ['npc-lily', 'npc-ranger'],
   factionIds: ['faction-guild'],
   itemIds: ['wolf-fang'],
@@ -140,6 +144,7 @@
     locationId: 'wolf-tooth-inn',
     stats: { level: 1, exp: 0, expNext: 100, hp: 20, maxHp: 20, mp: 5, maxMp: 5, gold: 10, buffs: [] },
     failure: null, // 服务端结算：resolved | active | terminal
+    ending: null, // 服务端结算：ended 后普通回合与成长均停止
     inventory: [],
     quests: [],
     map: {

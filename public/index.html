@@ -97,6 +97,10 @@
         <div id="rpg-world-events" class="rpg-list" role="log" aria-live="polite" aria-label="已发生的世界事件"></div>
         <div class="rpg-panel-head" style="margin-top:10px">⚠️ 失败状态</div>
         <div id="rpg-failure" class="rpg-list" role="status" aria-live="polite" aria-label="当前失败状态"></div>
+        <div class="rpg-panel-head" style="margin-top:10px">🏁 世界线</div>
+        <select id="rpg-ending-select" aria-label="选择结局" style="width:100%;margin-top:4px"></select>
+        <div id="rpg-ending-status" class="rpg-list" role="status" aria-live="polite" aria-label="世界线结局状态"></div>
+        <button class="ghost-btn" id="rpg-end-world" type="button" style="width:100%;margin-top:6px">结束当前世界线</button>
         <div class="rpg-panel-head" style="margin-top:10px">📖 人物经历</div>
         <div id="rpg-experiences" class="rpg-list" role="log" aria-live="polite" aria-label="已记录的人物经历"></div>
         <div class="rpg-panel-head" style="margin-top:10px">🗺 地图</div>
@@ -830,6 +834,11 @@
           <p class="hint">可用模式包括继续、重伤、俘虏、资源损失、永久死亡和按卡定义；AI 不得直接写入存档失败状态。</p>
         </div>
         <div class="field">
+          <label for="world-draft-ending">开放式结局 <span class="hint-inline">JSON；玩家确认后提交</span></label>
+          <textarea id="world-draft-ending" name="worldDraftEnding" rows="6" maxlength="20000" spellcheck="false" placeholder='{"enabled":true,"allowPlayerEnd":true,"requireConfirm":true,"endings":[{"id":"player-choice","kind":"player-choice","label":"玩家主动结束","description":"结束当前世界线。","terminal":true}]}'></textarea>
+          <p class="hint">世界卡可以声明多个结局；AI 只能提出叙事结果，不能自行结束存档。</p>
+        </div>
+        <div class="field">
           <label for="world-draft-time">世界时间 <span class="hint-inline">JSON；服务端每回合推进</span></label>
           <textarea id="world-draft-time" name="worldDraftTime" rows="3" maxlength="5000" spellcheck="false" placeholder='{"unit":"hour","start":8,"turnAdvance":1}'></textarea>
         </div>
@@ -953,8 +962,8 @@
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
   <script src="vendor/mapgen2.bundle.js"></script>
-  <script src="mapgen.js?v=20260813c"></script>
-  <script src="app.js?v=20260813c"></script>
+  <script src="mapgen.js?v=20260813d"></script>
+  <script src="app.js?v=20260813d"></script>
   <script>
     // PWA：注册 service worker（仅 HTTPS / localhost 生效，套壳 APK 可用）
     if ('serviceWorker' in navigator) {

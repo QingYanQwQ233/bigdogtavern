@@ -206,6 +206,7 @@ function hydrateWorldSave(data) {
   if (!data || typeof data !== 'object') return data;
   if (!data.state || typeof data.state !== 'object') data.state = {};
   if (!Array.isArray(data.turns)) data.turns = [];
+  if (data.state.ending === undefined) data.state.ending = null;
   if (data.state.goals === undefined && Array.isArray(data.state.quests) && data.state.quests.length) {
     data.state.goals = data.state.quests.map((quest, index) => ({
       id: /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(String(quest?.id || '')) ? `legacy-${quest.id}`.slice(0, 64) : `legacy-goal-${index + 1}`,
@@ -614,6 +615,7 @@ function fillWorldDraftForm(draft) {
   $('world-draft-player-creation').value = world.playerCreation ? JSON.stringify(world.playerCreation, null, 2) : '';
   $('world-draft-turn-contract').value = world.turnContract ? JSON.stringify(world.turnContract, null, 2) : '';
   $('world-draft-failure').value = world.failure ? JSON.stringify(world.failure, null, 2) : '';
+  $('world-draft-ending').value = world.ending ? JSON.stringify(world.ending, null, 2) : '';
   $('world-draft-time').value = world.time ? JSON.stringify(world.time, null, 2) : '';
   $('world-draft-events').value = Array.isArray(world.events) ? JSON.stringify(world.events, null, 2) : '';
   $('world-draft-factions').value = Array.isArray(world.factions) ? JSON.stringify(world.factions, null, 2) : '';
@@ -682,6 +684,12 @@ async function saveWorldDraft() {
     try { failure = JSON.parse(failureText); }
     catch { setWorldDraftStatus('失败与死亡规则不是有效 JSON。', 'error'); $('world-draft-failure').focus(); return false; }
   }
+  let ending = null;
+  const endingText = $('world-draft-ending').value.trim();
+  if (endingText) {
+    try { ending = JSON.parse(endingText); }
+    catch { setWorldDraftStatus('开放式结局不是有效 JSON。', 'error'); $('world-draft-ending').focus(); return false; }
+  }
   let time = null;
   const timeText = $('world-draft-time').value.trim();
   if (timeText) {
@@ -719,7 +727,7 @@ async function saveWorldDraft() {
     const res = await fetch('/api/world-drafts/' + encodeURIComponent(worldDraft.worldId), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
-      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds, mapGeneration, locations, npcs, playerCreation, turnContract, failure, time, events, factions }),
+      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds, mapGeneration, locations, npcs, playerCreation, turnContract, failure, ending, time, events, factions }),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error(worldApiError(data, '世界草稿保存失败（HTTP ' + res.status + '）'));
@@ -1731,6 +1739,30 @@ async function decideGrowthCandidate(candidateId, decision) {
   }
 }
 
+async function endCurrentWorld() {
+  if (!worldModeActive() || !currentWorldSave || worldTurnPendingActive()) return;
+  const select = $('rpg-ending-select');
+  const endingId = select?.value || 'player-choice';
+  const ending = (Array.isArray(currentWorldCard()?.ending?.endings) ? currentWorldCard().ending.endings : []).find(item => item.id === endingId);
+  const label = ending?.label || endingId;
+  if (!confirm(`确定结束当前世界线“${label}”吗？结束后将不能继续普通回合。`)) return;
+  const button = $('rpg-end-world');
+  if (button) button.disabled = true;
+  try {
+    const res = await fetch('/api/world-saves/' + encodeURIComponent(currentWorldSaveId) + '/end', {
+      method: 'POST', headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ commandId: uid(), expectedRevision: currentWorldSave.revision, endingId, confirm: true }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(worldApiError(data, '结束世界线失败（HTTP ' + res.status + '）'));
+    hydrateWorldSave(data); currentWorldSave = data;
+    renderRPG(); renderMessages(); renderWorldDetail();
+  } catch (err) {
+    showWorldError(err.message);
+    if (button) button.disabled = false;
+  }
+}
+
 /* 渲染 RPG 面板：顶栏（等级/金币/位置）、状态条（HP/MP/EXP）、背包、任务、角色摘要 */
 function renderRPG() {
   const rs = curRpgState();
@@ -1839,6 +1871,21 @@ function renderRPG() {
       const statusLabels = { active: '进行中', resolved: '已结算', terminal: '终止' };
       failureEl.innerHTML = `<article class="rpg-item rpg-failure-item ${failure.status === 'terminal' ? 'terminal' : 'active'}"><div class="rpg-item-name">${esc(mode?.label || failure.label || failure.mode)} <small>${esc(statusLabels[failure.status] || failure.status || '未知')}</small></div><div class="rpg-item-sub">${esc(mode?.description || failure.description || '')}</div><div class="rpg-item-sub">原因：${esc(failure.cause || '未记录')} · revision ${esc(failure.revision ?? '')}</div></article>`;
     }
+  }
+  const endingSelect = $('rpg-ending-select');
+  const endingStatus = $('rpg-ending-status');
+  const endingButton = $('rpg-end-world');
+  if (endingSelect && endingStatus && endingButton) {
+    const rules = currentWorldCard()?.ending;
+    const endings = Array.isArray(rules?.endings) ? rules.endings : [{ id: 'player-choice', label: '玩家主动结束', description: '结束当前世界线。' }];
+    endingSelect.innerHTML = endings.map(ending => `<option value="${esc(ending.id)}">${esc(ending.label || ending.id)}</option>`).join('');
+    const ending = worldModeActive() ? currentWorldSave?.state?.ending : null;
+    const endingAllowed = worldModeActive() && rules?.enabled !== false && rules?.allowPlayerEnd !== false;
+    endingStatus.innerHTML = ending
+      ? `<article class="rpg-item rpg-failure-item terminal"><div class="rpg-item-name">${esc(ending.label || ending.endingId)} <small>已结束</small></div><div class="rpg-item-sub">${esc(ending.description || '')}</div><div class="rpg-item-sub">结束于 revision ${esc(ending.sourceRevision ?? '')}</div></article>`
+      : endingAllowed ? '<p class="hint">当前世界线仍在进行。</p>' : '<p class="hint">当前世界卡不允许玩家主动结束。</p>';
+    endingSelect.disabled = !!ending || !endingAllowed;
+    endingButton.disabled = !!ending || !endingAllowed || worldTurnPendingActive();
   }
   const q = $('rpg-quests');
   if (q) {
@@ -3919,6 +3966,14 @@ function buildWorldFailurePromptPart() {
   return `【失败与死亡规则】失败结算由服务端根据 WorldCard.failure 触发，AI 不得直接写入 state.failure、伪造 HP/骰子结果或绕过模式。可用模式：${modeText}。HP 降到 0 与冲突失败由服务端判定；当前失败状态：${current ? `${current.mode}/${current.status}` : '未触发'}。永久死亡后不得继续普通回合。`;
 }
 
+function buildWorldEndingPromptPart() {
+  if (!worldModeActive()) return '';
+  const ending = currentWorldCard()?.ending;
+  const options = Array.isArray(ending?.endings) ? ending.endings.map(item => `${item.id}:${item.label || item.id}`).join('、') : 'player-choice:玩家主动结束';
+  const current = currentWorldSave?.state?.ending;
+  return `【开放式结局】世界卡不强制唯一结局，可用结局：${options}。AI 只能叙述候选结果，不得自行结束世界线或写入 state.ending；玩家必须通过界面明确确认，服务端才会提交结局。当前状态：${current ? `${current.endingId}/ended` : '进行中'}。`;
+}
+
 function buildRpgPromptPart() {
   if (mode !== 'rpg') return '';
   const parts = [];
@@ -3987,6 +4042,8 @@ function buildRpgPromptPart() {
       if (conflictPrompt) parts.push(conflictPrompt);
       const failurePrompt = buildWorldFailurePromptPart();
       if (failurePrompt) parts.push(failurePrompt);
+      const endingPrompt = buildWorldEndingPromptPart();
+      if (endingPrompt) parts.push(endingPrompt);
       const growthPrompt = buildWorldGrowthPromptPart();
       if (growthPrompt) parts.push(growthPrompt);
     }
@@ -4744,6 +4801,11 @@ function renderMessages() {
   if (mode === 'rpg') renderRPG(); // RPG 模式联动状态面板
   const msgs = curMessages();
   renderQuickActions(); // 从当前会话最后一条 AI 回复恢复选项，切换会话不串线
+  const ended = mode === 'rpg' && worldModeActive() && currentWorldSave?.state?.ending?.status === 'ended';
+  const input = $('input');
+  const sendButton = $('btn-send');
+  if (input) { input.disabled = ended; input.placeholder = ended ? '世界线已结束，创建新存档后继续…' : '写下你的话或行动（可用 *动作* 表示）… Enter 发送 · Shift+Enter 换行'; }
+  if (sendButton && !sending) sendButton.disabled = ended;
   if (!msgs.length) {
     chat.innerHTML = `<div class="chat-empty"><div class="ce-icon">🐾</div><div class="ce-title">${esc(emptyTitle())}</div><div class="ce-desc">${esc(buildGuide())}</div></div>`;
     return;
@@ -5354,7 +5416,7 @@ async function requestReply() {
 }
 
 async function sendMessage() {
-  if (sending || worldTurnPreparing || worldTurnPending) return;
+  if (sending || worldTurnPreparing || worldTurnPending || (worldModeActive() && currentWorldSave?.state?.ending?.status === 'ended')) return;
   const input = $('input');
   const text = input.value.trim();
   if (!text) return;
@@ -6008,6 +6070,13 @@ function renderQuickActions() {
     return;
   }
   if (mode === 'rpg') {
+    if (worldModeActive() && currentWorldSave?.state?.ending?.status === 'ended') {
+      const done = document.createElement('span');
+      done.className = 'quick-hint';
+      done.textContent = '世界线已结束；如要继续，请创建新的世界存档。';
+      qa.appendChild(done);
+      return;
+    }
     const msgs = curMessages();
     let opts = null;
     for (let i = msgs.length - 1; i >= 0; i--) {
@@ -6231,6 +6300,7 @@ function bindEvents() {
   // 设置
   document.querySelectorAll('.js-settings').forEach(b => b.addEventListener('click', openSettings));
   $('btn-debug').addEventListener('click', () => $('debug-panel').open ? closeDebugTerminal() : openDebugTerminal());
+  $('rpg-end-world').addEventListener('click', endCurrentWorld);
   $('debug-close').addEventListener('click', closeDebugTerminal);
   $('debug-clear').addEventListener('click', clearDebugTerminal);
   $('debug-copy').addEventListener('click', copyDebugTerminal);
