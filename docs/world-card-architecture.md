@@ -162,6 +162,8 @@
 }
 ```
 
+WorldCard 的简介、地点、NPC 公共资料、派系定义、事件模板和规则属于 `worldVersion` 的稳定设定；WorldSave 的位置、时间、NPC 状态、目标、冲突、事件和记忆属于 `saveId + revision` 的当前事实。两层在 Prompt 中同时保留，存档变化只解释当前世界线，不反向改写已发布世界卡。
+
 ### 5.3 NPC 与临时角色
 
 - `WorldNPC`：世界卡引用的长期角色，保存身份、人格、语言、认知边界与静态资料。作用域 Prompt 只读取公开字段；`secrets: [{ id, content }]` 只有在当前存档 `npcStates[npcId].knowledge` 持有对应 ID 时才解锁。

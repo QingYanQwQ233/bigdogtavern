@@ -3685,6 +3685,21 @@ function buildWorldNpcPromptPart() {
   return '【当前作用域 NPC】\n只允许引用以下 NPC；未列出的世界 NPC 不在本回合上下文中。静态资料仅代表公开信息；不得臆测未注入的秘密。NPC 只能使用公共资料、本存档已知事实和已解锁秘密，不得读取其他存档或其他 NPC 的知识。\n' + sections.join('\n\n');
 }
 
+function buildWorldFactLayerPromptPart() {
+  if (!worldModeActive()) return '';
+  const world = currentWorldCard();
+  const save = currentWorldSave;
+  const state = save.state || {};
+  const staticScope = `${world?.id || save.worldId || 'world'}@v${world?.version || save.worldVersion || 1}`;
+  const saveScope = `${save.id || currentWorldSaveId || 'save'}@r${Number.isInteger(save.revision) ? save.revision : 0}`;
+  const currentLocation = state.locationId || '未指定';
+  const currentTime = state.time ? `${state.time.value} ${state.time.unit}` : '未指定';
+  return `【世界事实分层】
+稳定设定来源：WorldCard ${staticScope}。世界简介、登记地点、NPC 公共资料、派系定义、事件模板和规则属于稳定设定；不要因为某个存档的变化而改写它们。
+当前事实来源：WorldSave ${saveScope}。当前地点=${currentLocation}；当前时间=${currentTime}；NPC 位置 / 关系 / 认知、背包、目标、冲突、已提交事件和长期记忆等动态字段只属于这个存档。
+冲突处理：同一实体或地点同时出现静态资料与存档状态时，静态资料解释默认设定，存档状态解释当前局面；两者都要保留，不能把一次存档变化宣称为世界卡永久改写，也不能用旧静态默认值覆盖已提交状态。`;
+}
+
 function buildWorldEventPromptPart() {
   if (!worldModeActive()) return '';
   const state = currentWorldSave.state || {};
@@ -3823,6 +3838,8 @@ function buildRpgPromptPart() {
   if (worldModeActive()) {
     const world = currentWorldCard();
     if (world) {
+      const factLayerPrompt = buildWorldFactLayerPromptPart();
+      if (factLayerPrompt) parts.push(factLayerPrompt);
       const worldTime = currentWorldSave.state?.time;
       if (worldTime) parts.unshift(`【世界时间】${worldTime.value} ${worldTime.unit}（每次正式回合由服务端推进，AI 不得直接篡改）`);
       parts.unshift('【当前世界卡】\n' + [

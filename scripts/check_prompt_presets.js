@@ -55,7 +55,7 @@ vm.runInContext(`
       currentWorldId = 'world-aurora';
       currentWorldSaveId = 'save-world';
       currentWorldSave = {
-        id: 'save-world', worldId: 'world-aurora',
+        id: 'save-world', worldId: 'world-aurora', worldVersion: 1, revision: 7,
         party: { memberIds: ['npc-party'], leaderId: 'pc-player' },
         state: { locationId: 'wolf-tooth-inn', stats: {}, inventory: [], quests: [{ questId: 'quest-1', npcIds: ['npc-quest'] }] },
         npcStates: {
@@ -166,6 +166,9 @@ assert.strictEqual(context.check.explicitGlobal, '');
 assert.match(context.check.blocks.system, /你是 夏瑾 的叙事者/);
 assert.match(context.check.worldPrompt, /state\.locationId/);
 assert.match(context.check.worldPrompt, /wolf-tooth-inn/);
+assert.match(context.check.worldPrompt, /WorldCard world-aurora@v1/);
+assert.match(context.check.worldPrompt, /WorldSave save-world@r7/);
+assert.match(context.check.worldPrompt, /不能把一次存档变化宣称为世界卡永久改写/);
 assert.match(context.check.worldPrompt, /npc-party/);
 assert.match(context.check.worldPrompt, /npc-local/);
 assert.match(context.check.worldPrompt, /npc-quest/);

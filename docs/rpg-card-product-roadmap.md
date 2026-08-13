@@ -6,7 +6,7 @@
 >
 > 架构底座与历史实施记录仍见 [world-card-architecture.md](world-card-architecture.md) 和 [world-card-implementation-plan.md](world-card-implementation-plan.md)。本文是后续 RPG 产品功能的主路线图。
 
-> 当前执行：R5.3 通用状态值校验、R5.4 安全派生值、R5.5 经济规则、R5.6 统一冲突生命周期、R5.7 最小战斗、R5.8 最小非战斗冲突、R5.9 成长候选、R5.10 成长应用、R5.11 动态 RPG 面板、R5.12 题材卡和回归、R6.1 正式事件账本、R6.2 短期上下文窗口与 R6.3 长期事件记忆提取均已完成，下一步进入 R6.4 世界卡稳定设定与存档变更事实分层。相关 GitHub 检索未发现可直接兼容本项目的零依赖实现，因此不引入新依赖。
+> 当前执行：R5.3 通用状态值校验、R5.4 安全派生值、R5.5 经济规则、R5.6 统一冲突生命周期、R5.7 最小战斗、R5.8 最小非战斗冲突、R5.9 成长候选、R5.10 成长应用、R5.11 动态 RPG 面板、R5.12 题材卡和回归、R6.1 正式事件账本、R6.2 短期上下文窗口、R6.3 长期事件记忆提取与 R6.4 世界卡稳定设定 / 存档变更事实分层均已完成，下一步进入 R6.5 按场景、NPC、目标和预算组装上下文。相关 GitHub 检索未发现可直接兼容本项目的零依赖实现，因此不引入新依赖。
 
 ## 0. 结论
 
@@ -399,7 +399,7 @@ PlayerCommand
 | R6.1 | 定义正式事件账本和来源 revision | R4 | 已在 WorldSave 顶层加入服务端维护的 `eventLedger`；opening / turn / growth / world-version-upgrade / migration 都记录稳定 ID、commandId 与 sourceRevision，并与短期 receipts 分离 |
 | R6.2 | 从当前场景构建短期上下文窗口 | R6.1 | 已由 `buildWorldRecentContext()` 按存档 turns、待提交消息与账本位置变化即时重建；只投影到本次 Prompt history，不写入第二份事实 |
 | R6.3 | 提取并校验长期事件记忆 | R6.1 | 已加入服务端规范化 `eventMemory`：AI 只能提交本回合候选，来源回合 / 事件 / revision 由提交服务绑定，并校验实体 / 地点 / 时间作用域 |
-| R6.4 | 区分世界卡稳定设定与存档中已改变事实 | R6.1 | 新旧事实不互相覆盖且能解释当前状态 |
+| R6.4 | 区分世界卡稳定设定与存档中已改变事实 | R6.1 | 已在 Prompt 明确 `WorldCard@worldVersion` 与 `WorldSave@revision` 两层来源；存档状态只解释当前局面，不回写卡片或被旧默认覆盖 |
 | R6.5 | 按场景、NPC、目标和预算组装上下文 | R6.3 | 不注入全世界历史；关键承诺仍能召回 |
 | R6.6 | 为派生记忆提供重建与调试视图 | R6.3 | 删除摘要后可从事实重建；不泄露隐藏知识 |
 | R6.7 | 定义失败与死亡模式 Schema | R5 | 支持继续、重伤、俘虏、永久死亡或卡定义结果 |
@@ -565,6 +565,10 @@ Implemented the minimal faction contract: static `WorldCard.factions`, save-owne
 ### R6.3 当前进度
 
 已完成长期事件记忆的最小闭环：RPG 控制块可提交 `eventMemory` 候选，服务端只在正式回合成功提交时写入规范化条目，并自动绑定本回合 turn ID、结算事件 ID、source revision、地点与时间。存档最多保留 512 条，Prompt 仅注入当前地点可见的记忆；AI 无法直接写入来源字段或改写旧记忆。
+
+### R6.4 当前进度
+
+已完成事实分层投影：Prompt 明确标注稳定世界卡版本与当前世界存档 revision，并规定同一实体 / 地点同时存在静态资料和运行时状态时，静态资料只代表默认设定，存档状态解释当前局面。实现没有复制第二份“当前世界”或反向改写已发布世界卡。
 
 ### R4.10 当前进度
 
