@@ -6,7 +6,7 @@
 >
 > 架构底座与历史实施记录仍见 [world-card-architecture.md](world-card-architecture.md) 和 [world-card-implementation-plan.md](world-card-implementation-plan.md)。本文是后续 RPG 产品功能的主路线图。
 
-> 当前执行：R5.3–R6.10 已完成，R7.1 世界观与硬 / 软规则编辑区已完成，下一步进入 R7.2 玩家创建、属性、资源和特质编辑区。相关 GitHub 检索参考了 SillyTavern 的 World Info / Prompt Manager 分层做法；本项目继续保持零依赖声明式 JSON，不引入可执行脚本。
+> 当前执行：R5.3–R6.10、R7.1、R7.2 已完成，下一步进入 R7.3 NPC、派系、地点和事件模板编辑区。R7.2 延续 SillyTavern 的分层数据思路，仍保持零依赖声明式 JSON，不引入可执行脚本。
 
 ## 0. 结论
 
@@ -597,6 +597,10 @@ Implemented the minimal faction contract: static `WorldCard.factions`, save-owne
 ### R7.1 当前进度
 
 已完成世界观与硬 / 软规则的最小作者工作台：世界草稿可编辑受白名单约束的 `setting` 字段及 `rules.hard / rules.soft` 数组，服务端保存和发布时校验长度与结构；发布后的世界卡在 RPG Prompt 中只读注入，旧世界和旧存档不受影响。正式结构化结算仍由既有回合、冲突、失败、时间和结局字段负责。
+
+### R7.2 当前进度
+
+已完成玩家创建规则的最小可用编辑区：世界草稿按 `fields`、`attributes`、`skills`、`resources`、`traits` 分组显示条目，支持新增、删除、上下排序和 JSON 预览；每条仍可编辑任意 JSON 以保留卡片扩展键。高级 JSON 入口支持显式“载入编辑器”，保存前由前端聚合并交给服务端既有 `playerCreation` schema 最终校验；无效条目不会覆盖最近有效草稿。
 
 ### R4.10 当前进度
 

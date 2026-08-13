@@ -559,6 +559,159 @@ function syncWorldDraftCollectionsFromForm() {
   worldDraft.world.locations = locations;
   worldDraft.world.npcs = npcs;
 }
+const WORLD_DRAFT_PLAYER_BUCKETS = [
+  { key: 'fields', label: '身份字段', template: () => ({ id: 'field-' + uid(), label: '新字段', type: 'text', required: false, default: '' }) },
+  { key: 'attributes', label: '属性', template: () => ({ id: 'attribute-' + uid(), label: '新属性', min: 0, max: 100, step: 1, default: 0 }) },
+  { key: 'skills', label: '技能', template: () => ({ id: 'skill-' + uid(), label: '新技能', description: '', min: 0, max: 100, step: 1, default: 0 }) },
+  { key: 'resources', label: '资源', template: () => ({ id: 'resource-' + uid(), label: '新资源', type: 'number', min: 0, max: 100, initial: 0 }) },
+  { key: 'traits', label: '特质', template: () => ({ id: 'trait-' + uid(), label: '新特质', description: '' }) },
+];
+function worldDraftPlayerSchema() {
+  const value = worldDraft?.world?.playerCreation;
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+function worldDraftPlayerItemText(item) {
+  return JSON.stringify(item, null, 2) ?? '';
+}
+function worldDraftPlayerPreview() {
+  const preview = $('world-draft-player-preview');
+  if (preview) preview.textContent = JSON.stringify(worldDraftPlayerSchema(), null, 2);
+}
+function worldDraftPlayerRawMatchesEditor() {
+  const raw = $('world-draft-player-creation');
+  if (!raw) return true;
+  const schema = worldDraftPlayerSchema();
+  const expected = Object.keys(schema).length ? JSON.stringify(schema, null, 2) : '';
+  return raw.value.trim() === expected;
+}
+function requireWorldDraftPlayerRawSync() {
+  if (worldDraftPlayerRawMatchesEditor()) return true;
+  setWorldDraftStatus('高级 JSON 有未载入修改，请先点击“从高级 JSON 载入编辑器”。', 'error');
+  $('world-draft-player-creation')?.focus();
+  return false;
+}
+function worldDraftPlayerCreationTemplate(bucket, index, item) {
+  const title = WORLD_DRAFT_PLAYER_BUCKETS.find(definition => definition.key === bucket)?.label || bucket;
+  return `<article class="world-draft-entry world-draft-player-entry" data-player-entry data-player-bucket="${esc(bucket)}" data-player-index="${index}">
+    <div class="world-draft-entry-head"><strong>${esc(title)} ${index + 1}</strong><div class="world-draft-player-actions">
+      <button class="ghost-btn small" type="button" data-player-move="up" aria-label="上移">↑</button>
+      <button class="ghost-btn small" type="button" data-player-move="down" aria-label="下移">↓</button>
+      <button class="ghost-btn small danger" type="button" data-player-remove>删除</button>
+    </div></div>
+    <textarea class="world-draft-player-json" data-player-json rows="6" spellcheck="false" aria-label="${esc(title)} ${index + 1} JSON">${esc(worldDraftPlayerItemText(item))}</textarea>
+    <p class="world-draft-player-error" data-player-error role="status"></p>
+  </article>`;
+}
+function renderWorldDraftPlayerCreation() {
+  const schema = worldDraftPlayerSchema();
+  const host = $('world-draft-player-schema');
+  if (host) {
+    host.innerHTML = WORLD_DRAFT_PLAYER_BUCKETS.map(({ key, label }) => {
+      const entries = Array.isArray(schema[key]) ? schema[key] : [];
+      return `<section class="world-draft-collection world-draft-player-collection" data-player-collection="${esc(key)}">
+        <div class="world-draft-collection-head"><div><h3>${esc(label)}</h3><p>可添加、删除、排序；复杂字段可直接编辑 JSON。</p></div><button class="ghost-btn small" type="button" data-player-add="${esc(key)}">＋${esc(label)}</button></div>
+        <div class="world-draft-collection-list">${entries.length ? entries.map((item, index) => worldDraftPlayerCreationTemplate(key, index, item)).join('') : `<p class="world-draft-empty">暂无${esc(label)}，点击“＋${esc(label)}”添加。</p>`}</div>
+      </section>`;
+    }).join('');
+  }
+  const raw = $('world-draft-player-creation');
+  if (raw) raw.value = Object.keys(schema).length ? JSON.stringify(schema, null, 2) : '';
+  worldDraftPlayerPreview();
+}
+function syncWorldDraftPlayerCreationFromForm({ showError = false } = {}) {
+  if (!worldDraft) return { ok: true, value: null };
+  const current = worldDraftPlayerSchema();
+  const next = cloneValue(current);
+  for (const { key } of WORLD_DRAFT_PLAYER_BUCKETS) {
+    const rows = [...document.querySelectorAll(`#world-draft-player-schema [data-player-entry][data-player-bucket="${key}"]`)]
+      .sort((a, b) => Number(a.dataset.playerIndex) - Number(b.dataset.playerIndex));
+    const values = [];
+    let invalid = false;
+    for (const row of rows) {
+      const error = row.querySelector('[data-player-error]');
+      try {
+        const value = JSON.parse(row.querySelector('[data-player-json]')?.value || '');
+        if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('必须是 JSON 对象');
+        values.push(value);
+        if (error) { error.textContent = ''; error.hidden = true; }
+      } catch (err) {
+        invalid = true;
+        if (error) { error.textContent = err.message || 'JSON 无效'; error.hidden = false; }
+        if (showError) return { ok: false, error: `${key} 中有无效 JSON`, focus: row.querySelector('[data-player-json]') };
+      }
+    }
+    if (invalid) return { ok: false, error: `${key} 中有无效 JSON` };
+    next[key] = values;
+  }
+  if (Object.keys(next).length) {
+    if (!next.mode) next.mode = 'custom';
+    worldDraft.world.playerCreation = next;
+  } else {
+    worldDraft.world.playerCreation = null;
+  }
+  const raw = $('world-draft-player-creation');
+  if (raw) raw.value = worldDraft.world.playerCreation ? JSON.stringify(worldDraft.world.playerCreation, null, 2) : '';
+  worldDraftPlayerPreview();
+  return { ok: true, value: worldDraft.world.playerCreation };
+}
+function loadWorldDraftPlayerCreationJson() {
+  const raw = $('world-draft-player-creation');
+  if (!raw || !worldDraft) return;
+  const text = raw.value.trim();
+  if (!text) {
+    worldDraft.world.playerCreation = null;
+    renderWorldDraftPlayerCreation();
+    worldDraftDirty = true;
+    return;
+  }
+  try {
+    const value = JSON.parse(text);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('必须是 JSON 对象');
+    worldDraft.world.playerCreation = value;
+    renderWorldDraftPlayerCreation();
+    worldDraftDirty = true;
+    setWorldDraftStatus('已从高级 JSON 载入玩家创建规则。', 'ok');
+  } catch (err) {
+    setWorldDraftStatus(`玩家创建规则 JSON 无效：${err.message}`, 'error');
+    raw.focus();
+  }
+}
+function handleWorldDraftPlayerCreationClick(event) {
+  const button = event.target.closest('button');
+  if (!button) return;
+  const host = $('world-draft-player-schema');
+  if (!host || !worldDraft) return;
+  const bucket = button.dataset.playerAdd;
+  if (bucket) {
+    const definition = WORLD_DRAFT_PLAYER_BUCKETS.find(item => item.key === bucket);
+    if (!definition) return;
+    if (!requireWorldDraftPlayerRawSync()) return;
+    if (!syncWorldDraftPlayerCreationFromForm().ok) return;
+    const schema = worldDraftPlayerSchema();
+    if (!Array.isArray(schema[bucket])) schema[bucket] = [];
+    schema[bucket].push(definition.template());
+    schema.mode ||= 'custom';
+    worldDraft.world.playerCreation = schema;
+    worldDraftDirty = true;
+    renderWorldDraftPlayerCreation();
+    host.querySelector(`[data-player-bucket="${bucket}"] [data-player-entry]:last-child [data-player-json]`)?.focus();
+    return;
+  }
+  const row = button.closest('[data-player-entry]');
+  if (!row) return;
+  const rowBucket = row.dataset.playerBucket;
+  const index = Number(row.dataset.playerIndex);
+  if (!requireWorldDraftPlayerRawSync()) return;
+  if (!syncWorldDraftPlayerCreationFromForm().ok) return;
+  const schema = worldDraftPlayerSchema();
+  if (!Array.isArray(schema[rowBucket])) return;
+  const values = schema[rowBucket];
+  if (button.hasAttribute('data-player-remove')) values.splice(index, 1);
+  if (button.dataset.playerMove === 'up' && index > 0) [values[index - 1], values[index]] = [values[index], values[index - 1]];
+  if (button.dataset.playerMove === 'down' && index < values.length - 1) [values[index + 1], values[index]] = [values[index], values[index + 1]];
+  worldDraftDirty = true;
+  renderWorldDraftPlayerCreation();
+}
 function addWorldDraftLocation() {
   if (!worldDraft) return;
   syncWorldDraftCollectionsFromForm();
@@ -617,7 +770,7 @@ function fillWorldDraftForm(draft) {
   $('world-draft-rules').value = world.rules ? JSON.stringify(world.rules, null, 2) : '';
   $('world-draft-tags').value = Array.isArray(world.tags) ? world.tags.join(', ') : '';
   $('world-draft-lorebooks').value = Array.isArray(world.lorebookIds) ? world.lorebookIds.join(', ') : '';
-  $('world-draft-player-creation').value = world.playerCreation ? JSON.stringify(world.playerCreation, null, 2) : '';
+  renderWorldDraftPlayerCreation();
   $('world-draft-turn-contract').value = world.turnContract ? JSON.stringify(world.turnContract, null, 2) : '';
   $('world-draft-failure').value = world.failure ? JSON.stringify(world.failure, null, 2) : '';
   $('world-draft-ending').value = world.ending ? JSON.stringify(world.ending, null, 2) : '';
@@ -684,10 +837,28 @@ async function saveWorldDraft() {
   const mapGeneration = collectWorldDraftMapGeneration();
   const { locations, npcs } = collectWorldDraftCollections();
   let playerCreation = null;
-  const playerCreationText = $('world-draft-player-creation').value.trim();
-  if (playerCreationText) {
-    try { playerCreation = JSON.parse(playerCreationText); }
-    catch { setWorldDraftStatus('玩家创建规则不是有效 JSON。', 'error'); $('world-draft-player-creation').focus(); return false; }
+  const playerCreationRaw = $('world-draft-player-creation').value.trim();
+  const playerCreationResult = syncWorldDraftPlayerCreationFromForm({ showError: true });
+  if (!playerCreationResult.ok) {
+    setWorldDraftStatus(playerCreationResult.error, 'error');
+    playerCreationResult.focus?.focus();
+    return false;
+  }
+  playerCreation = playerCreationResult.value;
+  const playerCreationPreview = playerCreation ? JSON.stringify(playerCreation, null, 2) : '';
+  if (playerCreationRaw !== playerCreationPreview) {
+    if (!playerCreationRaw) playerCreation = null;
+    else {
+      try {
+        playerCreation = JSON.parse(playerCreationRaw);
+        if (!playerCreation || typeof playerCreation !== 'object' || Array.isArray(playerCreation)) throw new Error('必须是 JSON 对象');
+        worldDraft.world.playerCreation = playerCreation;
+      } catch (err) {
+        setWorldDraftStatus(`玩家创建规则 JSON 无效：${err.message}`, 'error');
+        $('world-draft-player-creation').focus();
+        return false;
+      }
+    }
   }
   let turnContract = null;
   const turnContractText = $('world-draft-turn-contract').value.trim();
@@ -6460,6 +6631,9 @@ function bindEvents() {
   $('world-draft-map-land').addEventListener('input', updateWorldDraftMapOutputs);
   $('world-draft-map-random').addEventListener('click', randomizeWorldDraftMapSeed);
   $('world-draft-map-preview').addEventListener('click', previewWorldDraftMap);
+  $('world-draft-player-schema').addEventListener('input', () => { if (requireWorldDraftPlayerRawSync()) syncWorldDraftPlayerCreationFromForm(); worldDraftPlayerPreview(); });
+  $('world-draft-player-schema').addEventListener('click', handleWorldDraftPlayerCreationClick);
+  $('world-draft-player-load-json').addEventListener('click', loadWorldDraftPlayerCreationJson);
   $('world-draft-add-location').addEventListener('click', addWorldDraftLocation);
   $('world-draft-add-npc').addEventListener('click', addWorldDraftNpc);
   $('world-draft-form').addEventListener('submit', async e => { e.preventDefault(); await saveWorldDraft(); });

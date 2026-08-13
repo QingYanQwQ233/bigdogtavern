@@ -834,8 +834,12 @@
           </div>
         </div>
         <div class="field">
-          <label for="world-draft-player-creation">玩家创建规则 <span class="hint-inline">JSON；字段由世界卡声明</span></label>
+          <label for="world-draft-player-creation">玩家创建规则 <span class="hint-inline">可视化编辑；字段由世界卡声明</span></label>
+          <div id="world-draft-player-schema" class="world-draft-player-schema" aria-label="玩家创建规则条目"></div>
           <textarea id="world-draft-player-creation" name="worldDraftPlayerCreation" rows="8" maxlength="30000" spellcheck="false" placeholder='{"mode":"custom","fields":[],"attributes":[],"skills":[],"resources":[],"traits":[]}'></textarea>
+          <div class="world-draft-player-advanced"><button class="ghost-btn small" id="world-draft-player-load-json" type="button">从高级 JSON 载入编辑器</button><span class="hint-inline">可保留自定义键；修改后点击载入，保存时也会校验</span></div>
+          <label class="world-draft-player-preview-label" for="world-draft-player-preview">建角规则预览</label>
+          <pre id="world-draft-player-preview" class="world-draft-player-preview" aria-live="polite"></pre>
           <p class="hint">只写当前世界的建角规则。创建存档时会复制为 player.snapshot，之后与其他存档独立。</p>
         </div>
         <div class="field">
