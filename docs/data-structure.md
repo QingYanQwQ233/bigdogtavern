@@ -253,6 +253,7 @@ WorldNPC 的静态资料按公开边界读取：`role`、`description`、`person
 | `POST /api/chat` | AI 代理：拼 `baseUrl + /chat/completions`，注入 Bearer，SSE 透传；上游默认 120 秒超时，超时返回 504（可用 `TAVERN_PROXY_TIMEOUT_MS` 调整，仅用于本地测试/运维） |
 | `POST /api/image` | 文生图代理：`kind='openai'` → `/images/generations`；`kind='sd'` → `/sdapi/v1/txt2img`，原样转发 |
 | `GET /api/models` | 模型列表代理（读 X-Base-Url / X-Api-Key 头）；上游默认 120 秒超时，超时返回 504 |
+| `POST /api/dice` | 由 Node 服务生成最多 16 个标准骰子表达式结果；世界回合把结果写入 `actionIntent.dice` |
 | `GET /api/data/seed` | 返回 _defaults.json 全量（深拷贝） |
 | `GET/PUT /api/data/:type` | 读写 characters / presets / lorebooks / settings |
 | `GET /api/worlds` | 返回世界卡摘要与每个世界的存档数量 |

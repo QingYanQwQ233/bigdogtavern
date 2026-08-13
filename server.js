@@ -415,7 +415,39 @@ function validateActionIntent(value) {
   for (const key of ['verb', 'target', 'method', 'risk']) {
     if (value[key] !== undefined && (typeof value[key] !== 'string' || value[key].length > 240)) return `actionIntent.${key} 无效`;
   }
+  if (value.dice !== undefined) {
+    if (!Array.isArray(value.dice) || value.dice.length > 16) return 'actionIntent.dice 无效';
+    for (const roll of value.dice) {
+      const parsed = rollDiceExpression(roll?.expr);
+      if (parsed.error || !Array.isArray(roll.rolls) || roll.rolls.length !== parsed.rolls.length || roll.rolls.some((value, index) => !Number.isInteger(value) || value < 1 || value > Number(roll.expr.match(/d(\d+)/i)[1]) || value !== roll.rolls[index]) || roll.total !== roll.rolls.reduce((sum, value) => sum + value, Number(roll.bonus || 0)) || roll.bonus !== parsed.bonus) return 'actionIntent.dice 无效';
+    }
+  }
   return null;
+}
+
+function rollDiceExpression(expression) {
+  const match = String(expression || '').trim().match(/^(\d*)d(\d+)([+-]\d+)?$/i);
+  if (!match) return { error: '骰子表达式无效' };
+  const count = Math.min(Number(match[1] || 1), 100);
+  const sides = Number(match[2]);
+  const bonus = Number(match[3] || 0);
+  if (!Number.isInteger(count) || count < 1 || !Number.isInteger(sides) || sides < 1 || sides > 1000000 || !Number.isInteger(bonus) || Math.abs(bonus) > 1000000) return { error: '骰子范围无效' };
+  const rolls = Array.from({ length: count }, () => crypto.randomInt(1, sides + 1));
+  return { expr: String(expression).trim(), rolls, bonus, total: rolls.reduce((sum, value) => sum + value, bonus) };
+}
+
+async function handleDiceRoll(req, res) {
+  let payload;
+  try { payload = await readJsonBody(req, 16 * 1024); }
+  catch (err) { return send(res, err.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400, JSON.stringify({ error: err.message }), 'application/json'); }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !Array.isArray(payload.expressions) || payload.expressions.length > 16) return send(res, 400, JSON.stringify({ error: 'expressions 必须是最多 16 项的数组' }), 'application/json');
+  const rolls = [];
+  for (const expression of payload.expressions) {
+    const result = rollDiceExpression(expression);
+    if (result.error) return send(res, 400, JSON.stringify({ error: result.error }), 'application/json');
+    rolls.push(result);
+  }
+  send(res, 200, JSON.stringify({ rolls }), 'application/json; charset=utf-8');
 }
 
 function validatePlayerCreationInput(world, input) {
@@ -2451,6 +2483,7 @@ const server = http.createServer((req, res) => {
   if (req.method === 'POST' && url.pathname === '/api/image') return handleImage(req, res);
   if (req.method === 'POST' && url.pathname === '/api/image-save') return handleImageSave(req, res);
   if (req.method === 'GET' && url.pathname === '/api/models') return handleModels(req, res);
+  if (req.method === 'POST' && url.pathname === '/api/dice') return handleDiceRoll(req, res);
   if (req.method === 'GET' && url.pathname === '/api/worlds') return handleWorldsGet(req, res);
   if (req.method === 'POST' && url.pathname === '/api/world-imports') return handleWorldPackageImportPreview(req, res);
   const worldImportMatch = url.pathname.match(/^\/api\/world-imports\/([^/]+)\/?$/);

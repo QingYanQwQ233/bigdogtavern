@@ -1578,6 +1578,18 @@ function rollDiceIn(text) {
   });
   return results;
 }
+async function rollWorldDice(text) {
+  const expressions = [];
+  String(text || '').replace(DICE_RE, match => { if (!expressions.includes(match)) expressions.push(match); return match; });
+  if (!expressions.length) return [];
+  const response = await fetch('/api/dice', {
+    method: 'POST', headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({ expressions }),
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !Array.isArray(data?.rolls)) throw new Error(data?.error || `骰子服务失败（HTTP ${response.status}）`);
+  return data.rolls;
+}
 
 /* ─────────── Markdown 渲染（marked + DOMPurify 消毒） ───────────
  * 参考 Open WebUI：解析后必须消毒（AI / 用户内容不可信）
@@ -4423,12 +4435,16 @@ async function sendMessage() {
         createEntities: null,
       };
       renderMessages();
-      const rolls = rollDiceIn(text);
+      const rolls = await rollWorldDice(text);
       for (const r of rolls) {
         const detail = r.rolls.length > 1 ? `（${r.rolls.join(' + ')}${r.bonus ? (r.bonus >= 0 ? ' + ' + r.bonus : ' - ' + Math.abs(r.bonus)) : ''}）` : (r.bonus ? `（+${r.bonus}）` : '');
         pushMessage('user', `🎲 ${r.expr} = ${r.total} ${detail}`, { meta: true });
       }
+      worldTurnPending.actionIntent.dice = rolls;
       await requestReply();
+    } catch (err) {
+      failWorldTurnPending(err.message);
+      setApiStatus(`最近一次请求失败：${err.message}`, true);
     } finally {
       worldTurnPreparing = false;
     }

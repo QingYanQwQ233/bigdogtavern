@@ -40,6 +40,12 @@ async function main() {
     assert.strictEqual(worldResponse.response.status, 200);
     assert.strictEqual(worldResponse.body.playerCreation.mode, 'custom');
     assert.ok(worldResponse.body.playerCreation.fields.some(field => field.id === 'name'));
+    const dice = await jsonRequest(base, '/api/dice', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expressions: ['2d6+1'] }),
+    });
+    assert.strictEqual(dice.response.status, 200);
+    assert.strictEqual(dice.body.rolls[0].rolls.length, 2);
+    assert.strictEqual(dice.body.rolls[0].total, dice.body.rolls[0].rolls.reduce((sum, value) => sum + value, 1));
 
     const validPlayer = {
       fields: { name: '澪', race: '狐人', role: '地图学者', background: '从北境来到断牙之角。' },
@@ -81,6 +87,11 @@ async function main() {
     });
     assert.strictEqual(freeTurn.response.status, 200, 'world card can allow zero suggestions');
     assert.strictEqual(freeTurn.body.turns.at(-2).actionIntent.raw, '观察四周');
+    const tamperedDice = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'turn-check-2', expectedRevision: freeTurn.body.revision, actionIntent: { raw: '掷骰', dice: [{ expr: '1d20', rolls: [20], bonus: 0, total: 1 }] }, state: freeTurn.body.state, turns: [{ role: 'user', content: '掷骰', ts: Date.now() }, { role: 'assistant', content: '结果。', ts: Date.now() }], options: [] }),
+    });
+    assert.strictEqual(tamperedDice.response.status, 400, 'tampered dice result is rejected');
 
     const second = await jsonRequest(base, '/api/world-saves', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
