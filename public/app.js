@@ -1473,6 +1473,18 @@ function renderRPG() {
   setW('rpg-mp-bar', rs.maxMp ? Math.max(0, Math.min(100, rs.mp / rs.maxMp * 100)) + '%' : '0%');
   setW('rpg-exp-bar', rs.expNext ? Math.max(0, Math.min(100, rs.exp / rs.expNext * 100)) + '%' : '0%');
   setT('rpg-buffs', rs.buffs && rs.buffs.length ? rs.buffs.join('、') : '—');
+  const dynamicStats = $('rpg-dynamic-stats');
+  if (dynamicStats) {
+    const schema = worldModeActive() ? currentWorldCard()?.playerCreation : null;
+    const playerState = worldModeActive() ? currentWorldSave.state?.player : null;
+    const definitions = [...(Array.isArray(schema?.attributes) ? schema.attributes : []), ...(Array.isArray(schema?.resources) ? schema.resources : [])]
+      .filter(definition => definition && !['hp', 'mp', 'gold'].includes(definition.id));
+    dynamicStats.innerHTML = definitions.map(definition => {
+      const bucket = schema.attributes?.some(item => item.id === definition.id) ? playerState?.attributes : playerState?.resources;
+      const value = bucket?.[definition.id] ?? definition.default ?? definition.initial ?? '—';
+      return `<span class="rpg-dynamic-stat">${esc(definition.label || definition.id)}<b>${esc(value)}</b></span>`;
+    }).join('');
+  }
   const inv = $('rpg-inventory');
   if (inv) {
     inv.innerHTML = rs.inventory.length
