@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('assert');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -10,8 +11,16 @@ const MapGen = require(path.join(root, 'public', 'mapgen.js'));
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tavern-world-'));
 const defaults = JSON.parse(fs.readFileSync(path.join(root, 'public', 'data', '_defaults.json'), 'utf8'));
 defaults.worlds[0].npcIds = ['npc-lily'];
-defaults.worlds[0].npcs = [{ id: 'npc-lily', name: 'Lily', role: 'innkeeper' }];
+defaults.worlds[0].npcs = [{ id: 'npc-lily', name: 'Lily', role: 'innkeeper', secrets: [{ id: 'story-secret', content: 'narrative content' }] }];
 defaults.worlds[0].locations.push({ id: 'region-2', name: 'Region Two', type: 'region' });
+defaults.worlds[0].characterIds = ['char-export'];
+defaults.worlds[0].coverImage = 'https://example.invalid/aurora-cover.png';
+defaults.worlds[0].source = { ...(defaults.worlds[0].source || {}), rawAssetRef: 'https://cdn.invalid/world.png?token=secret-url-token' };
+defaults.characters = [{
+  id: 'char-export', name: 'Export Character', loreId: 'default', presetName: 'RPG 叙事引擎（示例）',
+  refImage: 'C:\\private\\character.png', openai_api_key: 'character-export-secret', hf_token: 'custom-token-secret',
+}];
+defaults.settings.apiKey = 'settings-export-secret';
 defaults.worlds.push({
   ...defaults.worlds[0],
   id: 'world-second',
@@ -30,6 +39,16 @@ function closeServer() {
     if (!server.listening) return resolve();
     server.close(() => resolve());
   });
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return '[' + value.map(canonicalJson).join(',') + ']';
+  if (value && typeof value === 'object') return '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonicalJson(value[key])).join(',') + '}';
+  return JSON.stringify(value);
+}
+
+function packageHash(pkg) {
+  return 'sha256:' + crypto.createHash('sha256').update(canonicalJson({ content: pkg.content, assets: pkg.assets })).digest('hex');
 }
 
 async function jsonRequest(base, pathname, options) {
@@ -61,6 +80,109 @@ async function main() {
     assert.ok(world, 'seed world is listed');
     const secondWorld = worlds.body.find(item => item.id === 'world-second');
     assert.ok(secondWorld, 'second world is listed');
+
+    const worldExport = await jsonRequest(base, `/api/worlds/${encodeURIComponent(world.id)}/export?version=${world.version}`);
+    assert.strictEqual(worldExport.response.status, 200);
+    assert.match(worldExport.response.headers.get('content-disposition') || '', /\.tavern-world\.json/);
+    assert.strictEqual(worldExport.body.spec, 'tavern_world_package');
+    assert.strictEqual(worldExport.body.specVersion, 1);
+    assert.strictEqual(worldExport.body.content.world.id, world.id);
+    assert.deepStrictEqual(worldExport.body.content.characters.map(character => character.id), ['char-export']);
+    assert.deepStrictEqual(Object.keys(worldExport.body.content.lorebooks), ['default']);
+    assert.deepStrictEqual(Object.keys(worldExport.body.content.presets), ['RPG 叙事引擎（示例）']);
+    assert.strictEqual(worldExport.body.manifest.references.assets, 1);
+    assert.strictEqual(worldExport.body.assets[0].status, 'external', 'external assets are listed without being fetched');
+    assert.match(worldExport.body.manifest.contentHash, /^sha256:[a-f0-9]{64}$/);
+    assert.ok(worldExport.body.manifest.privacy.redactedPaths.includes('content.characters[0].refImage'));
+    assert.ok(worldExport.body.manifest.privacy.redactedPaths.includes('content.characters[0].openai_api_key'));
+    assert.ok(worldExport.body.manifest.privacy.redactedPaths.includes('content.characters[0].hf_token'));
+    assert.ok(worldExport.body.manifest.privacy.redactedPaths.includes('content.world.source.rawAssetRef'));
+    assert.strictEqual(worldExport.body.content.world.npcs[0].secrets[0].content, 'narrative content', 'world narrative secrets are content, not credentials');
+    const exportedText = JSON.stringify(worldExport.body);
+    assert.ok(!exportedText.includes('character-export-secret') && !exportedText.includes('settings-export-secret')
+      && !exportedText.includes('custom-token-secret') && !exportedText.includes('secret-url-token'), 'world package excludes credentials');
+    assert.ok(!Object.hasOwn(worldExport.body.content, 'settings') && !Object.hasOwn(worldExport.body.content, 'worldSaves'), 'world package excludes settings and saves');
+    const repeatedExport = await jsonRequest(base, `/api/worlds/${encodeURIComponent(world.id)}/export?version=${world.version}`);
+    assert.strictEqual(repeatedExport.body.manifest.contentHash, worldExport.body.manifest.contentHash, 'content hash is deterministic across exports');
+    const invalidExportVersion = await jsonRequest(base, `/api/worlds/${encodeURIComponent(world.id)}/export?version=0`);
+    assert.strictEqual(invalidExportVersion.response.status, 400);
+    const importPackage = JSON.parse(JSON.stringify(worldExport.body));
+    importPackage.sidecars = { customScript: 'alert("never execute")' };
+    importPackage.content.lorebooks.default.entries.push({ id: 'import-regex', title: 'Regex', keys: '/aurora/i', content: 'kept but disabled', enabled: true });
+    importPackage.manifest.contentHash = packageHash(importPackage);
+    const importPreview = await jsonRequest(base, '/api/world-imports', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ raw: JSON.stringify(importPackage) }),
+    });
+    assert.strictEqual(importPreview.response.status, 201);
+    assert.strictEqual(importPreview.body.status, 'pending');
+    assert.ok(importPreview.body.report.canImport);
+    assert.ok(importPreview.body.report.unknownTopLevelKeys.includes('sidecars'));
+    assert.ok(importPreview.body.report.inertPaths.includes('sidecars.customScript'));
+    assert.strictEqual(importPreview.body.report.disabledRegexEntries, 1);
+    assert.ok(fs.existsSync(path.join(tempDir, 'world-imports', importPreview.body.id + '.json')), 'raw package is sealed before confirmation');
+    assert.strictEqual(JSON.parse(fs.readFileSync(path.join(tempDir, 'world-imports', importPreview.body.id + '.json'), 'utf8')).raw, JSON.stringify(importPackage), 'sealed package preserves the exact raw text');
+    const importRead = await jsonRequest(base, '/api/world-imports/' + encodeURIComponent(importPreview.body.id));
+    assert.strictEqual(importRead.response.status, 200);
+    assert.strictEqual(importRead.body.rawHash, importPreview.body.rawHash);
+    assert.ok(!Object.hasOwn(importRead.body, 'raw'), 'import API does not expose sealed package text');
+    const imported = await jsonRequest(base, '/api/world-imports/' + encodeURIComponent(importPreview.body.id), { method: 'POST' });
+    assert.strictEqual(imported.response.status, 201);
+    assert.strictEqual(imported.body.idempotent, false);
+    assert.notStrictEqual(imported.body.world.id, world.id, 'import always gets an isolated world ID');
+    const originalWorldAfterImport = await jsonRequest(base, `/api/worlds/${encodeURIComponent(world.id)}?version=${world.version}`);
+    assert.strictEqual(originalWorldAfterImport.response.status, 200);
+    assert.strictEqual(originalWorldAfterImport.body.id, world.id, 'import never overwrites the source world');
+    const importedWorld = await jsonRequest(base, `/api/worlds/${encodeURIComponent(imported.body.world.id)}?version=1`);
+    assert.strictEqual(importedWorld.response.status, 200);
+    assert.strictEqual(importedWorld.body.importInfo.importId, importPreview.body.id);
+    assert.strictEqual(importedWorld.body.importInfo.rawHash, importPreview.body.rawHash);
+    assert.ok(importedWorld.body.lorebookIds[0].startsWith('imp-lore-'), 'fallback default lorebook is isolated per imported world');
+    assert.ok(importedWorld.body.characterIds[0].startsWith('imp-char-'), 'world character binding is remapped into its import namespace');
+    const importedCharacters = await jsonRequest(base, '/api/data/characters');
+    const importedCharacter = importedCharacters.body.find(character => character.importInfo?.importId === importPreview.body.id);
+    assert.ok(importedCharacter && importedCharacter.id === importedWorld.body.characterIds[0]);
+    assert.ok(importedCharacters.body.some(character => character.id === 'char-export' && !character.importInfo), 'local character remains separate from imported copy');
+    const importedLorebooks = await jsonRequest(base, '/api/data/lorebooks');
+    assert.strictEqual(importedLorebooks.body[importedWorld.body.lorebookIds[0]].importInfo.importId, importPreview.body.id);
+    assert.strictEqual(importedLorebooks.body[importedWorld.body.lorebookIds[0]].entries.find(entry => entry.id === 'import-regex').enabled, false, 'imported regex remains inert until reviewed');
+    const importedPresets = await jsonRequest(base, '/api/data/presets');
+    assert.ok(Object.values(importedPresets.body).some(preset => preset.importInfo?.importId === importPreview.body.id));
+    const duplicateImport = await jsonRequest(base, '/api/world-imports/' + encodeURIComponent(importPreview.body.id), { method: 'POST' });
+    assert.strictEqual(duplicateImport.response.status, 200);
+    assert.strictEqual(duplicateImport.body.idempotent, true, 'same sealed package commits idempotently');
+    const tamperedPackage = JSON.parse(JSON.stringify(worldExport.body));
+    tamperedPackage.content.world.title = 'Tampered World';
+    const tamperedPreview = await jsonRequest(base, '/api/world-imports', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ raw: JSON.stringify(tamperedPackage) }),
+    });
+    assert.strictEqual(tamperedPreview.response.status, 422);
+    assert.ok(tamperedPreview.body.report.errors.includes('contentHash 校验失败'));
+    const forbiddenContentPackage = JSON.parse(JSON.stringify(worldExport.body));
+    forbiddenContentPackage.content.settings = { apiKey: 'must-not-import' };
+    forbiddenContentPackage.manifest.contentHash = packageHash(forbiddenContentPackage);
+    const forbiddenPreview = await jsonRequest(base, '/api/world-imports', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ raw: JSON.stringify(forbiddenContentPackage) }),
+    });
+    assert.strictEqual(forbiddenPreview.response.status, 422);
+    assert.ok(forbiddenPreview.body.report.errors.includes('世界包不得包含运行时设置或玩家存档'));
+    const unsafeAssetPackage = JSON.parse(JSON.stringify(worldExport.body));
+    unsafeAssetPackage.content.world.coverImage = 'data:image/svg+xml,<svg onload=alert(1)>';
+    unsafeAssetPackage.manifest.contentHash = packageHash(unsafeAssetPackage);
+    const unsafeAssetPreview = await jsonRequest(base, '/api/world-imports', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ raw: JSON.stringify(unsafeAssetPackage) }),
+    });
+    assert.strictEqual(unsafeAssetPreview.response.status, 422);
+    assert.ok(unsafeAssetPreview.body.report.errors.some(error => error.includes('content.world.coverImage')));
+    const danglingReferencePackage = JSON.parse(JSON.stringify(worldExport.body));
+    danglingReferencePackage.content.world.questTemplateIds = ['quest-template-1'];
+    danglingReferencePackage.manifest.contentHash = packageHash(danglingReferencePackage);
+    const danglingReferencePreview = await jsonRequest(base, '/api/world-imports', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ raw: JSON.stringify(danglingReferencePackage) }),
+    });
+    assert.strictEqual(danglingReferencePreview.response.status, 422);
+    assert.ok(danglingReferencePreview.body.report.errors.includes('questTemplateIds 尚无随世界包导入的定义'));
+    const sealedStaticRead = await fetch(base + '/data/world-imports/' + encodeURIComponent(importPreview.body.id) + '.json');
+    assert.strictEqual(sealedStaticRead.status, 403, 'sealed raw packages are not exposed as static data');
 
     const noDrafts = await jsonRequest(base, '/api/world-drafts?worldId=' + encodeURIComponent(world.id));
     assert.strictEqual(noDrafts.response.status, 200);
@@ -233,8 +355,41 @@ async function main() {
     assert.strictEqual(oldSecondWorld.body.title, secondWorld.title, 'publication does not mutate the source version');
     const latestSecondWorld = await jsonRequest(base, `/api/worlds/${encodeURIComponent(secondWorld.id)}`);
     assert.strictEqual(latestSecondWorld.body.version, secondPublish.body.world.version);
+    const secondVersions = await jsonRequest(base, `/api/worlds/${encodeURIComponent(secondWorld.id)}/versions`);
+    assert.strictEqual(secondVersions.response.status, 200);
+    assert.deepStrictEqual(secondVersions.body.map(version => version.version), [1, 2], 'world versions are listed in ascending order');
     const oldSecondSave = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(otherWorld.body.id));
     assert.strictEqual(oldSecondSave.body.worldVersion, secondWorld.version, 'existing save stays pinned after draft publication');
+    const upgradePreview = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(otherWorld.body.id)}/upgrade?targetVersion=${secondPublish.body.world.version}`);
+    assert.strictEqual(upgradePreview.response.status, 200);
+    assert.strictEqual(upgradePreview.body.canUpgrade, true);
+    assert.strictEqual(upgradePreview.body.fromVersion, secondWorld.version);
+    assert.strictEqual(upgradePreview.body.targetVersion, secondPublish.body.world.version);
+    const upgradePayload = { commandId: 'upgrade-second-0001', expectedRevision: oldSecondSave.body.revision, targetVersion: secondPublish.body.world.version };
+    const upgradedSecondSave = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(otherWorld.body.id) + '/upgrade', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(upgradePayload),
+    });
+    assert.strictEqual(upgradedSecondSave.response.status, 200);
+    assert.strictEqual(upgradedSecondSave.body.idempotent, false);
+    assert.strictEqual(upgradedSecondSave.body.save.worldVersion, secondPublish.body.world.version);
+    assert.strictEqual(upgradedSecondSave.body.save.revision, oldSecondSave.body.revision + 1);
+    assert.strictEqual(upgradedSecondSave.body.save.migrationHistory.at(-1).commandId, upgradePayload.commandId);
+    const duplicateUpgrade = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(otherWorld.body.id) + '/upgrade', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(upgradePayload),
+    });
+    assert.strictEqual(duplicateUpgrade.response.status, 200, 'save upgrade is idempotent');
+    assert.strictEqual(duplicateUpgrade.body.idempotent, true);
+    assert.strictEqual(duplicateUpgrade.body.save.revision, upgradedSecondSave.body.save.revision);
+    const reusedUpgradeCommand = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(otherWorld.body.id) + '/upgrade', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...upgradePayload, expectedRevision: upgradePayload.expectedRevision + 1 }),
+    });
+    assert.strictEqual(reusedUpgradeCommand.response.status, 409, 'upgrade command ID cannot be reused for another revision');
     const newSecondSave = await jsonRequest(base, '/api/world-saves', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -242,6 +397,72 @@ async function main() {
     });
     assert.strictEqual(newSecondSave.response.status, 201);
     assert.strictEqual(newSecondSave.body.worldVersion, secondPublish.body.world.version, 'new saves can use the published version');
+
+    const thirdDraftCreated = await jsonRequest(base, '/api/world-drafts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ worldId: secondWorld.id, baseVersion: secondPublish.body.world.version }),
+    });
+    assert.strictEqual(thirdDraftCreated.response.status, 201);
+    const thirdLocations = thirdDraftCreated.body.world.locations.filter(location => location.id !== 'region-2');
+    const thirdNpcs = [...(thirdDraftCreated.body.world.npcs || []), { id: 'npc-new-guide', name: 'New Guide', role: 'guide', locationId: 'second-start' }];
+    const thirdDraftUpdate = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(secondWorld.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        expectedUpdatedAt: thirdDraftCreated.body.updatedAt,
+        baseVersion: secondPublish.body.world.version,
+        title: 'Second World Without Region Two',
+        summary: thirdDraftCreated.body.world.summary || '',
+        tags: thirdDraftCreated.body.world.tags || [],
+        lorebookIds: thirdDraftCreated.body.world.lorebookIds || [],
+        mapGeneration: thirdDraftCreated.body.world.map.generation,
+        locations: thirdLocations,
+        npcs: thirdNpcs,
+      }),
+    });
+    assert.strictEqual(thirdDraftUpdate.response.status, 200);
+    const thirdPublish = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(secondWorld.id) + '/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'publish-second-0003', expectedUpdatedAt: thirdDraftUpdate.body.updatedAt, baseVersion: secondPublish.body.world.version }),
+    });
+    assert.strictEqual(thirdPublish.response.status, 201);
+    const addedNpcPreview = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(newSecondSave.body.id)}/upgrade?targetVersion=${thirdPublish.body.world.version}`);
+    assert.strictEqual(addedNpcPreview.response.status, 200);
+    assert.strictEqual(addedNpcPreview.body.canUpgrade, true);
+    assert.ok(addedNpcPreview.body.changes.npcs.added.some(npc => npc.id === 'npc-new-guide'));
+    const addedNpcUpgrade = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(newSecondSave.body.id) + '/upgrade', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'upgrade-new-save-0003', expectedRevision: newSecondSave.body.revision, targetVersion: thirdPublish.body.world.version }),
+    });
+    assert.strictEqual(addedNpcUpgrade.response.status, 200);
+    assert.strictEqual(addedNpcUpgrade.body.save.npcStates['npc-new-guide'].locationId, 'second-start', 'new world NPC receives an isolated save state');
+    const regionState = JSON.parse(JSON.stringify(upgradedSecondSave.body.save.state));
+    regionState.locationId = 'region-2';
+    const secondSaveAtRegion = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(otherWorld.body.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedRevision: upgradedSecondSave.body.save.revision, state: regionState, turns: upgradedSecondSave.body.save.turns, opening: upgradedSecondSave.body.save.opening }),
+    });
+    assert.strictEqual(secondSaveAtRegion.response.status, 200);
+    const blockedUpgradePreview = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(otherWorld.body.id)}/upgrade?targetVersion=${thirdPublish.body.world.version}`);
+    assert.strictEqual(blockedUpgradePreview.response.status, 200);
+    assert.strictEqual(blockedUpgradePreview.body.canUpgrade, false);
+    assert.ok(blockedUpgradePreview.body.hardErrors.some(error => error.path === 'state.locationId' && error.id === 'region-2'));
+    assert.ok(blockedUpgradePreview.body.hardErrors.some(error => error.kind === 'location'), 'upgrade errors expose the stable entity kind');
+    const blockedUpgrade = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(otherWorld.body.id) + '/upgrade', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'upgrade-second-0003', expectedRevision: secondSaveAtRegion.body.revision, targetVersion: thirdPublish.body.world.version }),
+    });
+    assert.strictEqual(blockedUpgrade.response.status, 409, 'missing references block save upgrade');
+    assert.strictEqual(blockedUpgrade.body.report.canUpgrade, false);
+    const blockedSaveUnchanged = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(otherWorld.body.id));
+    assert.strictEqual(blockedSaveUnchanged.body.worldVersion, secondPublish.body.world.version);
+    assert.strictEqual(blockedSaveUnchanged.body.revision, secondSaveAtRegion.body.revision, 'blocked upgrade does not change revision');
+    assert.strictEqual(blockedSaveUnchanged.body.migrationHistory.length, 1, 'blocked upgrade does not append migration history');
 
     const saved = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id));
     assert.strictEqual(saved.response.status, 200);
@@ -332,6 +553,11 @@ async function main() {
     assert.strictEqual(latestWorld.response.status, 200);
     assert.strictEqual(latestWorld.body.version, promotion.body.world.version);
     assert.ok(latestWorld.body.npcIds.includes(promotion.body.npcId));
+    const promotedWorldExport = await jsonRequest(base, `/api/worlds/${encodeURIComponent(world.id)}/export?version=${latestWorld.body.version}`);
+    const exportedPromotedNpc = promotedWorldExport.body.content.world.npcs.find(npc => npc.id === promotion.body.npcId);
+    assert.ok(exportedPromotedNpc && !Object.hasOwn(exportedPromotedNpc, 'sourceSaveId') && !Object.hasOwn(exportedPromotedNpc, 'sourceGeneratedEntityId'));
+    assert.notStrictEqual(promotedWorldExport.body.manifest.contentHash, worldExport.body.manifest.contentHash, 'content changes produce a new package hash');
+    assert.ok(promotedWorldExport.body.manifest.privacy.redactedPaths.some(value => value.endsWith('.sourceSaveId')), 'source save ownership is excluded from exported content');
     const staleDraftPublish = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id) + '/publish', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

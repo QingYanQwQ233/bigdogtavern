@@ -14,6 +14,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -22,6 +23,7 @@ const DATA_DIR = process.env.TAVERN_DATA_DIR
   : path.join(PUBLIC_DIR, 'data');
 const SAVES_DIR = path.join(DATA_DIR, 'saves');
 const WORLD_DRAFTS_PATH = path.join(DATA_DIR, 'world-drafts.json');
+const WORLD_IMPORTS_DIR = path.join(DATA_DIR, 'world-imports');
 // --api-only：只暴露 /api/*（无网页），供公网纯 API 场景
 const API_ONLY = process.argv.includes('--api-only');
 
@@ -58,6 +60,7 @@ async function ensureDataFiles() {
   const defaults = loadDefaults();
   try { await fs.promises.mkdir(DATA_DIR, { recursive: true }); } catch {}
   try { await fs.promises.mkdir(SAVES_DIR, { recursive: true }); } catch {}
+  try { await fs.promises.mkdir(WORLD_IMPORTS_DIR, { recursive: true }); } catch {}
   try { await fs.promises.access(WORLD_DRAFTS_PATH); }
   catch { await fs.promises.writeFile(WORLD_DRAFTS_PATH, '[]\n', 'utf-8'); }
   for (const type of DATA_TYPES) {
@@ -108,6 +111,84 @@ function withWorldsLock(task) {
 
 function cloneJson(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+const WORLD_PACKAGE_SPEC = 'tavern_world_package';
+const WORLD_PACKAGE_VERSION = 1;
+const WORLD_IMPORT_MAX_BYTES = 2 * 1024 * 1024;
+const EXPORT_SECRET_KEYS = new Set(['authorization', 'bearer', 'token', 'password', 'extraheaders']);
+const EXPORT_PRIVATE_KEYS = new Set(['sourcesaveid', 'sourcegeneratedentityid']);
+const EXPORT_ASSET_KEYS = new Set(['coverImage', 'refImage', 'rawAssetRef']);
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return '[' + value.map(canonicalJson).join(',') + ']';
+  if (value && typeof value === 'object') {
+    return '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonicalJson(value[key])).join(',') + '}';
+  }
+  return JSON.stringify(value);
+}
+
+function sha256Json(value) {
+  return 'sha256:' + crypto.createHash('sha256').update(canonicalJson(value)).digest('hex');
+}
+
+function sha256Text(value) {
+  return 'sha256:' + crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function worldImportPath(importId) {
+  return isSafeId(importId) ? path.join(WORLD_IMPORTS_DIR, importId + '.json') : null;
+}
+
+function newWorldImportId() {
+  return 'import-' + Date.now().toString(36) + '-' + crypto.randomBytes(6).toString('hex');
+}
+
+function importedEntityId(kind, importId, sourceId) {
+  return `imp-${kind}-${crypto.createHash('sha256').update(`${importId}\0${sourceId}`).digest('hex').slice(0, 24)}`;
+}
+
+function portableAssetRef(value) {
+  if (value === null || value === '') return true;
+  if (typeof value !== 'string' || value.length > 2048) return false;
+  if (/^https?:\/\//i.test(value)) {
+    try {
+      const url = new URL(value);
+      return !url.username && !url.password && !url.search && !url.hash;
+    } catch { return false; }
+  }
+  if (/^\/images\/[A-Za-z0-9._-]{1,160}$/.test(value)) return true;
+  return !/[?#]/.test(value) && !/(^|[\\/])\.\.([\\/]|$)/.test(value)
+    && !/^(?:[A-Za-z]:[\\/]|\\\\|\/|file:|data:|javascript:)/i.test(value);
+}
+
+function isExportSecretKey(key) {
+  const normalized = key.replace(/[^A-Za-z0-9]/g, '').toLowerCase();
+  return EXPORT_SECRET_KEYS.has(normalized) || normalized.endsWith('apikey')
+    || normalized.endsWith('token') || normalized.endsWith('clientsecret')
+    || normalized.endsWith('secretkey') || normalized.endsWith('privatekey')
+    || normalized === 'cookie' || normalized === 'setcookie';
+}
+
+function sanitizeWorldPackageValue(value, pathPrefix, redactedPaths) {
+  if (Array.isArray(value)) return value.map((item, index) => sanitizeWorldPackageValue(item, `${pathPrefix}[${index}]`, redactedPaths));
+  if (!value || typeof value !== 'object') return value;
+  const next = {};
+  for (const [key, child] of Object.entries(value)) {
+    const childPath = pathPrefix ? `${pathPrefix}.${key}` : key;
+    const normalizedKey = key.replace(/[^A-Za-z0-9]/g, '').toLowerCase();
+    if (isExportSecretKey(key) || EXPORT_PRIVATE_KEYS.has(normalizedKey)
+      || (EXPORT_ASSET_KEYS.has(key) && !portableAssetRef(child))) {
+      redactedPaths.push(childPath);
+      continue;
+    }
+    next[key] = sanitizeWorldPackageValue(child, childPath, redactedPaths);
+  }
+  return next;
+}
+
+async function loadDataDocument(type) {
+  return JSON.parse(await fs.promises.readFile(path.join(DATA_DIR, type + '.json'), 'utf-8'));
 }
 
 async function readJsonBody(req, maxBytes = 256 * 1024) {
@@ -390,6 +471,75 @@ function saveSummary(save) {
   };
 }
 
+function worldUpgradeEntities(world, type) {
+  const config = {
+    locations: ['locations', []],
+    npcs: ['npcs', ['npcIds']],
+    quests: ['quests', ['questIds', 'questTemplateIds']],
+  }[type];
+  const entities = new Map();
+  for (const entity of Array.isArray(world?.[config[0]]) ? world[config[0]] : []) {
+    if (isSafeId(entity?.id)) entities.set(entity.id, { id: entity.id, name: entity.name || entity.title || entity.id });
+  }
+  for (const key of config[1]) {
+    for (const id of Array.isArray(world?.[key]) ? world[key] : []) if (isSafeId(id) && !entities.has(id)) entities.set(id, { id, name: id });
+  }
+  return entities;
+}
+
+function worldSaveUpgradeReport(save, sourceWorld, targetWorld) {
+  const source = Object.fromEntries(['locations', 'npcs', 'quests'].map(type => [type, worldUpgradeEntities(sourceWorld, type)]));
+  const target = Object.fromEntries(['locations', 'npcs', 'quests'].map(type => [type, worldUpgradeEntities(targetWorld, type)]));
+  const changes = Object.fromEntries(['locations', 'npcs', 'quests'].map(type => [type, {
+    added: [...target[type].values()].filter(entity => !source[type].has(entity.id)),
+    removed: [...source[type].values()].filter(entity => !target[type].has(entity.id)),
+  }]));
+  const generated = save.generatedEntities && typeof save.generatedEntities === 'object' ? save.generatedEntities : {};
+  const generatedLocationIds = new Set(Object.keys(generated.locations || {}));
+  const generatedNpcIds = new Set(Object.keys(generated.npcs || {}));
+  const generatedQuestIds = new Set(Object.keys(generated.quests || {}));
+  const hardErrors = [];
+  const missing = (kind, id, path) => {
+    if (id === undefined || id === null || id === '') return;
+    const entityKind = { locations: 'location', npcs: 'npc', quests: 'quest' }[kind];
+    if (typeof id !== 'string' || !isSafeId(id)) {
+      hardErrors.push({ kind: entityKind, id: String(id), path, message: `${path} 不是有效的稳定 ID` });
+    } else if (!target[kind].has(id)) {
+      hardErrors.push({ kind: entityKind, id, path, message: `${path} 引用的 ${id} 不存在于目标版本` });
+    }
+  };
+  const state = save.state || {};
+  if (!generatedLocationIds.has(state.locationId)) missing('locations', state.locationId, 'state.locationId');
+  for (const [npcId, npcState] of Object.entries(save.npcStates || {})) {
+    if (!generatedNpcIds.has(npcId)) missing('npcs', npcId, `npcStates.${npcId}`);
+    if (!generatedLocationIds.has(npcState?.locationId)) missing('locations', npcState?.locationId, `npcStates.${npcId}.locationId`);
+  }
+  for (const [index, id] of (Array.isArray(state.map?.discoveredLocationIds) ? state.map.discoveredLocationIds : []).entries()) {
+    if (!generatedLocationIds.has(id)) missing('locations', id, `state.map.discoveredLocationIds[${index}]`);
+  }
+  for (const [index, marker] of (Array.isArray(state.map?.markers) ? state.map.markers : []).entries()) {
+    if (!generatedLocationIds.has(marker?.locationId)) missing('locations', marker?.locationId, `state.map.markers[${index}].locationId`);
+  }
+  const playerId = save.player?.characterId;
+  for (const [index, id] of (Array.isArray(save.party?.memberIds) ? save.party.memberIds : []).entries()) {
+    if (id !== playerId && !generatedNpcIds.has(id)) missing('npcs', id, `party.memberIds[${index}]`);
+  }
+  for (const [index, quest] of (Array.isArray(state.quests) ? state.quests : []).entries()) {
+    const id = quest?.questId || quest?.id;
+    if (!generatedQuestIds.has(id)) missing('quests', id, `state.quests[${index}]`);
+  }
+  return {
+    saveId: save.id,
+    worldId: save.worldId,
+    fromVersion: Number(sourceWorld.version),
+    targetVersion: Number(targetWorld.version),
+    targetTitle: targetWorld.title || targetWorld.id,
+    canUpgrade: hardErrors.length === 0,
+    changes,
+    hardErrors,
+  };
+}
+
 async function listWorldSaveFiles(worldId) {
   const names = await fs.promises.readdir(SAVES_DIR);
   const result = [];
@@ -594,6 +744,426 @@ async function handleWorldCardGet(req, res, worldId, version) {
   }
 }
 
+async function handleWorldVersionsGet(req, res, worldId) {
+  if (!isSafeId(worldId)) return send(res, 400, JSON.stringify({ error: '无效的 worldId' }), 'application/json');
+  try {
+    const versions = worldVersions(await loadWorlds(), worldId);
+    if (!versions.length) return send(res, 404, JSON.stringify({ error: '世界卡不存在' }), 'application/json');
+    send(res, 200, JSON.stringify(versions.map(world => worldSummary(world))), 'application/json; charset=utf-8');
+  } catch (err) {
+    console.error('[worlds] 版本列表读取失败:', err.message);
+    send(res, 500, JSON.stringify({ error: '世界版本列表读取失败: ' + err.message }), 'application/json');
+  }
+}
+
+async function describeWorldPackageAsset(role, ownerId, uri) {
+  const entry = { id: `${role}:${ownerId}`, role, ownerId, uri };
+  if (/^https?:\/\//i.test(uri)) return { ...entry, status: 'external', sha256: null };
+  if (!/^\/images\/[A-Za-z0-9._-]{1,160}$/.test(uri)) return { ...entry, status: 'unresolved', sha256: null };
+  try {
+    const data = await fs.promises.readFile(path.join(IMAGES_DIR, path.basename(uri)));
+    return {
+      ...entry,
+      status: 'available',
+      mime: MIME[path.extname(uri).toLowerCase()]?.split(';')[0] || 'application/octet-stream',
+      bytes: data.length,
+      sha256: 'sha256:' + crypto.createHash('sha256').update(data).digest('hex'),
+    };
+  } catch (err) {
+    if (err.code === 'ENOENT') return { ...entry, status: 'missing', sha256: null };
+    throw err;
+  }
+}
+
+async function buildWorldPackage(world) {
+  const [rawCharacters, rawLorebooks, rawPresets] = await Promise.all([
+    loadDataDocument('characters'), loadDataDocument('lorebooks'), loadDataDocument('presets'),
+  ]);
+  if (!Array.isArray(rawCharacters) || !rawLorebooks || typeof rawLorebooks !== 'object' || Array.isArray(rawLorebooks)
+    || !rawPresets || typeof rawPresets !== 'object' || Array.isArray(rawPresets)) {
+    throw new Error('角色、世界书或预设数据格式无效');
+  }
+
+  const warnings = [];
+  const localNpcIds = new Set((Array.isArray(world.npcs) ? world.npcs : []).map(npc => npc?.id).filter(isSafeId));
+  const requestedCharacterIds = new Set();
+  if (isSafeId(world.start?.playerTemplateId)) requestedCharacterIds.add(world.start.playerTemplateId);
+  for (const id of Array.isArray(world.characterIds) ? world.characterIds : []) if (isSafeId(id)) requestedCharacterIds.add(id);
+  for (const id of Array.isArray(world.npcIds) ? world.npcIds : []) if (isSafeId(id) && !localNpcIds.has(id)) requestedCharacterIds.add(id);
+  const characters = rawCharacters.filter(character => requestedCharacterIds.has(character?.id));
+  const characterById = new Set(characters.map(character => character.id));
+  for (const id of requestedCharacterIds) {
+    if (!characterById.has(id) && !localNpcIds.has(id)) warnings.push(`缺少角色引用：${id}`);
+  }
+
+  const lorebookIds = new Set(Array.isArray(world.lorebookIds) && world.lorebookIds.length ? world.lorebookIds : ['default']);
+  const presetNames = new Set(typeof world.rpgPresetName === 'string' && world.rpgPresetName ? [world.rpgPresetName] : []);
+  for (const character of characters) {
+    if (isSafeId(character.loreId)) lorebookIds.add(character.loreId);
+    if (typeof character.presetName === 'string' && character.presetName) presetNames.add(character.presetName);
+  }
+  const lorebooks = {};
+  for (const id of lorebookIds) {
+    if (typeof id === 'string' && Object.hasOwn(rawLorebooks, id)) lorebooks[id] = rawLorebooks[id];
+    else if (isSafeId(id)) warnings.push(`缺少世界书引用：${id}`);
+  }
+  const presets = {};
+  for (const name of presetNames) {
+    if (Object.hasOwn(rawPresets, name)) presets[name] = rawPresets[name];
+    else warnings.push(`缺少预设引用：${name}`);
+  }
+
+  const redactedPaths = [];
+  const content = sanitizeWorldPackageValue({ world, characters, lorebooks, presets }, 'content', redactedPaths);
+  const assetRefs = [];
+  const addAsset = (role, ownerId, uri) => {
+    if (typeof uri === 'string' && uri) assetRefs.push({ role, ownerId, uri });
+  };
+  addAsset('world-cover', content.world.id, content.world.coverImage);
+  addAsset('source-asset', content.world.id, content.world.source?.rawAssetRef);
+  for (const character of content.characters) addAsset('character-reference', character.id, character.refImage);
+  for (const npc of Array.isArray(content.world.npcs) ? content.world.npcs : []) addAsset('npc-reference', npc.id, npc.refImage);
+  const uniqueAssetRefs = [...new Map(assetRefs.map(asset => [`${asset.role}\0${asset.ownerId}\0${asset.uri}`, asset])).values()];
+  const assets = await Promise.all(uniqueAssetRefs.map(asset => describeWorldPackageAsset(asset.role, asset.ownerId, asset.uri)));
+  const regexTriggers = Object.values(content.lorebooks).reduce((count, lorebook) => count + (Array.isArray(lorebook?.entries)
+    ? lorebook.entries.reduce((sum, entry) => sum + String(entry?.keys || '').split(',').filter(key => /^\s*\/.*\/[a-z]*\s*$/i.test(key)).length, 0)
+    : 0), 0);
+  const payload = { content, assets };
+  return {
+    spec: WORLD_PACKAGE_SPEC,
+    specVersion: WORLD_PACKAGE_VERSION,
+    exportedAt: new Date().toISOString(),
+    manifest: {
+      packageId: world.id,
+      worldVersion: Number(world.version),
+      worldSchemaVersion: Number(world.schemaVersion || 1),
+      title: String(world.title || world.id),
+      author: typeof (world.author || world.source?.author) === 'string' ? (world.author || world.source.author) : null,
+      license: typeof (world.license || world.source?.license) === 'string' ? (world.license || world.source.license) : null,
+      source: content.world.source || { format: 'native', rawAssetRef: null },
+      contentHash: sha256Json(payload),
+      hashScope: 'canonical-json(content,assets)',
+      references: { characters: content.characters.length, lorebooks: Object.keys(content.lorebooks).length, presets: Object.keys(content.presets).length, assets: assets.length },
+      privacy: { excludes: ['settings', 'user', 'worldSaves'], redactedPaths: [...new Set(redactedPaths)].sort() },
+      executableContent: { html: false, scripts: false, regexTriggers, executedDuringExport: false },
+      warnings,
+    },
+    ...payload,
+  };
+}
+
+async function handleWorldPackageExport(req, res, worldId, version) {
+  if (!isSafeId(worldId)) return send(res, 400, JSON.stringify({ error: '无效的 worldId' }), 'application/json');
+  try {
+    const worlds = await loadWorlds();
+    const world = version === undefined ? latestWorld(worlds, worldId) : findWorldVersion(worlds, worldId, version);
+    if (!world) return send(res, 404, JSON.stringify({ error: '世界卡版本不存在' }), 'application/json');
+    const worldPackage = await buildWorldPackage(world);
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${world.id}-v${Number(world.version)}.tavern-world.json"`,
+      'Cache-Control': 'no-store',
+    });
+    res.end(JSON.stringify(worldPackage, null, 2));
+  } catch (err) {
+    console.error('[worlds] 世界包导出失败:', err.message);
+    send(res, 500, JSON.stringify({ error: '世界包导出失败: ' + err.message }), 'application/json');
+  }
+}
+
+function collectInertImportPaths(value, pathPrefix, paths) {
+  if (!value || typeof value !== 'object') return;
+  for (const [key, child] of Object.entries(value)) {
+    const childPath = pathPrefix ? `${pathPrefix}.${key}` : key;
+    if (/(?:script|ejs|mvu|macro|javascript)/i.test(key)) paths.push(childPath);
+    collectInertImportPaths(child, childPath, paths);
+  }
+}
+
+function collectUnsafeWorldPackagePaths(value, pathPrefix, paths) {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => collectUnsafeWorldPackagePaths(item, `${pathPrefix}[${index}]`, paths));
+    return;
+  }
+  if (!value || typeof value !== 'object') return;
+  for (const [key, child] of Object.entries(value)) {
+    const childPath = pathPrefix ? `${pathPrefix}.${key}` : key;
+    const normalizedKey = key.replace(/[^A-Za-z0-9]/g, '').toLowerCase();
+    if (isExportSecretKey(key) || EXPORT_PRIVATE_KEYS.has(normalizedKey)) paths.push(childPath);
+    else if (EXPORT_ASSET_KEYS.has(key) && !portableAssetRef(child)) paths.push(childPath);
+    collectUnsafeWorldPackagePaths(child, childPath, paths);
+  }
+}
+
+function worldPackageRegexEntries(lorebooks) {
+  const entries = [];
+  for (const [lorebookId, lorebook] of Object.entries(lorebooks || {})) {
+    for (const [index, entry] of (Array.isArray(lorebook?.entries) ? lorebook.entries : []).entries()) {
+      for (const key of String(entry?.keys || '').split(',').map(value => value.trim()).filter(Boolean)) {
+        if (!key.startsWith('/') || key.lastIndexOf('/') <= 0) continue;
+        const end = key.lastIndexOf('/');
+        entries.push({ lorebookId, index, key, pattern: key.slice(1, end), flags: key.slice(end + 1) });
+      }
+    }
+  }
+  return entries;
+}
+
+function worldPackageImportReport(pkg) {
+  const errors = [];
+  const warnings = [];
+  const unknownTopLevelKeys = [];
+  const inertPaths = [];
+  if (!pkg || typeof pkg !== 'object' || Array.isArray(pkg)) return { canImport: false, errors: ['世界包根节点必须是 JSON 对象'], warnings, unknownTopLevelKeys, inertPaths };
+  for (const key of Object.keys(pkg)) {
+    if (!['spec', 'specVersion', 'exportedAt', 'manifest', 'content', 'assets'].includes(key)) {
+      unknownTopLevelKeys.push(key);
+      collectInertImportPaths({ [key]: pkg[key] }, '', inertPaths);
+    }
+  }
+  if (pkg.spec !== WORLD_PACKAGE_SPEC) errors.push('不支持的世界包 spec');
+  if (pkg.specVersion !== WORLD_PACKAGE_VERSION) errors.push('不支持的世界包版本');
+  const content = pkg.content;
+  if (!content || typeof content !== 'object' || Array.isArray(content)) errors.push('世界包缺少 content 对象');
+  const world = content?.world;
+  if (!world || typeof world !== 'object' || Array.isArray(world)) errors.push('世界包缺少 world 定义');
+  else {
+    if (!isSafeId(world.id)) errors.push('world.id 无效');
+    if (!Number.isSafeInteger(world.version) || world.version < 1) errors.push('world.version 无效');
+    if (typeof world.title !== 'string' || !world.title.trim() || world.title.length > 200) errors.push('world.title 无效');
+  }
+  if (!Array.isArray(content?.characters) || content.characters.length > 256) errors.push('characters 必须是至多 256 项的数组');
+  if (!content?.lorebooks || typeof content.lorebooks !== 'object' || Array.isArray(content.lorebooks)) errors.push('lorebooks 必须是对象');
+  if (!content?.presets || typeof content.presets !== 'object' || Array.isArray(content.presets)) errors.push('presets 必须是对象');
+  if (!Array.isArray(pkg.assets) || pkg.assets.length > 256) errors.push('assets 必须是至多 256 项的数组');
+  if (content && ['settings', 'user', 'worldSaves'].some(key => Object.hasOwn(content, key))) errors.push('世界包不得包含运行时设置或玩家存档');
+  const unsafePaths = [];
+  collectUnsafeWorldPackagePaths(content, 'content', unsafePaths);
+  if (unsafePaths.length) errors.push(`世界包包含私密或不安全字段：${unsafePaths.slice(0, 4).join('、')}${unsafePaths.length > 4 ? '…' : ''}`);
+  collectInertImportPaths(content, 'content', inertPaths);
+  if (pkg.manifest?.contentHash !== sha256Json({ content: pkg.content, assets: pkg.assets })) errors.push('contentHash 校验失败');
+  if (errors.length) return { canImport: false, errors, warnings, unknownTopLevelKeys, inertPaths };
+
+  const characters = content.characters;
+  const characterIds = new Set();
+  for (const character of characters) {
+    if (!character || typeof character !== 'object' || !isSafeId(character.id) || characterIds.has(character.id)) errors.push('characters 包含重复或无效 ID');
+    else characterIds.add(character.id);
+  }
+  const lorebookIds = new Set(Object.keys(content.lorebooks));
+  if ([...lorebookIds].some(id => !isSafeId(id))) errors.push('lorebooks 包含无效 ID');
+  const presetNames = new Set(Object.keys(content.presets));
+  if ([...presetNames].some(name => !name || name.length > 200)) errors.push('presets 包含无效名称');
+  const embeddedNpcIds = new Set((Array.isArray(world.npcs) ? world.npcs : []).map(npc => npc?.id).filter(isSafeId));
+  const referencedCharacterIds = new Set();
+  if (world.start?.playerTemplateId && !isSafeId(world.start.playerTemplateId)) errors.push('start.playerTemplateId 无效');
+  if (isSafeId(world.start?.playerTemplateId)) referencedCharacterIds.add(world.start.playerTemplateId);
+  for (const key of ['characterIds', 'npcIds']) {
+    if (world[key] !== undefined && (!Array.isArray(world[key]) || world[key].some(id => !isSafeId(id)))) errors.push(`${key} 包含无效 ID`);
+  }
+  for (const id of Array.isArray(world.characterIds) ? world.characterIds : []) if (isSafeId(id)) referencedCharacterIds.add(id);
+  for (const id of Array.isArray(world.npcIds) ? world.npcIds : []) if (isSafeId(id) && !embeddedNpcIds.has(id)) referencedCharacterIds.add(id);
+  for (const id of referencedCharacterIds) if (!characterIds.has(id)) errors.push(`缺少角色引用：${id}`);
+  for (const key of ['factionIds', 'itemIds', 'questTemplateIds']) {
+    if (Array.isArray(world[key]) && world[key].length) errors.push(`${key} 尚无随世界包导入的定义`);
+  }
+  if (world.lorebookIds !== undefined && (!Array.isArray(world.lorebookIds) || world.lorebookIds.some(id => !isSafeId(id)))) errors.push('lorebookIds 包含无效 ID');
+  const effectiveLorebookIds = Array.isArray(world.lorebookIds) && world.lorebookIds.length ? world.lorebookIds : ['default'];
+  for (const id of effectiveLorebookIds) if (!lorebookIds.has(id)) errors.push(`缺少世界书引用：${id}`);
+  if (world.rpgPresetName !== undefined && typeof world.rpgPresetName !== 'string') errors.push('rpgPresetName 无效');
+  if (world.rpgPresetName && !presetNames.has(world.rpgPresetName)) errors.push(`缺少预设引用：${world.rpgPresetName}`);
+  for (const character of characters) {
+    if (character?.loreId && !lorebookIds.has(character.loreId)) errors.push(`角色 ${character.id} 缺少世界书：${character.loreId}`);
+    if (character?.presetName && !presetNames.has(character.presetName)) errors.push(`角色 ${character.id} 缺少预设：${character.presetName}`);
+  }
+  const regexEntries = worldPackageRegexEntries(content.lorebooks);
+  for (const regex of regexEntries) {
+    if (regex.pattern.length > 500 || !/^[dgimsuvy]*$/.test(regex.flags)) errors.push(`世界书正则无效：${regex.lorebookId}.entries[${regex.index}]`);
+    else {
+      try { new RegExp(regex.pattern, regex.flags); }
+      catch { errors.push(`世界书正则无效：${regex.lorebookId}.entries[${regex.index}]`); }
+    }
+  }
+  if (pkg.manifest?.executableContent?.scripts) warnings.push('包声明含脚本；将仅封存，不会执行');
+  if (regexEntries.length) warnings.push(`世界书含 ${regexEntries.length} 个正则触发器；已保留，导入后默认禁用`);
+  if (unknownTopLevelKeys.length) warnings.push(`保留 ${unknownTopLevelKeys.length} 个未知顶层字段，仅封存在原件中`);
+  return {
+    canImport: errors.length === 0,
+    errors,
+    warnings,
+    unknownTopLevelKeys,
+    inertPaths,
+    references: { characters: characters.length, lorebooks: lorebookIds.size, presets: presetNames.size, assets: pkg.assets.length },
+    disabledRegexEntries: regexEntries.length,
+  };
+}
+
+function worldImportView(record) {
+  return {
+    id: record.id,
+    status: record.status,
+    createdAt: record.createdAt,
+    committedAt: record.committedAt || null,
+    rawHash: record.rawHash,
+    source: record.source || null,
+    report: record.report,
+    importedWorld: record.importedWorld || null,
+  };
+}
+
+async function loadWorldImport(importId) {
+  const fp = worldImportPath(importId);
+  if (!fp) return null;
+  try { return JSON.parse(await fs.promises.readFile(fp, 'utf-8')); }
+  catch (err) { if (err.code === 'ENOENT') return null; throw err; }
+}
+
+async function handleWorldPackageImportPreview(req, res) {
+  let payload;
+  try { payload = await readJsonBody(req, WORLD_IMPORT_MAX_BYTES + 64 * 1024); }
+  catch (err) { return send(res, err.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400, JSON.stringify({ error: err.message }), 'application/json'); }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload) || typeof payload.raw !== 'string' || !payload.raw.trim()) {
+    return send(res, 400, JSON.stringify({ error: '请提交世界包原文' }), 'application/json');
+  }
+  if (Buffer.byteLength(payload.raw, 'utf8') > WORLD_IMPORT_MAX_BYTES) return send(res, 413, JSON.stringify({ error: '世界包超过 2 MiB 限制' }), 'application/json');
+  let pkg = null;
+  let parseError = null;
+  try { pkg = JSON.parse(payload.raw); } catch { parseError = '世界包不是有效 JSON'; }
+  let report;
+  try { report = parseError ? { canImport: false, errors: [parseError], warnings: [], unknownTopLevelKeys: [], inertPaths: [] } : worldPackageImportReport(pkg); }
+  catch { report = { canImport: false, errors: ['世界包结构过深或无法安全检查'], warnings: [], unknownTopLevelKeys: [], inertPaths: [] }; }
+  const importId = newWorldImportId();
+  const record = {
+    schemaVersion: 1,
+    id: importId,
+    status: 'pending',
+    createdAt: Date.now(),
+    rawHash: sha256Text(payload.raw),
+    raw: payload.raw,
+    source: pkg?.manifest ? { packageId: pkg.manifest.packageId || null, worldVersion: pkg.manifest.worldVersion || null, contentHash: pkg.manifest.contentHash || null } : null,
+    report,
+  };
+  try {
+    await fs.promises.mkdir(WORLD_IMPORTS_DIR, { recursive: true });
+    await writeJsonAtomic(worldImportPath(importId), record);
+    send(res, report.canImport ? 201 : 422, JSON.stringify(worldImportView(record)), 'application/json; charset=utf-8');
+  } catch (err) {
+    console.error('[world-imports] 封存失败:', err.message);
+    send(res, 500, JSON.stringify({ error: '世界包封存失败: ' + err.message }), 'application/json');
+  }
+}
+
+function mapImportedWorldPackage(pkg, importId, rawHash) {
+  const content = cloneJson(pkg.content);
+  const sourceWorld = content.world;
+  const characterIdMap = new Map(content.characters.map(character => [character.id, importedEntityId('char', importId, character.id)]));
+  const lorebookIdMap = new Map(Object.keys(content.lorebooks).map(id => [id, importedEntityId('lore', importId, id)]));
+  const presetNameMap = new Map(Object.keys(content.presets).map(name => [name, `导入 · ${importId.slice(-8)} · ${name}`]));
+  const worldId = importedEntityId('world', importId, sourceWorld.id);
+  const localNpcIds = new Set((Array.isArray(sourceWorld.npcs) ? sourceWorld.npcs : []).map(npc => npc?.id).filter(isSafeId));
+  const remapCharacter = id => characterIdMap.get(id) || id;
+  const world = {
+    ...sourceWorld,
+    id: worldId,
+    version: 1,
+    characterIds: Array.isArray(sourceWorld.characterIds) ? sourceWorld.characterIds.map(remapCharacter) : [],
+    npcIds: Array.isArray(sourceWorld.npcIds) ? sourceWorld.npcIds.map(id => localNpcIds.has(id) ? id : remapCharacter(id)) : [],
+    lorebookIds: (Array.isArray(sourceWorld.lorebookIds) && sourceWorld.lorebookIds.length ? sourceWorld.lorebookIds : ['default']).map(id => lorebookIdMap.get(id) || id),
+    rpgPresetName: presetNameMap.get(sourceWorld.rpgPresetName) || sourceWorld.rpgPresetName || '',
+    start: sourceWorld.start && typeof sourceWorld.start === 'object' ? { ...sourceWorld.start, playerTemplateId: remapCharacter(sourceWorld.start.playerTemplateId) } : sourceWorld.start,
+    importInfo: { importId, sourceWorldId: sourceWorld.id, sourceWorldVersion: sourceWorld.version, importedAt: Date.now(), rawHash },
+  };
+  const characters = content.characters.map(character => ({
+    ...character,
+    id: characterIdMap.get(character.id),
+    loreId: lorebookIdMap.get(character.loreId) || character.loreId || '',
+    presetName: presetNameMap.get(character.presetName) || character.presetName || '',
+    importInfo: { importId, sourceId: character.id },
+  }));
+  const lorebooks = Object.fromEntries(Object.entries(content.lorebooks).map(([id, lorebook]) => [lorebookIdMap.get(id), {
+    ...lorebook,
+    entries: Array.isArray(lorebook.entries) ? lorebook.entries.map(entry => {
+      const hasRegex = worldPackageRegexEntries({ [id]: { entries: [entry] } }).length > 0;
+      return hasRegex ? { ...entry, enabled: false, importInfo: { importId, regexDisabledOnImport: true } } : entry;
+    }) : lorebook.entries,
+    importInfo: { importId, sourceId: id },
+  }]));
+  const presets = Object.fromEntries(Object.entries(content.presets).map(([name, preset]) => [presetNameMap.get(name), {
+    ...preset,
+    importInfo: { importId, sourceName: name },
+  }]));
+  return { world, characters, lorebooks, presets };
+}
+
+function mergeImportedArray(existing, incoming, importId) {
+  const ids = new Set(existing.map(item => item?.id));
+  for (const item of incoming) {
+    const matched = existing.find(candidate => candidate?.id === item.id);
+    if (matched?.importInfo?.importId === importId) continue;
+    if (ids.has(item.id)) throw new Error('导入实体 ID 冲突');
+    existing.push(item);
+    ids.add(item.id);
+  }
+  return existing;
+}
+
+async function handleWorldPackageImportCommit(req, res, importId) {
+  if (!isSafeId(importId)) return send(res, 400, JSON.stringify({ error: '无效的 importId' }), 'application/json');
+  return withWorldsLock(async () => {
+    try {
+      const record = await loadWorldImport(importId);
+      if (!record) return send(res, 404, JSON.stringify({ error: '世界包封存不存在' }), 'application/json');
+      if (record.status === 'committed') return send(res, 200, JSON.stringify({ import: worldImportView(record), world: record.importedWorld, idempotent: true }), 'application/json; charset=utf-8');
+      if (sha256Text(record.raw || '') !== record.rawHash) return send(res, 409, JSON.stringify({ error: '封存世界包哈希不一致，已拒绝导入' }), 'application/json');
+      let pkg;
+      try { pkg = JSON.parse(record.raw); } catch { return send(res, 409, JSON.stringify({ error: '封存世界包无法重新解析' }), 'application/json'); }
+      let report;
+      try { report = worldPackageImportReport(pkg); }
+      catch { return send(res, 409, JSON.stringify({ error: '封存世界包结构过深或无法安全检查' }), 'application/json'); }
+      if (!report.canImport) return send(res, 409, JSON.stringify({ error: '世界包未通过导入校验', report }), 'application/json');
+      const mapped = mapImportedWorldPackage(pkg, importId, record.rawHash);
+      const [worlds, characters, lorebooks, presets] = await Promise.all([loadWorlds(), loadDataDocument('characters'), loadDataDocument('lorebooks'), loadDataDocument('presets')]);
+      const existingWorld = worlds.find(world => world?.id === mapped.world.id);
+      if (existingWorld?.importInfo?.importId !== importId && existingWorld) throw new Error('导入世界 ID 冲突');
+      mergeImportedArray(characters, mapped.characters, importId);
+      for (const [id, lorebook] of Object.entries(mapped.lorebooks)) {
+        if (lorebooks[id]?.importInfo?.importId !== importId && lorebooks[id]) throw new Error('导入世界书 ID 冲突');
+        if (!lorebooks[id]) lorebooks[id] = lorebook;
+      }
+      for (const [name, preset] of Object.entries(mapped.presets)) {
+        if (presets[name]?.importInfo?.importId !== importId && presets[name]) throw new Error('导入预设名称冲突');
+        if (!presets[name]) presets[name] = preset;
+      }
+      if (!existingWorld) worlds.push(mapped.world);
+      await writeJsonAtomic(path.join(DATA_DIR, 'characters.json'), characters);
+      await writeJsonAtomic(path.join(DATA_DIR, 'lorebooks.json'), lorebooks);
+      await writeJsonAtomic(path.join(DATA_DIR, 'presets.json'), presets);
+      await writeJsonAtomic(path.join(DATA_DIR, 'worlds.json'), worlds);
+      record.status = 'committed';
+      record.committedAt = Date.now();
+      record.report = report;
+      record.importedWorld = worldSummary(mapped.world);
+      await writeJsonAtomic(worldImportPath(importId), record);
+      send(res, 201, JSON.stringify({ import: worldImportView(record), world: record.importedWorld, idempotent: false }), 'application/json; charset=utf-8');
+    } catch (err) {
+      console.error('[world-imports] 导入失败:', err.message);
+      send(res, 500, JSON.stringify({ error: '世界包导入失败: ' + err.message }), 'application/json');
+    }
+  });
+}
+
+async function handleWorldPackageImportGet(req, res, importId) {
+  if (!isSafeId(importId)) return send(res, 400, JSON.stringify({ error: '无效的 importId' }), 'application/json');
+  try {
+    const record = await loadWorldImport(importId);
+    if (!record) return send(res, 404, JSON.stringify({ error: '世界包封存不存在' }), 'application/json');
+    send(res, 200, JSON.stringify(worldImportView(record)), 'application/json; charset=utf-8');
+  } catch (err) {
+    console.error('[world-imports] 读取失败:', err.message);
+    send(res, 500, JSON.stringify({ error: '世界包封存读取失败: ' + err.message }), 'application/json');
+  }
+}
+
 function stableWorldNpcId(worlds) {
   let id;
   do {
@@ -692,6 +1262,107 @@ async function handleWorldSaveGet(req, res, saveId) {
     console.error('[world-saves] 读取失败:', err.message);
     send(res, 500, JSON.stringify({ error: '存档读取失败: ' + err.message }), 'application/json');
   }
+}
+
+function resolveWorldSaveUpgrade(worlds, save, targetVersion) {
+  const sourceWorld = findWorldVersion(worlds, save.worldId, save.worldVersion);
+  if (!sourceWorld) return { status: 409, error: '存档绑定的世界版本不存在' };
+  const targetWorld = findWorldVersion(worlds, save.worldId, targetVersion);
+  if (!targetWorld) return { status: 404, error: '目标世界版本不存在' };
+  if (Number(targetWorld.version) <= Number(save.worldVersion)) return { status: 400, error: '目标版本必须高于存档当前版本' };
+  return { sourceWorld, targetWorld, report: worldSaveUpgradeReport(save, sourceWorld, targetWorld) };
+}
+
+async function handleWorldSaveUpgradePreview(req, res, saveId, targetVersion) {
+  const fp = savePath(saveId);
+  if (!fp) return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json');
+  return withWorldSaveLock(saveId, async () => {
+    try {
+      const save = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
+      if (!save || save.id !== saveId) throw new Error('存档文件 ID 不一致');
+      const resolved = resolveWorldSaveUpgrade(await loadWorlds(), save, targetVersion);
+      if (resolved.error) return send(res, resolved.status, JSON.stringify({ error: resolved.error }), 'application/json');
+      send(res, 200, JSON.stringify(resolved.report), 'application/json; charset=utf-8');
+    } catch (err) {
+      if (err.code === 'ENOENT') return send(res, 404, JSON.stringify({ error: '存档不存在' }), 'application/json');
+      console.error('[world-saves] 升级预演失败:', err.message);
+      send(res, 500, JSON.stringify({ error: '存档升级预演失败: ' + err.message }), 'application/json');
+    }
+  });
+}
+
+async function handleWorldSaveUpgrade(req, res, saveId) {
+  const fp = savePath(saveId);
+  if (!fp) return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json');
+  let payload;
+  try { payload = await readJsonBody(req, 64 * 1024); }
+  catch (err) {
+    const status = err.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400;
+    return send(res, status, JSON.stringify({ error: err.message }), 'application/json');
+  }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return send(res, 400, JSON.stringify({ error: '请求必须是 JSON 对象' }), 'application/json');
+  if (!Number.isSafeInteger(payload.targetVersion) || payload.targetVersion < 1) return send(res, 400, JSON.stringify({ error: 'targetVersion 必须是正整数' }), 'application/json');
+  if (!Number.isSafeInteger(payload.expectedRevision) || payload.expectedRevision < 0) return send(res, 400, JSON.stringify({ error: 'expectedRevision 必须是非负整数' }), 'application/json');
+  if (typeof payload.commandId !== 'string' || !COMMAND_ID_RE.test(payload.commandId)) return send(res, 400, JSON.stringify({ error: 'commandId 无效' }), 'application/json');
+  return withWorldSaveLock(saveId, async () => {
+    try {
+      const current = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
+      if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
+      const history = Array.isArray(current.migrationHistory) ? current.migrationHistory : [];
+      const existing = history.find(entry => entry?.commandId === payload.commandId);
+      if (existing) {
+        if (Number(existing.toVersion) !== payload.targetVersion || Number(existing.revision) - 1 !== payload.expectedRevision) return send(res, 409, JSON.stringify({ error: 'commandId 已用于其他升级请求' }), 'application/json');
+        const report = { saveId, worldId: current.worldId, fromVersion: existing.fromVersion, targetVersion: existing.toVersion, targetTitle: existing.targetTitle, canUpgrade: true, changes: existing.changes, hardErrors: [] };
+        return send(res, 200, JSON.stringify({ save: current, report, idempotent: true }), 'application/json; charset=utf-8');
+      }
+      if (current.revision !== payload.expectedRevision) {
+        return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新预演', revision: current.revision }), 'application/json');
+      }
+      const resolved = resolveWorldSaveUpgrade(await loadWorlds(), current, payload.targetVersion);
+      if (resolved.error) return send(res, resolved.status, JSON.stringify({ error: resolved.error }), 'application/json');
+      if (!resolved.report.canUpgrade) return send(res, 409, JSON.stringify({ error: '存档包含目标版本缺失的引用', report: resolved.report }), 'application/json; charset=utf-8');
+      const targetNpcIds = worldNpcIds(resolved.targetWorld);
+      const targetLocationIds = worldLocationIds(resolved.targetWorld);
+      const npcStates = cloneJson(current.npcStates || {});
+      const addedNpcStateIds = [];
+      for (const npcId of targetNpcIds) {
+        if (Object.hasOwn(npcStates, npcId)) continue;
+        const definition = (resolved.targetWorld.npcs || []).find(npc => npc?.id === npcId);
+        const locationId = targetLocationIds.has(definition?.locationId) ? definition.locationId
+          : targetLocationIds.has(current.state?.locationId) ? current.state.locationId
+            : targetLocationIds.has(resolved.targetWorld.start?.locationId) ? resolved.targetWorld.start.locationId : null;
+        npcStates[npcId] = { locationId, relation: {}, knowledge: [], status: [] };
+        addedNpcStateIds.push(npcId);
+      }
+      const revision = current.revision + 1;
+      const migratedAt = Date.now();
+      const migration = {
+        kind: 'world-version-upgrade',
+        commandId: payload.commandId,
+        fromVersion: Number(current.worldVersion),
+        toVersion: payload.targetVersion,
+        targetTitle: resolved.report.targetTitle,
+        changes: resolved.report.changes,
+        addedNpcStateIds,
+        revision,
+        migratedAt,
+      };
+      const next = {
+        ...current,
+        worldVersion: payload.targetVersion,
+        npcStates,
+        migrationHistory: [...history, migration],
+        revision,
+        updatedAt: migratedAt,
+      };
+      await writeJsonAtomic(fp, next);
+      send(res, 200, JSON.stringify({ save: next, report: resolved.report, idempotent: false }), 'application/json; charset=utf-8');
+    } catch (err) {
+      if (err.code === 'ENOENT') return send(res, 404, JSON.stringify({ error: '存档不存在' }), 'application/json');
+      console.error('[world-saves] 升级失败:', err.message);
+      send(res, 500, JSON.stringify({ error: '存档升级失败: ' + err.message }), 'application/json');
+    }
+  });
 }
 
 async function handleWorldSaveCreate(req, res) {
@@ -1278,6 +1949,15 @@ const server = http.createServer((req, res) => {
   if (req.method === 'POST' && url.pathname === '/api/image-save') return handleImageSave(req, res);
   if (req.method === 'GET' && url.pathname === '/api/models') return handleModels(req, res);
   if (req.method === 'GET' && url.pathname === '/api/worlds') return handleWorldsGet(req, res);
+  if (req.method === 'POST' && url.pathname === '/api/world-imports') return handleWorldPackageImportPreview(req, res);
+  const worldImportMatch = url.pathname.match(/^\/api\/world-imports\/([^/]+)\/?$/);
+  if (worldImportMatch && (req.method === 'GET' || req.method === 'POST')) {
+    let importId;
+    try { importId = decodeURIComponent(worldImportMatch[1]); }
+    catch { return send(res, 400, JSON.stringify({ error: '无效的 importId' }), 'application/json'); }
+    if (req.method === 'GET') return handleWorldPackageImportGet(req, res, importId);
+    return handleWorldPackageImportCommit(req, res, importId);
+  }
   const worldDraftListMatch = url.pathname.match(/^\/api\/world-drafts\/?$/);
   if (worldDraftListMatch) {
     if (req.method === 'GET') return handleWorldDraftsGet(req, res, url.searchParams.get('worldId') || '');
@@ -1298,11 +1978,23 @@ const server = http.createServer((req, res) => {
     if (req.method === 'GET') return handleWorldDraftsGet(req, res, worldId, true);
     return handleWorldDraftPut(req, res, worldId);
   }
+  const worldExportMatch = url.pathname.match(/^\/api\/worlds\/([^/]+)\/export\/?$/);
+  if (worldExportMatch && req.method === 'GET') {
+    let worldId;
+    try { worldId = decodeURIComponent(worldExportMatch[1]); }
+    catch { return send(res, 400, JSON.stringify({ error: '无效的 worldId' }), 'application/json'); }
+    const rawVersion = url.searchParams.get('version');
+    if (rawVersion !== null && (!/^\d+$/.test(rawVersion) || !Number.isSafeInteger(Number(rawVersion)) || Number(rawVersion) < 1)) {
+      return send(res, 400, JSON.stringify({ error: '无效的 worldVersion' }), 'application/json');
+    }
+    return handleWorldPackageExport(req, res, worldId, rawVersion === null ? undefined : Number(rawVersion));
+  }
   const worldVersionMatch = url.pathname.match(/^\/api\/worlds\/([^/]+)\/versions\/?$/);
-  if (worldVersionMatch && req.method === 'POST') {
+  if (worldVersionMatch && (req.method === 'GET' || req.method === 'POST')) {
     let worldId;
     try { worldId = decodeURIComponent(worldVersionMatch[1]); }
     catch { return send(res, 400, JSON.stringify({ error: '无效的 worldId' }), 'application/json'); }
+    if (req.method === 'GET') return handleWorldVersionsGet(req, res, worldId);
     return handleWorldNpcPromotion(req, res, worldId);
   }
   const worldCardMatch = url.pathname.match(/^\/api\/worlds\/([^/]+)\/?$/);
@@ -1320,6 +2012,18 @@ const server = http.createServer((req, res) => {
   if (worldSaveListMatch) {
     if (req.method === 'GET') return handleWorldSavesList(req, res, url.searchParams.get('worldId') || '');
     if (req.method === 'POST') return handleWorldSaveCreate(req, res);
+  }
+  const worldSaveUpgradeMatch = url.pathname.match(/^\/api\/world-saves\/([^/]+)\/upgrade\/?$/);
+  if (worldSaveUpgradeMatch && (req.method === 'GET' || req.method === 'POST')) {
+    let saveId;
+    try { saveId = decodeURIComponent(worldSaveUpgradeMatch[1]); }
+    catch { return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json'); }
+    if (req.method === 'POST') return handleWorldSaveUpgrade(req, res, saveId);
+    const rawVersion = url.searchParams.get('targetVersion');
+    if (rawVersion === null || !/^\d+$/.test(rawVersion) || !Number.isSafeInteger(Number(rawVersion)) || Number(rawVersion) < 1) {
+      return send(res, 400, JSON.stringify({ error: '无效的 targetVersion' }), 'application/json');
+    }
+    return handleWorldSaveUpgradePreview(req, res, saveId, Number(rawVersion));
   }
   const worldSaveMatch = url.pathname.match(/^\/api\/world-saves\/([^/]+)\/?$/);
   if (worldSaveMatch && (req.method === 'GET' || req.method === 'PUT' || req.method === 'POST')) {

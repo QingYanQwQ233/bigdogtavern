@@ -652,6 +652,8 @@
       <div id="world-list" class="cm-list" aria-label="世界卡列表"></div>
       <button class="ghost-btn" id="world-refresh" type="button" style="width:100%;margin-top:8px">↻ 刷新世界库</button>
       <button class="ghost-btn" id="world-new-draft" type="button" style="width:100%;margin-top:6px">✎ 创建世界草稿</button>
+      <button class="ghost-btn" id="world-import" type="button" style="width:100%;margin-top:6px">⇧ 导入世界包</button>
+      <input id="world-import-file" type="file" accept="application/json,.json" hidden />
       <button class="ghost-btn" id="world-legacy-chat" type="button" style="width:100%;margin-top:6px">回到旧 RPG 对话</button>
     </div>
     <div class="cm-edit world-edit">
@@ -673,7 +675,10 @@
             <p id="world-summary" class="world-summary"></p>
             <div id="world-tags" class="world-tags"></div>
           </div>
-          <button class="ghost-btn small world-edit-draft-btn" id="world-edit-draft" type="button">✎ 编辑草稿</button>
+          <div class="world-hero-actions">
+            <button class="ghost-btn small" id="world-export" type="button">⇩ 导出世界包</button>
+            <button class="ghost-btn small" id="world-edit-draft" type="button">✎ 编辑草稿</button>
+          </div>
         </div>
         <div id="world-facts" class="world-facts"></div>
         <form id="world-save-form" class="world-save-form">
@@ -705,6 +710,52 @@
       </section>
     </div>
   </div>
+
+  <dialog id="world-import-dialog" class="world-draft-dialog world-import-dialog" aria-labelledby="world-import-title">
+    <form id="world-import-form" class="world-draft-card">
+      <header class="world-draft-head">
+        <div>
+          <h2 id="world-import-title">导入世界包</h2>
+          <p id="world-import-base" class="world-draft-base">原件会先封存并校验；确认后才写入新的独立世界。</p>
+        </div>
+        <button class="ghost-btn small" id="world-import-close" type="button" aria-label="关闭世界包导入">✕</button>
+      </header>
+      <div class="world-draft-body world-import-body">
+        <div id="world-import-report" class="world-import-report"></div>
+        <p id="world-import-status" class="world-draft-status" role="status" aria-live="polite"></p>
+      </div>
+      <footer class="world-draft-actions">
+        <button class="ghost-btn" id="world-import-cancel" type="button">取消</button>
+        <span class="world-draft-action-spacer" aria-hidden="true"></span>
+        <button class="btn gold" id="world-import-commit" type="submit" disabled>确认导入</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="world-upgrade-dialog" class="world-draft-dialog world-upgrade-dialog" aria-labelledby="world-upgrade-title">
+    <form id="world-upgrade-form" class="world-draft-card">
+      <header class="world-draft-head">
+        <div>
+          <h2 id="world-upgrade-title">存档升级预演</h2>
+          <p id="world-upgrade-base" class="world-draft-base">先检查引用，确认后才会改写存档版本。</p>
+        </div>
+        <button class="ghost-btn small" id="world-upgrade-close" type="button" aria-label="关闭存档升级预演">✕</button>
+      </header>
+      <div class="world-draft-body world-upgrade-body">
+        <label class="field" for="world-upgrade-target">
+          <span>目标世界版本</span>
+          <select id="world-upgrade-target" name="worldUpgradeTarget"></select>
+        </label>
+        <div id="world-upgrade-report" class="world-upgrade-report"></div>
+        <p id="world-upgrade-status" class="world-draft-status" role="status" aria-live="polite"></p>
+      </div>
+      <footer class="world-draft-actions">
+        <button class="ghost-btn" id="world-upgrade-cancel" type="button">取消</button>
+        <span class="world-draft-action-spacer" aria-hidden="true"></span>
+        <button class="btn gold" id="world-upgrade-commit" type="submit" disabled>确认升级</button>
+      </footer>
+    </form>
+  </dialog>
 
   <dialog id="world-draft-dialog" class="world-draft-dialog" aria-labelledby="world-draft-title-label">
     <form id="world-draft-form" class="world-draft-card">

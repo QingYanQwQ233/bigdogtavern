@@ -114,6 +114,10 @@ let worldDraft = null;
 let worldDraftDirty = false;
 let worldDraftOpener = null;
 let worldDraftPublishId = null;
+let worldUpgrade = null;
+let worldUpgradeOpener = null;
+let worldImport = null;
+let worldImportOpener = null;
 let theme = localStorage.getItem(LS_THEME) || 'tavern';
 let mode = localStorage.getItem(LS_MODE) || 'tavern'; // 'tavern' 酒馆模式 | 'rpg' RPG 模式
 let sending = false;
@@ -724,6 +728,267 @@ async function createWorldSave(name) {
   renderWorldDetail();
   return data;
 }
+async function exportCurrentWorldPackage() {
+  const world = worldCardById(currentWorldId);
+  if (!world) return showWorldError('请先选择一个世界卡。');
+  const button = $('world-export');
+  const oldLabel = button.textContent;
+  button.disabled = true;
+  button.textContent = '⏳ 导出中…';
+  showWorldError('');
+  try {
+    const res = await fetch(`/api/worlds/${encodeURIComponent(world.id)}/export?version=${encodeURIComponent(world.version)}`);
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = null; }
+    if (!res.ok || !data) throw new Error(worldApiError(data, '世界包导出失败（HTTP ' + res.status + '）'));
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${String(world.title || world.id).replace(/[\\/:*?"<>|]/g, '_')}-v${world.version}.tavern-world.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    const warnings = data.manifest?.warnings?.length || 0;
+    const status = $('world-open-status');
+    if (status) status.textContent = `已导出世界 v${world.version}；SHA-256 ${String(data.manifest?.contentHash || '').replace(/^sha256:/, '').slice(0, 12)}${warnings ? `；${warnings} 项引用警告已写入清单` : ''}。`;
+  } catch (err) {
+    showWorldError(err.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = oldLabel;
+  }
+}
+function setWorldImportStatus(message, kind = '') {
+  const el = $('world-import-status');
+  el.textContent = message || '';
+  el.className = 'world-draft-status' + (kind ? ' ' + kind : '');
+}
+function renderWorldImportReport(imported) {
+  const root = $('world-import-report');
+  const report = imported?.report;
+  if (!report) { root.innerHTML = ''; return; }
+  const refs = report.references || {};
+  const facts = [['角色', refs.characters || 0], ['世界书', refs.lorebooks || 0], ['预设', refs.presets || 0], ['资源', refs.assets || 0]]
+    .map(([label, value]) => `<span><b>${esc(value)}</b>${label}</span>`).join('');
+  const errors = report.errors?.length ? `<section class="world-import-errors"><h3>无法导入</h3><ul>${report.errors.map(error => `<li>${esc(error)}</li>`).join('')}</ul></section>` : '<p class="world-import-ready">✓ 校验通过；确认后会创建新的独立世界，不覆盖本地内容。</p>';
+  const warnings = report.warnings?.length ? `<section class="world-import-warnings"><h3>保留与隔离</h3><ul>${report.warnings.map(warning => `<li>${esc(warning)}</li>`).join('')}</ul></section>` : '';
+  const inert = report.inertPaths?.length ? `<p class="world-import-inert">未执行：${report.inertPaths.map(esc).join('、')}</p>` : '';
+  root.innerHTML = `<div class="world-import-facts">${facts}</div>${errors}${warnings}${inert}`;
+}
+function openWorldPackageImport() {
+  const input = $('world-import-file');
+  if (!input) return;
+  worldImportOpener = document.activeElement;
+  input.value = '';
+  input.click();
+}
+async function previewWorldPackageImport(file) {
+  if (!file) return;
+  const dialog = $('world-import-dialog');
+  const commit = $('world-import-commit');
+  worldImport = null;
+  commit.disabled = true;
+  renderWorldImportReport(null);
+  setWorldImportStatus('正在读取并封存世界包…');
+  if (!dialog.open) dialog.showModal();
+  try {
+    if (file.size > 2 * 1024 * 1024) throw new Error('世界包超过 2 MiB 限制');
+    const raw = await file.text();
+    const res = await fetch('/api/world-imports', {
+      method: 'POST', headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: JSON.stringify({ raw }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!data || !data.id) throw new Error(worldApiError(data, '世界包封存失败（HTTP ' + res.status + '）'));
+    worldImport = data;
+    $('world-import-base').textContent = `“${file.name}”已封存 · ${String(data.rawHash || '').replace(/^sha256:/, '').slice(0, 12)}`;
+    renderWorldImportReport(data);
+    commit.disabled = !data.report?.canImport;
+    setWorldImportStatus(data.report?.canImport ? '原件已封存；导入不会覆盖现有世界、角色、世界书或预设。' : '原件已封存，但校验未通过；不会写入世界库。', data.report?.canImport ? 'ok' : 'error');
+  } catch (err) {
+    setWorldImportStatus(err.message, 'error');
+  }
+}
+function closeWorldPackageImport() {
+  const dialog = $('world-import-dialog');
+  if (!dialog?.open) return;
+  dialog.close('cancel');
+  worldImport = null;
+  worldImportOpener?.focus?.();
+  worldImportOpener = null;
+}
+async function commitWorldPackageImport() {
+  const imported = worldImport;
+  if (!imported?.report?.canImport) return;
+  const button = $('world-import-commit');
+  button.disabled = true;
+  button.textContent = '导入中…';
+  setWorldImportStatus('正在写入独立世界与其专属引用…');
+  try {
+    const res = await fetch('/api/world-imports/' + encodeURIComponent(imported.id), { method: 'POST' });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.world?.id) throw new Error(worldApiError(data, '世界包导入失败（HTTP ' + res.status + '）'));
+    currentWorldId = data.world.id;
+    currentWorldSave = null;
+    currentWorldSaveId = null;
+    localStorage.setItem(LS_CURRENT_WORLD, currentWorldId);
+    localStorage.removeItem(LS_CURRENT_WORLD_SAVE);
+    const [nextCharacters, nextLorebooks, nextPresets] = await Promise.all([
+      loadServerData('characters'), loadServerData('lorebooks'), loadServerData('presets'),
+    ]);
+    if (Array.isArray(nextCharacters)) characters = nextCharacters;
+    if (nextLorebooks && typeof nextLorebooks === 'object') lorebooks = nextLorebooks;
+    if (nextPresets && typeof nextPresets === 'object') promptPresets = nextPresets;
+    $('world-import-dialog').close('committed');
+    worldImport = null;
+    worldImportOpener = null;
+    await loadWorldLibraryData();
+    const status = $('world-open-status');
+    if (status) status.textContent = `已导入“${data.world.title}” v${data.world.version}；新世界及其角色、世界书和预设均使用独立 ID。`;
+    $('world-save-name')?.focus();
+  } catch (err) {
+    setWorldImportStatus(err.message, 'error');
+    button.disabled = false;
+  } finally {
+    button.textContent = '确认导入';
+  }
+}
+function setWorldUpgradeStatus(message, kind = '') {
+  const el = $('world-upgrade-status');
+  el.textContent = message || '';
+  el.className = 'world-draft-status' + (kind ? ' ' + kind : '');
+}
+function renderWorldUpgradeReport(report) {
+  const root = $('world-upgrade-report');
+  if (!report) {
+    root.innerHTML = '<p class="world-upgrade-empty">选择目标版本后查看预演结果。</p>';
+    return;
+  }
+  const groups = [['locations', '地点'], ['npcs', 'NPC'], ['quests', '任务']];
+  const changeCards = groups.map(([key, label]) => {
+    const changes = report.changes?.[key] || { added: [], removed: [] };
+    const entries = [
+      ...changes.added.map(entity => `<li class="added"><b>+新增</b><span>${esc(entity.name)}</span><code>${esc(entity.id)}</code></li>`),
+      ...changes.removed.map(entity => `<li class="removed"><b>−移除</b><span>${esc(entity.name)}</span><code>${esc(entity.id)}</code></li>`),
+    ];
+    return `<section class="world-upgrade-change"><h3>${label}<span>${changes.added.length} + / ${changes.removed.length} −</span></h3>${entries.length ? `<ul>${entries.join('')}</ul>` : '<p>无变化</p>'}</section>`;
+  }).join('');
+  const errors = report.hardErrors?.length
+    ? `<section class="world-upgrade-errors" aria-labelledby="world-upgrade-errors-title"><h3 id="world-upgrade-errors-title">⚠ 必须先修复的引用</h3><ul>${report.hardErrors.map(error => `<li><code>${esc(error.path)}</code><span>${esc(error.message)}</span></li>`).join('')}</ul></section>`
+    : '<p class="world-upgrade-ready">✓ 引用检查通过，可以升级。</p>';
+  root.innerHTML = `<div class="world-upgrade-route"><span>v${esc(report.fromVersion)}</span><i aria-hidden="true">→</i><strong>v${esc(report.targetVersion)}</strong></div><div class="world-upgrade-changes">${changeCards}</div>${errors}`;
+}
+async function previewWorldSaveUpgrade() {
+  const upgrade = worldUpgrade;
+  if (!upgrade?.save) return;
+  const targetVersion = Number($('world-upgrade-target').value);
+  const commit = $('world-upgrade-commit');
+  upgrade.report = null;
+  upgrade.commandId = null;
+  commit.disabled = true;
+  renderWorldUpgradeReport(null);
+  setWorldUpgradeStatus('正在检查存档引用…');
+  try {
+    const res = await fetch(`/api/world-saves/${encodeURIComponent(upgrade.save.id)}/upgrade?targetVersion=${encodeURIComponent(targetVersion)}`);
+    const report = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(worldApiError(report, '存档升级预演失败（HTTP ' + res.status + '）'));
+    if (worldUpgrade !== upgrade || Number($('world-upgrade-target').value) !== targetVersion) return;
+    upgrade.report = report;
+    renderWorldUpgradeReport(report);
+    commit.disabled = !report.canUpgrade;
+    setWorldUpgradeStatus(report.canUpgrade ? '预演通过；升级会保留当前进度并记录迁移历史。' : '存档存在缺失引用，未做任何修改。', report.canUpgrade ? 'ok' : 'error');
+  } catch (err) {
+    if (worldUpgrade !== upgrade || Number($('world-upgrade-target').value) !== targetVersion) return;
+    setWorldUpgradeStatus(err.message, 'error');
+  }
+}
+async function openWorldSaveUpgrade(saveId, opener) {
+  const world = worldCardById(currentWorldId);
+  if (!world) return;
+  const opening = { save: null, report: null, commandId: null };
+  worldUpgrade = opening;
+  worldUpgradeOpener = opener || document.activeElement;
+  setWorldUpgradeStatus('正在读取世界版本…');
+  try {
+    const [saveRes, versionsRes] = await Promise.all([
+      fetch('/api/world-saves/' + encodeURIComponent(saveId)),
+      fetch('/api/worlds/' + encodeURIComponent(world.id) + '/versions'),
+    ]);
+    const save = await saveRes.json().catch(() => null);
+    const versions = await versionsRes.json().catch(() => null);
+    if (!saveRes.ok) throw new Error(worldApiError(save, '存档读取失败'));
+    if (!versionsRes.ok) throw new Error(worldApiError(versions, '世界版本读取失败'));
+    if (!Array.isArray(versions)) throw new Error('世界版本响应格式无效');
+    if (worldUpgrade !== opening) return;
+    const targets = versions.filter(version => Number(version.version) > Number(save.worldVersion));
+    if (!targets.length) {
+      worldUpgrade = null;
+      worldUpgradeOpener = null;
+      return showWorldError('该存档已使用最新世界版本。');
+    }
+    opening.save = save;
+    $('world-upgrade-base').textContent = `“${save.name}”当前绑定 v${save.worldVersion}；预演不会写入存档。`;
+    $('world-upgrade-target').innerHTML = targets.map(version => `<option value="${esc(version.version)}">v${esc(version.version)} · ${esc(version.title)}</option>`).join('');
+    const dialog = $('world-upgrade-dialog');
+    if (!dialog.open) dialog.showModal();
+    await previewWorldSaveUpgrade();
+    requestAnimationFrame(() => $('world-upgrade-target')?.focus());
+  } catch (err) {
+    if (worldUpgrade !== opening) return;
+    worldUpgrade = null;
+    worldUpgradeOpener = null;
+    showWorldError(err.message);
+  }
+}
+function closeWorldSaveUpgrade() {
+  const dialog = $('world-upgrade-dialog');
+  if (!dialog?.open) return;
+  dialog.close('cancel');
+  worldUpgrade = null;
+  worldUpgradeOpener?.focus?.();
+  worldUpgradeOpener = null;
+}
+async function commitWorldSaveUpgrade() {
+  const upgrade = worldUpgrade;
+  const report = upgrade?.report;
+  if (!report?.canUpgrade) return;
+  if (!confirm(`将“${upgrade.save.name}”从 v${report.fromVersion} 升级到 v${report.targetVersion}？\n\n升级后保留当前进度，并在存档中记录迁移历史。`)) return;
+  upgrade.commandId ||= 'upgrade-' + uid();
+  const button = $('world-upgrade-commit');
+  button.disabled = true;
+  button.textContent = '升级中…';
+  setWorldUpgradeStatus('正在提交存档升级…');
+  try {
+    const res = await fetch('/api/world-saves/' + encodeURIComponent(upgrade.save.id) + '/upgrade', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ commandId: upgrade.commandId, expectedRevision: upgrade.save.revision, targetVersion: report.targetVersion }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(worldApiError(data, '存档升级失败（HTTP ' + res.status + '）'));
+    const upgraded = data.save;
+    if (currentWorldSaveId === upgraded.id) {
+      await loadWorldCardVersion(upgraded.worldId, upgraded.worldVersion);
+      hydrateWorldSave(upgraded);
+      currentWorldSave = upgraded;
+    }
+    if (worldUpgrade === upgrade) {
+      $('world-upgrade-dialog').close('upgraded');
+      worldUpgrade = null;
+      worldUpgradeOpener = null;
+    }
+    await loadWorldSaves(upgraded.worldId);
+    renderWorldDetail();
+    const status = $('world-open-status');
+    if (status) status.textContent = `已将“${upgraded.name}”升级到世界 v${upgraded.worldVersion}；迁移记录已写入当前存档。`;
+    document.querySelector(`[data-open-save="${CSS.escape(upgraded.id)}"]`)?.focus();
+  } catch (err) {
+    if (worldUpgrade !== upgrade) return;
+    setWorldUpgradeStatus(err.message + '；请关闭窗口后重新打开并预演。', 'error');
+    button.disabled = false;
+  } finally {
+    button.textContent = '确认升级';
+  }
+}
 function renderWorldList() {
   const list = $('world-list');
   if (!list) return;
@@ -794,10 +1059,12 @@ function renderWorldDetail() {
   const saves = worldSavesByWorld.get(world.id) || [];
   $('world-save-count').textContent = saves.length + ' 份';
   const list = $('world-save-list');
+  const latestVersion = Number(world.version);
   list.innerHTML = saves.length ? saves.map(save => `<div class="world-save-card${save.id === currentWorldSaveId ? ' active' : ''}">
-    <div class="world-save-main"><span class="world-save-name">${esc(save.name)}</span><span class="world-save-meta">${esc(save.locationId || '未定位')} · revision ${esc(save.revision)} · ${esc(formatWorldDate(save.updatedAt))}</span></div>
-    <button class="ghost-btn small" type="button" data-open-save="${esc(save.id)}">${save.id === currentWorldSaveId ? '已打开' : '打开存档'}</button>
+    <div class="world-save-main"><span class="world-save-name">${esc(save.name)}</span><span class="world-save-meta">世界 v${esc(save.worldVersion)} · ${esc(save.locationId || '未定位')} · revision ${esc(save.revision)} · ${esc(formatWorldDate(save.updatedAt))}</span></div>
+    <div class="world-save-actions">${Number(save.worldVersion) < latestVersion ? `<button class="ghost-btn small" type="button" data-upgrade-save="${esc(save.id)}">升级…</button>` : ''}<button class="ghost-btn small" type="button" data-open-save="${esc(save.id)}">${save.id === currentWorldSaveId ? '已打开' : '打开存档'}</button></div>
   </div>`).join('') : '<p class="hint">这个世界还没有存档，先创建一份吧。</p>';
+  list.querySelectorAll('[data-upgrade-save]').forEach(btn => btn.addEventListener('click', () => openWorldSaveUpgrade(btn.dataset.upgradeSave, btn)));
   list.querySelectorAll('[data-open-save]').forEach(btn => btn.addEventListener('click', async () => {
     const token = worldLoadToken;
     btn.disabled = true;
@@ -4803,6 +5070,14 @@ function bindEvents() {
     btn.textContent = old;
   });
   $('world-new-draft').addEventListener('click', openWorldDraftEditor);
+  $('world-import').addEventListener('click', openWorldPackageImport);
+  $('world-import-file').addEventListener('change', e => previewWorldPackageImport(e.target.files?.[0]));
+  $('world-import-form').addEventListener('submit', async e => { e.preventDefault(); await commitWorldPackageImport(); });
+  $('world-import-close').addEventListener('click', closeWorldPackageImport);
+  $('world-import-cancel').addEventListener('click', closeWorldPackageImport);
+  $('world-import-dialog').addEventListener('cancel', e => { e.preventDefault(); closeWorldPackageImport(); });
+  $('world-import-dialog').addEventListener('click', e => { if (e.target === e.currentTarget) closeWorldPackageImport(); });
+  $('world-export').addEventListener('click', exportCurrentWorldPackage);
   $('world-edit-draft').addEventListener('click', openWorldDraftEditor);
   $('world-draft-form').addEventListener('input', () => { worldDraftDirty = true; worldDraftPublishId = null; });
   $('world-draft-map-regions').addEventListener('input', updateWorldDraftMapOutputs);
@@ -4817,6 +5092,12 @@ function bindEvents() {
   $('world-draft-cancel').addEventListener('click', requestCloseWorldDraft);
   $('world-draft-dialog').addEventListener('cancel', e => { e.preventDefault(); requestCloseWorldDraft(); });
   $('world-draft-dialog').addEventListener('click', e => { if (e.target === e.currentTarget) requestCloseWorldDraft(); });
+  $('world-upgrade-target').addEventListener('change', previewWorldSaveUpgrade);
+  $('world-upgrade-form').addEventListener('submit', async e => { e.preventDefault(); await commitWorldSaveUpgrade(); });
+  $('world-upgrade-close').addEventListener('click', closeWorldSaveUpgrade);
+  $('world-upgrade-cancel').addEventListener('click', closeWorldSaveUpgrade);
+  $('world-upgrade-dialog').addEventListener('cancel', e => { e.preventDefault(); closeWorldSaveUpgrade(); });
+  $('world-upgrade-dialog').addEventListener('click', e => { if (e.target === e.currentTarget) closeWorldSaveUpgrade(); });
   window.addEventListener('beforeunload', e => {
     if (!worldDraftDirty) return;
     e.preventDefault();
