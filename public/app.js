@@ -421,6 +421,14 @@ function setWorldDraftStatus(message, kind = '') {
   el.textContent = message || '';
   el.className = 'world-draft-status' + (kind ? ' ' + kind : '');
 }
+function setWorldDraftJsonRawState(target, state = '') {
+  const raw = typeof target === 'string' ? $(target) : target;
+  if (!raw) return;
+  raw.classList.toggle('world-draft-json-valid', state === 'valid');
+  raw.classList.toggle('world-draft-json-invalid', state === 'invalid');
+  if (state === 'invalid') raw.setAttribute('aria-invalid', 'true');
+  else raw.removeAttribute('aria-invalid');
+}
 function splitWorldDraftList(value) {
   return [...new Set(String(value || '').split(',').map(item => item.trim()).filter(Boolean))];
 }
@@ -702,7 +710,10 @@ function renderWorldDraftPlayerCreation() {
     }).join('');
   }
   const raw = $('world-draft-player-creation');
-  if (raw) raw.value = Object.keys(schema).length ? JSON.stringify(schema, null, 2) : '';
+  if (raw) {
+    raw.value = Object.keys(schema).length ? JSON.stringify(schema, null, 2) : '';
+    setWorldDraftJsonRawState(raw);
+  }
   worldDraftPlayerPreview();
 }
 function syncWorldDraftPlayerCreationFromForm({ showError = false } = {}) {
@@ -737,31 +748,48 @@ function syncWorldDraftPlayerCreationFromForm({ showError = false } = {}) {
     worldDraft.world.playerCreation = null;
   }
   const raw = $('world-draft-player-creation');
-  if (raw) raw.value = worldDraft.world.playerCreation ? JSON.stringify(worldDraft.world.playerCreation, null, 2) : '';
+  if (raw) {
+    raw.value = worldDraft.world.playerCreation ? JSON.stringify(worldDraft.world.playerCreation, null, 2) : '';
+    setWorldDraftJsonRawState(raw);
+  }
   worldDraftPlayerPreview();
   return { ok: true, value: worldDraft.world.playerCreation };
+}
+function validateWorldDraftPlayerCreationJson() {
+  const raw = $('world-draft-player-creation');
+  if (!raw) return { ok: false, error: '找不到玩家创建规则 JSON' };
+  const text = raw.value.trim();
+  try {
+    const value = text ? JSON.parse(text) : null;
+    if (value !== null && (!value || typeof value !== 'object' || Array.isArray(value))) throw new Error('必须是 JSON 对象');
+    setWorldDraftJsonRawState(raw, 'valid');
+    setWorldDraftStatus('玩家创建规则 JSON 有效；点击“载入编辑器”后才会替换可视化草稿。', 'ok');
+    return { ok: true, value };
+  } catch (err) {
+    setWorldDraftJsonRawState(raw, 'invalid');
+    setWorldDraftStatus(`玩家创建规则 JSON 无效：${err.message || '格式错误'}`, 'error');
+    return { ok: false, error: err.message || 'JSON 无效', focus: raw };
+  }
 }
 function loadWorldDraftPlayerCreationJson() {
   const raw = $('world-draft-player-creation');
   if (!raw || !worldDraft) return;
-  const text = raw.value.trim();
-  if (!text) {
+  const result = validateWorldDraftPlayerCreationJson();
+  if (!result.ok) {
+    result.focus?.focus();
+    return;
+  }
+  if (!result.value) {
     worldDraft.world.playerCreation = null;
     renderWorldDraftPlayerCreation();
     worldDraftDirty = true;
+    setWorldDraftStatus('已从高级 JSON 清空玩家创建规则。', 'ok');
     return;
   }
-  try {
-    const value = JSON.parse(text);
-    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('必须是 JSON 对象');
-    worldDraft.world.playerCreation = value;
-    renderWorldDraftPlayerCreation();
-    worldDraftDirty = true;
-    setWorldDraftStatus('已从高级 JSON 载入玩家创建规则。', 'ok');
-  } catch (err) {
-    setWorldDraftStatus(`玩家创建规则 JSON 无效：${err.message}`, 'error');
-    raw.focus();
-  }
+  worldDraft.world.playerCreation = result.value;
+  renderWorldDraftPlayerCreation();
+  worldDraftDirty = true;
+  setWorldDraftStatus('已从高级 JSON 载入玩家创建规则。', 'ok');
 }
 function handleWorldDraftPlayerCreationClick(event) {
   const button = event.target.closest('button');
@@ -804,13 +832,13 @@ function handleWorldDraftPlayerCreationClick(event) {
   renderWorldDraftPlayerCreation();
 }
 const WORLD_DRAFT_JSON_ARRAY_DEFS = [
-  { key: 'events', label: '世界事件', template: () => ({ id: 'event-' + uid(), title: '新事件', description: '', trigger: { afterTurns: 1 }, visibility: 'public', once: true, consequences: [] }) },
-  { key: 'factions', label: '派系', template: () => ({ id: 'faction-' + uid(), name: '新派系', description: '', goals: [], resources: [], actions: [] }) },
-  { key: 'conflicts', label: '冲突模板', template: () => ({ id: 'conflict-' + uid(), label: '新冲突', type: 'custom', description: '', phases: [], actions: [], outcomes: [] }) },
-  { key: 'failureModes', label: '失败模式', parentKey: 'failure', nestedKey: 'modes', rawId: 'world-draft-failure', editorId: 'world-draft-failure-modes-editor', previewId: 'world-draft-failure-modes-preview', loadId: 'world-draft-failure-load-modes-json', template: () => ({ id: 'failure-' + uid(), label: '新失败模式', description: '', effect: '' }) },
-  { key: 'endingEndings', label: '结局条目', parentKey: 'ending', nestedKey: 'endings', rawId: 'world-draft-ending', editorId: 'world-draft-ending-endings-editor', previewId: 'world-draft-ending-endings-preview', loadId: 'world-draft-ending-load-endings-json', template: () => ({ id: 'ending-' + uid(), kind: 'card-defined', label: '新结局', description: '', terminal: true }) },
-  { key: 'growthSources', label: '成长来源', parentKey: 'playerCreation', nestedKey: 'growth.sources', rawId: 'world-draft-player-creation', editorId: 'world-draft-growth-sources-editor', previewId: 'world-draft-growth-sources-preview', loadId: 'world-draft-player-load-growth-sources-json', template: () => ({ id: 'growth-source-' + uid(), label: '新成长来源', kind: 'custom', description: '' }) },
-  { key: 'growthCandidates', label: '成长候选', parentKey: 'playerCreation', nestedKey: 'growth.candidates', rawId: 'world-draft-player-creation', editorId: 'world-draft-growth-candidates-editor', previewId: 'world-draft-growth-candidates-preview', loadId: 'world-draft-player-load-growth-candidates-json', template: () => ({ id: 'growth-candidate-' + uid(), label: '新成长候选', sourceId: '', bucket: 'attributes', targetId: '', delta: 1, description: '' }) },
+  { key: 'events', label: '世界事件', validateId: 'world-draft-events-validate-json', template: () => ({ id: 'event-' + uid(), title: '新事件', description: '', trigger: { afterTurns: 1 }, visibility: 'public', once: true, consequences: [] }) },
+  { key: 'factions', label: '派系', validateId: 'world-draft-factions-validate-json', template: () => ({ id: 'faction-' + uid(), name: '新派系', description: '', goals: [], resources: [], actions: [] }) },
+  { key: 'conflicts', label: '冲突模板', validateId: 'world-draft-conflicts-validate-json', template: () => ({ id: 'conflict-' + uid(), label: '新冲突', type: 'custom', description: '', phases: [], actions: [], outcomes: [] }) },
+  { key: 'failureModes', label: '失败模式', parentKey: 'failure', nestedKey: 'modes', rawId: 'world-draft-failure', editorId: 'world-draft-failure-modes-editor', previewId: 'world-draft-failure-modes-preview', loadId: 'world-draft-failure-load-modes-json', validateId: 'world-draft-failure-validate-modes-json', template: () => ({ id: 'failure-' + uid(), label: '新失败模式', description: '', effect: '' }) },
+  { key: 'endingEndings', label: '结局条目', parentKey: 'ending', nestedKey: 'endings', rawId: 'world-draft-ending', editorId: 'world-draft-ending-endings-editor', previewId: 'world-draft-ending-endings-preview', loadId: 'world-draft-ending-load-endings-json', validateId: 'world-draft-ending-validate-endings-json', template: () => ({ id: 'ending-' + uid(), kind: 'card-defined', label: '新结局', description: '', terminal: true }) },
+  { key: 'growthSources', label: '成长来源', parentKey: 'playerCreation', nestedKey: 'growth.sources', rawId: 'world-draft-player-creation', editorId: 'world-draft-growth-sources-editor', previewId: 'world-draft-growth-sources-preview', loadId: 'world-draft-player-load-growth-sources-json', validateId: 'world-draft-player-validate-growth-sources-json', template: () => ({ id: 'growth-source-' + uid(), label: '新成长来源', kind: 'custom', description: '' }) },
+  { key: 'growthCandidates', label: '成长候选', parentKey: 'playerCreation', nestedKey: 'growth.candidates', rawId: 'world-draft-player-creation', editorId: 'world-draft-growth-candidates-editor', previewId: 'world-draft-growth-candidates-preview', loadId: 'world-draft-player-load-growth-candidates-json', validateId: 'world-draft-player-validate-growth-candidates-json', template: () => ({ id: 'growth-candidate-' + uid(), label: '新成长候选', sourceId: '', bucket: 'attributes', targetId: '', delta: 1, description: '' }) },
 ];
 function worldDraftJsonArrayDefinition(key) {
   return WORLD_DRAFT_JSON_ARRAY_DEFS.find(definition => definition.key === key) || null;
@@ -901,7 +929,10 @@ function renderWorldDraftJsonArray(key) {
     ? entries.map((item, index) => worldDraftJsonArrayEntryTemplate(key, index, item)).join('')
     : `<p class="world-draft-empty">暂无${esc(definition.label)}，点击“＋${esc(definition.label)}”添加。</p>`;
   const raw = $(definition.rawId || `world-draft-${key}`);
-  if (raw) raw.value = worldDraftJsonArrayRawText(key);
+  if (raw) {
+    raw.value = worldDraftJsonArrayRawText(key);
+    setWorldDraftJsonRawState(raw);
+  }
   worldDraftJsonArrayPreview(key);
 }
 function renderWorldDraftJsonArrays() {
@@ -937,13 +968,22 @@ function syncWorldDraftJsonArraysFromForm({ showError = false } = {}) {
     worldDraftJsonArrayWrite(key, values[key]);
     const definition = worldDraftJsonArrayDefinition(key);
     const raw = $(definition.rawId || `world-draft-${key}`);
-    if (raw) raw.value = worldDraftJsonArrayRawText(key);
+    if (raw) {
+      raw.value = worldDraftJsonArrayRawText(key);
+      setWorldDraftJsonRawState(raw);
+    }
     worldDraftJsonArrayPreview(key);
   }
   return { ok: true, values };
 }
 function collectWorldDraftJsonArraysForSave() {
   const raw = Object.fromEntries(WORLD_DRAFT_JSON_ARRAY_DEFS.map(({ key, rawId }) => [key, $(rawId || `world-draft-${key}`)?.value.trim() || '']));
+  for (const { key } of WORLD_DRAFT_JSON_ARRAY_DEFS) {
+    if (raw[key] !== worldDraftJsonArrayRawText(key)) {
+      const result = validateWorldDraftJsonArrayRaw(key);
+      if (!result.ok) return result;
+    }
+  }
   const editor = syncWorldDraftJsonArraysFromForm({ showError: true });
   if (!editor.ok) return editor;
   const values = { ...editor.values };
@@ -965,30 +1005,41 @@ function collectWorldDraftJsonArraysForSave() {
   }
   return { ok: true, values };
 }
+function validateWorldDraftJsonArrayRaw(key) {
+  const definition = worldDraftJsonArrayDefinition(key);
+  const raw = $(definition?.rawId || `world-draft-${key}`);
+  if (!definition || !raw) return { ok: false, error: `${key} JSON 输入不存在` };
+  try {
+    const text = raw.value.trim();
+    const value = text ? JSON.parse(text) : (definition.parentKey ? {} : []);
+    const entries = text && definition.parentKey ? worldDraftJsonArrayNestedValue(value, definition.nestedKey) : value;
+    if (!Array.isArray(entries)) throw new Error('必须包含 JSON 数组');
+    setWorldDraftJsonRawState(raw, 'valid');
+    setWorldDraftStatus(`${definition.label} JSON 有效；点击“载入编辑器”后才会替换可视化草稿。`, 'ok');
+    return { ok: true, value, entries };
+  } catch (err) {
+    setWorldDraftJsonRawState(raw, 'invalid');
+    setWorldDraftStatus(`${definition.label} JSON 无效：${err.message || '格式错误'}`, 'error');
+    return { ok: false, error: err.message || 'JSON 无效', focus: raw };
+  }
+}
 function loadWorldDraftJsonArray(key) {
   const definition = worldDraftJsonArrayDefinition(key);
   const raw = $(definition?.rawId || `world-draft-${key}`);
   if (!raw || !worldDraft) return;
-  try {
-    const value = raw.value.trim() ? JSON.parse(raw.value) : (definition?.parentKey ? {} : []);
-    const entries = definition?.parentKey ? worldDraftJsonArrayNestedValue(value, definition.nestedKey) : value;
-    if (definition?.parentKey && !Array.isArray(entries) && !raw.value.trim()) {
-      worldDraftJsonArrayWrite(key, []);
-      renderWorldDraftJsonArray(key);
-      worldDraftDirty = true;
-      return;
-    }
-    if (!Array.isArray(entries)) throw new Error('必须包含 JSON 数组');
-    if (definition?.parentKey) worldDraft.world[definition.parentKey] = value;
-    else worldDraft.world[key] = value;
-    if (definition?.parentKey === 'playerCreation') renderWorldDraftPlayerCreation();
-    renderWorldDraftJsonArray(key);
-    worldDraftDirty = true;
-    setWorldDraftStatus(`已从高级 JSON 载入${definition?.label || key}。`, 'ok');
-  } catch (err) {
-    setWorldDraftStatus(`${key} 高级 JSON 无效：${err.message}`, 'error');
-    raw.focus();
+  const result = validateWorldDraftJsonArrayRaw(key);
+  if (!result.ok) {
+    result.focus?.focus();
+    return;
   }
+  if (definition.parentKey) {
+    if (raw.value.trim()) worldDraft.world[definition.parentKey] = result.value;
+    else worldDraftJsonArrayWrite(key, []);
+  } else worldDraft.world[key] = result.entries;
+  if (definition.parentKey === 'playerCreation') renderWorldDraftPlayerCreation();
+  renderWorldDraftJsonArray(key);
+  worldDraftDirty = true;
+  setWorldDraftStatus(`已从高级 JSON 载入${definition.label}。`, 'ok');
 }
 function handleWorldDraftJsonArrayClick(event) {
   const button = event.target.closest('button');
@@ -1147,27 +1198,24 @@ async function saveWorldDraft() {
   const { locations, npcs } = collectWorldDraftCollections();
   let playerCreation = null;
   const playerCreationRaw = $('world-draft-player-creation').value.trim();
-  const playerCreationResult = syncWorldDraftPlayerCreationFromForm({ showError: true });
-  if (!playerCreationResult.ok) {
-    setWorldDraftStatus(playerCreationResult.error, 'error');
-    playerCreationResult.focus?.focus();
-    return false;
-  }
-  playerCreation = playerCreationResult.value;
-  const playerCreationPreview = playerCreation ? JSON.stringify(playerCreation, null, 2) : '';
-  if (playerCreationRaw !== playerCreationPreview) {
-    if (!playerCreationRaw) playerCreation = null;
-    else {
-      try {
-        playerCreation = JSON.parse(playerCreationRaw);
-        if (!playerCreation || typeof playerCreation !== 'object' || Array.isArray(playerCreation)) throw new Error('必须是 JSON 对象');
-        worldDraft.world.playerCreation = playerCreation;
-      } catch (err) {
-        setWorldDraftStatus(`玩家创建规则 JSON 无效：${err.message}`, 'error');
-        $('world-draft-player-creation').focus();
-        return false;
-      }
+  const playerCreationPreviewBeforeSync = worldDraftPlayerSchema();
+  const playerCreationExpected = Object.keys(playerCreationPreviewBeforeSync).length ? JSON.stringify(playerCreationPreviewBeforeSync, null, 2) : '';
+  if (playerCreationRaw !== playerCreationExpected) {
+    const rawResult = validateWorldDraftPlayerCreationJson();
+    if (!rawResult.ok) {
+      rawResult.focus?.focus();
+      return false;
     }
+    playerCreation = rawResult.value;
+    worldDraft.world.playerCreation = playerCreation;
+  } else {
+    const playerCreationResult = syncWorldDraftPlayerCreationFromForm({ showError: true });
+    if (!playerCreationResult.ok) {
+      setWorldDraftStatus(playerCreationResult.error, 'error');
+      playerCreationResult.focus?.focus();
+      return false;
+    }
+    playerCreation = playerCreationResult.value;
   }
   let turnContract = null;
   const turnContractText = $('world-draft-turn-contract').value.trim();
@@ -6948,11 +6996,16 @@ function bindEvents() {
   $('world-draft-map-preview').addEventListener('click', previewWorldDraftMap);
   $('world-draft-player-schema').addEventListener('input', () => { if (requireWorldDraftPlayerRawSync()) syncWorldDraftPlayerCreationFromForm(); worldDraftPlayerPreview(); });
   $('world-draft-player-schema').addEventListener('click', handleWorldDraftPlayerCreationClick);
+  $('world-draft-player-creation').addEventListener('input', e => setWorldDraftJsonRawState(e.target));
+  $('world-draft-player-validate-json').addEventListener('click', validateWorldDraftPlayerCreationJson);
   $('world-draft-player-load-json').addEventListener('click', loadWorldDraftPlayerCreationJson);
   for (const definition of WORLD_DRAFT_JSON_ARRAY_DEFS) {
     const editor = $(definition.editorId || `world-draft-${definition.key}-editor`);
     editor?.addEventListener('input', () => { if (requireWorldDraftJsonArraysRawSync()) syncWorldDraftJsonArraysFromForm(); worldDraftJsonArrayPreview(definition.key); });
     editor?.parentElement?.addEventListener('click', handleWorldDraftJsonArrayClick);
+    const raw = $(definition.rawId || `world-draft-${definition.key}`);
+    raw?.addEventListener('input', e => setWorldDraftJsonRawState(e.target));
+    $(definition.validateId || `world-draft-${definition.key}-validate-json`)?.addEventListener('click', () => validateWorldDraftJsonArrayRaw(definition.key));
     $(definition.loadId || `world-draft-${definition.key}-load-json`)?.addEventListener('click', () => loadWorldDraftJsonArray(definition.key));
   }
   $('world-draft-add-location').addEventListener('click', addWorldDraftLocation);

@@ -6,7 +6,7 @@
 >
 > 架构底座与历史实施记录仍见 [world-card-architecture.md](world-card-architecture.md) 和 [world-card-implementation-plan.md](world-card-implementation-plan.md)。本文是后续 RPG 产品功能的主路线图。
 
-> 当前执行：R5.3–R6.10、R7.1–R7.5 已完成，下一步进入 R7.6 JSON 原始视图与可视化表单双向校验。R7.5 延续 SillyTavern / JSON Editor 的引用依赖思路，但保持零依赖声明式 JSON，不引入运行时编辑器依赖。
+> 当前执行：R5.3–R6.10、R7.1–R7.6 已完成，下一步进入 R7.7 发布前完整性检查。R7.6 延续 SillyTavern / JSON Editor 的双视图思路，但保持零依赖声明式 JSON，不引入运行时编辑器依赖。
 
 ## 0. 结论
 
@@ -613,6 +613,10 @@ Implemented the minimal faction contract: static `WorldCard.factions`, save-owne
 ### R7.5 当前进度
 
 已完成动态集合的前置引用保护：地点、NPC、玩家创建条目、事件、派系、冲突、失败模式、结局和成长条目删除前统一扫描稳定 ID 引用；发现引用时保留条目并在草稿状态栏显示最多三条路径及总数。服务端继续作为最终边界，草稿保存 / 发布仍会拒绝起点地点、事件 / NPC / 派系地点和其他声明式引用的悬空值；回归脚本新增 `start.locationId` 删除保护。
+
+### R7.6 当前进度
+
+已完成高级 JSON 原始视图与可视化编辑器的双向校验：玩家创建规则、成长来源 / 候选、失败模式、结局、事件、派系和冲突均提供显式 JSON 校验入口；解析失败会标红原始输入并保留最近一次有效可视化草稿，只有通过校验后点击“载入编辑器”才会替换草稿。可视化条目输入继续逐条校验 JSON 对象，保存前由前端聚合并交给服务端最终 schema 校验。
 
 ### R4.10 当前进度
 

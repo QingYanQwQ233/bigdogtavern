@@ -1573,6 +1573,8 @@ body[data-theme="vibrancy"] .dropdown { box-shadow: none; }
 .world-draft-array-error[hidden] { display: none; }
 .world-draft-array-advanced { display: flex; align-items: center; gap: 8px; margin: 10px 0 6px; color: var(--muted); font-size: 11px; }
 .world-draft-array-advanced label { letter-spacing: 0.4px; }
+textarea.world-draft-json-valid { border-color: var(--ok); }
+textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72); box-shadow: 0 0 0 3px rgba(var(--danger-rgb), 0.08); }
 .world-draft-array-preview-label { display: block; margin-top: 12px; color: var(--muted); font-size: 11px; letter-spacing: 0.4px; }
 .world-draft-array-preview { max-height: 220px; margin: 5px 0 0; padding: 10px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: rgba(var(--bg-0-rgb), 0.4); color: var(--muted); font: 10px/1.45 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .world-draft-map-layout { display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 14px; align-items: start; }

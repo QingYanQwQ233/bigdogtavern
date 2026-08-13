@@ -837,21 +837,21 @@
           <label for="world-draft-player-creation">玩家创建规则 <span class="hint-inline">可视化编辑；字段由世界卡声明</span></label>
           <div id="world-draft-player-schema" class="world-draft-player-schema" aria-label="玩家创建规则条目"></div>
           <textarea id="world-draft-player-creation" name="worldDraftPlayerCreation" rows="8" maxlength="30000" spellcheck="false" placeholder='{"mode":"custom","fields":[],"attributes":[],"skills":[],"resources":[],"traits":[]}'></textarea>
-          <div class="world-draft-player-advanced"><button class="ghost-btn small" id="world-draft-player-load-json" type="button">从高级 JSON 载入编辑器</button><span class="hint-inline">可保留自定义键；修改后点击载入，保存时也会校验</span></div>
+          <div class="world-draft-player-advanced"><button class="ghost-btn small" id="world-draft-player-validate-json" type="button">校验 JSON</button><button class="ghost-btn small" id="world-draft-player-load-json" type="button">从高级 JSON 载入编辑器</button><span class="hint-inline">先校验；点击载入后才替换可视化草稿，非法 JSON 不会覆盖最近有效内容</span></div>
           <label class="world-draft-player-preview-label" for="world-draft-player-preview">建角规则预览</label>
           <pre id="world-draft-player-preview" class="world-draft-player-preview" aria-live="polite"></pre>
           <div id="world-draft-growth-schema" class="world-draft-growth-schema" aria-label="成长规则条目">
             <section class="world-draft-rule-collection" aria-labelledby="world-draft-growth-sources-title">
               <div class="world-draft-collection-head"><div><h3 id="world-draft-growth-sources-title">成长来源</h3><p>训练、学习、探索、关系、事件或自定义来源。</p></div><button class="ghost-btn small" type="button" data-world-add="growthSources">＋成长来源</button></div>
               <div id="world-draft-growth-sources-editor" class="world-draft-array-editor" aria-label="成长来源条目"></div>
-              <div class="world-draft-array-advanced"><label for="world-draft-player-creation">高级 JSON</label><button class="ghost-btn small" id="world-draft-player-load-growth-sources-json" type="button">载入来源</button></div>
+              <div class="world-draft-array-advanced"><label for="world-draft-player-creation">高级 JSON</label><button class="ghost-btn small" id="world-draft-player-validate-growth-sources-json" type="button">校验</button><button class="ghost-btn small" id="world-draft-player-load-growth-sources-json" type="button">载入来源</button></div>
               <label class="world-draft-array-preview-label" for="world-draft-growth-sources-preview">成长来源预览</label>
               <pre id="world-draft-growth-sources-preview" class="world-draft-array-preview" aria-live="polite"></pre>
             </section>
             <section class="world-draft-rule-collection" aria-labelledby="world-draft-growth-candidates-title">
               <div class="world-draft-collection-head"><div><h3 id="world-draft-growth-candidates-title">成长候选</h3><p>把剧情成果绑定到属性、技能、资源、特质、关系、派系或身份。</p></div><button class="ghost-btn small" type="button" data-world-add="growthCandidates">＋成长候选</button></div>
               <div id="world-draft-growth-candidates-editor" class="world-draft-array-editor" aria-label="成长候选条目"></div>
-              <div class="world-draft-array-advanced"><label for="world-draft-player-creation">高级 JSON</label><button class="ghost-btn small" id="world-draft-player-load-growth-candidates-json" type="button">载入候选</button></div>
+              <div class="world-draft-array-advanced"><label for="world-draft-player-creation">高级 JSON</label><button class="ghost-btn small" id="world-draft-player-validate-growth-candidates-json" type="button">校验</button><button class="ghost-btn small" id="world-draft-player-load-growth-candidates-json" type="button">载入候选</button></div>
               <label class="world-draft-array-preview-label" for="world-draft-growth-candidates-preview">成长候选预览</label>
               <pre id="world-draft-growth-candidates-preview" class="world-draft-array-preview" aria-live="polite"></pre>
             </section>
@@ -868,7 +868,7 @@
           <section class="world-draft-rule-collection" aria-labelledby="world-draft-failure-modes-title">
             <div class="world-draft-collection-head"><div><h3 id="world-draft-failure-modes-title">失败模式条目</h3><p>模式 ID 会被 defaultMode / onZeroHp / onConflictDefeat 引用。</p></div><button class="ghost-btn small" type="button" data-world-add="failureModes">＋失败模式</button></div>
             <div id="world-draft-failure-modes-editor" class="world-draft-array-editor" aria-label="失败模式条目"></div>
-            <div class="world-draft-array-advanced"><label for="world-draft-failure">高级 JSON</label><button class="ghost-btn small" id="world-draft-failure-load-modes-json" type="button">载入失败模式</button></div>
+            <div class="world-draft-array-advanced"><label for="world-draft-failure">高级 JSON</label><button class="ghost-btn small" id="world-draft-failure-validate-modes-json" type="button">校验</button><button class="ghost-btn small" id="world-draft-failure-load-modes-json" type="button">载入失败模式</button></div>
             <label class="world-draft-array-preview-label" for="world-draft-failure-modes-preview">失败模式预览</label>
             <pre id="world-draft-failure-modes-preview" class="world-draft-array-preview" aria-live="polite"></pre>
           </section>
@@ -880,7 +880,7 @@
           <section class="world-draft-rule-collection" aria-labelledby="world-draft-ending-endings-title">
             <div class="world-draft-collection-head"><div><h3 id="world-draft-ending-endings-title">结局条目</h3><p>结局可由玩家选择或由世界卡条件触发。</p></div><button class="ghost-btn small" type="button" data-world-add="endingEndings">＋结局条目</button></div>
             <div id="world-draft-ending-endings-editor" class="world-draft-array-editor" aria-label="结局条目"></div>
-            <div class="world-draft-array-advanced"><label for="world-draft-ending">高级 JSON</label><button class="ghost-btn small" id="world-draft-ending-load-endings-json" type="button">载入结局</button></div>
+            <div class="world-draft-array-advanced"><label for="world-draft-ending">高级 JSON</label><button class="ghost-btn small" id="world-draft-ending-validate-endings-json" type="button">校验</button><button class="ghost-btn small" id="world-draft-ending-load-endings-json" type="button">载入结局</button></div>
             <label class="world-draft-array-preview-label" for="world-draft-ending-endings-preview">结局预览</label>
             <pre id="world-draft-ending-endings-preview" class="world-draft-array-preview" aria-live="polite"></pre>
           </section>
@@ -899,7 +899,7 @@
             <button class="ghost-btn small" type="button" data-world-add="events">＋世界事件</button>
           </div>
           <div id="world-draft-events-editor" class="world-draft-array-editor" aria-label="世界事件条目"></div>
-          <div class="world-draft-array-advanced"><label for="world-draft-events">高级 JSON</label><button class="ghost-btn small" id="world-draft-events-load-json" type="button">载入编辑器</button></div>
+          <div class="world-draft-array-advanced"><label for="world-draft-events">高级 JSON</label><button class="ghost-btn small" id="world-draft-events-validate-json" type="button">校验 JSON</button><button class="ghost-btn small" id="world-draft-events-load-json" type="button">载入编辑器</button></div>
           <textarea id="world-draft-events" name="worldDraftEvents" rows="6" maxlength="30000" spellcheck="false" placeholder='[{"id":"event-id","title":"事件标题","trigger":{"at":10},"visibility":"public","once":true}]'></textarea>
           <label class="world-draft-array-preview-label" for="world-draft-events-preview">事件模板预览</label>
           <pre id="world-draft-events-preview" class="world-draft-array-preview" aria-live="polite"></pre>
@@ -914,7 +914,7 @@
             <button class="ghost-btn small" type="button" data-world-add="factions">＋派系</button>
           </div>
           <div id="world-draft-factions-editor" class="world-draft-array-editor" aria-label="派系条目"></div>
-          <div class="world-draft-array-advanced"><label for="world-draft-factions">高级 JSON</label><button class="ghost-btn small" id="world-draft-factions-load-json" type="button">载入编辑器</button></div>
+          <div class="world-draft-array-advanced"><label for="world-draft-factions">高级 JSON</label><button class="ghost-btn small" id="world-draft-factions-validate-json" type="button">校验 JSON</button><button class="ghost-btn small" id="world-draft-factions-load-json" type="button">载入编辑器</button></div>
           <textarea id="world-draft-factions" name="worldDraftFactions" rows="8" maxlength="50000" spellcheck="false" placeholder='[{"id":"north-guild","name":"北方公会","actions":[{"id":"patrol","title":"巡逻山口","description":"派出巡逻队。","trigger":{"at":9,"locationId":"wolf-tooth-inn"},"changes":{"resources":{"funds":-5}}}]}]'></textarea>
           <label class="world-draft-array-preview-label" for="world-draft-factions-preview">派系模板预览</label>
           <pre id="world-draft-factions-preview" class="world-draft-array-preview" aria-live="polite"></pre>
@@ -929,7 +929,7 @@
             <button class="ghost-btn small" type="button" data-world-add="conflicts">＋冲突模板</button>
           </div>
           <div id="world-draft-conflicts-editor" class="world-draft-array-editor" aria-label="冲突模板条目"></div>
-          <div class="world-draft-array-advanced"><label for="world-draft-conflicts">高级 JSON</label><button class="ghost-btn small" id="world-draft-conflicts-load-json" type="button">载入编辑器</button></div>
+          <div class="world-draft-array-advanced"><label for="world-draft-conflicts">高级 JSON</label><button class="ghost-btn small" id="world-draft-conflicts-validate-json" type="button">校验 JSON</button><button class="ghost-btn small" id="world-draft-conflicts-load-json" type="button">载入编辑器</button></div>
           <textarea id="world-draft-conflicts" name="worldDraftConflicts" rows="8" maxlength="50000" spellcheck="false" placeholder='[{"id":"conflict-id","label":"冲突标题","type":"combat","phases":[],"actions":[{"id":"strike","label":"攻击","check":{"roll":"1d20","target":10}}],"outcomes":[]}]'></textarea>
           <label class="world-draft-array-preview-label" for="world-draft-conflicts-preview">冲突模板预览</label>
           <pre id="world-draft-conflicts-preview" class="world-draft-array-preview" aria-live="polite"></pre>
