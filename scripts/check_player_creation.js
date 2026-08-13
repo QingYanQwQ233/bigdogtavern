@@ -41,6 +41,7 @@ async function main() {
     assert.strictEqual(worldResponse.response.status, 200);
     assert.strictEqual(worldResponse.body.playerCreation.mode, 'custom');
     assert.ok(worldResponse.body.playerCreation.fields.some(field => field.id === 'name'));
+    assert.strictEqual(worldResponse.body.playerCreation.derived[0].formula, 'attributes.wits + attributes.spirit');
     assert.strictEqual(worldResponse.body.events[0].trigger.at, 10);
     const dice = await jsonRequest(base, '/api/dice', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expressions: ['2d6+1'] }),
@@ -123,7 +124,6 @@ async function main() {
       body: JSON.stringify({ commandId: 'turn-check-5', expectedRevision: eventTurn.body.revision, actionIntent: { raw: '越界属性' }, state: { ...eventTurn.body.state, player: { ...eventTurn.body.state.player, attributes: { ...eventTurn.body.state.player.attributes, might: 99 } } }, turns: [{ role: 'assistant', content: '拒绝。' }], options: [] }),
     });
     assert.strictEqual(invalidDynamicPlayer.response.status, 400, 'dynamic player values respect world schema ranges');
-
     const second = await jsonRequest(base, '/api/world-saves', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ worldId: 'world-aurora', worldVersion: 1, name: '另一条世界线', player: { ...validPlayer, fields: { ...validPlayer.fields, name: '焰' }, relations: { 'npc-lily': -20 }, traits: [] } }),
@@ -133,6 +133,12 @@ async function main() {
     assert.strictEqual(second.body.player.snapshot.name, '焰');
     assert.strictEqual(second.body.npcStates['npc-lily'].relation.player, -20);
     assert.strictEqual(first.body.player.snapshot.name, '澪', 'first save remains isolated');
+
+    const invalidDerivedPlayer = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'turn-check-derived', expectedRevision: eventTurn.body.revision, actionIntent: { raw: 'derived' }, state: { ...eventTurn.body.state, player: { ...eventTurn.body.state.player, derived: { readiness: 99 } } }, turns: [{ role: 'assistant', content: 'reject' }], options: [] }),
+    });
+    assert.strictEqual(invalidDerivedPlayer.response.status, 400, 'derived values are read-only and cannot be persisted');
 
     const invalidCases = [
       { ...validPlayer, fields: { ...validPlayer.fields, name: '' } },

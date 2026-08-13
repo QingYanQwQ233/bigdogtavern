@@ -1451,6 +1451,88 @@ function worldRpgState() {
   }
   return state.__runtimeRpg;
 }
+
+function parseRpgDerivedFormula(expression) {
+  if (typeof expression !== 'string' || !expression.trim() || expression.length > 240) return null;
+  const source = expression.trim();
+  const tokens = [];
+  const tokenRe = /\s*(?:(\d+(?:\.\d*)?|\.\d+)|([A-Za-z_][A-Za-z0-9_.-]*)|([()+\-*/]))/y;
+  let offset = 0;
+  while (offset < source.length) {
+    tokenRe.lastIndex = offset;
+    const match = tokenRe.exec(source);
+    if (!match) return null;
+    offset = tokenRe.lastIndex;
+    tokens.push(match[1] ? { type: 'number', value: Number(match[1]) } : match[2] ? { type: 'ref', value: match[2] } : { type: match[3] });
+  }
+  let cursor = 0;
+  let nodes = 0;
+  const peek = () => tokens[cursor];
+  const take = type => (peek()?.type === type ? tokens[cursor++] : null);
+  const makeNode = (type, left, right = null) => (++nodes > 64 ? null : { type, left, right });
+  function primary() {
+    const token = peek();
+    if (token?.type === 'number') { cursor++; return makeNode('number', token.value); }
+    if (token?.type === 'ref') { cursor++; return makeNode('ref', token.value); }
+    if (take('(')) { const node = add(); return take(')') && node; }
+    return null;
+  }
+  function unary() {
+    if (take('+')) return unary();
+    if (take('-')) return makeNode('neg', unary());
+    return primary();
+  }
+  function mul() {
+    let node = unary();
+    while (node && (peek()?.type === '*' || peek()?.type === '/')) node = makeNode(tokens[cursor++].type, node, unary());
+    return node;
+  }
+  function add() {
+    let node = mul();
+    while (node && (peek()?.type === '+' || peek()?.type === '-')) node = makeNode(tokens[cursor++].type, node, mul());
+    return node;
+  }
+  const ast = add();
+  return ast && cursor === tokens.length ? ast : null;
+}
+
+function evaluateWorldDerivedValues(schema, playerState) {
+  const definitions = Array.isArray(schema?.derived) ? schema.derived : [];
+  const attrs = playerState?.attributes && typeof playerState.attributes === 'object' ? playerState.attributes : {};
+  const resources = playerState?.resources && typeof playerState.resources === 'object' ? playerState.resources : {};
+  const byId = new Map(definitions.map(definition => [definition.id, definition]));
+  const memo = new Map();
+  const evaluating = new Set();
+  const evaluate = id => {
+    if (memo.has(id)) return memo.get(id);
+    const definition = byId.get(id);
+    if (!definition || evaluating.has(id)) return null;
+    evaluating.add(id);
+    const read = ref => {
+      const [bucket, key] = String(ref || '').split('.');
+      if (bucket === 'attributes') return Number.isFinite(Number(attrs[key])) ? Number(attrs[key]) : null;
+      if (bucket === 'resources') return Number.isFinite(Number(resources[key])) ? Number(resources[key]) : null;
+      return bucket === 'derived' ? evaluate(key) : null;
+    };
+    const calculate = node => {
+      if (!node) return null;
+      if (node.type === 'number') return Number.isFinite(node.left) ? node.left : null;
+      if (node.type === 'ref') return read(node.left);
+      if (node.type === 'neg') { const value = calculate(node.left); return value === null ? null : -value; }
+      const left = calculate(node.left);
+      const right = calculate(node.right);
+      if (left === null || right === null || (node.type === '/' && right === 0)) return null;
+      const value = node.type === '+' ? left + right : node.type === '-' ? left - right : node.type === '*' ? left * right : left / right;
+      return Number.isFinite(value) ? value : null;
+    };
+    const value = calculate(parseRpgDerivedFormula(definition.formula));
+    evaluating.delete(id);
+    memo.set(id, value);
+    return value;
+  };
+  return definitions.filter(definition => definition && definition.visible !== false).map(definition => ({ ...definition, value: evaluate(definition.id) }));
+}
+
 function commitRpgState(rs) {
   if (!rs) return;
   if (worldModeActive()) {
@@ -1510,6 +1592,15 @@ function renderRPG() {
       const bucket = schema.attributes?.some(item => item.id === definition.id) ? playerState?.attributes : playerState?.resources;
       const value = bucket?.[definition.id] ?? definition.default ?? definition.initial ?? '—';
       return `<span class="rpg-dynamic-stat">${esc(definition.label || definition.id)}<b>${esc(value)}</b></span>`;
+    }).join('');
+  }
+  if (dynamicStats && worldModeActive()) {
+    const schema = currentWorldCard()?.playerCreation;
+    const playerState = currentWorldSave.state?.player;
+    const derived = evaluateWorldDerivedValues(schema, playerState);
+    if (derived.length) dynamicStats.innerHTML += derived.map(definition => {
+      const value = definition.value === null ? '鈥?' : Number.isInteger(definition.value) ? String(definition.value) : String(Number(definition.value.toFixed(3)));
+      return `<span class="rpg-dynamic-stat rpg-derived-stat" title="只读：${esc(definition.formula)}">${esc(definition.label || definition.id)}<b>${esc(value)}</b></span>`;
     }).join('');
   }
   const inv = $('rpg-inventory');
@@ -3272,6 +3363,8 @@ function buildRpgPromptPart() {
       if (player) parts.unshift('【世界存档中的玩家快照】\n' + Object.entries(player).filter(([k, v]) => k !== 'profileFields' && v != null && String(v).trim()).map(([k, v]) => `${k}：${typeof v === 'object' ? JSON.stringify(v) : v}`).join('\n'));
       const dynamicPlayer = currentWorldSave.state?.player;
       if (dynamicPlayer) parts.unshift('【当前玩家动态状态】\n' + ['attributes', 'resources', 'traits', 'relations', 'effects'].filter(key => dynamicPlayer[key] !== undefined).map(key => `${key}：${JSON.stringify(dynamicPlayer[key])}`).join('\n'));
+      const derivedValues = evaluateWorldDerivedValues(world.playerCreation, dynamicPlayer);
+      if (derivedValues.length) parts.unshift('【当前玩家只读派生值】\n' + derivedValues.map(item => `${item.id}: ${item.value === null ? 'N/A' : item.value}`).join('\n') + '\n这些值由属性/资源实时计算，仅供阅读，禁止写回 ```rpg``` 状态块。');
       const optionRules = worldOptionRules();
       parts.push(`【回合契约】行动选项数量 ${optionRules.min}-${optionRules.max}；自由文本输入始终可用。AI 不得替玩家补写未表达的核心意图、台词或不可逆行动。`);
       const npcPrompt = buildWorldNpcPromptPart();

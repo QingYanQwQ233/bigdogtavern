@@ -494,6 +494,9 @@
           { "id": "mp", "label": "魔力", "type": "number", "min": 0, "max": 999, "initial": 5 },
           { "id": "gold", "label": "金币", "type": "number", "min": 0, "max": 1000000, "initial": 10 }
         ],
+        "derived": [
+          { "id": "readiness", "label": "行动准备", "formula": "attributes.wits + attributes.spirit", "description": "由属性自动计算的只读值" }
+        ],
         "traits": [
           { "id": "keen-sense", "label": "敏锐感知", "description": "更容易发现环境中的细节。" },
           { "id": "steady-hand", "label": "稳健之手", "description": "在紧张场面中保持专注。" }

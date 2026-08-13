@@ -295,6 +295,66 @@ function validBoundedNumber(value, min, max, integer = false) {
   return Number.isFinite(value) && value >= min && value <= max && (!integer || Number.isInteger(value));
 }
 
+const DERIVED_FORMULA_MAX_LENGTH = 240;
+const DERIVED_FORMULA_MAX_NODES = 64;
+
+function parseDerivedFormula(expression) {
+  if (typeof expression !== 'string' || !expression.trim() || expression.length > DERIVED_FORMULA_MAX_LENGTH) return { error: '表达式长度或内容无效' };
+  const source = expression.trim();
+  const tokens = [];
+  const tokenRe = /\s*(?:(\d+(?:\.\d*)?|\.\d+)|([A-Za-z_][A-Za-z0-9_.-]*)|([()+\-*/]))/y;
+  let offset = 0;
+  while (offset < source.length) {
+    tokenRe.lastIndex = offset;
+    const match = tokenRe.exec(source);
+    if (!match) return { error: '表达式包含非法字符' };
+    offset = tokenRe.lastIndex;
+    tokens.push(match[1] ? { type: 'number', value: Number(match[1]) } : match[2] ? { type: 'ref', value: match[2] } : { type: match[3] });
+  }
+  let cursor = 0;
+  let nodes = 0;
+  const refs = new Set();
+  const peek = () => tokens[cursor];
+  const take = type => (peek()?.type === type ? tokens[cursor++] : null);
+  const makeNode = (type, left, right = null) => {
+    if (++nodes > DERIVED_FORMULA_MAX_NODES) throw new Error('表达式过于复杂');
+    return { type, left, right };
+  };
+  function parsePrimary() {
+    const token = peek();
+    if (token?.type === 'number') { cursor++; return makeNode('number', token.value); }
+    if (token?.type === 'ref') { cursor++; refs.add(token.value); return makeNode('ref', token.value); }
+    if (take('(')) {
+      const node = parseAdd();
+      if (!take(')')) throw new Error('括号不匹配');
+      return node;
+    }
+    throw new Error('缺少数字、引用或括号');
+  }
+  function parseUnary() {
+    if (take('+')) return parseUnary();
+    if (take('-')) return makeNode('neg', parseUnary());
+    return parsePrimary();
+  }
+  function parseMul() {
+    let node = parseUnary();
+    while (peek()?.type === '*' || peek()?.type === '/') node = makeNode(tokens[cursor++].type, node, parseUnary());
+    return node;
+  }
+  function parseAdd() {
+    let node = parseMul();
+    while (peek()?.type === '+' || peek()?.type === '-') node = makeNode(tokens[cursor++].type, node, parseMul());
+    return node;
+  }
+  try {
+    const ast = parseAdd();
+    if (cursor !== tokens.length) throw new Error('表达式尾部无效');
+    return { ast, refs: [...refs] };
+  } catch (error) {
+    return { error: error.message || '表达式无效' };
+  }
+}
+
 function validatePlayerCreationSchema(schema, world = null) {
   if (schema === undefined || schema === null) return null;
   if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return 'playerCreation 必须是对象';
@@ -370,6 +430,41 @@ function validatePlayerCreationSchema(schema, world = null) {
       || !validBoundedNumber(resource.initial ?? min, min, max)) return `playerCreation.resources.${id} 范围无效`;
     resourceIds.add(id);
   }
+  const derived = schema.derived === undefined ? [] : schema.derived;
+  if (!Array.isArray(derived) || derived.length > 64) return 'playerCreation.derived 最多 64 项';
+  const derivedIds = new Set();
+  const derivedRefs = new Map();
+  for (const definition of derived) {
+    const id = typeof definition?.id === 'string' ? definition.id.trim() : '';
+    if (!isSafeId(id) || derivedIds.has(id) || !draftTextValid(definition.label, 120, true)
+      || typeof definition.formula !== 'string' || !definition.formula.trim() || definition.formula.length > DERIVED_FORMULA_MAX_LENGTH
+      || (definition.description !== undefined && !draftTextValid(definition.description, 1000))
+      || (definition.visible !== undefined && typeof definition.visible !== 'boolean')) return 'playerCreation.derived 含有重复或无效条目';
+    derivedIds.add(id);
+  }
+  for (const definition of derived) {
+    const parsed = parseDerivedFormula(definition.formula);
+    if (parsed.error) return `playerCreation.derived.${definition.id}.formula ${parsed.error}`;
+    for (const ref of parsed.refs) {
+      const parts = ref.split('.');
+      if (parts.length !== 2 || !['attributes', 'resources', 'derived'].includes(parts[0]) || !isSafeId(parts[1])) return `playerCreation.derived.${definition.id}.formula 引用了无效 ID`;
+      const allowed = parts[0] === 'attributes' ? attributeIds : parts[0] === 'resources' ? resourceIds : derivedIds;
+      if (!allowed.has(parts[1])) return `playerCreation.derived.${definition.id}.formula 引用了不存在的 ${ref}`;
+    }
+    derivedRefs.set(definition.id, parsed.refs.filter(ref => ref.startsWith('derived.')).map(ref => ref.slice(8)));
+  }
+  const visiting = new Set();
+  const visited = new Set();
+  function visitDerived(id) {
+    if (visiting.has(id)) return true;
+    if (visited.has(id)) return false;
+    visiting.add(id);
+    for (const dependency of derivedRefs.get(id) || []) if (visitDerived(dependency)) return true;
+    visiting.delete(id);
+    visited.add(id);
+    return false;
+  }
+  for (const id of derivedIds) if (visitDerived(id)) return `playerCreation.derived.${id}.formula 存在循环依赖`;
   const traitIds = new Set();
   const traits = schema.traits === undefined ? [] : schema.traits;
   if (!Array.isArray(traits) || traits.length > 128) return 'playerCreation.traits 最多 128 项';
@@ -403,6 +498,7 @@ function validateDynamicPlayerState(world, value, current = null, immutable = fa
   if (!value || typeof value !== 'object' || Array.isArray(value)) return 'state.player 必须是对象';
   const schema = playerCreationSchema(world);
   if (!schema) return null;
+  if (value.derived !== undefined) return 'state.player.derived 是只读派生值，不能写入';
   const definitions = { attributes: schema.attributes || [], resources: schema.resources || [] };
   for (const bucket of ['attributes', 'resources']) {
     const map = value[bucket];

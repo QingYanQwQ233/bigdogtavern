@@ -232,6 +232,22 @@ async function main() {
     assert.deepStrictEqual(draftUpdate.body.world.npcIds, ['npc-lily']);
     assert.deepStrictEqual(draftUpdate.body.world.map.generation, draftMapGeneration);
     assert.strictEqual(draftUpdate.body.world.events[0].id, 'rain-warning');
+    const invalidDerivedDraft = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        expectedUpdatedAt: draftUpdate.body.updatedAt,
+        baseVersion: world.version,
+        title: draftUpdate.body.world.title,
+        summary: draftUpdate.body.world.summary,
+        tags: draftUpdate.body.world.tags,
+        lorebookIds: draftUpdate.body.world.lorebookIds,
+        playerCreation: { ...draftUpdate.body.world.playerCreation, derived: [{ id: 'unsafe', label: 'unsafe', formula: 'Math.max(1, 2)' }] },
+        locations: draftLocations,
+        npcs: draftNpcs,
+      }),
+    });
+    assert.strictEqual(invalidDerivedDraft.response.status, 400, 'derived formulas reject arbitrary JavaScript');
     const invalidDraftEvent = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

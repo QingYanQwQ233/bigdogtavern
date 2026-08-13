@@ -314,3 +314,7 @@ RPG 控制块的 `player.attributes` / `player.resources` 使用相对数值变�
 The mapping is `messages -> WorldSave.turns`, `opening -> opening`, and `rpgState -> state`. Locations must belong to the target world; otherwise the world start is used and a warning is reported. Only a credential-scrubbed character snapshot is copied. Unknown fields remain in the sealed source and are never executed. `migrationInfo` records the source session ID and exact source hash. Confirming twice returns the same deterministic save; the original browser session is not changed or deleted.
 
 API additions: `POST /api/rpg-migrations` (preview/seal), `GET /api/rpg-migrations/<migrationId>` (summary only), and `POST /api/rpg-migrations/<migrationId>` (explicit commit, idempotent).
+
+### playerCreation.derived（R5.4）
+
+世界卡可声明只读派生值：`{ id, label, formula, visible?, description? }`。`formula` 只允许数字、`+ - * /`、括号，以及 `attributes.<id>`、`resources.<id>`、`derived.<id>` 引用；服务端拒绝非法 ID、循环依赖、除任意 JavaScript 外的表达式。派生值不写入 `WorldSave.state.player`，由当前存档的属性与资源实时计算并注入 RPG 面板和提示词，切换存档不会串值。
