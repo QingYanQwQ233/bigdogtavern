@@ -65,7 +65,8 @@
       "rpg": "RPG 叙事引擎（示例）"
     },
     "cotEnabled": false,
-    "cotEffort": "low"
+    "cotEffort": "low",
+    "worldContextBudget": 24000
   },
   "ui": {
     "emptyTitle": "欢迎",

@@ -3621,6 +3621,76 @@ function worldNpcQuestIds(quest) {
   return ids.filter(id => id.trim()).map(id => id.trim());
 }
 
+function worldContextBudget() {
+  const configured = Number(prefs?.worldContextBudget);
+  return Number.isFinite(configured) && configured > 0
+    ? Math.max(6000, Math.min(60000, Math.floor(configured)))
+    : 24000;
+}
+
+function worldPromptPriority(part) {
+  const heading = /^【([^】]+)】/.exec(String(part || ''))?.[1];
+  if (!heading) return null;
+  return {
+    '回合契约': 115,
+    '世界时间': 112,
+    '当前玩家动态状态': 110,
+    'RPG 状态': 110,
+    '目标': 108,
+    '线索': 108,
+    '目标 / 线索时限': 108,
+    '长期事件记忆': 106,
+    '当前世界卡': 104,
+    '当前作用域 NPC': 102,
+    '当前玩家只读派生值': 100,
+    '背包': 98,
+    '世界存档中的玩家快照': 96,
+    '已提交世界事件': 94,
+    '冲突状态': 92,
+    '物品 / 装备 / 经济规则': 88,
+    '成长候选与人物经历': 76,
+    '地图': 70,
+    '当前作用域派系': 64,
+    '任务': 108,
+  }[heading] ?? 40;
+}
+
+function clipWorldPromptPart(text, limit) {
+  if (text.length <= limit) return text;
+  const suffix = '…（本段受上下文预算裁剪）';
+  const max = Math.max(0, limit - suffix.length);
+  const lines = text.split('\n');
+  let output = '';
+  for (const line of lines) {
+    const next = output ? `${output}\n${line}` : line;
+    if (next.length > max) break;
+    output = next;
+  }
+  if (!output) output = text.slice(0, max);
+  return output + suffix;
+}
+
+function budgetWorldPromptParts(parts) {
+  if (!worldModeActive()) return parts;
+  const entries = parts.map((text, index) => ({ text: String(text || ''), index, priority: worldPromptPriority(text) }))
+    .filter(entry => entry.priority !== null && entry.text);
+  if (!entries.length) return parts;
+  let remaining = worldContextBudget();
+  const kept = new Map();
+  for (const entry of [...entries].sort((a, b) => b.priority - a.priority || a.index - b.index)) {
+    const separatorCost = kept.size ? 2 : 0;
+    if (remaining <= separatorCost) break;
+    const clipped = clipWorldPromptPart(entry.text, remaining - separatorCost);
+    if (!clipped) continue;
+    kept.set(entry.index, clipped);
+    remaining -= clipped.length + separatorCost;
+  }
+  return parts.map((text, index) => {
+    const priority = worldPromptPriority(text);
+    return priority === null ? text : (kept.get(index) || '');
+  }).filter(Boolean);
+}
+
 function worldNpcLocationIds(npc) {
   if (!npc || typeof npc !== 'object') return [];
   const ids = [];
@@ -3654,13 +3724,28 @@ function buildWorldNpcPromptPart() {
   const state = save.state || {};
   const currentLocationId = typeof state.locationId === 'string' ? state.locationId : '';
   const partyIds = new Set(Array.isArray(save.party?.memberIds) ? save.party.memberIds.filter(id => typeof id === 'string') : []);
-  const questIds = new Set((Array.isArray(state.quests) ? state.quests : []).flatMap(worldNpcQuestIds));
+  const objectiveIds = new Set([
+    ...(Array.isArray(state.quests) ? state.quests : []),
+    ...(Array.isArray(state.goals) ? state.goals : []),
+    ...(Array.isArray(state.leads) ? state.leads : []),
+  ].flatMap(worldNpcQuestIds));
+  const conflictIds = new Set(Object.values(state.conflicts && typeof state.conflicts === 'object' ? state.conflicts : {}).flatMap(conflict => [
+    conflict?.targetId,
+    ...(Array.isArray(conflict?.participants) ? conflict.participants.map(item => typeof item === 'string' ? item : item?.id) : []),
+  ].filter(id => typeof id === 'string' && id.trim())));
+  const memoryIds = new Set((Array.isArray(save.eventMemory) ? save.eventMemory : [])
+    .filter(memory => memory && memory.visibility !== 'hidden'
+      && (memory.visibility !== 'local' || !memory.locationId || memory.locationId === currentLocationId))
+    .flatMap(memory => Array.isArray(memory.entityIds) ? memory.entityIds : [])
+    .filter(id => typeof id === 'string' && id.trim()));
   const npcStates = save.npcStates && typeof save.npcStates === 'object' ? save.npcStates : {};
   const selected = definitions.filter(npc => {
     const id = npc.id.trim();
     const npcState = npcStates[id];
     return partyIds.has(id)
-      || questIds.has(id)
+      || objectiveIds.has(id)
+      || conflictIds.has(id)
+      || memoryIds.has(id)
       || (npcState && npcState.locationId === currentLocationId)
       || worldNpcLocationIds(npc).includes(currentLocationId);
   });
@@ -3705,11 +3790,13 @@ function buildWorldEventPromptPart() {
   const state = currentWorldSave.state || {};
   const currentLocationId = state.locationId || null;
   const events = Array.isArray(state.worldEvents) ? state.worldEvents : [];
-  const visible = events.filter(event => event && event.visibility !== 'hidden'
-    && (event.visibility !== 'local' || !event.locationId || event.locationId === currentLocationId));
-  if (!visible.length) return '';
+  const visible = events.filter(event => event && event.visibility !== 'hidden');
+  const local = visible.filter(event => event.visibility === 'local' && (!event.locationId || event.locationId === currentLocationId)).slice(-8);
+  const global = visible.filter(event => event.visibility !== 'local' && (!event.locationId || event.locationId === currentLocationId)).slice(-8);
+  const selected = [...global, ...local].filter((event, index, list) => list.findIndex(item => item.eventId === event.eventId) === index);
+  if (!selected.length) return '';
   return '【已提交世界事件】\n以下事件已由服务端在成功回合后结算，只能视为已发生事实，不得跨存档引用：\n'
-    + visible.map(event => {
+    + selected.map(event => {
       const consequences = Array.isArray(event.consequences) && event.consequences.length ? `；后果：${event.consequences.join('；')}` : '';
       const time = event.time ? `（${event.time.value} ${event.time.unit}）` : '';
       return `- ${event.title || event.eventId}${time}：${event.description || '（无公开描述）'}${consequences}`;
@@ -3870,6 +3957,11 @@ function buildRpgPromptPart() {
       const growthPrompt = buildWorldGrowthPromptPart();
       if (growthPrompt) parts.push(growthPrompt);
     }
+  }
+  if (worldModeActive()) {
+    const budgeted = budgetWorldPromptParts(parts);
+    parts.length = 0;
+    parts.push(...budgeted);
   }
   parts.push((defaults?.rpg?.stateInstruction) || '每次回复末尾输出包含 options 的 ```rpg``` JSON 状态块。');
   if (defaults?.rpg?.eventMemoryInstruction) parts.push(defaults.rpg.eventMemoryInstruction);
@@ -5745,19 +5837,31 @@ function buildMapContext() {
   const m = /区域\s*(\d+)/.exec(locText);
   let cur = m ? map.regions.find(r => r.id === parseInt(m[1], 10)) : null;
   if (!cur) cur = map.regions.find(r => r.name === locText) || null;
+  const adjacentIds = new Set(cur ? [cur.id, ...map.adjacency
+    .filter(([a, b]) => a === cur.id || b === cur.id)
+    .map(([a, b]) => a === cur.id ? b : a)] : []);
+  const scopedRegions = adjacentIds.size
+    ? map.regions.filter(region => adjacentIds.has(region.id))
+    : map.regions.slice(0, 6);
+  const scopedRegionIds = new Set(scopedRegions.map(region => region.id));
   const lines = [];
   lines.push('【地图】当前世界是一张算法生成的地图，共 ' + map.regions.length + ' 个区域。'
     + '玩家当前位置：' + (cur ? cur.name + '（' + cur.biome + '）' : (locText || '未知')) + '。');
-  lines.push('区域与可达性：');
-  for (const r of map.regions) {
+  lines.push('当前区域与可达性（仅注入当前位置及相邻区域）：');
+  for (const r of scopedRegions) {
     const nb = map.adjacency
       .filter(([a, b]) => a === r.id || b === r.id)
-      .map(([a, b]) => map.regions[(a === r.id ? b : a) - 1].name);
+      .map(([a, b]) => map.regions.find(region => region.id === (a === r.id ? b : a)))
+      .filter(region => region && scopedRegionIds.has(region.id))
+      .map(region => region.name)
+      .filter(Boolean);
     lines.push('· ' + r.name + '（' + r.biome + '）' + (nb.length ? ' — 可前往：' + nb.join('、') : '（孤立）'));
   }
-  const pts = map.points.slice(0, 12);
-  lines.push('地标：');
-  lines.push('· ' + pts.map(p => p.type + '「' + p.name + '」（' + map.regions[p.regionId - 1].name + '）').join('　'));
+  const pts = map.points.filter(point => adjacentIds.has(point.regionId)).slice(0, 12);
+  if (pts.length) {
+    lines.push('当前区域地标：');
+    lines.push('· ' + pts.map(p => p.type + '「' + p.name + '」（' + (map.regions.find(region => region.id === p.regionId)?.name || p.regionId) + '）').join('　'));
+  }
   lines.push('（玩家移动时，请让 location 使用区域名，如「区域 3」；叙事应遵循区域可达性）');
   return lines.join('\n');
 }

@@ -57,11 +57,12 @@ vm.runInContext(`
       currentWorldSave = {
         id: 'save-world', worldId: 'world-aurora', worldVersion: 1, revision: 7,
         party: { memberIds: ['npc-party'], leaderId: 'pc-player' },
-        state: { locationId: 'wolf-tooth-inn', stats: {}, inventory: [], quests: [{ questId: 'quest-1', npcIds: ['npc-quest'] }] },
+        state: { locationId: 'wolf-tooth-inn', stats: {}, inventory: [], quests: [{ questId: 'quest-1', npcIds: ['npc-quest'] }], goals: [{ id: 'goal-1', title: '找到联络人', npcIds: ['npc-goal'] }] },
         npcStates: {
           'npc-party': { locationId: 'far-away', relation: { trust: 2 }, knowledge: [], status: [] },
           'npc-local': { locationId: 'wolf-tooth-inn', relation: {}, knowledge: ['见过玩家'], status: [] },
           'npc-quest': { locationId: 'far-away', relation: {}, knowledge: [], status: ['waiting'] },
+          'npc-goal': { locationId: 'far-away', relation: {}, knowledge: [], status: ['waiting'] },
           'npc-remote': { locationId: 'far-away', relation: {}, knowledge: [], status: [] },
         },
         generatedEntities: {
@@ -78,10 +79,37 @@ vm.runInContext(`
           { id: 'npc-party', name: 'Party NPC', role: 'ally', locationId: 'far-away' },
           { id: 'npc-local', name: 'Local NPC', role: 'innkeeper', locationId: 'wolf-tooth-inn', secrets: [{ id: 'vault-secret', content: '隐藏宝库位于北墙之后' }] },
           { id: 'npc-quest', name: 'Quest NPC', role: 'quest giver', locationId: 'far-away' },
+          { id: 'npc-goal', name: 'Goal NPC', role: 'objective target', locationId: 'far-away' },
           { id: 'npc-remote', name: 'Remote NPC', role: 'stranger', locationId: 'far-away' },
         ],
       }];
       return buildRpgPromptPart();
+    })(),
+    budgetPrompt: (() => {
+      const previous = prefs.worldContextBudget;
+      prefs.worldContextBudget = 6000;
+      const result = budgetWorldPromptParts([
+        '【当前世界卡】\\n' + '稳定设定 '.repeat(3000),
+        '【目标】找到联络人',
+        '【当前作用域派系】\\n' + '无关派系 '.repeat(3000),
+      ]).join('\\n\\n');
+      prefs.worldContextBudget = previous;
+      return result;
+    })(),
+    mapPrompt: (() => {
+      const previousLocation = currentWorldSave.state.locationId;
+      currentWorldSave.state.locationId = '区域 2';
+      delete currentWorldSave.state.__runtimeRpg;
+      currentWorldSave.state.map = { data: {
+        regions: [1, 2, 3, 4].map(id => ({ id, name: 'Region ' + id, biome: '草原' })),
+        adjacency: [[1, 2], [2, 3], [3, 4]],
+        points: [{ regionId: 2, type: '村庄', name: '当前地标' }, { regionId: 4, type: '遗迹', name: '远方遗迹' }],
+      } };
+      const result = buildMapContext();
+      currentWorldSave.state.locationId = previousLocation;
+      delete currentWorldSave.state.__runtimeRpg;
+      delete currentWorldSave.state.map;
+      return result;
     })(),
     recentContext: (() => {
       const previousWorldId = currentWorldId;
@@ -172,9 +200,17 @@ assert.match(context.check.worldPrompt, /不能把一次存档变化宣称为世
 assert.match(context.check.worldPrompt, /npc-party/);
 assert.match(context.check.worldPrompt, /npc-local/);
 assert.match(context.check.worldPrompt, /npc-quest/);
+assert.match(context.check.worldPrompt, /npc-goal/);
 assert.match(context.check.worldPrompt, /Generated Local/);
 assert.doesNotMatch(context.check.worldPrompt, /Generated Remote/);
 assert.doesNotMatch(context.check.worldPrompt, /npc-remote/);
+assert.match(context.check.budgetPrompt, /找到联络人/);
+assert.ok(context.check.budgetPrompt.length <= 6000);
+assert.doesNotMatch(context.check.budgetPrompt, /无关派系 无关派系 无关派系 无关派系 无关派系 无关派系 无关派系 无关派系 无关派系 无关派系/);
+assert.match(context.check.mapPrompt, /Region 1/);
+assert.match(context.check.mapPrompt, /Region 3/);
+assert.match(context.check.mapPrompt, /当前地标/);
+assert.doesNotMatch(context.check.mapPrompt, /Region 4|远方遗迹/);
 assert.deepStrictEqual(JSON.parse(JSON.stringify(context.check.recentContext.messages)), [
   { role: 'user', content: '新场景玩家' },
   { role: 'assistant', content: '新场景叙事' },
@@ -220,6 +256,7 @@ assert.ok(rpgDefault.modules.some(x => x.id === 'rpgContinuity' && x.enabled));
 assert.deepStrictEqual(defaultData.prefs.currentPresetByMode, { tavern: 'RP 基础（示例）', rpg: 'RPG 叙事引擎（示例）' });
 assert.match(defaultData.rpg.stateInstruction, /恰好 4 个/);
 assert.match(defaultData.rpg.eventMemoryInstruction, /eventMemory/);
+assert.strictEqual(defaultData.prefs.worldContextBudget, 24000);
 const exampleState = JSON.parse(defaultData.rpg.exampleTurn.assistant.match(/```rpg\n([\s\S]*?)\n```/)[1]);
 assert.strictEqual(exampleState.options.length, 4);
 
