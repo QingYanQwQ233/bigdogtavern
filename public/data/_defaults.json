@@ -668,6 +668,101 @@
       },
       "ui": { "layout": "world-desk" },
       "source": { "format": "native", "rawAssetRef": null }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "world-grey-harbor",
+      "version": 1,
+      "title": "灰港都市",
+      "summary": "非魔法现代悬疑题材：从雾港码头开始，调查失踪案、城市阴影与人情债。",
+      "coverImage": "",
+      "tags": ["现代悬疑", "非魔法", "调查"],
+      "playerCreation": {
+        "mode": "custom",
+        "title": "创建你的调查员",
+        "description": "这是一张非魔法题材示例卡，所有状态仍由世界卡声明驱动。",
+        "pointBudget": { "label": "专注点", "total": 6, "min": 0 },
+        "fields": [
+          { "id": "name", "label": "姓名", "type": "text", "required": true, "maxLength": 80 },
+          { "id": "role", "label": "身份", "type": "select", "required": true, "options": [{ "value": "记者", "label": "记者" }, { "value": "调查员", "label": "调查员" }, { "value": "律师", "label": "律师" }] },
+          { "id": "background", "label": "背景", "type": "textarea", "maxLength": 1200, "placeholder": "你为什么来到灰港？" }
+        ],
+        "attributes": [
+          { "id": "focus", "label": "专注", "min": 1, "max": 5, "default": 2, "step": 1 },
+          { "id": "nerve", "label": "胆识", "min": 1, "max": 5, "default": 2, "step": 1 }
+        ],
+        "skills": [
+          { "id": "investigation", "label": "调查", "description": "整理线索、查找证据与识别矛盾。", "min": 0, "max": 10, "default": 1, "step": 1 },
+          { "id": "negotiation", "label": "谈判", "description": "在压力与利益之间争取合作。", "min": 0, "max": 10, "default": 1, "step": 1 },
+          { "id": "stealth", "label": "潜行", "description": "避开监控、守卫与不必要的冲突。", "min": 0, "max": 10, "default": 1, "step": 1 }
+        ],
+        "resources": [
+          { "id": "hp", "label": "体力", "type": "number", "min": 1, "max": 100, "initial": 12 },
+          { "id": "stamina", "label": "精力", "type": "number", "min": 0, "max": 20, "initial": 8 },
+          { "id": "credits", "label": "现金", "type": "number", "min": 0, "max": 100000, "initial": 50 }
+        ],
+        "derived": [{ "id": "case-readiness", "label": "办案准备", "formula": "attributes.focus + skills.investigation", "description": "专注与调查经验的当前合计。" }],
+        "traits": [{ "id": "observant", "label": "观察入微", "description": "更容易注意到证词和现场中的细小异常。" }],
+        "economy": {
+          "inventory": { "enabled": true, "maxSlots": 12, "maxWeight": 30, "items": [{ "id": "press-pass", "label": "记者证", "weight": 0.1, "maxStack": 1 }, { "id": "flashlight", "label": "手电筒", "weight": 0.4, "maxStack": 1, "slot": "handheld" }] },
+          "equipment": { "enabled": true, "slots": [{ "id": "handheld", "label": "手持设备" }] },
+          "currencies": [{ "id": "credits", "label": "现金", "min": 0, "max": 100000, "initial": 50 }]
+        },
+        "growth": {
+          "sources": [{ "id": "casework", "label": "办案", "kind": "exploration", "description": "从调查和实地取证中积累经验。" }, { "id": "network", "label": "人脉", "kind": "relationship", "description": "通过重要关系获得长期影响。" }, { "id": "incident", "label": "事故", "kind": "event", "description": "重大案件留下不可逆的经历。" }],
+          "candidates": [
+            { "id": "investigation-casework", "label": "调查经验", "sourceId": "casework", "bucket": "skills", "targetId": "investigation", "delta": 1, "description": "一次完整取证让你更擅长整理证据。" },
+            { "id": "observant-incident", "label": "异常直觉", "sourceId": "incident", "bucket": "traits", "targetId": "observant", "description": "一次险些错过的细节改变了你的观察习惯。" },
+            { "id": "harbor-pass", "label": "灰港通行证", "sourceId": "network", "bucket": "identity", "targetId": "clearances", "value": "灰港内港通行证", "description": "重要关系为你带来一份长期通行资格。" }
+          ]
+        }
+      },
+      "turnContract": { "options": { "min": 0, "max": 4 }, "actionIntent": true },
+      "conflicts": [
+        { "id": "dock-chase", "label": "码头追逐", "type": "combat", "description": "在狭窄码头处理一场危险追逐。", "maxRounds": 8, "phases": [{ "id": "pursuit", "label": "追逐" }, { "id": "resolve", "label": "收束" }], "actions": [{ "id": "strike", "label": "制服", "description": "在近距离内迫使对方停下。", "check": { "roll": "1d20", "modifier": { "bucket": "attributes", "id": "nerve", "factor": 1 }, "target": 10, "damage": { "roll": "1d4", "modifier": { "bucket": "attributes", "id": "nerve", "factor": 1 } } } }, { "id": "flee", "label": "撤离", "description": "离开危险的码头区域。" }], "outcomes": [{ "id": "secured", "label": "控制现场", "consequences": ["追逐结束，证据暂时保住了。"] }, { "id": "fled", "label": "撤离", "consequences": ["你离开码头，后续调查仍可继续。"] }] },
+        { "id": "press-interview", "label": "媒体采访", "type": "social", "description": "用谈判和证据推进一次敏感采访。", "maxRounds": 8, "phases": [{ "id": "exchange", "label": "交涉" }, { "id": "resolve", "label": "定案" }], "actions": [{ "id": "persuade", "label": "说服", "description": "提出可信的交换条件。", "check": { "roll": "1d20", "modifier": { "bucket": "skills", "id": "negotiation", "factor": 1 }, "target": 11 } }, { "id": "probe", "label": "试探", "description": "先观察对方的顾虑。" }, { "id": "withdraw", "label": "暂退", "description": "结束本轮采访。" }], "outcomes": [{ "id": "agreed", "label": "达成合作", "consequences": ["对方同意提供一条关键线索。"] }, { "id": "fled", "label": "暂时离开", "consequences": ["采访暂时中止。"] }] },
+        { "id": "archive-infiltration", "label": "档案室潜入", "type": "stealth", "description": "避开监控进入封存档案室。", "maxRounds": 8, "phases": [{ "id": "approach", "label": "接近" }, { "id": "resolve", "label": "穿越" }], "actions": [{ "id": "sneak", "label": "潜行", "description": "利用换班间隙穿过监控区。", "check": { "roll": "1d20", "modifier": { "bucket": "skills", "id": "stealth", "factor": 1 }, "target": 12 } }, { "id": "observe", "label": "观察", "description": "寻找更安全的路线。" }, { "id": "retreat", "label": "撤回", "description": "退回隐蔽处。" }], "outcomes": [{ "id": "passed", "label": "成功潜入", "consequences": ["你无声地进入了档案室。"] }, { "id": "fled", "label": "撤回", "consequences": ["你避开警报，等待下一次机会。"] }] }
+      ],
+      "time": { "unit": "hour", "start": 18, "turnAdvance": 1 },
+      "events": [{ "id": "harbor-blackout", "title": "港区停电", "description": "灰港的灯光突然熄灭，所有证词都变得可疑。", "trigger": { "afterTurns": 3 }, "visibility": "public", "once": true, "consequences": ["夜间调查的风险上升。"] }],
+      "start": { "locationId": "grey-dock", "openingMode": "static", "opening": "雾从灰港的水面升起，一盏盏路灯在远处熄灭。", "playerTemplate": { "name": "未命名调查员", "race": "人类", "role": "调查员", "profileFields": [] }, "initialState": { "stats": { "level": 1, "exp": 0, "expNext": 100, "hp": 12, "maxHp": 12, "mp": 1, "maxMp": 1, "gold": 50, "buffs": [] }, "inventory": [], "quests": [] } },
+      "lorebookIds": [], "rpgPresetName": "RPG 现代调查", "npcIds": [], "factionIds": [], "factions": [], "itemIds": [], "questTemplateIds": [], "locations": [{ "id": "grey-dock", "name": "灰港码头", "type": "district" }], "map": { "strategy": "perSave", "baseMapId": null, "generation": { "seed": 22001, "size": 96, "regionCount": 8, "landRatio": 0.5, "mapgenSize": "small" } }, "ui": { "layout": "world-desk" }, "source": { "format": "native", "rawAssetRef": null }
+    },
+    {
+      "schemaVersion": 1,
+      "id": "world-orbit-station",
+      "version": 1,
+      "title": "星环航站",
+      "summary": "低魔科幻冒险题材：在一座资源紧张的轨道空间站中处理故障、走私与未知信号。",
+      "coverImage": "",
+      "tags": ["科幻", "轨道站", "低魔"],
+      "playerCreation": {
+        "mode": "custom",
+        "title": "登记你的航站身份",
+        "description": "科幻示例卡使用能量、信用点和黑客技能，证明同一前端可以承载不同规则词汇。",
+        "pointBudget": { "label": "专长点", "total": 6, "min": 0 },
+        "fields": [
+          { "id": "name", "label": "呼号", "type": "text", "required": true, "maxLength": 80 },
+          { "id": "origin", "label": "来历", "type": "select", "required": true, "options": [{ "value": "地球联合体", "label": "地球联合体" }, { "value": "自由殖民地", "label": "自由殖民地" }, { "value": "未知来源", "label": "未知来源" }] },
+          { "id": "role", "label": "岗位", "type": "select", "required": true, "options": [{ "value": "维修员", "label": "维修员" }, { "value": "领航员", "label": "领航员" }, { "value": "信使", "label": "信使" }] }
+        ],
+        "attributes": [{ "id": "logic", "label": "逻辑", "min": 1, "max": 5, "default": 2, "step": 1 }, { "id": "nerve", "label": "临场", "min": 1, "max": 5, "default": 2, "step": 1 }],
+        "skills": [{ "id": "hacking", "label": "入侵", "description": "读取终端、绕过权限与修复协议。", "min": 0, "max": 10, "default": 1, "step": 1 }, { "id": "navigation", "label": "导航", "description": "理解航线、空间结构与漂移风险。", "min": 0, "max": 10, "default": 1, "step": 1 }],
+        "resources": [{ "id": "hp", "label": "生命", "type": "number", "min": 1, "max": 100, "initial": 10 }, { "id": "energy", "label": "能量", "type": "number", "min": 0, "max": 30, "initial": 12 }, { "id": "credits", "label": "信用点", "type": "number", "min": 0, "max": 100000, "initial": 120 }],
+        "derived": [{ "id": "systems-readiness", "label": "系统准备", "formula": "attributes.logic + skills.hacking", "description": "逻辑与入侵能力的当前合计。" }],
+        "traits": [{ "id": "zero-g-trained", "label": "零重力训练", "description": "在失重环境中行动更稳定。" }],
+        "economy": { "inventory": { "enabled": true, "maxSlots": 10, "maxWeight": 18, "items": [{ "id": "access-chip", "label": "通行芯片", "weight": 0.1, "maxStack": 1 }, { "id": "pulse-tool", "label": "脉冲工具", "weight": 1.2, "maxStack": 1, "slot": "tool" }] }, "equipment": { "enabled": true, "slots": [{ "id": "tool", "label": "工具位" }, { "id": "suit", "label": "服装位" }] }, "currencies": [{ "id": "credits", "label": "信用点", "min": 0, "max": 100000, "initial": 120 }] },
+        "growth": { "sources": [{ "id": "repair", "label": "维修", "kind": "training", "description": "从反复维修中掌握新的系统知识。" }, { "id": "signal", "label": "未知信号", "kind": "exploration", "description": "未知信号改变了你的判断方式。" }], "candidates": [{ "id": "hacking-repair", "label": "协议熟练", "sourceId": "repair", "bucket": "skills", "targetId": "hacking", "delta": 1, "description": "一次高压维修让你更熟悉站内协议。" }, { "id": "zero-g-signal", "label": "失重适应", "sourceId": "signal", "bucket": "traits", "targetId": "zero-g-trained", "description": "穿越失重舱段后，你形成了新的身体习惯。" }, { "id": "station-clearance", "label": "航站权限", "sourceId": "signal", "bucket": "identity", "targetId": "clearances", "value": "星环维修权限", "description": "未知信号为你打开了一层隐藏权限。" }] }
+      },
+      "turnContract": { "options": { "min": 0, "max": 4 }, "actionIntent": true },
+      "conflicts": [
+        { "id": "hull-breach", "label": "舱壁破损", "type": "combat", "description": "在失压舱段中保护维修队。", "maxRounds": 8, "phases": [{ "id": "alert", "label": "警报" }, { "id": "resolve", "label": "处理" }], "actions": [{ "id": "stabilize", "label": "稳定舱段", "description": "在危险中抢修并控制失压。", "check": { "roll": "1d20", "modifier": { "bucket": "skills", "id": "hacking", "factor": 1 }, "target": 11, "damage": { "roll": "1d4", "modifier": { "bucket": "attributes", "id": "logic", "factor": 1 } } } }, { "id": "evacuate", "label": "撤离", "description": "放弃当前舱段并保存人员。" }], "outcomes": [{ "id": "sealed", "label": "成功封锁", "consequences": ["舱段重新获得短暂稳定。"] }, { "id": "fled", "label": "撤离", "consequences": ["维修队撤到安全舱段。"] }] },
+        { "id": "customs-scan", "label": "海关扫描", "type": "social", "description": "面对航站检查员的权限审查。", "maxRounds": 8, "phases": [{ "id": "scan", "label": "扫描" }, { "id": "resolve", "label": "裁定" }], "actions": [{ "id": "negotiate", "label": "交涉", "description": "解释你的维修任务。", "check": { "roll": "1d20", "modifier": { "bucket": "skills", "id": "navigation", "factor": 1 }, "target": 12 } }, { "id": "inspect", "label": "观察", "description": "寻找扫描规则中的空隙。" }, { "id": "withdraw", "label": "离开", "description": "暂时离开检查区。" }], "outcomes": [{ "id": "cleared", "label": "放行", "consequences": ["检查员批准了你的通行。"] }, { "id": "fled", "label": "离开", "consequences": ["你离开检查区，另寻路线。"] }] }
+      ],
+      "time": { "unit": "cycle", "start": 1, "turnAdvance": 1 },
+      "events": [{ "id": "unknown-pulse", "title": "未知脉冲", "description": "空间站收到一段不属于任何登记航线的信号。", "trigger": { "afterTurns": 2 }, "visibility": "public", "once": true, "consequences": ["所有终端短暂出现同一组坐标。"] }],
+      "start": { "locationId": "ring-station", "openingMode": "static", "opening": "星环航站的人工重力刚刚恢复，所有终端同时亮起一组陌生坐标。", "playerTemplate": { "name": "未命名航员", "race": "人类", "role": "维修员", "profileFields": [] }, "initialState": { "stats": { "level": 1, "exp": 0, "expNext": 100, "hp": 10, "maxHp": 10, "mp": 1, "maxMp": 1, "gold": 120, "buffs": [] }, "inventory": [], "quests": [] } },
+      "lorebookIds": [], "rpgPresetName": "RPG 星环航站", "npcIds": [], "factionIds": [], "factions": [], "itemIds": [], "questTemplateIds": [], "locations": [{ "id": "ring-station", "name": "星环航站", "type": "station" }], "map": { "strategy": "perSave", "baseMapId": null, "generation": { "seed": 22002, "size": 96, "regionCount": 8, "landRatio": 0.5, "mapgenSize": "small" } }, "ui": { "layout": "world-desk" }, "source": { "format": "native", "rawAssetRef": null }
     }
   ]
 }

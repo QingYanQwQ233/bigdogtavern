@@ -238,10 +238,11 @@ async function loadWorlds() {
   const raw = await fs.promises.readFile(path.join(DATA_DIR, 'worlds.json'), 'utf-8');
   const worlds = JSON.parse(raw);
   if (!Array.isArray(worlds)) throw new Error('worlds.json 必须是数组');
-  // 旧 worlds.json 仍可运行：只在内存中补上默认的声明式建角规则，不改写世界卡文件。
+  // 旧 worlds.json 仍可运行：加载时只在内存中补齐默认世界/声明式规则；本函数不写回文件。
   const defaults = loadDefaults();
-  const defaultByKey = new Map((defaults.worlds || []).map(world => [`${world.id}:${world.version}`, world]));
-  return worlds.map(world => {
+  const defaultWorlds = Array.isArray(defaults.worlds) ? defaults.worlds : [];
+  const defaultByKey = new Map(defaultWorlds.map(world => [`${world.id}:${world.version}`, world]));
+  const loaded = worlds.map(world => {
     if (!world) return world;
     const fallback = defaultByKey.get(`${world.id}:${world.version}`);
     if (!fallback) return world;
@@ -251,6 +252,12 @@ async function loadWorlds() {
     }
     return next;
   });
+  const loadedKeys = new Set(loaded.filter(Boolean).map(world => `${world.id}:${world.version}`));
+  for (const world of defaultWorlds) {
+    const key = `${world.id}:${world.version}`;
+    if (!loadedKeys.has(key)) loaded.push(cloneJson(world));
+  }
+  return loaded;
 }
 
 function worldVersions(worlds, worldId) {

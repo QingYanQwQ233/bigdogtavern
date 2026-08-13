@@ -1,0 +1,157 @@
+'use strict';
+
+const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const root = path.resolve(__dirname, '..');
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tavern-rpg-regression-'));
+const defaults = JSON.parse(fs.readFileSync(path.join(root, 'public', 'data', '_defaults.json'), 'utf8'));
+fs.writeFileSync(path.join(tempDir, '_defaults.json'), JSON.stringify(defaults, null, 2));
+fs.writeFileSync(path.join(tempDir, 'worlds.json'), JSON.stringify(defaults.worlds, null, 2));
+process.env.TAVERN_DATA_DIR = tempDir;
+
+const { server, startServer } = require(path.join(root, 'server.js'));
+
+function closeServer() {
+  return new Promise(resolve => {
+    if (!server.listening) return resolve();
+    server.close(() => resolve());
+  });
+}
+
+async function jsonRequest(base, pathname, options) {
+  const response = await fetch(base + pathname, options);
+  const body = await response.json().catch(() => null);
+  return { response, body };
+}
+
+function firstOption(field) {
+  const option = Array.isArray(field.options) ? field.options[0] : '';
+  return typeof option === 'string' ? option : option?.value || '';
+}
+
+function playerFor(world, label) {
+  const schema = world.playerCreation;
+  return {
+    fields: Object.fromEntries((schema.fields || []).map(field => [field.id, field.id === 'name' ? label : firstOption(field) || field.default || (field.type === 'textarea' ? '测试背景' : '')])),
+    attributes: Object.fromEntries((schema.attributes || []).map(definition => [definition.id, definition.default ?? definition.min ?? 0])),
+    skills: Object.fromEntries((schema.skills || []).map(definition => [definition.id, definition.default ?? definition.min ?? 0])),
+    resources: Object.fromEntries((schema.resources || []).map(definition => [definition.id, definition.initial ?? definition.min ?? 0])),
+    traits: (schema.traits || []).slice(0, 1).map(definition => definition.id),
+    relations: {},
+  };
+}
+
+function activeConflict(definition, id) {
+  const action = (definition.actions || []).find(item => item.check) || definition.actions[0];
+  const phase = definition.phases?.[0]?.id || null;
+  const participants = definition.type === 'combat'
+    ? [{ id: `${id}-player`, role: 'player', hp: 10, maxHp: 10, defense: 10 }, { id: `${id}-target`, role: 'target', hp: 8, maxHp: 8, defense: 8 }]
+    : [{ id: `${id}-player`, role: 'player' }, { id: `${id}-target`, role: 'opponent' }];
+  return {
+    id, templateId: definition.id, type: definition.type, status: 'active', phase, round: 1,
+    participants, ...(definition.type === 'combat' ? { targetId: `${id}-target` } : {}),
+    availableActions: action ? [action.id] : [],
+  };
+}
+
+async function main() {
+  try {
+    await startServer(0);
+    const address = server.address();
+    const base = `http://127.0.0.1:${address.port}`;
+    const worldsResponse = await jsonRequest(base, '/api/worlds');
+    assert.strictEqual(worldsResponse.response.status, 200);
+    for (const id of ['world-aurora', 'world-grey-harbor', 'world-orbit-station']) assert.ok(worldsResponse.body.some(world => world.id === id), `${id} sample world is available`);
+
+    const created = {};
+    for (const id of ['world-grey-harbor', 'world-orbit-station']) {
+      const worldResponse = await jsonRequest(base, `/api/worlds/${id}?version=1`);
+      assert.strictEqual(worldResponse.response.status, 200);
+      const world = worldResponse.body;
+      const player = playerFor(world, `${id}-player`);
+      const saveResponse = await jsonRequest(base, '/api/world-saves', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ worldId: id, worldVersion: 1, name: `${id} regression`, player }),
+      });
+      assert.strictEqual(saveResponse.response.status, 201, `${id} save creates`);
+      const save = saveResponse.body;
+      created[id] = save;
+      const firstResource = world.playerCreation.resources[0];
+      assert.strictEqual(save.state.player.resources[firstResource.id], player.resources[firstResource.id]);
+      assert.ok(save.state.map && save.state.map.strategy, `${id} keeps per-save map state`);
+
+      const combat = world.conflicts.find(definition => definition.type === 'combat');
+      const social = world.conflicts.find(definition => definition.type === 'social');
+      assert.ok(combat && social, `${id} declares combat and social conflicts`);
+      const combatKey = `${id}-combat`;
+      const socialKey = `${id}-social`;
+      const startState = { ...save.state, conflicts: { [combatKey]: activeConflict(combat, combatKey), [socialKey]: activeConflict(social, socialKey) } };
+      const started = await jsonRequest(base, `/api/world-saves/${save.id}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commandId: `${id}-start-1`, expectedRevision: save.revision, state: startState, turns: [{ role: 'assistant', content: '冲突开始。' }], options: [] }),
+      });
+      assert.strictEqual(started.response.status, 200, `${id} conflict start commits: ${JSON.stringify(started.body)}`);
+      const nextConflicts = JSON.parse(JSON.stringify(started.body.state.conflicts));
+      for (const [key, definition] of [[combatKey, combat], [socialKey, social]]) {
+        const state = nextConflicts[key];
+        const action = definition.actions.find(item => item.check);
+        state.round = 2;
+        state.actionId = action.id;
+        if (key === 'combat') state.targetId = state.participants[1].id;
+      }
+      const advanced = await jsonRequest(base, `/api/world-saves/${save.id}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commandId: `${id}-advance-1`, expectedRevision: started.body.revision, state: { ...started.body.state, conflicts: nextConflicts }, turns: [{ role: 'assistant', content: '冲突判定完成。' }], options: [] }),
+      });
+      assert.strictEqual(advanced.response.status, 200, `${id} conflict advance commits`);
+      assert.ok(advanced.body.receipts.at(-1).combatChecks.length === 1, `${id} server rolls combat`);
+      assert.strictEqual(advanced.body.receipts.at(-1).conflictChecks[0].type, 'social', `${id} server records social check`);
+
+      const candidate = world.playerCreation.growth.candidates[0];
+      const candidateRecord = { id: `${id}-growth-1`, candidateId: candidate.id, sourceId: candidate.sourceId, reason: '回归测试产生候选', status: 'proposed' };
+      const proposed = await jsonRequest(base, `/api/world-saves/${save.id}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commandId: `${id}-growth-1`, expectedRevision: advanced.body.revision, state: { ...advanced.body.state, growthCandidates: [candidateRecord] }, turns: [{ role: 'assistant', content: '记录一项成长。' }], options: [] }),
+      });
+      assert.strictEqual(proposed.response.status, 200, `${id} growth proposal commits`);
+      const accepted = await jsonRequest(base, `/api/world-saves/${save.id}/growth`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commandId: `${id}-growth-accept`, expectedRevision: proposed.body.revision, candidateId: candidateRecord.id, decision: 'accepted' }),
+      });
+      assert.strictEqual(accepted.response.status, 200, `${id} growth accepts`);
+      assert.strictEqual(accepted.body.state.growthApplications.at(-1).decision, 'accepted');
+      assert.strictEqual(accepted.body.state.experiences.at(-1).candidateId, candidate.id);
+      assert.strictEqual(accepted.body.state.player[candidate.bucket][candidate.targetId], player[candidate.bucket][candidate.targetId] + candidate.delta);
+      const reloaded = await jsonRequest(base, `/api/world-saves/${save.id}`);
+      assert.strictEqual(reloaded.response.status, 200);
+      assert.strictEqual(reloaded.body.state.experiences.at(-1).id, accepted.body.state.experiences.at(-1).id, `${id} growth survives reload`);
+      created[id] = reloaded.body;
+    }
+
+    const legacy = {
+      id: 'legacy-rpg-grey', kind: 'rpg', name: 'legacy grey', opening: 'legacy opening',
+      messages: [{ role: 'assistant', content: '旧存档内容', ts: 1 }],
+      rpgState: { locationId: 'grey-dock', stats: { level: 2, hp: 9, maxHp: 12, gold: 20 }, inventory: [], quests: [] },
+    };
+    const migration = await jsonRequest(base, '/api/rpg-migrations', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ raw: JSON.stringify({ schemaVersion: 1, kind: 'legacy-rpg-session', name: legacy.name, worldId: 'world-grey-harbor', worldVersion: 1, session: legacy, characterSnapshot: { name: 'legacy', race: 'human', role: 'investigator' } }) }),
+    });
+    assert.strictEqual(migration.response.status, 201);
+    const migrated = await jsonRequest(base, `/api/rpg-migrations/${migration.body.id}`, { method: 'POST' });
+    assert.strictEqual(migrated.response.status, 201, 'legacy RPG save migrates into sample world');
+    assert.deepStrictEqual(migrated.body.save.state.growthCandidates, []);
+    assert.deepStrictEqual(migrated.body.save.state.growthApplications, []);
+    assert.deepStrictEqual(migrated.body.save.state.experiences, []);
+    assert.strictEqual(migrated.body.save.state.locationId, 'grey-dock');
+    assert.strictEqual(created['world-grey-harbor'].state.experiences.length, 1, 'sample saves remain isolated');
+    console.log('RPG regression check passed');
+  } finally {
+    await closeServer();
+  }
+}
+
+main().catch(error => { console.error(error); process.exitCode = 1; });
