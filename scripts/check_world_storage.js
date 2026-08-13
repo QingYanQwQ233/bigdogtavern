@@ -238,11 +238,46 @@ async function main() {
     assert.deepStrictEqual(draftUpdate.body.world.map.generation, draftMapGeneration);
     assert.strictEqual(draftUpdate.body.world.factions[0].id, 'north-guild');
     assert.strictEqual(draftUpdate.body.world.events[0].id, 'rain-warning');
-    const invalidDerivedDraft = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
+    const ruleWorld = draftUpdate.body.world;
+    const rulePlayerCreation = JSON.parse(JSON.stringify(ruleWorld.playerCreation || { mode: 'custom', fields: [], attributes: [], skills: [], resources: [], traits: [] }));
+    rulePlayerCreation.growth = {
+      sources: [{ id: 'training-test', label: '训练', kind: 'training', description: '通过训练成长。' }],
+      candidates: [{ id: 'identity-test', label: '身份成长', sourceId: 'training-test', bucket: 'identity', targetId: 'identity', value: '见习者', description: '测试成长候选。' }],
+    };
+    const ruleDraftUpdate = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         expectedUpdatedAt: draftUpdate.body.updatedAt,
+        baseVersion: world.version,
+        title: draftUpdate.body.world.title,
+        summary: draftUpdate.body.world.summary,
+        tags: draftUpdate.body.world.tags,
+        lorebookIds: draftUpdate.body.world.lorebookIds,
+        setting: draftUpdate.body.world.setting,
+        rules: draftUpdate.body.world.rules,
+        playerCreation: rulePlayerCreation,
+        turnContract: { options: { min: 2, max: 4 }, actionIntent: true },
+        failure: { defaultMode: 'test-failure', onZeroHp: 'test-failure', onConflictDefeat: 'test-failure', modes: [{ id: 'test-failure', label: '测试失败', description: '继续测试。', effect: '测试状态' }] },
+        ending: { enabled: true, allowPlayerEnd: true, requireConfirm: true, endings: [{ id: 'test-ending', kind: 'card-defined', label: '测试结局', description: '测试结局描述。', terminal: true }] },
+        conflicts: [{ id: 'test-conflict', label: '测试冲突', type: 'combat', phases: [{ id: 'start', label: '开始' }], actions: [{ id: 'strike', label: '攻击', check: { roll: '1d20', target: 10 } }], outcomes: [{ id: 'win', label: '胜利', consequences: ['测试完成'] }] }],
+        mapGeneration: draftUpdate.body.world.map?.generation,
+        locations: draftLocations,
+        npcs: draftNpcs,
+        events: draftUpdate.body.world.events,
+        factions: draftUpdate.body.world.factions,
+      }),
+    });
+    assert.strictEqual(ruleDraftUpdate.response.status, 200, 'rule collections save through the world draft chain');
+    assert.strictEqual(ruleDraftUpdate.body.world.conflicts[0].actions[0].check.roll, '1d20');
+    assert.strictEqual(ruleDraftUpdate.body.world.failure.modes[0].id, 'test-failure');
+    assert.strictEqual(ruleDraftUpdate.body.world.ending.endings[0].id, 'test-ending');
+    assert.strictEqual(ruleDraftUpdate.body.world.playerCreation.growth.candidates[0].sourceId, 'training-test');
+    const invalidDerivedDraft = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        expectedUpdatedAt: ruleDraftUpdate.body.updatedAt,
         baseVersion: world.version,
         title: draftUpdate.body.world.title,
         summary: draftUpdate.body.world.summary,
@@ -257,31 +292,31 @@ async function main() {
     const invalidDraftEvent = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ expectedUpdatedAt: draftUpdate.body.updatedAt, baseVersion: world.version, title: 'invalid', summary: '', tags: [], lorebookIds: [], events: [{ id: 'bad-event', title: '越界事件', trigger: { locationId: 'missing-location' } }], locations: draftLocations, npcs: draftNpcs }),
+      body: JSON.stringify({ expectedUpdatedAt: ruleDraftUpdate.body.updatedAt, baseVersion: world.version, title: 'invalid', summary: '', tags: [], lorebookIds: [], events: [{ id: 'bad-event', title: '越界事件', trigger: { locationId: 'missing-location' } }], locations: draftLocations, npcs: draftNpcs }),
     });
     assert.strictEqual(invalidDraftEvent.response.status, 400, 'event location references are validated against draft locations');
     const invalidDraftFactionAction = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ expectedUpdatedAt: draftUpdate.body.updatedAt, baseVersion: world.version, title: 'invalid', summary: '', tags: [], lorebookIds: [], factions: [{ id: 'north-guild', name: 'North Guild', actions: [{ id: 'patrol', title: '巡逻', description: '', trigger: { locationId: 'missing-location' }, changes: {} }] }], locations: draftLocations, npcs: draftNpcs }),
+      body: JSON.stringify({ expectedUpdatedAt: ruleDraftUpdate.body.updatedAt, baseVersion: world.version, title: 'invalid', summary: '', tags: [], lorebookIds: [], factions: [{ id: 'north-guild', name: 'North Guild', actions: [{ id: 'patrol', title: '巡逻', description: '', trigger: { locationId: 'missing-location' }, changes: {} }] }], locations: draftLocations, npcs: draftNpcs }),
     });
     assert.strictEqual(invalidDraftFactionAction.response.status, 400, 'faction action location references are validated against draft locations');
     const invalidDraftMap = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ expectedUpdatedAt: draftUpdate.body.updatedAt, baseVersion: world.version, title: 'invalid', summary: '', tags: [], lorebookIds: [], mapGeneration: { ...draftMapGeneration, landRatio: 2 }, locations: draftLocations, npcs: draftNpcs }),
+      body: JSON.stringify({ expectedUpdatedAt: ruleDraftUpdate.body.updatedAt, baseVersion: world.version, title: 'invalid', summary: '', tags: [], lorebookIds: [], mapGeneration: { ...draftMapGeneration, landRatio: 2 }, locations: draftLocations, npcs: draftNpcs }),
     });
     assert.strictEqual(invalidDraftMap.response.status, 400, 'unsafe map generation values are rejected');
     const invalidAuthorRules = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ expectedUpdatedAt: draftUpdate.body.updatedAt, baseVersion: world.version, title: draftUpdate.body.world.title, summary: draftUpdate.body.world.summary, tags: draftUpdate.body.world.tags, lorebookIds: draftUpdate.body.world.lorebookIds, setting: { unknown: '不允许' }, rules: { hard: [''] }, locations: draftLocations, npcs: draftNpcs }),
+      body: JSON.stringify({ expectedUpdatedAt: ruleDraftUpdate.body.updatedAt, baseVersion: world.version, title: draftUpdate.body.world.title, summary: draftUpdate.body.world.summary, tags: draftUpdate.body.world.tags, lorebookIds: draftUpdate.body.world.lorebookIds, setting: { unknown: '不允许' }, rules: { hard: [''] }, locations: draftLocations, npcs: draftNpcs }),
     });
     assert.strictEqual(invalidAuthorRules.response.status, 400, 'world setting and author rules are validated');
     const invalidDraftCollections = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ expectedUpdatedAt: draftUpdate.body.updatedAt, baseVersion: world.version, title: 'invalid', summary: '', tags: [], lorebookIds: [], locations: [{ id: 'wolf-tooth-inn', name: 'Inn' }], npcs: [{ id: 'npc-lily', name: 'Lily', locationId: 'missing-location' }] }),
+      body: JSON.stringify({ expectedUpdatedAt: ruleDraftUpdate.body.updatedAt, baseVersion: world.version, title: 'invalid', summary: '', tags: [], lorebookIds: [], locations: [{ id: 'wolf-tooth-inn', name: 'Inn' }], npcs: [{ id: 'npc-lily', name: 'Lily', locationId: 'missing-location' }] }),
     });
     assert.strictEqual(invalidDraftCollections.response.status, 400, 'dangling NPC location is rejected');
     const staleDraftUpdate = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
@@ -607,7 +642,7 @@ async function main() {
     const staleDraftPublish = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id) + '/publish', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ commandId: 'publish-aurora-stale-0001', expectedUpdatedAt: draftUpdate.body.updatedAt, baseVersion: world.version }),
+      body: JSON.stringify({ commandId: 'publish-aurora-stale-0001', expectedUpdatedAt: ruleDraftUpdate.body.updatedAt, baseVersion: world.version }),
     });
     assert.strictEqual(staleDraftPublish.response.status, 409, 'draft cannot publish over a newer world version');
     assert.strictEqual(staleDraftPublish.body.latestVersion, promotion.body.world.version);

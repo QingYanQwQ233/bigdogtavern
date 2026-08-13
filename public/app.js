@@ -715,33 +715,82 @@ function handleWorldDraftPlayerCreationClick(event) {
 const WORLD_DRAFT_JSON_ARRAY_DEFS = [
   { key: 'events', label: '世界事件', template: () => ({ id: 'event-' + uid(), title: '新事件', description: '', trigger: { afterTurns: 1 }, visibility: 'public', once: true, consequences: [] }) },
   { key: 'factions', label: '派系', template: () => ({ id: 'faction-' + uid(), name: '新派系', description: '', goals: [], resources: [], actions: [] }) },
+  { key: 'conflicts', label: '冲突模板', template: () => ({ id: 'conflict-' + uid(), label: '新冲突', type: 'custom', description: '', phases: [], actions: [], outcomes: [] }) },
+  { key: 'failureModes', label: '失败模式', parentKey: 'failure', nestedKey: 'modes', rawId: 'world-draft-failure', editorId: 'world-draft-failure-modes-editor', previewId: 'world-draft-failure-modes-preview', loadId: 'world-draft-failure-load-modes-json', template: () => ({ id: 'failure-' + uid(), label: '新失败模式', description: '', effect: '' }) },
+  { key: 'endingEndings', label: '结局条目', parentKey: 'ending', nestedKey: 'endings', rawId: 'world-draft-ending', editorId: 'world-draft-ending-endings-editor', previewId: 'world-draft-ending-endings-preview', loadId: 'world-draft-ending-load-endings-json', template: () => ({ id: 'ending-' + uid(), kind: 'card-defined', label: '新结局', description: '', terminal: true }) },
+  { key: 'growthSources', label: '成长来源', parentKey: 'playerCreation', nestedKey: 'growth.sources', rawId: 'world-draft-player-creation', editorId: 'world-draft-growth-sources-editor', previewId: 'world-draft-growth-sources-preview', loadId: 'world-draft-player-load-growth-sources-json', template: () => ({ id: 'growth-source-' + uid(), label: '新成长来源', kind: 'custom', description: '' }) },
+  { key: 'growthCandidates', label: '成长候选', parentKey: 'playerCreation', nestedKey: 'growth.candidates', rawId: 'world-draft-player-creation', editorId: 'world-draft-growth-candidates-editor', previewId: 'world-draft-growth-candidates-preview', loadId: 'world-draft-player-load-growth-candidates-json', template: () => ({ id: 'growth-candidate-' + uid(), label: '新成长候选', sourceId: '', bucket: 'attributes', targetId: '', delta: 1, description: '' }) },
 ];
+function worldDraftJsonArrayDefinition(key) {
+  return WORLD_DRAFT_JSON_ARRAY_DEFS.find(definition => definition.key === key) || null;
+}
+function worldDraftJsonArrayNestedValue(parent, path) {
+  return String(path || '').split('.').reduce((value, key) => value?.[key], parent);
+}
+function worldDraftJsonArraySetNested(parent, path, value) {
+  const keys = String(path || '').split('.').filter(Boolean);
+  if (!keys.length) return value;
+  const next = parent && typeof parent === 'object' && !Array.isArray(parent) ? { ...parent } : {};
+  let cursor = next;
+  keys.forEach((key, index) => {
+    if (index === keys.length - 1) cursor[key] = value;
+    else {
+      cursor[key] = cursor[key] && typeof cursor[key] === 'object' && !Array.isArray(cursor[key]) ? { ...cursor[key] } : {};
+      cursor = cursor[key];
+    }
+  });
+  return next;
+}
 function worldDraftJsonArraySchema(key) {
-  const value = worldDraft?.world?.[key];
+  const definition = worldDraftJsonArrayDefinition(key);
+  const value = definition?.parentKey
+    ? worldDraftJsonArrayNestedValue(worldDraft?.world?.[definition.parentKey], definition.nestedKey)
+    : worldDraft?.world?.[key];
   return Array.isArray(value) ? value : [];
+}
+function worldDraftJsonArrayRawValue(key) {
+  const definition = worldDraftJsonArrayDefinition(key);
+  if (!definition) return undefined;
+  return definition.parentKey ? worldDraft?.world?.[definition.parentKey] : worldDraft?.world?.[key];
+}
+function worldDraftJsonArrayWrite(key, value) {
+  const definition = worldDraftJsonArrayDefinition(key);
+  if (!definition || !worldDraft) return;
+  if (!definition.parentKey) {
+    worldDraft.world[key] = value;
+    return;
+  }
+  const parent = worldDraft.world[definition.parentKey];
+  worldDraft.world[definition.parentKey] = worldDraftJsonArraySetNested(parent, definition.nestedKey, value);
+}
+function worldDraftJsonArrayRawText(key) {
+  const value = worldDraftJsonArrayRawValue(key);
+  return value === undefined || value === null ? '' : JSON.stringify(value, null, 2);
 }
 function worldDraftJsonArrayItemText(item) {
   return JSON.stringify(item, null, 2) ?? '';
 }
 function worldDraftJsonArrayPreview(key) {
-  const preview = $(`world-draft-${key}-preview`);
+  const definition = worldDraftJsonArrayDefinition(key);
+  const preview = $(definition?.previewId || `world-draft-${key}-preview`);
   if (preview) preview.textContent = JSON.stringify(worldDraftJsonArraySchema(key), null, 2);
 }
 function worldDraftJsonArrayRawMatchesEditor(key) {
-  const raw = $(`world-draft-${key}`);
+  const definition = worldDraftJsonArrayDefinition(key);
+  const raw = $(definition?.rawId || `world-draft-${key}`);
   if (!raw) return true;
-  const value = worldDraft?.world?.[key];
-  const expected = worldDraftJsonArraySchema(key).length || value ? JSON.stringify(worldDraftJsonArraySchema(key), null, 2) : '';
+  const expected = worldDraftJsonArrayRawText(key);
   return raw.value.trim() === expected;
 }
 function requireWorldDraftJsonArrayRawSync(key) {
   if (worldDraftJsonArrayRawMatchesEditor(key)) return true;
-  setWorldDraftStatus(`${WORLD_DRAFT_JSON_ARRAY_DEFS.find(definition => definition.key === key)?.label || key} 高级 JSON 有未载入修改，请先点击“从高级 JSON 载入编辑器”。`, 'error');
-  $(`world-draft-${key}`)?.focus();
+  const definition = worldDraftJsonArrayDefinition(key);
+  setWorldDraftStatus(`${definition?.label || key} 高级 JSON 有未载入修改，请先点击“载入编辑器”。`, 'error');
+  $(definition?.rawId || `world-draft-${key}`)?.focus();
   return false;
 }
 function worldDraftJsonArrayEntryTemplate(key, index, item) {
-  const title = WORLD_DRAFT_JSON_ARRAY_DEFS.find(definition => definition.key === key)?.label || key;
+  const title = worldDraftJsonArrayDefinition(key)?.label || key;
   return `<article class="world-draft-entry world-draft-array-entry" data-world-entry data-world-bucket="${esc(key)}" data-world-index="${index}">
     <div class="world-draft-entry-head"><strong>${esc(title)} ${index + 1}</strong><div class="world-draft-array-actions">
       <button class="ghost-btn small" type="button" data-world-move="up" aria-label="上移">↑</button>
@@ -753,15 +802,15 @@ function worldDraftJsonArrayEntryTemplate(key, index, item) {
   </article>`;
 }
 function renderWorldDraftJsonArray(key) {
-  const definition = WORLD_DRAFT_JSON_ARRAY_DEFS.find(item => item.key === key);
+  const definition = worldDraftJsonArrayDefinition(key);
   if (!definition) return;
-  const host = $(`world-draft-${key}-editor`);
+  const host = $(definition.editorId || `world-draft-${key}-editor`);
   const entries = worldDraftJsonArraySchema(key);
   if (host) host.innerHTML = entries.length
     ? entries.map((item, index) => worldDraftJsonArrayEntryTemplate(key, index, item)).join('')
     : `<p class="world-draft-empty">暂无${esc(definition.label)}，点击“＋${esc(definition.label)}”添加。</p>`;
-  const raw = $(`world-draft-${key}`);
-  if (raw) raw.value = entries.length || worldDraft?.world?.[key] ? JSON.stringify(entries, null, 2) : '';
+  const raw = $(definition.rawId || `world-draft-${key}`);
+  if (raw) raw.value = worldDraftJsonArrayRawText(key);
   worldDraftJsonArrayPreview(key);
 }
 function renderWorldDraftJsonArrays() {
@@ -774,7 +823,8 @@ function syncWorldDraftJsonArraysFromForm({ showError = false } = {}) {
   if (!worldDraft) return { ok: true, values: {} };
   const values = {};
   for (const { key } of WORLD_DRAFT_JSON_ARRAY_DEFS) {
-    const rows = [...document.querySelectorAll(`#world-draft-${key}-editor [data-world-entry]`)]
+    const definition = worldDraftJsonArrayDefinition(key);
+    const rows = [...document.querySelectorAll(`#${definition.editorId || `world-draft-${key}-editor`} [data-world-entry]`)]
       .sort((a, b) => Number(a.dataset.worldIndex) - Number(b.dataset.worldIndex));
     const entries = [];
     for (const row of rows) {
@@ -793,44 +843,57 @@ function syncWorldDraftJsonArraysFromForm({ showError = false } = {}) {
     values[key] = entries;
   }
   for (const { key } of WORLD_DRAFT_JSON_ARRAY_DEFS) {
-    worldDraft.world[key] = values[key];
-    const raw = $(`world-draft-${key}`);
-    if (raw) raw.value = JSON.stringify(values[key], null, 2);
+    worldDraftJsonArrayWrite(key, values[key]);
+    const definition = worldDraftJsonArrayDefinition(key);
+    const raw = $(definition.rawId || `world-draft-${key}`);
+    if (raw) raw.value = worldDraftJsonArrayRawText(key);
     worldDraftJsonArrayPreview(key);
   }
   return { ok: true, values };
 }
 function collectWorldDraftJsonArraysForSave() {
-  const raw = Object.fromEntries(WORLD_DRAFT_JSON_ARRAY_DEFS.map(({ key }) => [key, $(`world-draft-${key}`)?.value.trim() || '']));
+  const raw = Object.fromEntries(WORLD_DRAFT_JSON_ARRAY_DEFS.map(({ key, rawId }) => [key, $(rawId || `world-draft-${key}`)?.value.trim() || '']));
   const editor = syncWorldDraftJsonArraysFromForm({ showError: true });
   if (!editor.ok) return editor;
   const values = { ...editor.values };
   for (const { key } of WORLD_DRAFT_JSON_ARRAY_DEFS) {
-    const preview = JSON.stringify(editor.values[key], null, 2);
+    const definition = worldDraftJsonArrayDefinition(key);
+    const preview = worldDraftJsonArrayRawText(key);
     if (raw[key] === preview) continue;
     if (!raw[key]) values[key] = null;
     else {
       try {
         const value = JSON.parse(raw[key]);
-        if (!Array.isArray(value)) throw new Error('必须是 JSON 数组');
-        values[key] = value;
+        const entries = definition.parentKey ? worldDraftJsonArrayNestedValue(value, definition.nestedKey) : value;
+        if (!Array.isArray(entries)) throw new Error('必须包含 JSON 数组');
+        values[key] = entries;
       } catch (err) {
-        return { ok: false, error: `${key} 高级 JSON 无效：${err.message}`, focus: $(`world-draft-${key}`) };
+        return { ok: false, error: `${key} 高级 JSON 无效：${err.message}`, focus: $(definition.rawId || `world-draft-${key}`) };
       }
     }
   }
   return { ok: true, values };
 }
 function loadWorldDraftJsonArray(key) {
-  const raw = $(`world-draft-${key}`);
+  const definition = worldDraftJsonArrayDefinition(key);
+  const raw = $(definition?.rawId || `world-draft-${key}`);
   if (!raw || !worldDraft) return;
   try {
-    const value = raw.value.trim() ? JSON.parse(raw.value) : [];
-    if (!Array.isArray(value)) throw new Error('必须是 JSON 数组');
-    worldDraft.world[key] = value;
+    const value = raw.value.trim() ? JSON.parse(raw.value) : (definition?.parentKey ? {} : []);
+    const entries = definition?.parentKey ? worldDraftJsonArrayNestedValue(value, definition.nestedKey) : value;
+    if (definition?.parentKey && !Array.isArray(entries) && !raw.value.trim()) {
+      worldDraftJsonArrayWrite(key, []);
+      renderWorldDraftJsonArray(key);
+      worldDraftDirty = true;
+      return;
+    }
+    if (!Array.isArray(entries)) throw new Error('必须包含 JSON 数组');
+    if (definition?.parentKey) worldDraft.world[definition.parentKey] = value;
+    else worldDraft.world[key] = value;
+    if (definition?.parentKey === 'playerCreation') renderWorldDraftPlayerCreation();
     renderWorldDraftJsonArray(key);
     worldDraftDirty = true;
-    setWorldDraftStatus(`已从高级 JSON 载入${WORLD_DRAFT_JSON_ARRAY_DEFS.find(definition => definition.key === key)?.label || key}。`, 'ok');
+    setWorldDraftStatus(`已从高级 JSON 载入${definition?.label || key}。`, 'ok');
   } catch (err) {
     setWorldDraftStatus(`${key} 高级 JSON 无效：${err.message}`, 'error');
     raw.focus();
@@ -842,12 +905,14 @@ function handleWorldDraftJsonArrayClick(event) {
   const addKey = button.dataset.worldAdd;
   if (addKey) {
     if (!requireWorldDraftJsonArraysRawSync() || !syncWorldDraftJsonArraysFromForm().ok) return;
-    const definition = WORLD_DRAFT_JSON_ARRAY_DEFS.find(item => item.key === addKey);
+    const definition = worldDraftJsonArrayDefinition(addKey);
     if (!definition) return;
-    worldDraft.world[addKey].push(definition.template());
+    const entries = worldDraftJsonArraySchema(addKey);
+    entries.push(definition.template());
+    worldDraftJsonArrayWrite(addKey, entries);
     worldDraftDirty = true;
     renderWorldDraftJsonArrays();
-    $(`#world-draft-${addKey}-editor [data-world-entry]:last-child [data-world-json]`)?.focus();
+    $(`#${definition.editorId || `world-draft-${addKey}-editor`} [data-world-entry]:last-child [data-world-json]`)?.focus();
     return;
   }
   const row = button.closest('[data-world-entry]');
@@ -1039,7 +1104,7 @@ async function saveWorldDraft() {
     jsonArrays.focus?.focus();
     return false;
   }
-  const { events, factions } = jsonArrays.values;
+  const { events, factions, conflicts } = jsonArrays.values;
   const titleInput = $('world-draft-name');
   if (!title) {
     setWorldDraftStatus('世界标题不能为空。', 'error');
@@ -1055,7 +1120,7 @@ async function saveWorldDraft() {
     const res = await fetch('/api/world-drafts/' + encodeURIComponent(worldDraft.worldId), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
-      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds, mapGeneration, locations, npcs, setting, rules, playerCreation, turnContract, failure, ending, time, events, factions }),
+      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds, mapGeneration, locations, npcs, setting, rules, playerCreation, turnContract, failure, ending, time, events, factions, conflicts }),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error(worldApiError(data, '世界草稿保存失败（HTTP ' + res.status + '）'));
@@ -6774,10 +6839,11 @@ function bindEvents() {
   $('world-draft-player-schema').addEventListener('input', () => { if (requireWorldDraftPlayerRawSync()) syncWorldDraftPlayerCreationFromForm(); worldDraftPlayerPreview(); });
   $('world-draft-player-schema').addEventListener('click', handleWorldDraftPlayerCreationClick);
   $('world-draft-player-load-json').addEventListener('click', loadWorldDraftPlayerCreationJson);
-  for (const { key } of WORLD_DRAFT_JSON_ARRAY_DEFS) {
-    $(`world-draft-${key}-editor`).addEventListener('input', () => { if (requireWorldDraftJsonArraysRawSync()) syncWorldDraftJsonArraysFromForm(); worldDraftJsonArrayPreview(key); });
-    $(`world-draft-${key}-editor`).parentElement.addEventListener('click', handleWorldDraftJsonArrayClick);
-    $(`world-draft-${key}-load-json`).addEventListener('click', () => loadWorldDraftJsonArray(key));
+  for (const definition of WORLD_DRAFT_JSON_ARRAY_DEFS) {
+    const editor = $(definition.editorId || `world-draft-${definition.key}-editor`);
+    editor?.addEventListener('input', () => { if (requireWorldDraftJsonArraysRawSync()) syncWorldDraftJsonArraysFromForm(); worldDraftJsonArrayPreview(definition.key); });
+    editor?.parentElement?.addEventListener('click', handleWorldDraftJsonArrayClick);
+    $(definition.loadId || `world-draft-${definition.key}-load-json`)?.addEventListener('click', () => loadWorldDraftJsonArray(definition.key));
   }
   $('world-draft-add-location').addEventListener('click', addWorldDraftLocation);
   $('world-draft-add-npc').addEventListener('click', addWorldDraftNpc);

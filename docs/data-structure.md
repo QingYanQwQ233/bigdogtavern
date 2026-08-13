@@ -110,7 +110,7 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 
 世界草稿编辑器对 `playerCreation.fields/attributes/skills/resources/traits` 提供分组条目操作；条目顺序就是数组顺序，新增、删除和排序只改变当前世界草稿，不会改写已发布世界版本或已有存档。每条可保留 schema 允许之外的扩展键，保存时仍由服务端 `validatePlayerCreationSchema` 负责最终校验；高级 JSON 可显式载入编辑器，若直接修改后保存也会按原始文本校验，解析失败不会覆盖最近一次有效草稿。
 
-世界草稿的 `locations[]` 与 `npcs[]` 使用结构化编辑器；`events[]` 与 `factions[]` 使用条目编辑器，支持新增、删除、排序和 JSON 预览，嵌套的派系资源 / 时间行动保留在单条 JSON 内。服务端保存和发布时以稳定 ID 校验重复项，并检查事件、NPC 以及派系行动的 `locationId` 是否引用当前草稿已登记地点；发布后这些定义属于对应的不可变世界版本。
+世界草稿的 `locations[]` 与 `npcs[]` 使用结构化编辑器；`events[]`、`factions[]` 与 `conflicts[]` 使用条目编辑器，支持新增、删除、排序和 JSON 预览，嵌套的阶段 / 行动 / 判定、派系资源 / 时间行动保留在单条 JSON 内。`failure.modes[]`、`ending.endings[]` 与 `playerCreation.growth.sources / candidates` 也提供同一套嵌套条目编辑器，但始终写回各自的父 JSON。服务端保存和发布时以稳定 ID 校验重复项，并检查事件、NPC 以及派系行动的 `locationId` 是否引用当前草稿已登记地点；发布后这些定义属于对应的不可变世界版本。
 
 默认种子还包含 `world-grey-harbor` 与 `world-orbit-station` 两张不同题材卡；服务端加载世界库时只在内存补入缺失的默认世界，不覆盖用户已有的 `worlds.json` 内容；后续创建草稿、发布或导入等写操作才会按现有流程落盘。
 
@@ -309,7 +309,7 @@ RPG 控制块的 `player.attributes` / `player.skills` / `player.resources` 使�
 | `GET /api/world-drafts?worldId=<worldId>` | 列出世界草稿摘要；不传 worldId 时列出全部草稿 |
 | `GET /api/world-drafts/<worldId>` | 读取指定世界草稿 |
 | `POST /api/world-drafts` | 从指定 `worldId` / `baseVersion` 创建草稿；同一世界重复调用幂等 |
-| `PUT /api/world-drafts/<worldId>` | 使用 `expectedUpdatedAt` 乐观锁保存标题、简介、标签、`lorebookIds`、地图生成参数、声明式 `playerCreation`、`turnContract`、`time`、`events`、`locations` 与 `npcs`；事件条件、建角字段、回合选项范围、时间参数、地点/NPC ID 必须受服务端白名单校验 |
+| `PUT /api/world-drafts/<worldId>` | 使用 `expectedUpdatedAt` 乐观锁保存标题、简介、标签、`lorebookIds`、地图生成参数、声明式 `playerCreation`、`turnContract`、`failure`、`ending`、`time`、`events`、`factions`、`conflicts`、`locations` 与 `npcs`；事件条件、建角字段、回合选项、冲突骰子 / 目标、失败引用、结局条件、成长白名单、时间参数、地点/NPC ID 必须受服务端校验 |
 | `POST /api/world-drafts/<worldId>/publish` | 提交 `commandId`、`expectedUpdatedAt` 与 `baseVersion`，把草稿发布为不可变的下一版本。命令可幂等重试；草稿落后最新版本时返回 409 并保留草稿 |
 | `POST /api/worlds/<worldId>/versions` | 显式把来源存档中的生成 NPC 收录进下一不可变世界版本；要求 `sourceSaveId`、`npcId`，可选 `expectedRevision` / `title` |
 | `GET /api/world-saves?worldId=<worldId>` | 列出指定世界的存档摘要 |
