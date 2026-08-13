@@ -59,6 +59,19 @@ async function main() {
     assert.strictEqual(first.body.state.player.resources.hp, 24);
     assert.strictEqual(first.body.state.stats.hp, 24);
     assert.strictEqual(first.body.npcStates['npc-lily'].relation.player, 25);
+    assert.strictEqual(first.body.openingMode, 'ai');
+    const opening = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}/opening`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'opening-check-1', expectedRevision: first.body.revision, opening: '你在雨幕中推开旅店的门。', options: ['观察炉火', '询问店主', '查看地图', '走向窗边'] }),
+    });
+    assert.strictEqual(opening.response.status, 200);
+    assert.strictEqual(opening.body.opening, '你在雨幕中推开旅店的门。');
+    assert.deepStrictEqual(opening.body.openingOptions, ['观察炉火', '询问店主', '查看地图', '走向窗边']);
+    const openingRetry = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}/opening`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'opening-check-1', expectedRevision: first.body.revision, opening: 'different', options: ['a', 'b', 'c', 'd'] }),
+    });
+    assert.strictEqual(openingRetry.response.status, 200, 'opening command is idempotent');
 
     const second = await jsonRequest(base, '/api/world-saves', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

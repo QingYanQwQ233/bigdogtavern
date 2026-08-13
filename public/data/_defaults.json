@@ -501,6 +501,7 @@
       },
       "start": {
         "locationId": "wolf-tooth-inn",
+        "openingMode": "ai",
         "opening": "雨幕笼罩着断牙之角。炉火、湿木与远方山风交织成一段等待被写下的旅程。",
         "playerTemplateId": null,
         "playerTemplate": {

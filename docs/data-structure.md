@@ -117,6 +117,7 @@ WorldNPC 的静态资料按公开边界读取：`role`、`description`、`person
     map: { strategy: 'perSave', data: null, imagePath: null, markers: [] }
   },
   opening: '世界卡 start.opening 的开局叙事',
+  openingMode: 'static' | 'ai', openingOptions: [], openingCommandId: null,
   turns: [{ id, role: 'user' | 'assistant' | 'system', content, ts, options? }],
   receipts: [], generatedEntities: {},
   migrationHistory: [{ kind: 'world-version-upgrade', commandId, fromVersion, toVersion, changes, addedNpcStateIds, revision, migratedAt }]
@@ -268,6 +269,7 @@ WorldNPC 的静态资料按公开边界读取：`role`、`description`、`person
 | `POST /api/worlds/<worldId>/versions` | 显式把来源存档中的生成 NPC 收录进下一不可变世界版本；要求 `sourceSaveId`、`npcId`，可选 `expectedRevision` / `title` |
 | `GET /api/world-saves?worldId=<worldId>` | 列出指定世界的存档摘要 |
 | `POST /api/world-saves` | 按世界卡创建一个独立存档；可提交 `player: { fields, attributes, resources, traits, relations }`，服务端按当前卡规则校验并分配 `saveId` |
+| `POST /api/world-saves/<saveId>/opening` | 以 `commandId + expectedRevision` 幂等提交 AI 开场正文与 4 个选项；只更新当前存档的 `opening` / `openingOptions` |
 | `GET /api/world-saves/<saveId>` | 读取一个完整 WorldSave |
 | `PUT /api/world-saves/<saveId>` | 使用 `expectedRevision` 原子提交当前存档的 `state`、`turns` 与 `opening`；版本冲突返回 409 |
 | `POST /api/world-saves/<saveId>` | 提交一次 RPG 回合候选；校验 `commandId`、assistant 回合、4 个唯一选项、状态数值/背包/任务边界和 revision，成功后追加带 revision 的回合并记录 receipt；相同 commandId 幂等返回 |

@@ -1319,6 +1319,8 @@ function worldPackageImportReport(pkg) {
     if (!isSafeId(world.id)) errors.push('world.id 无效');
     if (!Number.isSafeInteger(world.version) || world.version < 1) errors.push('world.version 无效');
     if (typeof world.title !== 'string' || !world.title.trim() || world.title.length > 200) errors.push('world.title 无效');
+    const playerCreationInvalid = validatePlayerCreationSchema(world.playerCreation, world);
+    if (playerCreationInvalid) errors.push(playerCreationInvalid);
   }
   if (!Array.isArray(content?.characters) || content.characters.length > 256) errors.push('characters 必须是至多 256 项的数组');
   if (!content?.lorebooks || typeof content.lorebooks !== 'object' || Array.isArray(content.lorebooks)) errors.push('lorebooks 必须是对象');
@@ -1822,6 +1824,9 @@ async function handleWorldSaveCreate(req, res) {
     },
     npcStates: initialNpcStates(world, start, playerResult.relations),
     opening: String(start.opening || ''),
+    openingMode: start.openingMode === 'ai' ? 'ai' : 'static',
+    openingOptions: [],
+    openingCommandId: null,
     turns: [],
     receipts: [],
     generatedEntities: {},
@@ -1993,6 +1998,44 @@ function materializeGeneratedEntities(current, candidates, saveId, commandId, re
     generated[bucketName][id] = entity;
   }
   return generated;
+}
+
+async function handleWorldSaveOpeningPost(req, res, saveId) {
+  const fp = savePath(saveId);
+  if (!fp) return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json');
+  let payload;
+  try { payload = await readJsonBody(req, 256 * 1024); }
+  catch (err) { return send(res, err.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400, JSON.stringify({ error: err.message }), 'application/json'); }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return send(res, 400, JSON.stringify({ error: '请求必须是 JSON 对象' }), 'application/json');
+  if (typeof payload.commandId !== 'string' || !COMMAND_ID_RE.test(payload.commandId)) return send(res, 400, JSON.stringify({ error: 'commandId 无效' }), 'application/json');
+  if (!Number.isInteger(payload.expectedRevision) || payload.expectedRevision < 0) return send(res, 400, JSON.stringify({ error: 'expectedRevision 必须是非负整数' }), 'application/json');
+  if (typeof payload.opening !== 'string' || !payload.opening.trim() || payload.opening.length > 100000) return send(res, 400, JSON.stringify({ error: 'opening 必须是非空文本' }), 'application/json');
+  if (!Array.isArray(payload.options) || payload.options.length !== 4 || payload.options.some(option => typeof option !== 'string' || !option.trim() || option.length > 500)) return send(res, 400, JSON.stringify({ error: 'opening options 必须恰好包含 4 个非空选项' }), 'application/json');
+  if (new Set(payload.options.map(option => option.trim())).size !== 4) return send(res, 400, JSON.stringify({ error: 'opening options 不能重复' }), 'application/json');
+  return withWorldSaveLock(saveId, async () => {
+    try {
+      const current = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
+      if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
+      if (current.openingCommandId === payload.commandId) return send(res, 200, JSON.stringify(current), 'application/json; charset=utf-8');
+      if (current.revision !== payload.expectedRevision) return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
+      const revision = current.revision + 1;
+      const next = {
+        ...current,
+        opening: payload.opening.trim(),
+        openingOptions: payload.options.map(option => option.trim()),
+        openingCommandId: payload.commandId,
+        receipts: [...(Array.isArray(current.receipts) ? current.receipts : []), { commandId: payload.commandId, kind: 'opening', revision, committedAt: Date.now() }].slice(-200),
+        revision,
+        updatedAt: Date.now(),
+      };
+      await writeJsonAtomic(fp, next);
+      send(res, 200, JSON.stringify(next), 'application/json; charset=utf-8');
+    } catch (err) {
+      if (err.code === 'ENOENT') return send(res, 404, JSON.stringify({ error: '存档不存在' }), 'application/json');
+      console.error('[world-saves] 开场提交失败:', err.message);
+      send(res, 500, JSON.stringify({ error: '开场提交失败: ' + err.message }), 'application/json');
+    }
+  });
 }
 
 async function handleWorldSavePut(req, res, saveId) {
@@ -2446,6 +2489,13 @@ const server = http.createServer((req, res) => {
       return send(res, 400, JSON.stringify({ error: '无效的 targetVersion' }), 'application/json');
     }
     return handleWorldSaveUpgradePreview(req, res, saveId, Number(rawVersion));
+  }
+  const worldSaveOpeningMatch = url.pathname.match(/^\/api\/world-saves\/([^/]+)\/opening\/?$/);
+  if (worldSaveOpeningMatch && req.method === 'POST') {
+    let saveId;
+    try { saveId = decodeURIComponent(worldSaveOpeningMatch[1]); }
+    catch { return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json'); }
+    return handleWorldSaveOpeningPost(req, res, saveId);
   }
   const worldSaveMatch = url.pathname.match(/^\/api\/world-saves\/([^/]+)\/?$/);
   if (worldSaveMatch && (req.method === 'GET' || req.method === 'PUT' || req.method === 'POST')) {

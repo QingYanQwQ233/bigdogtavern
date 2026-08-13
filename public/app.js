@@ -117,6 +117,7 @@ let worldDraftPublishId = null;
 let worldPlayerOpener = null;
 let pendingWorldSaveName = '';
 let pendingWorldSaveButton = null;
+let worldOpeningGeneration = null;
 let worldUpgrade = null;
 let worldUpgradeOpener = null;
 let worldImport = null;
@@ -831,7 +832,45 @@ async function createWorldSave(name, player) {
   await loadWorldCards();
   renderWorldList();
   renderWorldDetail();
+  if (data.openingMode === 'ai') generateWorldOpening(data).catch(err => {
+    const status = $('world-open-status');
+    if (status && currentWorldSaveId === data.id) status.textContent = `存档已创建；AI 开场生成失败，已保留卡片开场：${err.message}`;
+  });
   return data;
+}
+async function generateWorldOpening(save) {
+  if (!save || save.openingMode !== 'ai' || !settings.baseUrl || worldOpeningGeneration) return save;
+  const world = currentWorldCard();
+  if (!world || !currentWorldSave || currentWorldSave.id !== save.id) return save;
+  worldOpeningGeneration = save.id;
+  const status = $('world-open-status');
+  if (status) status.textContent = '正在根据玩家与世界卡生成独立开场…';
+  try {
+    const payload = buildPayload();
+    payload.body.messages.push({ role: 'user', content: '【开场生成任务】这是一个新建世界存档。请根据当前世界卡、玩家快照、起始地点、在场 NPC 与卡片规则，生成可直接展示给玩家的开场叙事。不要替玩家决定未声明的核心意图；结尾停在玩家可以回应的局面。必须在末尾输出唯一的 ```rpg``` JSON，包含恰好 4 个具体行动选项和当前初始状态，未变化字段使用 null。' });
+    let reply;
+    if (payload.body.stream) reply = (await callAPIStream(payload)).content;
+    else reply = (await callAPI(payload))?.choices?.[0]?.message?.content;
+    const processed = processAIOutput(reply || '');
+    if (!processed.content || !processed.options || processed.options.length !== 4) throw new Error('AI 未返回合规的开场正文与 4 个选项');
+    const response = await fetch('/api/world-saves/' + encodeURIComponent(save.id) + '/opening', {
+      method: 'POST', headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ commandId: uid(), expectedRevision: save.revision, opening: processed.content, options: processed.options }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(worldApiError(data, '开场提交失败（HTTP ' + response.status + '）'));
+    if (currentWorldSaveId === save.id) {
+      hydrateWorldSave(data);
+      currentWorldSave = data;
+      renderWorldDetail();
+      renderMessages();
+      const nextStatus = $('world-open-status');
+      if (nextStatus) nextStatus.textContent = `已生成并绑定「${data.name}」的独立开场；存档 revision：${data.revision}`;
+    }
+    return data;
+  } finally {
+    worldOpeningGeneration = null;
+  }
 }
 async function exportCurrentWorldPackage() {
   const world = worldCardById(currentWorldId);
@@ -5028,6 +5067,7 @@ function renderQuickActions() {
       opts = Array.isArray(msgs[i].options) && msgs[i].options.length ? msgs[i].options : null;
       break;
     }
+    if (!opts && worldModeActive() && Array.isArray(currentWorldSave.openingOptions) && currentWorldSave.openingOptions.length) opts = currentWorldSave.openingOptions;
     if (opts) {
       for (const o of opts) {
         const b = document.createElement('button');
