@@ -582,9 +582,10 @@ function validateWorldDraftCollections(payload, sourceWorld) {
     for (const key of ['role', 'description', 'persona', 'personality', 'appearance', 'speechStyle']) {
       if (npc[key] !== undefined && !draftTextValid(npc[key], key === 'description' ? 4000 : 2000)) return `NPC ${key} is too long`;
     }
-    for (const key of ['publicFacts', 'publicGoals']) {
+    for (const key of ['publicFacts', 'publicGoals', 'desires', 'fears', 'goals']) {
       if (npc[key] !== undefined && !draftStringListValid(npc[key], 64, 1000)) return `NPC ${key} is invalid`;
     }
+    if (npc.activity !== undefined && !draftTextValid(npc.activity, 2000)) return 'NPC activity is invalid';
     if (npc.secrets !== undefined) {
       if (!Array.isArray(npc.secrets) || npc.secrets.length > 64) return 'NPC secrets are invalid';
       const secretIds = new Set();
@@ -595,6 +596,7 @@ function validateWorldDraftCollections(payload, sourceWorld) {
       }
     }
     if (npc.locationId !== undefined && npc.locationId !== null && (!isSafeId(npc.locationId) || !locationIds.has(npc.locationId))) return 'NPC locationId must point to a registered location';
+    if (npc.homeLocationId !== undefined && npc.homeLocationId !== null && (!isSafeId(npc.homeLocationId) || !locationIds.has(npc.homeLocationId))) return 'NPC homeLocationId must point to a registered location';
     npcIds.add(id);
   }
   return null;
@@ -615,7 +617,9 @@ function normalizeDraftNpc(npc) {
   const next = { id: npc.id.trim(), name: npc.name.trim() };
   for (const key of ['role', 'description', 'persona', 'personality', 'appearance', 'speechStyle']) if (typeof npc[key] === 'string') next[key] = npc[key].trim();
   if (npc.locationId !== undefined) next.locationId = npc.locationId === null ? null : npc.locationId.trim();
-  for (const key of ['publicFacts', 'publicGoals']) if (Array.isArray(npc[key])) next[key] = normalizeDraftList(npc[key], 64, 1000);
+  if (npc.homeLocationId !== undefined) next.homeLocationId = npc.homeLocationId === null ? null : npc.homeLocationId.trim();
+  for (const key of ['publicFacts', 'publicGoals', 'desires', 'fears', 'goals']) if (Array.isArray(npc[key])) next[key] = normalizeDraftList(npc[key], 64, 1000);
+  if (typeof npc.activity === 'string') next.activity = npc.activity.trim();
   if (Array.isArray(npc.secrets)) next.secrets = npc.secrets.map(secret => ({ id: secret.id.trim(), content: secret.content.trim() }));
   return next;
 }

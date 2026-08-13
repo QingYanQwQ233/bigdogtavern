@@ -98,7 +98,7 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 
 其中 `locations[].id` 是世界内稳定的地点主键；`start.locationId`、`WorldSave.state.locationId` 和 `npcStates[*].locationId` 只能引用当前世界已登记的 ID，地点名称只用于展示与叙事。RPG Prompt 只注入当前地点 NPC、队伍成员和当前任务引用的 NPC；未命中的世界 NPC 不进入上下文。世界模式的世界书只读取当前 `WorldCard.lorebookIds`，不会使用全局酒馆世界书选择；旧世界卡未声明时仅兼容读取 `default`。
 
-WorldNPC 的静态资料按公开边界读取：`role`、`description`、`persona`、`personality`、`appearance`、`speechStyle`、`publicFacts`、`publicGoals` 可进入作用域 Prompt；`secrets` 采用 `[{ id, content }]`，只有当前存档 `npcStates[npcId].knowledge` 包含对应 `id` 时才注入。其他静态字段不会自动展开，跨存档的 `knowledge` / `relation` 永不共享。
+WorldNPC 的静态资料按公开边界读取：`role`、`description`、`persona`、`personality`、`appearance`、`speechStyle`、`publicFacts`、`publicGoals`、`desires`、`fears`、`goals`、`activity` 可进入当前作用域 Prompt；`secrets` 采用 `[{ id, content }]`，只有当前存档 `npcStates[npcId].knowledge` 包含对应 `id` 时才注入。其他静态字段不会自动展开，跨存档的 `knowledge` / `relation` 永不共享。
 
 `generatedEntities` 按 `npcs` / `items` / `quests` / `locations` 分桶保存 AI 提出的临时实体。回合请求只能提交候选 `createEntities`（最多 32 个），服务端按当前 `saveId` 生成 `save:<saveId>:<kind>:<n>` ID 后写入当前存档；重复命令不会重复创建，其他世界存档不可见。
 

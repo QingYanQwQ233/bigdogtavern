@@ -477,6 +477,14 @@ function worldDraftNpcTemplate(npc, index, locations) {
       <label class="field"><span>公开事实</span><input data-npc-facts value="${esc(Array.isArray(npc.publicFacts) ? npc.publicFacts.join(', ') : '')}" maxlength="1000" placeholder="逗号分隔" /></label>
       <label class="field"><span>公开目标</span><input data-npc-goals value="${esc(Array.isArray(npc.publicGoals) ? npc.publicGoals.join(', ') : '')}" maxlength="1000" placeholder="逗号分隔" /></label>
     </div>
+    <div class="world-draft-entry-grid">
+      <label class="field"><span>欲望 / 追求</span><input data-npc-desires value="${esc(Array.isArray(npc.desires) ? npc.desires.join(', ') : '')}" maxlength="1000" placeholder="逗号分隔" /></label>
+      <label class="field"><span>恐惧 / 顾虑</span><input data-npc-fears value="${esc(Array.isArray(npc.fears) ? npc.fears.join(', ') : '')}" maxlength="1000" placeholder="逗号分隔" /></label>
+    </div>
+    <div class="world-draft-entry-grid">
+      <label class="field"><span>当前目标</span><input data-npc-goal-list value="${esc(Array.isArray(npc.goals) ? npc.goals.join(', ') : '')}" maxlength="1000" placeholder="逗号分隔" /></label>
+      <label class="field"><span>日常活动</span><input data-npc-activity value="${esc(npc.activity || '')}" maxlength="2000" placeholder="不在场时正在做什么" /></label>
+    </div>
   </article>`;
 }
 function renderWorldDraftCollections(world) {
@@ -520,7 +528,7 @@ function addWorldDraftNpc() {
   if (!worldDraft) return;
   syncWorldDraftCollectionsFromForm();
   if (!Array.isArray(worldDraft.world.npcs)) worldDraft.world.npcs = [];
-  worldDraft.world.npcs.push({ id: 'npc-' + uid(), name: '新 NPC', role: '', locationId: null, description: '', personality: '', publicFacts: [], publicGoals: [] });
+  worldDraft.world.npcs.push({ id: 'npc-' + uid(), name: '新 NPC', role: '', locationId: null, description: '', personality: '', publicFacts: [], publicGoals: [], desires: [], fears: [], goals: [], activity: '' });
   worldDraftDirty = true;
   renderWorldDraftCollections(worldDraft.world);
   $('world-draft-npcs')?.lastElementChild?.querySelector('input')?.focus();
@@ -548,6 +556,10 @@ function collectWorldDraftCollections() {
       speechStyle: row.querySelector('[data-npc-speech]')?.value || '',
       publicFacts: splitWorldDraftList(row.querySelector('[data-npc-facts]')?.value),
       publicGoals: splitWorldDraftList(row.querySelector('[data-npc-goals]')?.value),
+      desires: splitWorldDraftList(row.querySelector('[data-npc-desires]')?.value),
+      fears: splitWorldDraftList(row.querySelector('[data-npc-fears]')?.value),
+      goals: splitWorldDraftList(row.querySelector('[data-npc-goal-list]')?.value),
+      activity: row.querySelector('[data-npc-activity]')?.value.trim() || '',
       ...(Array.isArray(previous.secrets) ? { secrets: previous.secrets } : {}),
     };
   });
@@ -3045,6 +3057,7 @@ function worldNpcLocationIds(npc) {
   if (!npc || typeof npc !== 'object') return [];
   const ids = [];
   if (typeof npc.locationId === 'string') ids.push(npc.locationId);
+  if (typeof npc.homeLocationId === 'string') ids.push(npc.homeLocationId);
   if (Array.isArray(npc.locationIds)) ids.push(...npc.locationIds);
   return ids.filter(id => typeof id === 'string' && id.trim()).map(id => id.trim());
 }
@@ -3088,7 +3101,7 @@ function buildWorldNpcPromptPart() {
     const id = npc.id.trim();
     const npcState = npcStates[id] || {};
     const fields = [`ID：${id}`, `名称：${npc.name || id}`];
-    for (const key of ['role', 'description', 'persona', 'personality', 'appearance', 'speechStyle', 'publicFacts', 'publicGoals']) {
+    for (const key of ['role', 'description', 'persona', 'personality', 'appearance', 'speechStyle', 'publicFacts', 'publicGoals', 'desires', 'fears', 'goals', 'activity']) {
       const value = npc[key];
       if (Array.isArray(value) && value.length) fields.push(`${key}：${value.join('；')}`);
       else if (typeof value === 'string' && value.trim()) fields.push(`${key}：${value.trim()}`);
