@@ -1506,6 +1506,21 @@ function renderRPG() {
       ? rs.quests.map((x, idx) => `<div class="rpg-item${x.status === 'done' ? ' done' : ''}" data-kind="quest" data-idx="${idx}" title="点击切换进行/完成"><span class="rpg-item-name">${esc(x.title)}</span> ${x.status === 'done' ? '✅' : '●'}<span class="rpg-del" data-kind="quest-del" data-idx="${idx}" title="删除">✕</span><div class="rpg-item-sub">${esc(x.desc || '')}</div></div>`).join('')
       : '<p class="hint">（无）</p>';
   }
+  const eventList = $('rpg-world-events');
+  if (eventList) {
+    const currentLocationId = currentWorldSave?.state?.locationId || null;
+    const events = (worldModeActive() && Array.isArray(currentWorldSave.state?.worldEvents) ? currentWorldSave.state.worldEvents : [])
+      .filter(event => event && event.visibility !== 'hidden'
+        && (event.visibility !== 'local' || !event.locationId || event.locationId === currentLocationId));
+    eventList.innerHTML = events.length
+      ? events.slice(-32).reverse().map(event => {
+        const time = event.time ? `${event.time.value} ${event.time.unit}` : '';
+        const consequences = Array.isArray(event.consequences) && event.consequences.length
+          ? `<div class="rpg-item-sub">后果：${esc(event.consequences.join('；'))}</div>` : '';
+        return `<article class="rpg-item rpg-event-item"><div class="rpg-item-name">${esc(event.title || event.eventId)}${time ? ` <small>${esc(time)}</small>` : ''}</div><div class="rpg-item-sub">${esc(event.description || '（无公开描述）')}</div>${consequences}</article>`;
+      }).join('')
+      : '<p class="hint">尚无公开事件。</p>';
+  }
   const cs = $('rpg-char-summary');
   const c = worldModeActive() ? (currentWorldSave.player?.snapshot || null) : currentChar();
   if (cs) {

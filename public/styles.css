@@ -249,6 +249,8 @@ body[data-mode="rpg"] #rpg-status { display: flex; grid-area: status; }
 .rpg-item[data-kind="quest"] { cursor: pointer; }
 .rpg-item.done { opacity: 0.55; }
 .rpg-item.done .rpg-item-name { text-decoration: line-through; }
+.rpg-event-item { border-left: 2px solid var(--accent); }
+.rpg-event-item small { color: var(--muted); font-size: 10px; font-weight: 400; }
 
 /* RPG 状态条 */
 .rpg-status {
