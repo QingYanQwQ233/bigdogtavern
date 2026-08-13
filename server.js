@@ -432,6 +432,22 @@ function validatePlayerCreationSchema(schema, world = null) {
       || !validBoundedNumber(resource.initial ?? min, min, max)) return `playerCreation.resources.${id} 范围无效`;
     resourceIds.add(id);
   }
+  const skillIds = new Set();
+  const skills = schema.skills === undefined ? [] : schema.skills;
+  if (!Array.isArray(skills) || skills.length > 128) return 'playerCreation.skills 最多 128 项';
+  for (const skill of skills) {
+    const id = typeof skill?.id === 'string' ? skill.id.trim() : '';
+    const min = skill.min ?? 0;
+    const max = skill.max ?? 100;
+    const step = skill.step ?? 1;
+    if (!isSafeId(id) || skillIds.has(id) || !draftTextValid(skill.label, 120, true)
+      || (skill.description !== undefined && !draftTextValid(skill.description, 1000))
+      || !validBoundedNumber(min, -1000000, 1000000) || !validBoundedNumber(max, min, 1000000)
+      || !validBoundedNumber(step, 0.000001, 1000000)
+      || !validBoundedNumber(skill.default ?? min, min, max)) return 'playerCreation.skills 含有重复或无效条目';
+    if (skill.default !== undefined && Math.abs((Number(skill.default) - min) / step - Math.round((Number(skill.default) - min) / step)) > 1e-9) return `playerCreation.skills.${id}.default 无效`;
+    skillIds.add(id);
+  }
   const derived = schema.derived === undefined ? [] : schema.derived;
   if (!Array.isArray(derived) || derived.length > 64) return 'playerCreation.derived 最多 64 项';
   const derivedIds = new Set();
@@ -449,8 +465,8 @@ function validatePlayerCreationSchema(schema, world = null) {
     if (parsed.error) return `playerCreation.derived.${definition.id}.formula ${parsed.error}`;
     for (const ref of parsed.refs) {
       const parts = ref.split('.');
-      if (parts.length !== 2 || !['attributes', 'resources', 'derived'].includes(parts[0]) || !isSafeId(parts[1])) return `playerCreation.derived.${definition.id}.formula 引用了无效 ID`;
-      const allowed = parts[0] === 'attributes' ? attributeIds : parts[0] === 'resources' ? resourceIds : derivedIds;
+      if (parts.length !== 2 || !['attributes', 'skills', 'resources', 'derived'].includes(parts[0]) || !isSafeId(parts[1])) return `playerCreation.derived.${definition.id}.formula 引用了无效 ID`;
+      const allowed = parts[0] === 'attributes' ? attributeIds : parts[0] === 'skills' ? skillIds : parts[0] === 'resources' ? resourceIds : derivedIds;
       if (!allowed.has(parts[1])) return `playerCreation.derived.${definition.id}.formula 引用了不存在的 ${ref}`;
     }
     derivedRefs.set(definition.id, parsed.refs.filter(ref => ref.startsWith('derived.')).map(ref => ref.slice(8)));
@@ -501,8 +517,8 @@ function validateDynamicPlayerState(world, value, current = null, immutable = fa
   const schema = playerCreationSchema(world);
   if (!schema) return null;
   if (value.derived !== undefined) return 'state.player.derived 是只读派生值，不能写入';
-  const definitions = { attributes: schema.attributes || [], resources: schema.resources || [] };
-  for (const bucket of ['attributes', 'resources']) {
+  const definitions = { attributes: schema.attributes || [], skills: schema.skills || [], resources: schema.resources || [] };
+  for (const bucket of ['attributes', 'skills', 'resources']) {
     const map = value[bucket];
     if (map === undefined) continue;
     if (!map || typeof map !== 'object' || Array.isArray(map)) return `state.player.${bucket} 必须是对象`;
@@ -915,6 +931,7 @@ function validatePlayerCreationInput(world, input) {
   const fields = Object.fromEntries((Array.isArray(schema.fields) ? schema.fields : []).map(field => [field.id, field]));
   const attributes = Object.fromEntries((Array.isArray(schema.attributes) ? schema.attributes : []).map(attribute => [attribute.id, attribute]));
   const resources = Object.fromEntries((Array.isArray(schema.resources) ? schema.resources : []).map(resource => [resource.id, resource]));
+  const skills = Object.fromEntries((Array.isArray(schema.skills) ? schema.skills : []).map(skill => [skill.id, skill]));
   const traits = new Map((Array.isArray(schema.traits) ? schema.traits : []).map(trait => [trait.id, trait]));
   const values = input.fields && typeof input.fields === 'object' && !Array.isArray(input.fields) ? input.fields : {};
   const normalizedFields = {};
@@ -951,6 +968,15 @@ function validatePlayerCreationInput(world, input) {
     normalizedResources[id] = value;
   }
   for (const id of Object.keys(inputResources)) if (!Object.hasOwn(resources, id)) return { error: `player.resources.${id} 不是当前世界卡资源` };
+  const inputSkills = input.skills && typeof input.skills === 'object' && !Array.isArray(input.skills) ? input.skills : {};
+  const normalizedSkills = {};
+  for (const [id, skill] of Object.entries(skills)) {
+    const value = inputSkills[id] ?? skill.default ?? skill.min ?? 0;
+    if (!validBoundedNumber(value, skill.min ?? 0, skill.max ?? 100)
+      || (skill.step && Math.abs((value - (skill.min ?? 0)) / skill.step - Math.round((value - (skill.min ?? 0)) / skill.step)) > 1e-9)) return { error: `player.skills.${id} 超出范围` };
+    normalizedSkills[id] = value;
+  }
+  for (const id of Object.keys(inputSkills)) if (!Object.hasOwn(skills, id)) return { error: `player.skills.${id} 不是当前世界卡技能` };
   const selectedTraits = Array.isArray(input.traits) ? [...new Set(input.traits.map(String))] : [];
   if (selectedTraits.length > traits.size || selectedTraits.some(id => !traits.has(id))) return { error: 'player.traits 含有无效条目' };
   const inputRelations = input.relations && typeof input.relations === 'object' && !Array.isArray(input.relations) ? input.relations : {};
@@ -965,6 +991,7 @@ function validatePlayerCreationInput(world, input) {
   const snapshot = {
     fields: normalizedFields,
     attributes: normalizedAttributes,
+    skills: normalizedSkills,
     resources: normalizedResources,
     traits: selectedTraits,
     relations: normalizedRelations,
@@ -975,7 +1002,7 @@ function validatePlayerCreationInput(world, input) {
   };
   return {
     snapshot,
-    statePlayer: { fields: normalizedFields, attributes: normalizedAttributes, resources: normalizedResources, traits: selectedTraits, relations: normalizedRelations, effects: [] },
+    statePlayer: { fields: normalizedFields, attributes: normalizedAttributes, skills: normalizedSkills, resources: normalizedResources, traits: selectedTraits, relations: normalizedRelations, effects: [] },
     relations: normalizedRelations,
   };
 }
@@ -2429,7 +2456,7 @@ function validateWorldSavePatch(payload) {
   }
   if (state.player !== undefined) {
     if (!state.player || typeof state.player !== 'object' || Array.isArray(state.player)) return 'state.player 必须是对象';
-    for (const key of ['fields', 'attributes', 'resources', 'relations']) {
+    for (const key of ['fields', 'attributes', 'skills', 'resources', 'relations']) {
       if (state.player[key] !== undefined && (!state.player[key] || typeof state.player[key] !== 'object' || Array.isArray(state.player[key]) || Object.keys(state.player[key]).length > 128)) return `state.player.${key} 无效`;
     }
     if (state.player.traits !== undefined && (!Array.isArray(state.player.traits) || state.player.traits.length > 128 || state.player.traits.some(id => typeof id !== 'string' || !isSafeId(id)))) return 'state.player.traits 无效';

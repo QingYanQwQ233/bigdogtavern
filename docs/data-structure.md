@@ -75,6 +75,7 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
     pointBudget: { label: '属性点', total: 8, min: 0 },
     fields: [{ id: 'name', label: '名字', type: 'text', required: true }],
     attributes: [{ id: 'might', label: '力量', min: 1, max: 5, default: 2, step: 1 }],
+    skills: [{ id: 'scouting', label: '侦察', min: 0, max: 10, default: 1, step: 1, description: '发现环境细节' }],
     resources: [{ id: 'hp', label: '生命', type: 'number', min: 1, max: 999, initial: 20 }],
     traits: [{ id: 'keen-sense', label: '敏锐感知', description: '…' }],
     relations: [{ npcId: 'npc-lily', label: '起始关系', min: -100, max: 100, default: 0 }]
@@ -110,7 +111,7 @@ WorldNPC 的静态资料按公开边界读取：`role`、`description`、`person
 
 兼容旧 WorldSave 时，前端仅在 `state.goals` 缺失且存在 `state.quests` 时生成 `legacy-*` 目标投影；原 `quests` 不删除，下一次正式提交才会把投影随当前存档一起保存。
 
-RPG 控制块的 `player.attributes` / `player.resources` 使用相对数值变化（例如 `{ "player": { "resources": { "focus": -2 } } }`）；客户端按卡片范围预览，服务端按当前 `playerCreation` 再校验。玩家创建字段、特质和关系在正式回合中保持不可变，避免 AI 通过叙事篡改身份。
+RPG 控制块的 `player.attributes` / `player.skills` / `player.resources` 使用相对数值变化（例如 `{ "player": { "skills": { "scouting": 1 }, "resources": { "focus": -2 } } }`）；客户端按卡片范围预览，服务端按当前 `playerCreation` 再校验。玩家创建字段、特质和关系在正式回合中保持不可变，避免 AI 通过叙事篡改身份。
 
 `generatedEntities` 按 `npcs` / `items` / `quests` / `locations` 分桶保存 AI 提出的临时实体。回合请求只能提交候选 `createEntities`（最多 32 个），服务端按当前 `saveId` 生成 `save:<saveId>:<kind>:<n>` ID 后写入当前存档；重复命令不会重复创建，其他世界存档不可见。
 
@@ -122,11 +123,11 @@ RPG 控制块的 `player.attributes` / `player.resources` 使用相对数值变�
 {
   id, worldId, worldVersion, name, createdAt, updatedAt,
   schemaVersion: 1, revision: 0,
-  player: { characterId, snapshot: { fields, attributes, resources, traits, relations, name, race, role, profileFields } },
+  player: { characterId, snapshot: { fields, attributes, skills, resources, traits, relations, name, race, role, profileFields } },
   party: { memberIds: [], leaderId: null },
   npcStates: { [npcId]: { locationId, relation, knowledge: [], status: [] } },
   state: {
-    stats, player: { fields, attributes, resources, traits, relations, effects: [] }, time: { unit, value }, worldEvents: [], goals: [], leads: [], inventory: [], quests: [], locationId,
+    stats, player: { fields, attributes, skills, resources, traits, relations, effects: [] }, time: { unit, value }, worldEvents: [], goals: [], leads: [], inventory: [], quests: [], locationId,
     map: { strategy: 'perSave', data: null, imagePath: null, markers: [] }
   },
   opening: '世界卡 start.opening 的开局叙事',
@@ -137,7 +138,7 @@ RPG 控制块的 `player.attributes` / `player.resources` 使用相对数值变�
 }
 ```
 
-创建时由服务端从当前 `WorldCard.start` 复制玩家快照、初始状态和 NPC 初始状态；角色库或世界卡后续编辑不会静默改写已有存档。`playerCreation` 只声明字段与范围，客户端提交的 `player.fields / attributes / resources / traits / relations` 会在 `POST /api/world-saves` 处重新校验；未知 ID、缺失必填项、越界数值或超预算都会被拒绝。每个存档保存一份规范化 `player.snapshot`，并把可变化部分复制到 `state.player`，因此不同存档的建角数据、关系和资源互不共享。世界卡的 `npcIds` / `npcs` 只负责静态登记，关系、位置、认知和状态只写当前 `WorldSave.npcStates`。客户端不能提交文件路径或自行指定 `saveId`。`turnContract.options.min/max` 定义本卡建议行动数量（0–4），自由文本不受限制；服务端按当前 `worldVersion` 二次校验，未达到规则的候选回合不会写入。普通存档维护可通过 `PUT /api/world-saves/<saveId>` 提交完整的 `state + turns + opening`，带 `expectedRevision` 做顺序校验；正式 RPG 新行动使用 `POST /api/world-saves/<saveId>`，携带稳定 `commandId`、`expectedRevision`、候选 `state`、本回合 `turns`、卡片允许数量的 `options`，以及可选的 `npcStates`，服务端在同一临界区校验版本、追加带 revision 的回合并写入幂等 `receipts`。存档升级必须先对目标世界版本预演；地点、NPC 或任务稳定 ID 缺失时拒绝写入，成功时只更新 `worldVersion`、为新增世界 NPC 初始化本存档状态，并追加幂等 `migrationHistory`。地图网格写入 JSON 前转为数字数组，读取后恢复为 `Uint16Array`，图片只保存受校验的本地 `/images/...` 路径。
+创建时由服务端从当前 `WorldCard.start` 复制玩家快照、初始状态和 NPC 初始状态；角色库或世界卡后续编辑不会静默改写已有存档。`playerCreation` 只声明字段与范围，客户端提交的 `player.fields / attributes / skills / resources / traits / relations` 会在 `POST /api/world-saves` 处重新校验；未知 ID、缺失必填项、越界数值或超预算都会被拒绝。每个存档保存一份规范化 `player.snapshot`，并把可变化部分复制到 `state.player`，因此不同存档的建角数据、关系和资源互不共享。世界卡的 `npcIds` / `npcs` 只负责静态登记，关系、位置、认知和状态只写当前 `WorldSave.npcStates`。客户端不能提交文件路径或自行指定 `saveId`。`turnContract.options.min/max` 定义本卡建议行动数量（0–4），自由文本不受限制；服务端按当前 `worldVersion` 二次校验，未达到规则的候选回合不会写入。普通存档维护可通过 `PUT /api/world-saves/<saveId>` 提交完整的 `state + turns + opening`，带 `expectedRevision` 做顺序校验；正式 RPG 新行动使用 `POST /api/world-saves/<saveId>`，携带稳定 `commandId`、`expectedRevision`、候选 `state`、本回合 `turns`、卡片允许数量的 `options`，以及可选的 `npcStates`，服务端在同一临界区校验版本、追加带 revision 的回合并写入幂等 `receipts`。存档升级必须先对目标世界版本预演；地点、NPC 或任务稳定 ID 缺失时拒绝写入，成功时只更新 `worldVersion`、为新增世界 NPC 初始化本存档状态，并追加幂等 `migrationHistory`。地图网格写入 JSON 前转为数字数组，读取后恢复为 `Uint16Array`，图片只保存受校验的本地 `/images/...` 路径。
 
 ### 世界包 `*.tavern-world.json`
 
@@ -282,7 +283,7 @@ RPG 控制块的 `player.attributes` / `player.resources` 使用相对数值变�
 | `POST /api/world-drafts/<worldId>/publish` | 提交 `commandId`、`expectedUpdatedAt` 与 `baseVersion`，把草稿发布为不可变的下一版本。命令可幂等重试；草稿落后最新版本时返回 409 并保留草稿 |
 | `POST /api/worlds/<worldId>/versions` | 显式把来源存档中的生成 NPC 收录进下一不可变世界版本；要求 `sourceSaveId`、`npcId`，可选 `expectedRevision` / `title` |
 | `GET /api/world-saves?worldId=<worldId>` | 列出指定世界的存档摘要 |
-| `POST /api/world-saves` | 按世界卡创建一个独立存档；可提交 `player: { fields, attributes, resources, traits, relations }`，服务端按当前卡规则校验并分配 `saveId` |
+| `POST /api/world-saves` | 按世界卡创建一个独立存档；可提交 `player: { fields, attributes, skills, resources, traits, relations }`，服务端按当前卡规则校验并分配 `saveId` |
 | `POST /api/world-saves/<saveId>/opening` | 以 `commandId + expectedRevision` 幂等提交 AI 开场正文与 4 个选项；只更新当前存档的 `opening` / `openingOptions` |
 | `GET /api/world-saves/<saveId>` | 读取一个完整 WorldSave |
 | `PUT /api/world-saves/<saveId>` | 使用 `expectedRevision` 原子提交当前存档的 `state`、`turns` 与 `opening`；版本冲突返回 409 |
@@ -323,7 +324,7 @@ API additions: `POST /api/rpg-migrations` (preview/seal), `GET /api/rpg-migratio
 
 ### playerCreation.derived（R5.4）
 
-世界卡可声明只读派生值：`{ id, label, formula, visible?, description? }`。`formula` 只允许数字、`+ - * /`、括号，以及 `attributes.<id>`、`resources.<id>`、`derived.<id>` 引用；服务端拒绝非法 ID、循环依赖、除任意 JavaScript 外的表达式。派生值不写入 `WorldSave.state.player`，由当前存档的属性与资源实时计算并注入 RPG 面板和提示词，切换存档不会串值。
+世界卡可声明只读派生值：`{ id, label, formula, visible?, description? }`。`formula` 只允许数字、`+ - * /`、括号，以及 `attributes.<id>`、`skills.<id>`、`resources.<id>`、`derived.<id>` 引用；服务端拒绝非法 ID、循环依赖、除任意 JavaScript 外的表达式。派生值不写入 `WorldSave.state.player`，由当前存档的属性、技能与资源实时计算并注入 RPG 面板和提示词，切换存档不会串值。
 
 ### 目标 / 线索截止时限（R4.10）
 

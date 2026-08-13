@@ -802,6 +802,7 @@ function renderWorldPlayerForm(world) {
   const body = $('world-player-fields');
   const fields = Array.isArray(schema.fields) ? schema.fields : [];
   const attributes = Array.isArray(schema.attributes) ? schema.attributes : [];
+  const skills = Array.isArray(schema.skills) ? schema.skills : [];
   const resources = Array.isArray(schema.resources) ? schema.resources : [];
   const traits = Array.isArray(schema.traits) ? schema.traits : [];
   const relations = Array.isArray(schema.relations) ? schema.relations : [];
@@ -810,6 +811,7 @@ function renderWorldPlayerForm(world) {
   if (schema.pointBudget) sections.push(`<p class="world-player-budget">${esc(schema.pointBudget.label || '属性点')}：<strong data-player-budget>${esc(schema.pointBudget.total)}</strong> / ${esc(schema.pointBudget.total)}</p>`);
   if (fields.length) sections.push(fields.map(field => playerFieldInput(field, initialFields[field.id] ?? field.default ?? '')).join(''));
   if (attributes.length) sections.push(`<section class="field"><span>属性</span><div class="world-player-attribute-grid">${attributes.map(attribute => `<label class="field"><span>${esc(attribute.label)} <small>${esc(attribute.min ?? 0)}-${esc(attribute.max ?? 100)}</small></span><input type="number" data-player-attribute="${esc(attribute.id)}" value="${esc(attribute.default ?? attribute.min ?? 0)}" min="${esc(attribute.min ?? 0)}" max="${esc(attribute.max ?? 100)}" step="${esc(attribute.step || 1)}" inputmode="numeric"></label>`).join('')}</div></section>`);
+  if (skills.length) sections.push(`<section class="field"><span>技能</span><div class="world-player-attribute-grid">${skills.map(skill => `<label class="field"><span>${esc(skill.label)} <small>${esc(skill.min ?? 0)}-${esc(skill.max ?? 100)}</small></span><input type="number" data-player-skill="${esc(skill.id)}" value="${esc(skill.default ?? skill.min ?? 0)}" min="${esc(skill.min ?? 0)}" max="${esc(skill.max ?? 100)}" step="${esc(skill.step || 1)}" inputmode="numeric"></label>`).join('')}</div></section>`);
   if (resources.length) sections.push(`<section class="field"><span>初始资源</span><div class="world-player-resource-grid">${resources.map(resource => `<label class="field"><span>${esc(resource.label)}</span><input type="number" data-player-resource="${esc(resource.id)}" value="${esc(resource.initial ?? resource.min ?? 0)}" min="${esc(resource.min ?? 0)}" max="${esc(resource.max ?? 1000000)}" step="any" inputmode="decimal"></label>`).join('')}</div></section>`);
   if (traits.length) sections.push(`<fieldset class="field world-player-traits"><legend>特质（可选）</legend>${traits.map(trait => `<div class="world-player-trait"><input id="world-player-trait-${esc(trait.id)}" type="checkbox" data-player-trait="${esc(trait.id)}"><div><label for="world-player-trait-${esc(trait.id)}">${esc(trait.label)}</label>${trait.description ? `<small>${esc(trait.description)}</small>` : ''}</div></div>`).join('')}</fieldset>`);
   if (relations.length) {
@@ -830,9 +832,10 @@ function updateWorldPlayerBudget() {
   el.parentElement?.classList.toggle('world-player-budget-over', spent > total);
 }
 function collectWorldPlayerInput() {
-  const player = { fields: {}, attributes: {}, resources: {}, traits: [], relations: {} };
+  const player = { fields: {}, attributes: {}, skills: {}, resources: {}, traits: [], relations: {} };
   document.querySelectorAll('[data-player-field]').forEach(input => { player.fields[input.dataset.playerField] = input.type === 'number' ? Number(input.value) : input.value; });
   document.querySelectorAll('[data-player-attribute]').forEach(input => { player.attributes[input.dataset.playerAttribute] = Number(input.value); });
+  document.querySelectorAll('[data-player-skill]').forEach(input => { player.skills[input.dataset.playerSkill] = Number(input.value); });
   document.querySelectorAll('[data-player-resource]').forEach(input => { player.resources[input.dataset.playerResource] = Number(input.value); });
   document.querySelectorAll('[data-player-trait]:checked').forEach(input => player.traits.push(input.dataset.playerTrait));
   document.querySelectorAll('[data-player-relation]').forEach(input => { player.relations[input.dataset.playerRelation] = Number(input.value); });
@@ -1508,6 +1511,7 @@ function parseRpgDerivedFormula(expression) {
 function evaluateWorldDerivedValues(schema, playerState) {
   const definitions = Array.isArray(schema?.derived) ? schema.derived : [];
   const attrs = playerState?.attributes && typeof playerState.attributes === 'object' ? playerState.attributes : {};
+  const skills = playerState?.skills && typeof playerState.skills === 'object' ? playerState.skills : {};
   const resources = playerState?.resources && typeof playerState.resources === 'object' ? playerState.resources : {};
   const byId = new Map(definitions.map(definition => [definition.id, definition]));
   const memo = new Map();
@@ -1520,6 +1524,7 @@ function evaluateWorldDerivedValues(schema, playerState) {
     const read = ref => {
       const [bucket, key] = String(ref || '').split('.');
       if (bucket === 'attributes') return Number.isFinite(Number(attrs[key])) ? Number(attrs[key]) : null;
+      if (bucket === 'skills') return Number.isFinite(Number(skills[key])) ? Number(skills[key]) : null;
       if (bucket === 'resources') return Number.isFinite(Number(resources[key])) ? Number(resources[key]) : null;
       return bucket === 'derived' ? evaluate(key) : null;
     };
@@ -1595,10 +1600,11 @@ function renderRPG() {
   if (dynamicStats) {
     const schema = worldModeActive() ? currentWorldCard()?.playerCreation : null;
     const playerState = worldModeActive() ? currentWorldSave.state?.player : null;
-    const definitions = [...(Array.isArray(schema?.attributes) ? schema.attributes : []), ...(Array.isArray(schema?.resources) ? schema.resources : [])]
+    const definitions = [...(Array.isArray(schema?.attributes) ? schema.attributes : []), ...(Array.isArray(schema?.skills) ? schema.skills : []), ...(Array.isArray(schema?.resources) ? schema.resources : [])]
       .filter(definition => definition && !['hp', 'mp', 'gold'].includes(definition.id));
     dynamicStats.innerHTML = definitions.map(definition => {
-      const bucket = schema.attributes?.some(item => item.id === definition.id) ? playerState?.attributes : playerState?.resources;
+      const bucket = schema.attributes?.some(item => item.id === definition.id) ? playerState?.attributes
+        : schema.skills?.some(item => item.id === definition.id) ? playerState?.skills : playerState?.resources;
       const value = bucket?.[definition.id] ?? definition.default ?? definition.initial ?? '—';
       return `<span class="rpg-dynamic-stat">${esc(definition.label || definition.id)}<b>${esc(value)}</b></span>`;
     }).join('');
@@ -1780,7 +1786,7 @@ function applyRpgUpdate(payload) {
   if (worldModeActive() && upd.player && typeof upd.player === 'object') {
     const playerState = currentWorldSave.state?.player;
     const schema = currentWorldCard()?.playerCreation;
-    for (const bucket of ['attributes', 'resources']) {
+    for (const bucket of ['attributes', 'skills', 'resources']) {
       const definitions = new Map((Array.isArray(schema?.[bucket]) ? schema[bucket] : []).map(definition => [definition.id, definition]));
       const changes = upd.player[bucket];
       if (!playerState || !changes || typeof changes !== 'object' || Array.isArray(changes)) continue;
@@ -3435,9 +3441,9 @@ function buildRpgPromptPart() {
       const player = currentWorldSave.player?.snapshot;
       if (player) parts.unshift('【世界存档中的玩家快照】\n' + Object.entries(player).filter(([k, v]) => k !== 'profileFields' && v != null && String(v).trim()).map(([k, v]) => `${k}：${typeof v === 'object' ? JSON.stringify(v) : v}`).join('\n'));
       const dynamicPlayer = currentWorldSave.state?.player;
-      if (dynamicPlayer) parts.unshift('【当前玩家动态状态】\n' + ['attributes', 'resources', 'traits', 'relations', 'effects'].filter(key => dynamicPlayer[key] !== undefined).map(key => `${key}：${JSON.stringify(dynamicPlayer[key])}`).join('\n'));
+      if (dynamicPlayer) parts.unshift('【当前玩家动态状态】\n' + ['attributes', 'skills', 'resources', 'traits', 'relations', 'effects'].filter(key => dynamicPlayer[key] !== undefined).map(key => `${key}：${JSON.stringify(dynamicPlayer[key])}`).join('\n'));
       const derivedValues = evaluateWorldDerivedValues(world.playerCreation, dynamicPlayer);
-      if (derivedValues.length) parts.unshift('【当前玩家只读派生值】\n' + derivedValues.map(item => `${item.id}: ${item.value === null ? 'N/A' : item.value}`).join('\n') + '\n这些值由属性/资源实时计算，仅供阅读，禁止写回 ```rpg``` 状态块。');
+      if (derivedValues.length) parts.unshift('【当前玩家只读派生值】\n' + derivedValues.map(item => `${item.id}: ${item.value === null ? 'N/A' : item.value}`).join('\n') + '\n这些值由属性/技能/资源实时计算，仅供阅读，禁止写回 ```rpg``` 状态块。');
       const optionRules = worldOptionRules();
       parts.push(`【回合契约】行动选项数量 ${optionRules.min}-${optionRules.max}；自由文本输入始终可用。AI 不得替玩家补写未表达的核心意图、台词或不可逆行动。`);
       const npcPrompt = buildWorldNpcPromptPart();
