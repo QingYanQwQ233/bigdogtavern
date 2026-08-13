@@ -19,6 +19,13 @@ world.events.push({ id: 'inn-echo', title: '旅店回响', description: '炉火�
 world.start.initialState.goals = [{ id: 'deadline-goal', title: 'Deadline', desc: 'expires at start', status: 'active', deadline: { unit: 'hour', value: 8 } }];
 world.start.initialState.inventory = [{ itemId: 'iron-sword', name: '铁剑', count: 1 }];
 world.start.initialState.equipment = { 'main-hand': 'iron-sword' };
+world.start.initialState.conflicts = {
+  'wolf-encounter-1': {
+    id: 'wolf-encounter-1', templateId: 'wolf-skirmish', type: 'combat', status: 'active', phase: 'engage', round: 1,
+    participants: [{ id: 'pc-hero', role: 'player' }, { id: 'wolf-alpha', role: 'enemy' }], objectives: [{ id: 'survive', title: '撑过遭遇', status: 'active' }],
+    availableActions: ['strike', 'guard', 'flee'],
+  },
+};
 fs.writeFileSync(path.join(tempDir, '_defaults.json'), JSON.stringify(defaults, null, 2));
 fs.writeFileSync(path.join(tempDir, 'worlds.json'), JSON.stringify(defaults.worlds, null, 2));
 process.env.TAVERN_DATA_DIR = tempDir;
@@ -80,6 +87,8 @@ async function main() {
     assert.deepStrictEqual(first.body.state.equipment, { 'main-hand': 'iron-sword' });
     assert.strictEqual(first.body.state.inventory[0].itemId, 'iron-sword');
     assert.strictEqual(first.body.state.currencies.gold, 30);
+    assert.strictEqual(first.body.state.conflicts['wolf-encounter-1'].status, 'active');
+    assert.strictEqual(first.body.state.conflicts['wolf-encounter-1'].round, 1);
     assert.strictEqual(first.body.npcStates['npc-lily'].relation.player, 25);
     assert.strictEqual(first.body.state.factionStates['north-guild'].relation, 10);
     assert.strictEqual(first.body.state.factionStates['north-guild'].resources.funds, 30);
@@ -98,7 +107,7 @@ async function main() {
     assert.strictEqual(openingRetry.response.status, 200, 'opening command is idempotent');
     const freeTurn = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ commandId: 'turn-check-1', expectedRevision: opening.body.revision, actionIntent: { raw: '观察四周', risk: '低' }, state: opening.body.state, turns: [
+      body: JSON.stringify({ commandId: 'turn-check-1', expectedRevision: opening.body.revision, actionIntent: { raw: '观察四周', risk: '低' }, state: { ...opening.body.state, conflicts: { ...opening.body.state.conflicts, 'wolf-encounter-1': { ...opening.body.state.conflicts['wolf-encounter-1'], round: 2, actionId: 'guard' }, 'wolf-encounter-2': { id: 'wolf-encounter-2', templateId: 'wolf-skirmish', type: 'combat', status: 'active', phase: 'engage', round: 1, participants: ['pc-hero', 'wolf-beta'], availableActions: ['strike', 'flee'] } } }, turns: [
         { role: 'user', content: '观察四周', ts: Date.now() },
         { role: 'assistant', content: '你看见雨水沿着窗棂滑落。', ts: Date.now() },
       ], options: [] }),
@@ -113,6 +122,9 @@ async function main() {
     assert.strictEqual(freeTurn.body.state.factionStates['north-guild'].relation, 12);
     assert.strictEqual(freeTurn.body.state.factionStates['north-guild'].resources.funds, 25);
     assert.deepStrictEqual(freeTurn.body.receipts.at(-1).factionActionIds, ['north-guild:patrol-pass']);
+    assert.strictEqual(freeTurn.body.state.conflicts['wolf-encounter-1'].round, 2);
+    assert.strictEqual(freeTurn.body.receipts.at(-1).conflictTransitions[0].op, 'advance');
+    assert.ok(freeTurn.body.receipts.at(-1).conflictTransitions.some(item => item.id === 'wolf-encounter-2' && item.op === 'start'));
     const tamperedDice = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ commandId: 'turn-check-2', expectedRevision: freeTurn.body.revision, actionIntent: { raw: '掷骰', dice: [{ expr: '1d20', rolls: [20], bonus: 0, total: 1 }] }, state: freeTurn.body.state, turns: [{ role: 'user', content: '掷骰', ts: Date.now() }, { role: 'assistant', content: '结果。', ts: Date.now() }], options: [] }),
@@ -120,7 +132,7 @@ async function main() {
     assert.strictEqual(tamperedDice.response.status, 400, 'tampered dice result is rejected');
     const eventTurn = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ commandId: 'turn-check-3', expectedRevision: freeTurn.body.revision, actionIntent: { raw: '继续观察' }, state: { ...freeTurn.body.state, currencies: { ...freeTurn.body.state.currencies, gold: 35 }, player: { ...freeTurn.body.state.player, attributes: { ...freeTurn.body.state.player.attributes, might: 4 }, skills: { ...freeTurn.body.state.player.skills, scouting: 5 } }, goals: [{ id: 'find-aurora', title: '查明极光异动', desc: '找到山脊上的异常光源。', status: 'active', locationId: 'wolf-tooth-inn' }], leads: [{ id: 'inn-rumor', title: '旅店传闻', desc: '有人听见山脊方向的回响。', status: 'active', locationId: 'wolf-tooth-inn' }] }, turns: [{ role: 'user', content: '继续观察', ts: Date.now() }, { role: 'assistant', content: '极光忽然亮起。', ts: Date.now() }], options: [] }),
+      body: JSON.stringify({ commandId: 'turn-check-3', expectedRevision: freeTurn.body.revision, actionIntent: { raw: '继续观察' }, state: { ...freeTurn.body.state, currencies: { ...freeTurn.body.state.currencies, gold: 35 }, conflicts: { ...freeTurn.body.state.conflicts, 'wolf-encounter-1': { ...freeTurn.body.state.conflicts['wolf-encounter-1'], status: 'resolved', outcome: 'victory', actionId: 'strike' } }, player: { ...freeTurn.body.state.player, attributes: { ...freeTurn.body.state.player.attributes, might: 4 }, skills: { ...freeTurn.body.state.player.skills, scouting: 5 } }, goals: [{ id: 'find-aurora', title: '查明极光异动', desc: '找到山脊上的异常光源。', status: 'active', locationId: 'wolf-tooth-inn' }], leads: [{ id: 'inn-rumor', title: '旅店传闻', desc: '有人听见山脊方向的回响。', status: 'active', locationId: 'wolf-tooth-inn' }] }, turns: [{ role: 'user', content: '继续观察', ts: Date.now() }, { role: 'assistant', content: '极光忽然亮起。', ts: Date.now() }], options: [] }),
     });
     assert.strictEqual(eventTurn.response.status, 200);
     assert.strictEqual(eventTurn.body.state.time.value, 10);
@@ -131,7 +143,14 @@ async function main() {
     assert.strictEqual(eventTurn.body.state.player.attributes.might, 4);
     assert.strictEqual(eventTurn.body.state.player.skills.scouting, 5);
     assert.strictEqual(eventTurn.body.state.currencies.gold, 35);
+    assert.strictEqual(eventTurn.body.state.conflicts['wolf-encounter-1'].status, 'resolved');
+    assert.strictEqual(eventTurn.body.receipts.at(-1).conflictTransitions[0].op, 'end');
     assert.deepStrictEqual(eventTurn.body.receipts.at(-1).eventIds, ['aurora-omen']);
+    const invalidConflictReopen = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'turn-check-conflict-reopen', expectedRevision: eventTurn.body.revision, actionIntent: { raw: '重开冲突' }, state: { ...eventTurn.body.state, conflicts: { ...eventTurn.body.state.conflicts, 'wolf-encounter-1': { ...eventTurn.body.state.conflicts['wolf-encounter-1'], status: 'active', round: 3, outcome: null } } }, turns: [{ role: 'assistant', content: '拒绝。' }], options: [] }),
+    });
+    assert.strictEqual(invalidConflictReopen.response.status, 400, 'ended conflicts cannot be reopened');
     const invalidFactionState = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ commandId: 'turn-check-faction-invalid', expectedRevision: eventTurn.body.revision, actionIntent: { raw: 'faction' }, state: { ...eventTurn.body.state, factionStates: { 'north-guild': { ...eventTurn.body.state.factionStates['north-guild'], relation: 101 } } }, turns: [{ role: 'assistant', content: 'reject' }], options: [] }),

@@ -1451,6 +1451,7 @@ function worldRpgState() {
         inventory: Array.isArray(state.inventory) ? state.inventory : [],
         equipment: state.equipment && typeof state.equipment === 'object' ? state.equipment : {},
         currencies: state.currencies && typeof state.currencies === 'object' ? state.currencies : {},
+        conflicts: state.conflicts && typeof state.conflicts === 'object' ? state.conflicts : {},
         quests: Array.isArray(state.quests) ? state.quests : [],
         goals: Array.isArray(state.goals) ? state.goals : [],
         leads: Array.isArray(state.leads) ? state.leads : [],
@@ -1554,6 +1555,7 @@ function commitRpgState(rs) {
       state.equipment = cloneValue(rs.equipment || {});
       state.currencies = cloneValue(rs.currencies || {});
     }
+    if (currentWorldCard()?.conflicts || state.conflicts !== undefined) state.conflicts = cloneValue(rs.conflicts || {});
     state.quests = cloneValue(rs.quests || []);
     state.goals = cloneValue(rs.goals || []);
     state.leads = cloneValue(rs.leads || []);
@@ -1648,6 +1650,21 @@ function renderRPG() {
     currenciesEl.innerHTML = currencies.length
       ? currencies.map(currency => `<div class="rpg-item"><span class="rpg-item-name">${esc(currency.label || currency.id)}</span><b>${esc(rs.currencies?.[currency.id] ?? currency.initial ?? currency.min ?? 0)}</b></div>`).join('')
       : '<p class="hint">未声明额外货币</p>';
+  }
+  const conflictsEl = $('rpg-conflicts');
+  if (conflictsEl) {
+    const definitions = new Map((Array.isArray(currentWorldCard()?.conflicts) ? currentWorldCard().conflicts : []).map(conflict => [conflict.id, conflict]));
+    const conflicts = Object.values(rs.conflicts && typeof rs.conflicts === 'object' ? rs.conflicts : {});
+    const statusLabels = { active: '进行中', resolved: '已解决', fled: '已撤退', failed: '已失败' };
+    conflictsEl.innerHTML = conflicts.length
+      ? conflicts.map(conflict => {
+        const definition = definitions.get(conflict.templateId);
+        const phase = (definition?.phases || []).find(item => item.id === conflict.phase)?.label || conflict.phase || '未分阶段';
+        const participants = Array.isArray(conflict.participants) ? conflict.participants.map(item => typeof item === 'string' ? item : item?.id).filter(Boolean).join('、') : '';
+        const objectives = Array.isArray(conflict.objectives) ? conflict.objectives.map(item => item?.title || item?.id).filter(Boolean).join('、') : '';
+        return `<article class="rpg-item${conflict.status !== 'active' ? ' done' : ''}"><div class="rpg-item-name">${esc(definition?.label || conflict.id)} <small>${esc(statusLabels[conflict.status] || conflict.status || '进行中')}</small></div><div class="rpg-item-sub">第 ${esc(conflict.round || 1)} 轮 · ${esc(phase)}${participants ? ` · ${esc(participants)}` : ''}${objectives ? ` · 目标：${esc(objectives)}` : ''}</div></article>`;
+      }).join('')
+      : '<p class="hint">暂无冲突</p>';
   }
   const q = $('rpg-quests');
   if (q) {
@@ -1832,6 +1849,49 @@ function applyRpgUpdate(payload) {
       if (!slotIds.has(slotId) || itemId !== null && (typeof itemId !== 'string' || !inventoryIds.has(itemId))) continue;
       rs.equipment[slotId] = itemId;
     }
+  }
+  if (worldModeActive() && Array.isArray(upd.conflicts)) {
+    const state = currentWorldSave.state || (currentWorldSave.state = {});
+    const conflictDefinitions = new Map((Array.isArray(currentWorldCard()?.conflicts) ? currentWorldCard().conflicts : []).map(conflict => [conflict.id, conflict]));
+    if (!state.conflicts || typeof state.conflicts !== 'object' || Array.isArray(state.conflicts)) state.conflicts = {};
+    for (const change of upd.conflicts) {
+      if (!change || typeof change !== 'object' || Array.isArray(change) || typeof change.id !== 'string' || !change.id.trim()) continue;
+      const id = change.id.trim();
+      const previous = state.conflicts[id];
+      const templateId = String(change.templateId || previous?.templateId || '').trim();
+      const definition = conflictDefinitions.get(templateId);
+      if (!definition) continue;
+      const op = ['start', 'advance', 'end'].includes(change.op) ? change.op : 'advance';
+      if (op === 'start' && previous && previous.status !== 'active') continue;
+      if (op !== 'start' && (!previous || previous.status !== 'active')) continue;
+      const next = previous ? cloneValue(previous) : {
+        id,
+        templateId,
+        type: definition.type || 'custom',
+        status: 'active',
+        phase: definition.phases?.[0]?.id || null,
+        round: 1,
+        participants: [],
+        objectives: [],
+        availableActions: (definition.actions || []).map(action => action.id),
+      };
+      next.id = id;
+      next.templateId = templateId;
+      if (op === 'start') next.status = 'active';
+      if (op === 'advance') next.status = 'active';
+      if (op === 'end' && !['resolved', 'fled', 'failed'].includes(change.status)) next.status = 'resolved';
+      if (change.status && ['active', 'resolved', 'fled', 'failed'].includes(change.status)) next.status = change.status;
+      if (change.phase !== undefined) next.phase = change.phase || null;
+      if (Number.isInteger(change.round) && change.round > 0) next.round = change.round;
+      if (change.actionId !== undefined) next.actionId = change.actionId || null;
+      if (Array.isArray(change.participants)) next.participants = cloneValue(change.participants);
+      if (Array.isArray(change.objectives)) next.objectives = cloneValue(change.objectives);
+      if (Array.isArray(change.availableActions)) next.availableActions = change.availableActions.slice();
+      if (change.outcome !== undefined) next.outcome = change.outcome || null;
+      if (Array.isArray(change.consequences)) next.consequences = change.consequences.slice();
+      state.conflicts[id] = next;
+    }
+    rs.conflicts = state.conflicts;
   }
   if (Array.isArray(upd.quests)) {
     for (const qd of upd.quests) {
@@ -3469,6 +3529,27 @@ function buildWorldFactionPromptPart() {
   }).join('\n\n');
 }
 
+function buildWorldConflictPromptPart() {
+  if (!worldModeActive()) return '';
+  const world = currentWorldCard();
+  const definitions = new Map((Array.isArray(world?.conflicts) ? world.conflicts : []).map(conflict => [conflict.id, conflict]));
+  const states = currentWorldSave?.state?.conflicts && typeof currentWorldSave.state.conflicts === 'object' ? Object.values(currentWorldSave.state.conflicts) : [];
+  if (!definitions.size && !states.length) return '';
+  const lines = states.length ? states.map(state => {
+    const definition = definitions.get(state.templateId);
+    const actions = Array.isArray(state.availableActions) ? state.availableActions.join('、') : '';
+    const participants = Array.isArray(state.participants) ? state.participants.map(item => typeof item === 'string' ? item : item?.id).filter(Boolean).join('、') : '';
+    return `- ${state.id}：${definition?.label || state.templateId}，状态=${state.status || 'active'}，阶段=${state.phase || '未分阶段'}，第 ${state.round || 1} 轮${participants ? `，参与者=${participants}` : ''}${actions ? `，可用行动=${actions}` : ''}${state.outcome ? `，结果=${state.outcome}` : ''}`;
+  }).join('\n') : '（当前没有进行中的冲突）';
+  const templates = [...definitions.values()].map(definition => {
+    const actions = Array.isArray(definition.actions) ? definition.actions.map(action => `${action.id}:${action.label}`).join('、') : '';
+    const phases = Array.isArray(definition.phases) ? definition.phases.map(phase => `${phase.id}:${phase.label}`).join('、') : '';
+    const outcomes = Array.isArray(definition.outcomes) ? definition.outcomes.map(outcome => `${outcome.id}:${outcome.label}`).join('、') : '';
+    return `- ${definition.id}（${definition.type || 'custom'}）：阶段=${phases || '无'}；行动=${actions || '无'}；结果=${outcomes || '无'}`;
+  }).join('\n');
+  return `【冲突状态】\n冲突是当前世界存档独立拥有的状态，不得跨存档引用。只能使用已声明模板；生命周期只能 start（开始）、advance（推进一轮）或 end（以 declared outcome 结束），已结束冲突不可重开。\n当前状态：\n${lines}\n可用模板：\n${templates}`;
+}
+
 function buildRpgPromptPart() {
   if (mode !== 'rpg') return '';
   const parts = [];
@@ -3529,6 +3610,8 @@ function buildRpgPromptPart() {
       if (factionPrompt) parts.push(factionPrompt);
       const eventPrompt = buildWorldEventPromptPart();
       if (eventPrompt) parts.push(eventPrompt);
+      const conflictPrompt = buildWorldConflictPromptPart();
+      if (conflictPrompt) parts.push(conflictPrompt);
     }
   }
   parts.push((defaults?.rpg?.stateInstruction) || '每次回复末尾输出包含 options 的 ```rpg``` JSON 状态块。');
