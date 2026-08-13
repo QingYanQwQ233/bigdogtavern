@@ -118,6 +118,8 @@ let worldUpgrade = null;
 let worldUpgradeOpener = null;
 let worldImport = null;
 let worldImportOpener = null;
+let rpgMigration = null;
+let rpgMigrationOpener = null;
 let theme = localStorage.getItem(LS_THEME) || 'tavern';
 let mode = localStorage.getItem(LS_MODE) || 'tavern'; // 'tavern' 酒馆模式 | 'rpg' RPG 模式
 let sending = false;
@@ -815,6 +817,87 @@ function closeWorldPackageImport() {
   worldImport = null;
   worldImportOpener?.focus?.();
   worldImportOpener = null;
+}
+
+function setRpgMigrationStatus(message, kind = '') {
+  const el = $('rpg-migration-status');
+  if (el) { el.textContent = message || ''; el.className = 'world-draft-status' + (kind ? ' ' + kind : ''); }
+}
+function renderRpgMigrationReport(data) {
+  const root = $('rpg-migration-report');
+  const report = data?.report;
+  if (!report) { root.innerHTML = '<p>选择会话后查看只读迁移预览。</p>'; return; }
+  const errors = (report.errors || []).map(v => `<li>${esc(v)}</li>`).join('');
+  const warnings = (report.warnings || []).map(v => `<li>${esc(v)}</li>`).join('');
+  root.innerHTML = `<div class="world-import-facts"><span><b>${esc(report.source?.turns || 0)}</b>回合</span><span><b>${esc(report.state?.inventory || 0)}</b>背包</span><span><b>${esc(report.state?.quests || 0)}</b>任务</span><span><b>${report.state?.hasMap ? '有' : '无'}</b>地图</span></div>${errors ? `<section class="world-import-errors"><h3>无法迁移</h3><ul>${errors}</ul></section>` : '<p class="world-import-ready">✓ 校验通过；原会话不会被修改。</p>'}${warnings ? `<section class="world-import-warnings"><h3>迁移提示</h3><ul>${warnings}</ul></section>` : ''}`;
+}
+function legacyRpgSessions() {
+  return (Array.isArray(sessions) ? sessions : []).filter(s => s && s.kind === 'rpg' && (!currentCharId || s.charId === currentCharId));
+}
+function migrationCharacterSnapshot() {
+  const char = currentChar() || {};
+  const copy = { name: char.name, race: char.race, role: char.role, persona: char.persona, profileFields: Array.isArray(char.profileFields) ? char.profileFields : [] };
+  return Object.fromEntries(Object.entries(copy).filter(([, value]) => value !== undefined));
+}
+function renderRpgMigrationSessions() {
+  const select = $('rpg-migration-session');
+  const list = legacyRpgSessions();
+  select.innerHTML = list.length ? list.map(s => `<option value="${esc(s.id)}">${esc(s.name || s.id)} · ${esc((s.messages || []).length)} 回合</option>`).join('') : '<option value="">没有可迁移的旧 RPG 会话</option>';
+  $('rpg-migration-commit').disabled = true;
+  renderRpgMigrationReport(null);
+  return list;
+}
+async function previewRpgMigration() {
+  const id = $('rpg-migration-session').value;
+  const session = legacyRpgSessions().find(s => s.id === id);
+  const world = currentWorldCard();
+  const commit = $('rpg-migration-commit');
+  rpgMigration = null;
+  commit.disabled = true;
+  renderRpgMigrationReport(null);
+  if (!session || !world) { setRpgMigrationStatus('请先选择目标世界与旧 RPG 会话。', 'error'); return; }
+  setRpgMigrationStatus('正在封存原会话并生成只读预览…');
+  const envelope = { schemaVersion: 1, kind: 'legacy-rpg-session', name: session.name, worldId: world.id, worldVersion: world.version, session, characterSnapshot: migrationCharacterSnapshot() };
+  try {
+    const raw = JSON.stringify(envelope);
+    const res = await fetch('/api/rpg-migrations', { method: 'POST', headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: JSON.stringify({ raw }) });
+    const data = await res.json().catch(() => null);
+    if (!data?.id) throw new Error(worldApiError(data, '迁移预览失败（HTTP ' + res.status + '）'));
+    rpgMigration = data;
+    $('rpg-migration-base').textContent = `“${session.name || session.id}”已封存 · ${String(data.rawHash || '').replace(/^sha256:/, '').slice(0, 12)}`;
+    renderRpgMigrationReport(data);
+    commit.disabled = !data.report?.canMigrate;
+    setRpgMigrationStatus(data.report?.canMigrate ? '原件已封存；确认后才创建世界存档。' : '原件已封存，但校验未通过。', data.report?.canMigrate ? 'ok' : 'error');
+  } catch (err) { setRpgMigrationStatus(err.message, 'error'); }
+}
+function openRpgMigration() {
+  rpgMigrationOpener = document.activeElement;
+  renderRpgMigrationSessions();
+  const dialog = $('rpg-migration-dialog');
+  if (!dialog.open) dialog.showModal();
+  if ($('rpg-migration-session').value) previewRpgMigration();
+}
+function closeRpgMigration() {
+  const dialog = $('rpg-migration-dialog');
+  if (dialog?.open) dialog.close('cancel');
+  rpgMigration = null;
+  rpgMigrationOpener?.focus?.();
+  rpgMigrationOpener = null;
+}
+async function commitRpgMigration() {
+  const migration = rpgMigration;
+  if (!migration?.report?.canMigrate) return;
+  const button = $('rpg-migration-commit');
+  button.disabled = true; button.textContent = '迁移中…'; setRpgMigrationStatus('正在创建独立世界存档…');
+  try {
+    const res = await fetch('/api/rpg-migrations/' + encodeURIComponent(migration.id), { method: 'POST' });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.save?.id) throw new Error(worldApiError(data, '迁移失败（HTTP ' + res.status + '）'));
+    currentWorldId = data.save.worldId; currentWorldSaveId = data.save.id; currentWorldSave = data.save;
+    localStorage.setItem(LS_CURRENT_WORLD, currentWorldId); localStorage.setItem(LS_CURRENT_WORLD_SAVE, currentWorldSaveId);
+    closeRpgMigration(); await loadWorldLibraryData(true); enterWorldWorkspace();
+  } catch (err) { setRpgMigrationStatus(err.message, 'error'); button.disabled = false; }
+  finally { button.textContent = '确认迁移'; }
 }
 async function commitWorldPackageImport() {
   const imported = worldImport;
@@ -5072,6 +5155,13 @@ function bindEvents() {
   $('world-new-draft').addEventListener('click', openWorldDraftEditor);
   $('world-import').addEventListener('click', openWorldPackageImport);
   $('world-import-file').addEventListener('change', e => previewWorldPackageImport(e.target.files?.[0]));
+  $('world-migrate-rpg').addEventListener('click', openRpgMigration);
+  $('rpg-migration-session').addEventListener('change', previewRpgMigration);
+  $('rpg-migration-form').addEventListener('submit', async e => { e.preventDefault(); await commitRpgMigration(); });
+  $('rpg-migration-close').addEventListener('click', closeRpgMigration);
+  $('rpg-migration-cancel').addEventListener('click', closeRpgMigration);
+  $('rpg-migration-dialog').addEventListener('cancel', e => { e.preventDefault(); closeRpgMigration(); });
+  $('rpg-migration-dialog').addEventListener('click', e => { if (e.target === e.currentTarget) closeRpgMigration(); });
   $('world-import-form').addEventListener('submit', async e => { e.preventDefault(); await commitWorldPackageImport(); });
   $('world-import-close').addEventListener('click', closeWorldPackageImport);
   $('world-import-cancel').addEventListener('click', closeWorldPackageImport);

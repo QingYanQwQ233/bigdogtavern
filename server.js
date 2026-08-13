@@ -24,6 +24,7 @@ const DATA_DIR = process.env.TAVERN_DATA_DIR
 const SAVES_DIR = path.join(DATA_DIR, 'saves');
 const WORLD_DRAFTS_PATH = path.join(DATA_DIR, 'world-drafts.json');
 const WORLD_IMPORTS_DIR = path.join(DATA_DIR, 'world-imports');
+const RPG_MIGRATIONS_DIR = path.join(DATA_DIR, 'rpg-migrations');
 // --api-only：只暴露 /api/*（无网页），供公网纯 API 场景
 const API_ONLY = process.argv.includes('--api-only');
 
@@ -61,6 +62,7 @@ async function ensureDataFiles() {
   try { await fs.promises.mkdir(DATA_DIR, { recursive: true }); } catch {}
   try { await fs.promises.mkdir(SAVES_DIR, { recursive: true }); } catch {}
   try { await fs.promises.mkdir(WORLD_IMPORTS_DIR, { recursive: true }); } catch {}
+  try { await fs.promises.mkdir(RPG_MIGRATIONS_DIR, { recursive: true }); } catch {}
   try { await fs.promises.access(WORLD_DRAFTS_PATH); }
   catch { await fs.promises.writeFile(WORLD_DRAFTS_PATH, '[]\n', 'utf-8'); }
   for (const type of DATA_TYPES) {
@@ -138,6 +140,14 @@ function sha256Text(value) {
 
 function worldImportPath(importId) {
   return isSafeId(importId) ? path.join(WORLD_IMPORTS_DIR, importId + '.json') : null;
+}
+
+function rpgMigrationPath(migrationId) {
+  return isSafeId(migrationId) ? path.join(RPG_MIGRATIONS_DIR, migrationId + '.json') : null;
+}
+
+function newRpgMigrationId() {
+  return 'rpg-migrate-' + Date.now().toString(36) + '-' + crypto.randomBytes(6).toString('hex');
 }
 
 function newWorldImportId() {
@@ -558,6 +568,186 @@ async function listWorldSaveFiles(worldId) {
 
 function newSaveId() {
   return 'save-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+}
+
+function migratedSaveId(migrationId) {
+  return 'migrated-' + migrationId;
+}
+
+function rpgMigrationView(record) {
+  const { raw, ...view } = record;
+  return view;
+}
+
+function buildLegacyRpgMigrationReport(envelope, worlds) {
+  const errors = [];
+  const warnings = [];
+  const session = envelope?.session;
+  if (!session || typeof session !== 'object' || Array.isArray(session)) errors.push('session 必须是对象');
+  if (session && session.kind && session.kind !== 'rpg') warnings.push('来源会话 kind 不是 rpg，将按旧 RPG 会话读取');
+  const worldId = typeof envelope?.worldId === 'string' ? envelope.worldId : '';
+  const requestedVersion = envelope?.worldVersion === undefined ? undefined : Number(envelope.worldVersion);
+  const world = worldId && isSafeId(worldId)
+    ? (requestedVersion === undefined ? latestWorld(worlds, worldId) : findWorldVersion(worlds, worldId, requestedVersion))
+    : null;
+  if (!world) errors.push('目标世界卡或版本不存在');
+  const state = session?.rpgState && typeof session.rpgState === 'object' ? session.rpgState : {};
+  const messages = Array.isArray(session?.messages) ? session.messages : [];
+  if (!Array.isArray(session?.messages)) warnings.push('来源没有 messages，迁移后将从空回合开始');
+  if (messages.length > 5000) errors.push('来源消息超过 5000 条');
+  if (messages.some(msg => !msg || typeof msg !== 'object' || typeof msg.content !== 'string')) warnings.push('部分消息格式异常，迁移时会跳过');
+  const locationId = state.locationId ?? state.location ?? null;
+  const locationIds = world ? worldLocationIds(world) : new Set();
+  let mappedLocationId = typeof locationId === 'string' && locationIds.has(locationId) ? locationId : null;
+  if (locationId && !mappedLocationId) {
+    mappedLocationId = world?.start?.locationId || null;
+    warnings.push(`旧位置 ${String(locationId).slice(0, 120)} 不属于目标世界，已回退到起点`);
+  }
+  const map = state.map && typeof state.map === 'object' ? state.map : {};
+  if (map.imagePath && !/^\/images\/[A-Za-z0-9._-]{1,160}$/.test(map.imagePath)) warnings.push('旧地图图片路径不安全，已隔离');
+  if (map.data && (!map.data || typeof map.data !== 'object' || !Number.isInteger(map.data.size) || !Array.isArray(map.data.grid))) warnings.push('旧地图数据格式异常，已隔离');
+  return {
+    canMigrate: errors.length === 0,
+    source: { sessionId: typeof session?.id === 'string' ? session.id.slice(0, 120) : null, name: typeof session?.name === 'string' ? session.name.slice(0, 120) : '旧 RPG 会话', turns: messages.length },
+    target: world ? { worldId: world.id, worldVersion: Number(world.version), title: world.title || world.id } : { worldId, worldVersion: requestedVersion || null, title: null },
+    state: { locationId: mappedLocationId, inventory: Array.isArray(state.inventory) ? Math.min(state.inventory.length, 256) : 0, quests: Array.isArray(state.quests) ? Math.min(state.quests.length, 256) : 0, hasMap: !!(map.data || map.imagePath) },
+    warnings,
+    errors,
+  };
+}
+
+function normalizeLegacyTurns(messages) {
+  return (Array.isArray(messages) ? messages : []).slice(0, 5000).flatMap((msg, index) => {
+    if (!msg || typeof msg !== 'object' || typeof msg.content !== 'string') return [];
+    const role = ['user', 'assistant', 'system'].includes(msg.role) ? msg.role : 'assistant';
+    return [{ role, content: msg.content.slice(0, 20000), ts: Number.isFinite(msg.ts) ? msg.ts : Date.now() + index }];
+  });
+}
+
+function legacyState(envelope, world, report) {
+  const source = envelope.session.rpgState && typeof envelope.session.rpgState === 'object' ? envelope.session.rpgState : {};
+  const stats = source.stats && typeof source.stats === 'object' ? cloneJson(source.stats) : {};
+  for (const key of ['level', 'exp', 'expNext', 'hp', 'maxHp', 'mp', 'maxMp', 'gold']) {
+    if (stats[key] === undefined && Number.isFinite(source[key])) stats[key] = source[key];
+  }
+  const map = source.map && typeof source.map === 'object' ? source.map : {};
+  const safeMap = {
+    strategy: world.map?.strategy || 'perSave', baseMapId: world.map?.baseMapId || null,
+    data: map.data && typeof map.data === 'object' ? cloneJson(map.data) : null,
+    imagePath: /^\/images\/[A-Za-z0-9._-]{1,160}$/.test(map.imagePath || '') ? map.imagePath : null,
+    discoveredLocationIds: report.state.locationId ? [report.state.locationId] : [], markers: [],
+  };
+  return {
+    locationId: report.state.locationId,
+    stats,
+    inventory: Array.isArray(source.inventory) ? cloneJson(source.inventory).slice(0, 256) : [],
+    quests: Array.isArray(source.quests) ? cloneJson(source.quests).slice(0, 256) : [],
+    map: safeMap,
+  };
+}
+
+async function readRpgMigrationRecord(migrationId) {
+  const raw = await fs.promises.readFile(rpgMigrationPath(migrationId), 'utf-8');
+  const record = JSON.parse(raw);
+  if (!record || record.id !== migrationId || typeof record.raw !== 'string') throw new Error('RPG 迁移封存件无效');
+  return record;
+}
+
+async function handleRpgMigrationPreview(req, res) {
+  let payload;
+  try { payload = await readJsonBody(req, WORLD_IMPORT_MAX_BYTES); }
+  catch (err) { return send(res, err.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400, JSON.stringify({ error: err.message }), 'application/json'); }
+  if (!payload || typeof payload.raw !== 'string' || !payload.raw.trim()) return send(res, 400, JSON.stringify({ error: 'raw 必须是非空 JSON 文本' }), 'application/json');
+  if (Buffer.byteLength(payload.raw, 'utf8') > WORLD_IMPORT_MAX_BYTES) return send(res, 413, JSON.stringify({ error: '旧 RPG 会话超过 2 MiB 限制' }), 'application/json');
+  let envelope;
+  try { envelope = JSON.parse(payload.raw); }
+  catch { return send(res, 422, JSON.stringify({ error: '旧 RPG 会话 JSON 无效' }), 'application/json'); }
+  if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)) return send(res, 422, JSON.stringify({ error: '迁移封装必须是对象' }), 'application/json');
+  let worlds;
+  try { worlds = await loadWorlds(); }
+  catch (err) { return send(res, 500, JSON.stringify({ error: '世界卡读取失败: ' + err.message }), 'application/json'); }
+  const report = buildLegacyRpgMigrationReport(envelope, worlds);
+  const id = newRpgMigrationId();
+  const record = {
+    schemaVersion: 1, id, kind: 'legacy-rpg-session', status: 'previewed', createdAt: Date.now(),
+    raw: payload.raw, rawHash: sha256Text(payload.raw), report,
+    source: report.source, target: report.target,
+  };
+  try {
+    await fs.promises.mkdir(RPG_MIGRATIONS_DIR, { recursive: true });
+    await writeJsonAtomic(rpgMigrationPath(id), record);
+    send(res, report.canMigrate ? 201 : 422, JSON.stringify(rpgMigrationView(record)), 'application/json; charset=utf-8');
+  } catch (err) {
+    console.error('[rpg-migrations] 封存失败:', err.message);
+    send(res, 500, JSON.stringify({ error: '旧 RPG 会话封存失败: ' + err.message }), 'application/json');
+  }
+}
+
+async function handleRpgMigrationGet(req, res, migrationId) {
+  if (!rpgMigrationPath(migrationId)) return send(res, 400, JSON.stringify({ error: '无效的 migrationId' }), 'application/json');
+  try {
+    const record = await readRpgMigrationRecord(migrationId);
+    send(res, 200, JSON.stringify(rpgMigrationView(record)), 'application/json; charset=utf-8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return send(res, 404, JSON.stringify({ error: '迁移记录不存在' }), 'application/json');
+    send(res, 500, JSON.stringify({ error: '迁移记录读取失败: ' + err.message }), 'application/json');
+  }
+}
+
+async function handleRpgMigrationCommit(req, res, migrationId) {
+  const recordPath = rpgMigrationPath(migrationId);
+  if (!recordPath) return send(res, 400, JSON.stringify({ error: '无效的 migrationId' }), 'application/json');
+  return withWorldsLock(async () => {
+    try {
+      const record = await readRpgMigrationRecord(migrationId);
+      if (record.status === 'committed' && record.saveId) {
+        const committed = JSON.parse(await fs.promises.readFile(savePath(record.saveId), 'utf-8'));
+        return send(res, 200, JSON.stringify({ migration: rpgMigrationView(record), save: committed, idempotent: true }), 'application/json; charset=utf-8');
+      }
+      if (sha256Text(record.raw) !== record.rawHash) return send(res, 409, JSON.stringify({ error: '迁移原件校验失败，已拒绝写入' }), 'application/json');
+      const envelope = JSON.parse(record.raw);
+      const worlds = await loadWorlds();
+      const report = buildLegacyRpgMigrationReport(envelope, worlds);
+      if (!report.canMigrate) return send(res, 422, JSON.stringify({ error: '迁移预演未通过', report }), 'application/json; charset=utf-8');
+      const world = findWorldVersion(worlds, report.target.worldId, report.target.worldVersion);
+      const saveId = migratedSaveId(migrationId);
+      const fp = savePath(saveId);
+      try {
+        const existing = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
+        if (existing?.migrationInfo?.migrationId === migrationId) {
+          record.status = 'committed'; record.saveId = saveId; record.committedAt = record.committedAt || Date.now();
+          await writeJsonAtomic(recordPath, record);
+          return send(res, 200, JSON.stringify({ migration: rpgMigrationView(record), save: existing, idempotent: true }), 'application/json; charset=utf-8');
+        }
+        return send(res, 409, JSON.stringify({ error: '确定的迁移存档 ID 已被占用' }), 'application/json');
+      } catch (err) { if (err.code !== 'ENOENT') throw err; }
+      const now = Date.now();
+      const session = envelope.session;
+      const playerId = isSafeId(session.charId) ? session.charId : 'pc-' + saveId.slice(-24);
+      const rawCharacter = envelope.characterSnapshot && typeof envelope.characterSnapshot === 'object' ? envelope.characterSnapshot : {};
+      const redactedPaths = [];
+      const player = sanitizeWorldPackageValue({ name: rawCharacter.name || '未命名冒险者', race: rawCharacter.race || '待定', role: rawCharacter.role || '旅人', ...rawCharacter }, 'player', redactedPaths);
+      const state = legacyState(envelope, world, report);
+      const save = {
+        schemaVersion: 1, id: saveId, name: String(envelope.name || session.name || '迁移的旧 RPG 会话').trim().slice(0, 120) || '迁移的旧 RPG 会话',
+        worldId: world.id, worldVersion: Number(world.version), createdAt: now, updatedAt: now, revision: 0,
+        player: { characterId: playerId, snapshot: player }, party: { memberIds: [playerId], leaderId: playerId }, state,
+        npcStates: initialNpcStates(world, { locationId: state.locationId }), opening: String(session.opening || ''), turns: normalizeLegacyTurns(session.messages), receipts: [], generatedEntities: {},
+        migrationHistory: [], migrationInfo: { kind: 'legacy-rpg-session', migrationId, sourceSessionId: report.source.sessionId, sourceHash: record.rawHash, migratedAt: now, redactedPaths },
+      };
+      const invalidSave = validateWorldSavePatch({ expectedRevision: 0, state: save.state, turns: save.turns, opening: save.opening });
+      if (invalidSave) return send(res, 422, JSON.stringify({ error: '旧 RPG 状态无法安全写入', detail: invalidSave }), 'application/json');
+      await fs.promises.mkdir(SAVES_DIR, { recursive: true });
+      await writeJsonAtomic(fp, save);
+      record.status = 'committed'; record.saveId = saveId; record.committedAt = now; record.report = report;
+      await writeJsonAtomic(recordPath, record);
+      send(res, 201, JSON.stringify({ migration: rpgMigrationView(record), save, idempotent: false }), 'application/json; charset=utf-8');
+    } catch (err) {
+      if (err.code === 'ENOENT') return send(res, 404, JSON.stringify({ error: '迁移记录或目标文件不存在' }), 'application/json');
+      console.error('[rpg-migrations] 提交失败:', err.message);
+      send(res, 500, JSON.stringify({ error: '旧 RPG 会话迁移失败: ' + err.message }), 'application/json');
+    }
+  });
 }
 
 async function handleWorldsGet(req, res) {
@@ -2012,6 +2202,16 @@ const server = http.createServer((req, res) => {
   if (worldSaveListMatch) {
     if (req.method === 'GET') return handleWorldSavesList(req, res, url.searchParams.get('worldId') || '');
     if (req.method === 'POST') return handleWorldSaveCreate(req, res);
+  }
+  const rpgMigrationListMatch = url.pathname.match(/^\/api\/rpg-migrations\/?$/);
+  if (rpgMigrationListMatch && req.method === 'POST') return handleRpgMigrationPreview(req, res);
+  const rpgMigrationMatch = url.pathname.match(/^\/api\/rpg-migrations\/([^/]+)\/?$/);
+  if (rpgMigrationMatch && (req.method === 'GET' || req.method === 'POST')) {
+    let migrationId;
+    try { migrationId = decodeURIComponent(rpgMigrationMatch[1]); }
+    catch { return send(res, 400, JSON.stringify({ error: '无效的 migrationId' }), 'application/json'); }
+    if (req.method === 'GET') return handleRpgMigrationGet(req, res, migrationId);
+    return handleRpgMigrationCommit(req, res, migrationId);
   }
   const worldSaveUpgradeMatch = url.pathname.match(/^\/api\/world-saves\/([^/]+)\/upgrade\/?$/);
   if (worldSaveUpgradeMatch && (req.method === 'GET' || req.method === 'POST')) {

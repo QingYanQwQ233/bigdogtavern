@@ -665,6 +665,30 @@ async function main() {
     });
     assert.strictEqual(badImagePath.response.status, 400, 'external image path is rejected');
 
+    const legacySession = {
+      id: 'legacy-rpg-001', kind: 'rpg', charId: 'char-export', name: '旧 RPG 旅程', opening: '旧开场白',
+      messages: [{ role: 'assistant', content: '旧世界在雨中醒来', ts: 1 }, { role: 'user', content: '我走进旅店', ts: 2 }],
+      rpgState: { locationId: 'wolf-tooth-inn', stats: { level: 3, hp: 18, maxHp: 20, gold: 42 }, inventory: [{ name: '旧钥匙', count: 1 }], quests: [{ title: '旧任务', status: 'active' }], map: { imagePath: '../unsafe.png' } },
+    };
+    const migrationRaw = JSON.stringify({ schemaVersion: 1, kind: 'legacy-rpg-session', name: legacySession.name, worldId: world.id, worldVersion: world.version, session: legacySession, characterSnapshot: { name: 'Export Character', race: '狐', role: '旅人', openai_api_key: 'must-not-leak' } });
+    const migrationPreview = await jsonRequest(base, '/api/rpg-migrations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ raw: migrationRaw }) });
+    assert.strictEqual(migrationPreview.response.status, 201, 'legacy RPG session preview succeeds');
+    assert.ok(migrationPreview.body.report.canMigrate);
+    assert.ok(!Object.hasOwn(migrationPreview.body, 'raw'), 'migration preview does not expose raw source');
+    const migrationGet = await jsonRequest(base, '/api/rpg-migrations/' + encodeURIComponent(migrationPreview.body.id));
+    assert.strictEqual(migrationGet.response.status, 200);
+    assert.ok(!Object.hasOwn(migrationGet.body, 'raw'), 'migration GET keeps raw source sealed');
+    const migrated = await jsonRequest(base, '/api/rpg-migrations/' + encodeURIComponent(migrationPreview.body.id), { method: 'POST' });
+    assert.strictEqual(migrated.response.status, 201, 'legacy RPG session commit succeeds');
+    assert.strictEqual(migrated.body.save.worldId, world.id);
+    assert.strictEqual(migrated.body.save.turns.length, 2);
+    assert.strictEqual(migrated.body.save.state.locationId, 'wolf-tooth-inn');
+    assert.ok(migrated.body.save.migrationInfo);
+    assert.ok(!JSON.stringify(migrated.body.save).includes('must-not-leak'), 'migration strips credentials from player snapshot');
+    const migratedAgain = await jsonRequest(base, '/api/rpg-migrations/' + encodeURIComponent(migrationPreview.body.id), { method: 'POST' });
+    assert.strictEqual(migratedAgain.response.status, 200, 'legacy migration is idempotent');
+    assert.strictEqual(migratedAgain.body.save.id, migrated.body.save.id);
+
     const traversal = await jsonRequest(base, '/api/world-saves/%2e%2e%2fworlds');
     assert.strictEqual(traversal.response.status, 400, 'path traversal is rejected');
     const badWorld = await jsonRequest(base, '/api/world-saves?worldId=../secrets');
@@ -693,7 +717,7 @@ async function main() {
     const restarted = server.address();
     const afterRestart = await jsonRequest(`http://127.0.0.1:${restarted.port}`, '/api/world-saves?worldId=' + encodeURIComponent(world.id));
     assert.strictEqual(afterRestart.response.status, 200);
-    assert.strictEqual(afterRestart.body.length, 3, 'saves survive server restart');
+    assert.strictEqual(afterRestart.body.length, 4, 'saves survive server restart');
     const draftAfterRestart = await jsonRequest(`http://127.0.0.1:${restarted.port}`, '/api/world-drafts/' + encodeURIComponent(world.id));
     assert.strictEqual(draftAfterRestart.response.status, 200);
     assert.strictEqual(draftAfterRestart.body.world.title, '极光大陆（草稿）', 'draft survives server restart');

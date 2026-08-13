@@ -282,3 +282,10 @@ WorldNPC 的静态资料按公开边界读取：`role`、`description`、`person
 - `settings.systemPrompt/postHistory/firstMes` 与 `__global__` 预设语义重叠：`__global__` 是提示词栏的编辑入口，settings 三字段仅作最后兜底（兼容旧数据）
 - 数据双写 localStorage + JSON：server 文件权威，localStorage 为离线降级
 - 命名易混淆：`settings.preset`（服务商）vs `prefs.currentPresetByMode`（酒馆/RPG 当前提示词预设）
+### Legacy RPG session migration (W6)
+
+`POST /api/rpg-migrations` receives `{ raw }`, where `raw` is a browser legacy session envelope containing the target `worldId/worldVersion`. The server seals the exact source at `data/rpg-migrations/<migrationId>.json` and returns only a hash, source/target summary, state counts, and warnings. The raw session is never echoed by the GET endpoint. A second, explicit `POST /api/rpg-migrations/<migrationId>` creates `data/saves/migrated-<migrationId>.json`.
+
+The mapping is `messages -> WorldSave.turns`, `opening -> opening`, and `rpgState -> state`. Locations must belong to the target world; otherwise the world start is used and a warning is reported. Only a credential-scrubbed character snapshot is copied. Unknown fields remain in the sealed source and are never executed. `migrationInfo` records the source session ID and exact source hash. Confirming twice returns the same deterministic save; the original browser session is not changed or deleted.
+
+API additions: `POST /api/rpg-migrations` (preview/seal), `GET /api/rpg-migrations/<migrationId>` (summary only), and `POST /api/rpg-migrations/<migrationId>` (explicit commit, idempotent).
