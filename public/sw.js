@@ -1,8 +1,9 @@
 /* Tavern service worker：network-first（在线永远取最新，离线兜底缓存壳文件）
  * 与 server 的 no-cache 策略配合：在线时每次拿最新代码，断网/壳内离线时用缓存。
  */
-const CACHE = 'tavern-v1';
-const SHELL = ['/', '/index.html', '/styles.css', '/app.js', '/mapgen.js', '/vendor/marked.min.js', '/vendor/purify.min.js', '/vendor/mapgen2.bundle.js', '/manifest.json'];
+const ASSET_VERSION = '20260813a';
+const CACHE = 'tavern-' + ASSET_VERSION;
+const SHELL = ['/', '/index.html', '/styles.css', '/mapgen.js?v=' + ASSET_VERSION, '/app.js?v=' + ASSET_VERSION, '/vendor/marked.min.js', '/vendor/purify.min.js', '/vendor/mapgen2.bundle.js', '/manifest.json'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
