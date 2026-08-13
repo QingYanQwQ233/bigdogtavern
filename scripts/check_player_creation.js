@@ -96,6 +96,7 @@ async function main() {
     assert.strictEqual(first.body.state.currencies.gold, 30);
     assert.strictEqual(first.body.state.conflicts['wolf-encounter-1'].status, 'active');
     assert.strictEqual(first.body.state.conflicts['wolf-encounter-1'].round, 1);
+    assert.deepStrictEqual(first.body.state.growthCandidates, []);
     assert.strictEqual(first.body.npcStates['npc-lily'].relation.player, 25);
     assert.strictEqual(first.body.state.factionStates['north-guild'].relation, 10);
     assert.strictEqual(first.body.state.factionStates['north-guild'].resources.funds, 30);
@@ -114,7 +115,7 @@ async function main() {
     assert.strictEqual(openingRetry.response.status, 200, 'opening command is idempotent');
     const freeTurn = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ commandId: 'turn-check-1', expectedRevision: opening.body.revision, actionIntent: { raw: '攻击灰狼并说服守卫', risk: '高' }, state: { ...opening.body.state, conflicts: { ...opening.body.state.conflicts, 'wolf-encounter-1': { ...opening.body.state.conflicts['wolf-encounter-1'], round: 2, actionId: 'strike', targetId: 'wolf-alpha' }, 'gate-talk-1': { ...opening.body.state.conflicts['gate-talk-1'], round: 2, actionId: 'persuade' }, 'wolf-encounter-2': { id: 'wolf-encounter-2', templateId: 'wolf-skirmish', type: 'combat', status: 'active', phase: 'engage', round: 1, participants: ['pc-hero', 'wolf-beta'], availableActions: ['strike', 'flee'] } } }, turns: [
+      body: JSON.stringify({ commandId: 'turn-check-1', expectedRevision: opening.body.revision, actionIntent: { raw: '攻击灰狼并说服守卫', risk: '高' }, state: { ...opening.body.state, growthCandidates: [{ id: 'growth-test-1', candidateId: 'scouting-training', sourceId: 'training', reason: '完成一次训练', status: 'proposed' }], conflicts: { ...opening.body.state.conflicts, 'wolf-encounter-1': { ...opening.body.state.conflicts['wolf-encounter-1'], round: 2, actionId: 'strike', targetId: 'wolf-alpha' }, 'gate-talk-1': { ...opening.body.state.conflicts['gate-talk-1'], round: 2, actionId: 'persuade' }, 'wolf-encounter-2': { id: 'wolf-encounter-2', templateId: 'wolf-skirmish', type: 'combat', status: 'active', phase: 'engage', round: 1, participants: ['pc-hero', 'wolf-beta'], availableActions: ['strike', 'flee'] } } }, turns: [
         { role: 'user', content: '攻击灰狼并说服守卫', ts: Date.now() },
         { role: 'assistant', content: '你看见雨水沿着窗棂滑落。', ts: Date.now() },
       ], options: [] }),
@@ -137,6 +138,7 @@ async function main() {
     assert.strictEqual(freeTurn.body.receipts.at(-1).conflictChecks[0].type, 'social');
     assert.strictEqual(freeTurn.body.receipts.at(-1).conflictChecks[0].check.success, true);
     assert.deepStrictEqual(freeTurn.body.state.conflicts['gate-talk-1'].participants, [{ id: 'npc-warden', role: 'opponent' }], 'non-combat check does not mutate HP participants');
+    assert.deepStrictEqual(freeTurn.body.state.growthCandidates.map(item => item.candidateId), ['scouting-training']);
     assert.strictEqual(freeTurn.body.receipts.at(-1).conflictTransitions[0].op, 'advance');
     assert.ok(freeTurn.body.receipts.at(-1).conflictTransitions.some(item => item.id === 'wolf-encounter-2' && item.op === 'start'));
     const tamperedCombatHp = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
@@ -144,6 +146,11 @@ async function main() {
       body: JSON.stringify({ commandId: 'turn-check-combat-hp', expectedRevision: freeTurn.body.revision, actionIntent: { raw: '伪造伤害' }, state: { ...freeTurn.body.state, conflicts: { ...freeTurn.body.state.conflicts, 'wolf-encounter-1': { ...freeTurn.body.state.conflicts['wolf-encounter-1'], participants: freeTurn.body.state.conflicts['wolf-encounter-1'].participants.map(item => item.id === 'wolf-alpha' ? { ...item, hp: 0 } : item) } } }, turns: [{ role: 'assistant', content: '拒绝。' }], options: [] }),
     });
     assert.strictEqual(tamperedCombatHp.response.status, 400, 'combat participant HP is server-owned');
+    const invalidGrowthCandidate = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'turn-check-growth-invalid', expectedRevision: freeTurn.body.revision, actionIntent: { raw: '伪造成长' }, state: { ...freeTurn.body.state, growthCandidates: [...freeTurn.body.state.growthCandidates, { id: 'growth-test-2', candidateId: 'unknown-growth', sourceId: 'training', status: 'proposed' }] }, turns: [{ role: 'assistant', content: '拒绝。' }], options: [] }),
+    });
+    assert.strictEqual(invalidGrowthCandidate.response.status, 400, 'unknown growth candidates are rejected');
     const tamperedDice = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ commandId: 'turn-check-2', expectedRevision: freeTurn.body.revision, actionIntent: { raw: '掷骰', dice: [{ expr: '1d20', rolls: [20], bonus: 0, total: 1 }] }, state: freeTurn.body.state, turns: [{ role: 'user', content: '掷骰', ts: Date.now() }, { role: 'assistant', content: '结果。', ts: Date.now() }], options: [] }),

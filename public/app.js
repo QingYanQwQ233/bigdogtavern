@@ -1452,6 +1452,7 @@ function worldRpgState() {
         equipment: state.equipment && typeof state.equipment === 'object' ? state.equipment : {},
         currencies: state.currencies && typeof state.currencies === 'object' ? state.currencies : {},
         conflicts: state.conflicts && typeof state.conflicts === 'object' ? state.conflicts : {},
+        growthCandidates: Array.isArray(state.growthCandidates) ? state.growthCandidates : [],
         quests: Array.isArray(state.quests) ? state.quests : [],
         goals: Array.isArray(state.goals) ? state.goals : [],
         leads: Array.isArray(state.leads) ? state.leads : [],
@@ -1556,6 +1557,7 @@ function commitRpgState(rs) {
       state.currencies = cloneValue(rs.currencies || {});
     }
     if (currentWorldCard()?.conflicts || state.conflicts !== undefined) state.conflicts = cloneValue(rs.conflicts || {});
+    if (currentWorldCard()?.playerCreation?.growth || state.growthCandidates !== undefined) state.growthCandidates = cloneValue(rs.growthCandidates || []);
     state.quests = cloneValue(rs.quests || []);
     state.goals = cloneValue(rs.goals || []);
     state.leads = cloneValue(rs.leads || []);
@@ -1898,6 +1900,23 @@ function applyRpgUpdate(payload) {
       state.conflicts[id] = next;
     }
     rs.conflicts = state.conflicts;
+  }
+  if (worldModeActive() && Array.isArray(upd.growth)) {
+    const growth = currentWorldCard()?.playerCreation?.growth;
+    const candidateDefinitions = new Map((Array.isArray(growth?.candidates) ? growth.candidates : []).map(candidate => [candidate.id, candidate]));
+    const sourceIds = new Set((Array.isArray(growth?.sources) ? growth.sources : []).map(source => source.id));
+    const state = currentWorldSave.state || (currentWorldSave.state = {});
+    const candidates = Array.isArray(state.growthCandidates) ? state.growthCandidates : [];
+    for (const proposal of upd.growth) {
+      const candidateId = String(proposal?.candidateId || '').trim();
+      const sourceId = String(proposal?.sourceId || '').trim();
+      const definition = candidateDefinitions.get(candidateId);
+      if (!definition || definition.sourceId !== sourceId || !sourceIds.has(sourceId)) continue;
+      if (candidates.some(candidate => candidate.candidateId === candidateId && candidate.sourceId === sourceId && candidate.status === 'proposed')) continue;
+      candidates.push({ id: `growth-${uid()}`, candidateId, sourceId, reason: String(proposal.reason || '').trim().slice(0, 2000), status: 'proposed' });
+    }
+    state.growthCandidates = candidates.slice(-128);
+    rs.growthCandidates = state.growthCandidates;
   }
   if (Array.isArray(upd.quests)) {
     for (const qd of upd.quests) {
@@ -3571,6 +3590,17 @@ function buildWorldConflictPromptPart() {
   return `【冲突状态】\n冲突是当前世界存档独立拥有的状态，不得跨存档引用。只能使用已声明模板；生命周期只能 start（开始）、advance（推进一轮）或 end（以 declared outcome 结束），已结束冲突不可重开。战斗 action 的 check 由服务端掷骰并写回参与者 HP；social / stealth action 的 check 只记录技能判定结果，不读取或扣除 HP。AI 只选择 actionId 与必要的 targetId，不得伪造 HP、骰子或判定结果。\n当前状态：\n${lines}\n可用模板：\n${templates}${checkLines}`;
 }
 
+function buildWorldGrowthPromptPart() {
+  if (!worldModeActive()) return '';
+  const growth = currentWorldCard()?.playerCreation?.growth;
+  if (!growth || typeof growth !== 'object') return '';
+  const sources = (Array.isArray(growth.sources) ? growth.sources : []).map(source => `${source.id}:${source.label}`).join('、');
+  const candidates = (Array.isArray(growth.candidates) ? growth.candidates : []).map(candidate => `${candidate.id}:${candidate.label}（${candidate.sourceId} → ${candidate.bucket}.${candidate.targetId} ${candidate.delta > 0 ? '+' : ''}${candidate.delta}）`).join('、');
+  const proposed = Array.isArray(currentWorldSave?.state?.growthCandidates) ? currentWorldSave.state.growthCandidates : [];
+  const proposedText = proposed.length ? proposed.map(candidate => `${candidate.candidateId}（${candidate.sourceId}，待确认）`).join('、') : '（暂无）';
+  return `【成长候选】\n成长来源属于当前世界卡，候选记录只属于当前存档；来源=${sources || '无'}。可提议候选=${candidates || '无'}。当前待确认=${proposedText}。当剧情确实产生训练、学习、探索、关系或事件成果时，才在 rpg JSON 输出 growth:[{candidateId,sourceId,reason}]；这只是待确认候选，不会立即改变属性/技能/资源，也不得伪造 delta。`;
+}
+
 function buildRpgPromptPart() {
   if (mode !== 'rpg') return '';
   const parts = [];
@@ -3633,6 +3663,8 @@ function buildRpgPromptPart() {
       if (eventPrompt) parts.push(eventPrompt);
       const conflictPrompt = buildWorldConflictPromptPart();
       if (conflictPrompt) parts.push(conflictPrompt);
+      const growthPrompt = buildWorldGrowthPromptPart();
+      if (growthPrompt) parts.push(growthPrompt);
     }
   }
   parts.push((defaults?.rpg?.stateInstruction) || '每次回复末尾输出包含 options 的 ```rpg``` JSON 状态块。');

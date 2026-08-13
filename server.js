@@ -485,6 +485,8 @@ function validatePlayerCreationSchema(schema, world = null) {
     return false;
   }
   for (const id of derivedIds) if (visitDerived(id)) return `playerCreation.derived.${id}.formula 存在循环依赖`;
+  const growthInvalid = validateGrowthSchema(schema.growth, { attributes: attributeIds, skills: skillIds, resources: resourceIds });
+  if (growthInvalid) return growthInvalid;
   const traitIds = new Set();
   const traits = schema.traits === undefined ? [] : schema.traits;
   if (!Array.isArray(traits) || traits.length > 128) return 'playerCreation.traits 最多 128 项';
@@ -507,6 +509,73 @@ function validatePlayerCreationSchema(schema, world = null) {
   }
   const economyInvalid = validatePlayerEconomySchema(schema.economy);
   if (economyInvalid) return economyInvalid;
+  return null;
+}
+
+function validateGrowthSchema(value, buckets = {}) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'playerCreation.growth 必须是对象';
+  if (value.sources !== undefined && !Array.isArray(value.sources)) return 'playerCreation.growth.sources 必须是数组';
+  if (value.candidates !== undefined && !Array.isArray(value.candidates)) return 'playerCreation.growth.candidates 必须是数组';
+  const sources = Array.isArray(value.sources) ? value.sources : [];
+  if (sources.length > 32) return 'playerCreation.growth.sources 最多 32 项';
+  const sourceIds = new Set();
+  for (const source of sources) {
+    const id = typeof source?.id === 'string' ? source.id.trim() : '';
+    if (!isSafeId(id) || sourceIds.has(id) || !draftTextValid(source.label, 160, true)) return 'playerCreation.growth.sources 含有重复或无效条目';
+    if (source.kind !== undefined && !['training', 'learning', 'exploration', 'relationship', 'event', 'custom'].includes(source.kind)) return `playerCreation.growth.sources.${id}.kind 无效`;
+    if (source.description !== undefined && !draftTextValid(source.description, 1000)) return `playerCreation.growth.sources.${id}.description 无效`;
+    sourceIds.add(id);
+  }
+  const candidates = Array.isArray(value.candidates) ? value.candidates : [];
+  if (candidates.length > 128) return 'playerCreation.growth.candidates 最多 128 项';
+  const candidateIds = new Set();
+  for (const candidate of candidates) {
+    const id = typeof candidate?.id === 'string' ? candidate.id.trim() : '';
+    const sourceId = typeof candidate?.sourceId === 'string' ? candidate.sourceId.trim() : '';
+    const bucket = candidate?.bucket;
+    const targetId = typeof candidate?.targetId === 'string' ? candidate.targetId.trim() : '';
+    const targetIds = buckets[bucket] || new Set();
+    if (!isSafeId(id) || candidateIds.has(id) || !draftTextValid(candidate.label, 200, true) || !sourceIds.has(sourceId)
+      || !['attributes', 'skills', 'resources'].includes(bucket) || !isSafeId(targetId) || !targetIds.has(targetId)) return 'playerCreation.growth.candidates 含有重复或无效条目';
+    if (!Number.isFinite(candidate.delta) || candidate.delta === 0 || Math.abs(candidate.delta) > 100) return `playerCreation.growth.candidates.${id}.delta 无效`;
+    if (candidate.description !== undefined && !draftTextValid(candidate.description, 1000)) return `playerCreation.growth.candidates.${id}.description 无效`;
+    candidateIds.add(id);
+  }
+  return null;
+}
+
+function playerGrowthSchema(world) {
+  const growth = playerCreationSchema(world)?.growth;
+  return growth && typeof growth === 'object' && !Array.isArray(growth) ? growth : null;
+}
+
+function validateGrowthCandidates(world, value, current = null) {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value) || value.length > 128) return 'state.growthCandidates 最多 128 项';
+  const growth = playerGrowthSchema(world);
+  const definitions = new Map((Array.isArray(growth?.candidates) ? growth.candidates : []).map(candidate => [candidate.id, candidate]));
+  const sourceIds = new Set((Array.isArray(growth?.sources) ? growth.sources : []).map(source => source.id));
+  if (!definitions.size && value.length) return 'state.growthCandidates 包含未声明的成长候选';
+  const ids = new Set();
+  for (const candidate of value) {
+    const id = typeof candidate?.id === 'string' ? candidate.id.trim() : '';
+    const candidateId = typeof candidate?.candidateId === 'string' ? candidate.candidateId.trim() : '';
+    const sourceId = typeof candidate?.sourceId === 'string' ? candidate.sourceId.trim() : '';
+    if (!isSafeId(id) || ids.has(id) || !isSafeId(candidateId) || !definitions.has(candidateId) || !sourceIds.has(sourceId)) return 'state.growthCandidates 含有重复或无效条目';
+    const definition = definitions.get(candidateId);
+    if (definition.sourceId !== sourceId || (candidate.status !== undefined && candidate.status !== 'proposed')) return `state.growthCandidates.${id} 只能保存未应用的候选`;
+    if (candidate.reason !== undefined && !draftTextValid(candidate.reason, 2000)) return `state.growthCandidates.${id}.reason 无效`;
+    if (candidate.revision !== undefined && (!Number.isInteger(candidate.revision) || candidate.revision < 0)) return `state.growthCandidates.${id}.revision 无效`;
+    ids.add(id);
+  }
+  if (current && Array.isArray(current)) {
+    for (const previous of current) {
+      const next = value.find(candidate => candidate?.id === previous?.id);
+      if (!next) return `state.growthCandidates.${previous?.id || 'unknown'} 不能省略`;
+      if (canonicalJson(next) !== canonicalJson(previous)) return `state.growthCandidates.${previous?.id || 'unknown'} 只能追加，不能改写`;
+    }
+  }
   return null;
 }
 
@@ -1913,6 +1982,7 @@ async function handleRpgMigrationCommit(req, res, migrationId) {
       const redactedPaths = [];
       const player = sanitizeWorldPackageValue({ name: rawCharacter.name || '未命名冒险者', race: rawCharacter.race || '待定', role: rawCharacter.role || '旅人', ...rawCharacter }, 'player', redactedPaths);
       const state = legacyState(envelope, world, report);
+      if (playerGrowthSchema(world) && state.growthCandidates === undefined) state.growthCandidates = [];
       const save = {
         schemaVersion: 1, id: saveId, name: String(envelope.name || session.name || '迁移的旧 RPG 会话').trim().slice(0, 120) || '迁移的旧 RPG 会话',
         worldId: world.id, worldVersion: Number(world.version), createdAt: now, updatedAt: now, revision: 0,
@@ -1926,6 +1996,8 @@ async function handleRpgMigrationCommit(req, res, migrationId) {
       if (economyStateInvalid) return send(res, 422, JSON.stringify({ error: '旧 RPG 经济状态无法安全写入', detail: economyStateInvalid }), 'application/json');
       const conflictStateInvalid = validateConflictStates(world, save.state.conflicts);
       if (conflictStateInvalid) return send(res, 422, JSON.stringify({ error: '旧 RPG 冲突状态无法安全写入', detail: conflictStateInvalid }), 'application/json');
+      const growthCandidateInvalid = validateGrowthCandidates(world, save.state.growthCandidates);
+      if (growthCandidateInvalid) return send(res, 422, JSON.stringify({ error: '旧 RPG 成长候选无法安全写入', detail: growthCandidateInvalid }), 'application/json');
       await fs.promises.mkdir(SAVES_DIR, { recursive: true });
       await writeJsonAtomic(fp, save);
       record.status = 'committed'; record.saveId = saveId; record.committedAt = now; record.report = report;
@@ -2721,6 +2793,9 @@ async function handleWorldSaveUpgrade(req, res, saveId) {
       const targetConflictState = current.state?.conflicts === undefined && worldConflictDefinitions(resolved.targetWorld).length ? {} : current.state?.conflicts;
       const targetConflictStateInvalid = validateConflictStates(resolved.targetWorld, targetConflictState);
       if (targetConflictStateInvalid) return send(res, 409, JSON.stringify({ error: targetConflictStateInvalid }), 'application/json');
+      const targetGrowthCandidates = current.state?.growthCandidates === undefined && playerGrowthSchema(resolved.targetWorld) ? [] : current.state?.growthCandidates;
+      const targetGrowthCandidateInvalid = validateGrowthCandidates(resolved.targetWorld, targetGrowthCandidates);
+      if (targetGrowthCandidateInvalid) return send(res, 409, JSON.stringify({ error: targetGrowthCandidateInvalid }), 'application/json');
       const targetNpcIds = worldNpcIds(resolved.targetWorld);
       const targetLocationIds = worldLocationIds(resolved.targetWorld);
       const npcStates = cloneJson(current.npcStates || {});
@@ -2754,7 +2829,7 @@ async function handleWorldSaveUpgrade(req, res, saveId) {
         ...current,
         worldVersion: payload.targetVersion,
         npcStates,
-        state: { ...current.state, factionStates, ...(targetConflictState !== undefined ? { conflicts: cloneJson(targetConflictState) } : {}) },
+        state: { ...current.state, factionStates, ...(targetConflictState !== undefined ? { conflicts: cloneJson(targetConflictState) } : {}), ...(targetGrowthCandidates !== undefined ? { growthCandidates: cloneJson(targetGrowthCandidates) } : {}) },
         migrationHistory: [...history, migration],
         revision,
         updatedAt: migratedAt,
@@ -2817,6 +2892,9 @@ async function handleWorldSaveCreate(req, res) {
   const conflictStates = initial.conflicts === undefined ? {} : cloneJson(initial.conflicts);
   const conflictStateInvalid = validateConflictStates(world, conflictStates);
   if (conflictStateInvalid) return send(res, 400, JSON.stringify({ error: conflictStateInvalid }), 'application/json');
+  const growthCandidates = initial.growthCandidates === undefined ? [] : cloneJson(initial.growthCandidates);
+  const growthCandidateInvalid = validateGrowthCandidates(world, growthCandidates);
+  if (growthCandidateInvalid) return send(res, 400, JSON.stringify({ error: growthCandidateInvalid }), 'application/json');
   const playerResult = validatePlayerCreationInput(world, payload.player);
   if (playerResult.error) return send(res, 400, JSON.stringify({ error: playerResult.error }), 'application/json');
   const player = playerResult.snapshot;
@@ -2847,6 +2925,7 @@ async function handleWorldSaveCreate(req, res) {
       ...(playerState ? { player: playerState } : {}),
       ...(playerEconomySchema(world) ? economyState : {}),
       ...(worldConflictDefinitions(world).length || initial.conflicts !== undefined ? { conflicts: conflictStates } : {}),
+      ...(playerGrowthSchema(world) || initial.growthCandidates !== undefined ? { growthCandidates } : {}),
       worldEvents: [],
       goals: Array.isArray(initial.goals) ? cloneJson(initial.goals) : [],
       leads: Array.isArray(initial.leads) ? cloneJson(initial.leads) : [],
@@ -2919,6 +2998,7 @@ function validateWorldSavePatch(payload) {
   }
   if (state.factionStates !== undefined && (!state.factionStates || typeof state.factionStates !== 'object' || Array.isArray(state.factionStates) || Object.keys(state.factionStates).length > 128)) return 'state.factionStates 无效';
   if (state.conflicts !== undefined && (!state.conflicts || typeof state.conflicts !== 'object' || Array.isArray(state.conflicts) || Object.keys(state.conflicts).length > 64)) return 'state.conflicts 无效';
+  if (state.growthCandidates !== undefined && (!Array.isArray(state.growthCandidates) || state.growthCandidates.length > 128)) return 'state.growthCandidates 无效';
   const worldEventsInvalid = validateWorldEventLog(state.worldEvents);
   if (worldEventsInvalid) return worldEventsInvalid;
   for (const [key, label] of [['goals', 'state.goals'], ['leads', 'state.leads']]) {
@@ -3125,6 +3205,9 @@ async function handleWorldSavePut(req, res, saveId) {
       if (current.state?.conflicts !== undefined && payload.state.conflicts === undefined) return send(res, 400, JSON.stringify({ error: 'state.conflicts 不能省略' }), 'application/json');
       const conflictStateInvalid = validateConflictStates(world, payload.state.conflicts, current.state?.conflicts);
       if (conflictStateInvalid) return send(res, 400, JSON.stringify({ error: conflictStateInvalid }), 'application/json');
+      if (current.state?.growthCandidates !== undefined && payload.state.growthCandidates === undefined) return send(res, 400, JSON.stringify({ error: 'state.growthCandidates 不能省略' }), 'application/json');
+      const growthCandidateInvalid = validateGrowthCandidates(world, payload.state.growthCandidates, current.state?.growthCandidates);
+      if (growthCandidateInvalid) return send(res, 400, JSON.stringify({ error: growthCandidateInvalid }), 'application/json');
       if (current.revision !== payload.expectedRevision) {
         return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
       }
@@ -3212,6 +3295,9 @@ async function handleWorldTurnPost(req, res, saveId) {
       if (current.state?.conflicts !== undefined && payload.state.conflicts === undefined) return send(res, 400, JSON.stringify({ error: 'state.conflicts 不能省略' }), 'application/json');
       const conflictStateInvalid = validateConflictStates(world, payload.state.conflicts, current.state?.conflicts);
       if (conflictStateInvalid) return send(res, 400, JSON.stringify({ error: conflictStateInvalid }), 'application/json');
+      if (current.state?.growthCandidates !== undefined && payload.state.growthCandidates === undefined) return send(res, 400, JSON.stringify({ error: 'state.growthCandidates 不能省略' }), 'application/json');
+      const growthCandidateInvalid = validateGrowthCandidates(world, payload.state.growthCandidates, current.state?.growthCandidates);
+      if (growthCandidateInvalid) return send(res, 400, JSON.stringify({ error: growthCandidateInvalid }), 'application/json');
       const worldEventsInvalid = validateWorldEventLog(payload.state.worldEvents);
       if (worldEventsInvalid) return send(res, 400, JSON.stringify({ error: worldEventsInvalid }), 'application/json');
       let allowedNpcIds = new Set(Object.keys(current.npcStates || {}));

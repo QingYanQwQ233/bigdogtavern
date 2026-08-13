@@ -501,6 +501,20 @@
         "derived": [
           { "id": "readiness", "label": "行动准备", "formula": "attributes.wits + attributes.spirit", "description": "由属性自动计算的只读值" }
         ],
+        "growth": {
+          "sources": [
+            { "id": "training", "label": "训练", "kind": "training", "description": "通过持续练习与导师指导积累成长。" },
+            { "id": "learning", "label": "学习", "kind": "learning", "description": "从书籍、课程或研究中获得新的能力。" },
+            { "id": "exploration", "label": "探索", "kind": "exploration", "description": "在探索危险与未知地点后形成经验。" },
+            { "id": "relationship", "label": "关系", "kind": "relationship", "description": "重要关系与承诺促成的能力变化。" },
+            { "id": "event", "label": "事件", "kind": "event", "description": "重大世界事件留下的长期影响。" }
+          ],
+          "candidates": [
+            { "id": "scouting-training", "label": "侦察训练", "sourceId": "training", "bucket": "skills", "targetId": "scouting", "delta": 1, "description": "完成一次系统的路径与危险识别训练。" },
+            { "id": "empathy-relationship", "label": "共情深化", "sourceId": "relationship", "bucket": "skills", "targetId": "empathy", "delta": 1, "description": "在一次重要关系事件中真正理解对方。" },
+            { "id": "wits-exploration", "label": "见识增长", "sourceId": "exploration", "bucket": "attributes", "targetId": "wits", "delta": 1, "description": "从危险探索中获得可迁移的判断经验。" }
+          ]
+        },
         "traits": [
           { "id": "keen-sense", "label": "敏锐感知", "description": "更容易发现环境中的细节。" },
           { "id": "steady-hand", "label": "稳健之手", "description": "在紧张场面中保持专注。" }
