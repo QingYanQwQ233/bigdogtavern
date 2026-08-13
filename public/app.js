@@ -1597,6 +1597,70 @@ function growthEffectLabel(candidate) {
   return `${bucketLabels[candidate.bucket] || candidate.bucket} · ${target} ${candidate.delta > 0 ? '+' : ''}${candidate.delta}`;
 }
 
+function renderRpgSheetMetric(definition, value) {
+  const numeric = value === null || value === undefined || (typeof value === 'string' && !value.trim()) ? NaN : Number(value);
+  const hasRange = Number.isFinite(numeric) && Number.isFinite(Number(definition?.min)) && Number.isFinite(Number(definition?.max)) && Number(definition.max) > Number(definition.min);
+  const meter = hasRange ? Math.max(0, Math.min(100, (numeric - Number(definition.min)) / (Number(definition.max) - Number(definition.min)) * 100)) : null;
+  const display = Number.isFinite(numeric) ? String(value) : '—';
+  return `<div class="rpg-sheet-stat"><div class="rpg-sheet-stat-head"><span title="${esc(definition?.description || definition?.label || definition?.id || '')}">${esc(definition?.label || definition?.id || '未命名')}</span><b>${esc(display)}</b></div>${meter === null ? '' : `<div class="rpg-sheet-meter" aria-hidden="true"><i style="--meter:${meter.toFixed(2)}%"></i></div>`}</div>`;
+}
+
+function renderRpgSheetSection(title, body, className = '') {
+  if (!body) return '';
+  return `<section class="rpg-sheet-section ${className}"><div class="rpg-sheet-section-title">${esc(title)}</div>${body}</section>`;
+}
+
+function renderRpgPlayerSheet() {
+  const panel = $('rpg-player-sheet');
+  if (!panel) return;
+  if (!worldModeActive()) {
+    panel.innerHTML = '';
+    return;
+  }
+  const world = currentWorldCard();
+  const schema = world?.playerCreation || {};
+  const player = currentWorldSave?.state?.player || {};
+  const metricGroup = (title, bucket) => {
+    const definitions = Array.isArray(schema[bucket]) ? schema[bucket] : [];
+    if (!definitions.length) return '';
+    const values = player[bucket] && typeof player[bucket] === 'object' ? player[bucket] : {};
+    return renderRpgSheetSection(title, `<div class="rpg-sheet-grid">${definitions.map(definition => renderRpgSheetMetric(definition, values[definition.id] ?? definition.default ?? definition.initial ?? definition.min)).join('')}</div>`);
+  };
+  const derived = evaluateWorldDerivedValues(schema, player);
+  const traits = Array.isArray(player.traits) ? player.traits : [];
+  const traitDefinitions = new Map((Array.isArray(schema.traits) ? schema.traits : []).map(definition => [definition.id, definition]));
+  const traitBody = traits.length
+    ? `<div class="rpg-sheet-text">${traits.map(id => {
+      const definition = traitDefinitions.get(id);
+      return `<span title="${esc(definition?.description || '')}">${esc(definition?.label || id)}</span>`;
+    }).join(' · ')}</div>`
+    : '<p class="rpg-sheet-empty">暂无已激活特质</p>';
+  const relations = Array.isArray(schema.relations) ? schema.relations : [];
+  const npcNames = new Map((Array.isArray(world?.npcs) ? world.npcs : []).map(npc => [npc.id, npc.name || npc.id]));
+  const relationValues = player.relations && typeof player.relations === 'object' ? player.relations : {};
+  const relationBody = relations.length
+    ? `<div class="rpg-sheet-grid">${relations.map(rule => renderRpgSheetMetric({ ...rule, id: rule.npcId, label: npcNames.get(rule.npcId) || rule.npcId, min: rule.min ?? -100, max: rule.max ?? 100 }, relationValues[rule.npcId] ?? rule.default ?? 0)).join('')}</div>`
+    : '';
+  const identity = player.identity && typeof player.identity === 'object' && !Array.isArray(player.identity) ? player.identity : {};
+  const identityBody = Object.entries(identity).filter(([, values]) => Array.isArray(values) && values.length).map(([key, values]) => `<div class="rpg-sheet-text"><b>${esc(key)}</b>：${esc(values.join('、').slice(0, 1000))}</div>`).join('');
+  const effects = Array.isArray(player.effects) ? player.effects : [];
+  const effectBody = effects.length ? `<div class="rpg-sheet-text">${effects.map(effect => {
+    const label = typeof effect === 'string' ? effect : effect?.label || effect?.name || effect?.id || JSON.stringify(effect);
+    return esc(String(label || '').slice(0, 240));
+  }).join(' · ')}</div>` : '';
+  panel.innerHTML = [
+    '<div class="rpg-panel-head">角色状态</div>',
+    metricGroup('属性', 'attributes'),
+    metricGroup('技能', 'skills'),
+    metricGroup('资源', 'resources'),
+    renderRpgSheetSection('派生值', derived.map(definition => renderRpgSheetMetric(definition, definition.value)).join('')),
+    renderRpgSheetSection('特质', traitBody),
+    renderRpgSheetSection('关系', relationBody),
+    renderRpgSheetSection('身份', identityBody),
+    renderRpgSheetSection('状态效果', effectBody),
+  ].filter(Boolean).join('') || '<p class="rpg-sheet-empty">当前世界卡未声明角色状态。</p>';
+}
+
 async function decideGrowthCandidate(candidateId, decision) {
   if (!worldModeActive() || !candidateId || worldTurnPendingActive()) return;
   const buttons = [...document.querySelectorAll('[data-growth-action]')].filter(item => item.dataset.growthId === candidateId);
@@ -1646,8 +1710,8 @@ function renderRPG() {
     const definitions = [...(Array.isArray(schema?.attributes) ? schema.attributes : []), ...(Array.isArray(schema?.skills) ? schema.skills : []), ...(Array.isArray(schema?.resources) ? schema.resources : [])]
       .filter(definition => definition && !['hp', 'mp', 'gold'].includes(definition.id));
     dynamicStats.innerHTML = definitions.map(definition => {
-      const bucket = schema.attributes?.some(item => item.id === definition.id) ? playerState?.attributes
-        : schema.skills?.some(item => item.id === definition.id) ? playerState?.skills : playerState?.resources;
+      const bucket = schema?.attributes?.some(item => item.id === definition.id) ? playerState?.attributes
+        : schema?.skills?.some(item => item.id === definition.id) ? playerState?.skills : playerState?.resources;
       const value = bucket?.[definition.id] ?? definition.default ?? definition.initial ?? '—';
       return `<span class="rpg-dynamic-stat">${esc(definition.label || definition.id)}<b>${esc(value)}</b></span>`;
     }).join('');
@@ -1661,13 +1725,14 @@ function renderRPG() {
       return `<span class="rpg-dynamic-stat rpg-derived-stat" title="只读：${esc(definition.formula)}">${esc(definition.label || definition.id)}<b>${esc(value)}</b></span>`;
     }).join('');
   }
+  renderRpgPlayerSheet();
   const inv = $('rpg-inventory');
   const economy = worldModeActive() ? currentWorldCard()?.playerCreation?.economy : null;
+  const economyItems = new Map((Array.isArray(economy?.inventory?.items) ? economy.inventory.items : []).map(item => [item.id, item]));
   const inventoryMeta = $('rpg-inventory-meta');
   if (inventoryMeta) {
     const rules = economy?.inventory || {};
-    const itemDefinitions = new Map((Array.isArray(rules.items) ? rules.items : []).map(item => [item.id, item]));
-    const weight = rs.inventory.reduce((total, item) => total + Number(item?.weight ?? itemDefinitions.get(item?.itemId)?.weight ?? 0) * Number(item?.count || 0), 0);
+    const weight = rs.inventory.reduce((total, item) => total + Number(item?.weight ?? economyItems.get(item?.itemId)?.weight ?? 0) * Number(item?.count || 0), 0);
     const slots = rules.maxSlots ? `${rs.inventory.length}/${rules.maxSlots} 格` : `${rs.inventory.length} 格`;
     const burden = rules.maxWeight === undefined || rules.maxWeight === null ? '' : ` · 重量 ${Number(weight.toFixed(2))}/${rules.maxWeight}`;
     inventoryMeta.textContent = economy?.inventory?.enabled === false ? '世界卡已关闭背包' : slots + burden;
@@ -1683,7 +1748,13 @@ function renderRPG() {
     const slots = Array.isArray(rules.slots) ? rules.slots : [];
     equipmentEl.innerHTML = !economy || rules.enabled === false
       ? '<p class="hint">世界卡未启用装备位</p>'
-      : (slots.length ? slots.map(slot => `<div class="rpg-item"><span class="rpg-item-name">${esc(slot.label || slot.id)}</span><div class="rpg-item-sub">${esc(rs.equipment?.[slot.id] || '空')}</div></div>`).join('') : '<p class="hint">未声明装备位</p>');
+      : (slots.length ? slots.map(slot => {
+        const equipped = rs.equipment?.[slot.id];
+        const itemId = typeof equipped === 'string' ? equipped : equipped?.itemId;
+        const item = itemId ? economyItems.get(itemId) : null;
+        const label = item?.label || equipped?.name || equipped || '空';
+        return `<div class="rpg-item"><span class="rpg-item-name">${esc(slot.label || slot.id)}</span><div class="rpg-item-sub">${esc(label)}</div></div>`;
+      }).join('') : '<p class="hint">未声明装备位</p>');
   }
   const currenciesEl = $('rpg-currencies');
   if (currenciesEl) {

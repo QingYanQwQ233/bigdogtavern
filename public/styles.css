@@ -145,6 +145,18 @@ body[data-mode="rpg"] #rpg-status { display: flex; grid-area: status; }
 }
 .rpg-item .rpg-item-name { font-weight: 600; color: var(--text); }
 .rpg-item .rpg-item-sub { color: var(--muted); font-size: 11.5px; }
+.rpg-player-sheet { display: flex; flex-direction: column; gap: 8px; }
+.rpg-sheet-section { display: flex; flex-direction: column; gap: 5px; }
+.rpg-sheet-section-title { color: var(--muted); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
+.rpg-sheet-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+.rpg-sheet-stat { min-width: 0; padding: 6px 7px; border: 1px solid var(--line-soft); border-radius: 7px; background: rgba(255, 255, 255, 0.025); }
+.rpg-sheet-stat-head { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; font-size: 11px; }
+.rpg-sheet-stat-head span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.rpg-sheet-stat-head b { color: var(--text); font-size: 12px; font-variant-numeric: tabular-nums; }
+.rpg-sheet-meter { height: 3px; margin-top: 5px; overflow: hidden; border-radius: 2px; background: rgba(255, 255, 255, 0.08); }
+.rpg-sheet-meter i { display: block; width: var(--meter, 0%); height: 100%; border-radius: inherit; background: var(--accent); }
+.rpg-sheet-text { padding: 6px 7px; border-left: 2px solid var(--line-soft); color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+.rpg-sheet-empty { margin: 0; color: var(--muted); font-size: 11.5px; }
 .rpg-del {
   float: right;
   color: var(--muted);
@@ -193,6 +205,7 @@ body[data-mode="rpg"] #rpg-status { display: flex; grid-area: status; }
 .rpg-dynamic-stats { display: flex; flex-wrap: wrap; gap: 5px; }
 .rpg-dynamic-stat { padding: 3px 7px; border: 1px solid var(--line-soft); border-radius: 999px; color: var(--muted); font-size: 11px; }
 .rpg-dynamic-stat b { margin-left: 3px; color: var(--text); font-variant-numeric: tabular-nums; }
+body[data-mode="rpg"] #rpg-dynamic-stats { display: none; }
 .rpg-deadline { color: var(--muted); font-size: 10px; font-weight: 500; }
 
 .quick-hint {
