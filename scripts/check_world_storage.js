@@ -319,6 +319,12 @@ async function main() {
       body: JSON.stringify({ expectedUpdatedAt: ruleDraftUpdate.body.updatedAt, baseVersion: world.version, title: 'invalid', summary: '', tags: [], lorebookIds: [], locations: [{ id: 'wolf-tooth-inn', name: 'Inn' }], npcs: [{ id: 'npc-lily', name: 'Lily', locationId: 'missing-location' }] }),
     });
     assert.strictEqual(invalidDraftCollections.response.status, 400, 'dangling NPC location is rejected');
+    const invalidDraftStartLocation = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedUpdatedAt: ruleDraftUpdate.body.updatedAt, baseVersion: world.version, title: 'invalid', summary: '', tags: [], lorebookIds: [], locations: [{ id: 'region-2', name: 'Region Two', type: 'region' }], npcs: draftNpcs }),
+    });
+    assert.strictEqual(invalidDraftStartLocation.response.status, 400, 'start.locationId cannot be deleted from a draft');
     const staleDraftUpdate = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

@@ -541,6 +541,8 @@ function renderWorldDraftCollections(world) {
   locationList?.querySelectorAll('[data-remove-location]').forEach(button => button.addEventListener('click', () => {
     syncWorldDraftCollectionsFromForm();
     const index = Number(button.closest('[data-index]')?.dataset.index);
+    const location = worldDraft.world.locations[index];
+    if (location?.id && blockWorldDraftDelete('locations', location.id, '地点')) return;
     worldDraft.world.locations.splice(index, 1);
     worldDraftDirty = true;
     renderWorldDraftCollections(worldDraft.world);
@@ -548,6 +550,8 @@ function renderWorldDraftCollections(world) {
   npcList?.querySelectorAll('[data-remove-npc]').forEach(button => button.addEventListener('click', () => {
     syncWorldDraftCollectionsFromForm();
     const index = Number(button.closest('[data-index]')?.dataset.index);
+    const npc = worldDraft.world.npcs[index];
+    if (npc?.id && blockWorldDraftDelete('npcs', npc.id, 'NPC')) return;
     worldDraft.world.npcs.splice(index, 1);
     worldDraftDirty = true;
     renderWorldDraftCollections(worldDraft.world);
@@ -558,6 +562,89 @@ function syncWorldDraftCollectionsFromForm() {
   const { locations, npcs } = collectWorldDraftCollections();
   worldDraft.world.locations = locations;
   worldDraft.world.npcs = npcs;
+}
+function worldDraftReferenceReport(kind, id) {
+  if (!worldDraft || !id) return [];
+  const world = worldDraft.world || {};
+  const refs = [];
+  const push = (value, path) => { if (value === id) refs.push(path); };
+  const pushObjectKeys = (value, path) => {
+    if (value && typeof value === 'object' && !Array.isArray(value) && Object.hasOwn(value, id)) refs.push(`${path}.${id}`);
+  };
+  if (kind === 'locations') {
+    push(world.start?.locationId, 'start.locationId');
+    (Array.isArray(world.npcs) ? world.npcs : []).forEach((npc, index) => {
+      push(npc?.locationId, `npcs[${index}].locationId`);
+      push(npc?.homeLocationId, `npcs[${index}].homeLocationId`);
+    });
+    (Array.isArray(world.events) ? world.events : []).forEach((event, index) => push(event?.trigger?.locationId, `events[${index}].trigger.locationId`));
+    (Array.isArray(world.factions) ? world.factions : []).forEach((faction, factionIndex) => (Array.isArray(faction?.actions) ? faction.actions : []).forEach((action, actionIndex) => push(action?.trigger?.locationId, `factions[${factionIndex}].actions[${actionIndex}].trigger.locationId`)));
+  } else if (kind === 'npcs') {
+    (Array.isArray(world.playerCreation?.relations) ? world.playerCreation.relations : []).forEach((relation, index) => push(relation?.npcId, `playerCreation.relations[${index}].npcId`));
+    (Array.isArray(world.playerCreation?.growth?.candidates) ? world.playerCreation.growth.candidates : []).forEach((candidate, index) => {
+      if (candidate?.bucket === 'relations') push(candidate?.targetId, `playerCreation.growth.candidates[${index}].targetId`);
+    });
+  } else if (kind === 'factions') {
+    (Array.isArray(world.playerCreation?.growth?.candidates) ? world.playerCreation.growth.candidates : []).forEach((candidate, index) => {
+      if (candidate?.bucket === 'factions') push(candidate?.targetId, `playerCreation.growth.candidates[${index}].targetId`);
+    });
+    pushObjectKeys(world.start?.initialState?.factionStates, 'start.initialState.factionStates');
+  } else if (kind === 'conflicts') {
+    const states = world.start?.initialState?.conflicts;
+    if (states && typeof states === 'object' && !Array.isArray(states)) Object.entries(states).forEach(([stateId, state]) => push(state?.templateId, `start.initialState.conflicts.${stateId}.templateId`));
+  } else if (kind === 'failureModes') {
+    for (const key of ['defaultMode', 'onZeroHp', 'onConflictDefeat']) push(world.failure?.[key], `failure.${key}`);
+  } else if (kind === 'endingEndings') {
+    push(world.ending?.defaultEndingId, 'ending.defaultEndingId');
+  } else if (kind === 'growthSources') {
+    (Array.isArray(world.playerCreation?.growth?.candidates) ? world.playerCreation.growth.candidates : []).forEach((candidate, index) => push(candidate?.sourceId, `playerCreation.growth.candidates[${index}].sourceId`));
+  } else if (kind === 'growthCandidates') {
+    const initial = world.start?.initialState || {};
+    for (const [bucket, values] of Object.entries(initial)) {
+      if (!Array.isArray(values)) continue;
+      values.forEach((value, index) => push(value?.candidateId, `start.initialState.${bucket}[${index}].candidateId`));
+    }
+  } else if (['fields', 'attributes', 'skills', 'resources', 'traits'].includes(kind)) {
+    const prefix = `${kind}.${id}`;
+    (Array.isArray(world.playerCreation?.derived) ? world.playerCreation.derived : []).forEach((definition, index) => {
+      if (typeof definition?.formula === 'string' && definition.formula.includes(prefix)) refs.push(`playerCreation.derived[${index}].formula`);
+    });
+    (Array.isArray(world.playerCreation?.growth?.candidates) ? world.playerCreation.growth.candidates : []).forEach((candidate, index) => {
+      if (candidate?.bucket === kind && candidate?.targetId === id) refs.push(`playerCreation.growth.candidates[${index}].targetId`);
+    });
+    (Array.isArray(world.conflicts) ? world.conflicts : []).forEach((conflict, conflictIndex) => (Array.isArray(conflict?.actions) ? conflict.actions : []).forEach((action, actionIndex) => {
+      for (const check of [{ path: 'check', value: action?.check }, { path: 'check.damage', value: action?.check?.damage }]) {
+        if (check.value?.modifier?.bucket === kind && check.value.modifier.id === id) refs.push(`conflicts[${conflictIndex}].actions[${actionIndex}].${check.path}.modifier.id`);
+      }
+    }));
+  }
+  return [...new Set(refs)];
+}
+function blockWorldDraftDelete(kind, id, label) {
+  const refs = worldDraftReferenceReport(kind, id);
+  if (!refs.length) return false;
+  const shown = refs.slice(0, 3).join('、');
+  const suffix = refs.length > 3 ? ` 等 ${refs.length} 处` : '';
+  setWorldDraftStatus(`${label || kind}「${id}」仍被引用：${shown}${suffix}。请先移除引用。`, 'error');
+  return true;
+}
+function worldDraftDuplicateIdReport(world) {
+  const collections = [
+    ['地点', world?.locations], ['NPC', world?.npcs], ['事件', world?.events], ['派系', world?.factions], ['冲突', world?.conflicts],
+    ['身份字段', world?.playerCreation?.fields], ['属性', world?.playerCreation?.attributes], ['技能', world?.playerCreation?.skills],
+    ['资源', world?.playerCreation?.resources], ['特质', world?.playerCreation?.traits], ['成长来源', world?.playerCreation?.growth?.sources],
+    ['成长候选', world?.playerCreation?.growth?.candidates], ['失败模式', world?.failure?.modes], ['结局', world?.ending?.endings],
+  ];
+  for (const [label, values] of collections) {
+    if (!Array.isArray(values)) continue;
+    const seen = new Set();
+    for (const item of values) {
+      const id = typeof item?.id === 'string' ? item.id.trim() : '';
+      if (id && seen.has(id)) return { label, id };
+      if (id) seen.add(id);
+    }
+  }
+  return null;
 }
 const WORLD_DRAFT_PLAYER_BUCKETS = [
   { key: 'fields', label: '身份字段', template: () => ({ id: 'field-' + uid(), label: '新字段', type: 'text', required: false, default: '' }) },
@@ -706,7 +793,11 @@ function handleWorldDraftPlayerCreationClick(event) {
   const schema = worldDraftPlayerSchema();
   if (!Array.isArray(schema[rowBucket])) return;
   const values = schema[rowBucket];
-  if (button.hasAttribute('data-player-remove')) values.splice(index, 1);
+  if (button.hasAttribute('data-player-remove')) {
+    const id = values[index]?.id;
+    if (id && blockWorldDraftDelete(rowBucket, id, WORLD_DRAFT_PLAYER_BUCKETS.find(definition => definition.key === rowBucket)?.label || rowBucket)) return;
+    values.splice(index, 1);
+  }
   if (button.dataset.playerMove === 'up' && index > 0) [values[index - 1], values[index]] = [values[index], values[index - 1]];
   if (button.dataset.playerMove === 'down' && index < values.length - 1) [values[index + 1], values[index]] = [values[index], values[index + 1]];
   worldDraftDirty = true;
@@ -921,7 +1012,11 @@ function handleWorldDraftJsonArrayClick(event) {
   const index = Number(row.dataset.worldIndex);
   if (!requireWorldDraftJsonArraysRawSync() || !syncWorldDraftJsonArraysFromForm().ok) return;
   const entries = worldDraftJsonArraySchema(key);
-  if (button.hasAttribute('data-world-remove')) entries.splice(index, 1);
+  if (button.hasAttribute('data-world-remove')) {
+    const id = entries[index]?.id;
+    if (id && blockWorldDraftDelete(key, id, worldDraftJsonArrayDefinition(key)?.label || key)) return;
+    entries.splice(index, 1);
+  }
   if (button.dataset.worldMove === 'up' && index > 0) [entries[index - 1], entries[index]] = [entries[index], entries[index - 1]];
   if (button.dataset.worldMove === 'down' && index < entries.length - 1) [entries[index + 1], entries[index]] = [entries[index], entries[index + 1]];
   worldDraftDirty = true;
@@ -1105,6 +1200,21 @@ async function saveWorldDraft() {
     return false;
   }
   const { events, factions, conflicts } = jsonArrays.values;
+  const duplicate = worldDraftDuplicateIdReport({
+    ...worldDraft.world,
+    locations,
+    npcs,
+    playerCreation,
+    failure,
+    ending,
+    events,
+    factions,
+    conflicts,
+  });
+  if (duplicate) {
+    setWorldDraftStatus(`${duplicate.label} ID「${duplicate.id}」重复，请先修改后再保存。`, 'error');
+    return false;
+  }
   const titleInput = $('world-draft-name');
   if (!title) {
     setWorldDraftStatus('世界标题不能为空。', 'error');
