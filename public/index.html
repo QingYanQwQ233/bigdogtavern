@@ -932,6 +932,13 @@
         <h2 id="debug-output-title"><span class="debug-direction output">OUTPUT</span> AI 原始输出</h2>
         <pre id="debug-output">尚未收到 AI 响应。</pre>
       </section>
+      <section class="debug-stream debug-memory-stream" aria-labelledby="debug-memory-title">
+        <div class="debug-memory-head">
+          <h2 id="debug-memory-title"><span class="debug-direction memory">MEMORY</span> 派生记忆诊断</h2>
+          <button class="ghost-btn small" id="debug-memory-rebuild" type="button" disabled>从正式事实重建</button>
+        </div>
+        <pre id="debug-memory">仅世界存档提供派生记忆诊断。</pre>
+      </section>
     </div>
   </dialog>
 
@@ -939,8 +946,8 @@
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
   <script src="vendor/mapgen2.bundle.js"></script>
-  <script src="mapgen.js?v=20260813a"></script>
-  <script src="app.js?v=20260813a"></script>
+  <script src="mapgen.js?v=20260813b"></script>
+  <script src="app.js?v=20260813b"></script>
   <script>
     // PWA：注册 service worker（仅 HTTPS / localhost 生效，套壳 APK 可用）
     if ('serviceWorker' in navigator) {

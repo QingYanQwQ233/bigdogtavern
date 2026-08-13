@@ -147,6 +147,35 @@ async function main() {
       assert.strictEqual(reloaded.body.state.experiences.at(-1).id, accepted.body.state.experiences.at(-1).id, `${id} growth survives reload`);
       assert.strictEqual(reloaded.body.eventLedger.length, accepted.body.eventLedger.length, `${id} ledger survives reload`);
       assert.strictEqual(reloaded.body.eventMemory.at(-1).id, accepted.body.eventMemory.at(-1).id, `${id} event memory survives reload`);
+      const saveFile = path.join(tempDir, 'saves', `${save.id}.json`);
+      const diskSave = JSON.parse(fs.readFileSync(saveFile, 'utf8'));
+      diskSave.state.worldEvents = [...(diskSave.state.worldEvents || []), {
+        eventId: `${id}-hidden-event`, title: '隐藏标题 secret', description: '隐藏描述 secret',
+        locationId: diskSave.state.locationId, time: diskSave.state.time, visibility: 'hidden', revision: diskSave.revision,
+      }];
+      fs.writeFileSync(saveFile, JSON.stringify(diskSave, null, 2));
+      const diagnostics = await jsonRequest(base, `/api/world-saves/${save.id}/memory`);
+      assert.strictEqual(diagnostics.response.status, 200, `${id} memory diagnostics read`);
+      assert.strictEqual(diagnostics.body.revision, reloaded.body.revision, `${id} diagnostics bind current revision`);
+      assert.ok(diagnostics.body.rebuild.entryCount >= 2, `${id} rebuild has structured sources`);
+      assert.ok(!JSON.stringify(diagnostics.body.rebuild.entries).includes('secret'), `${id} diagnostics redact hidden memory`);
+      const rebuildCommand = `${id}-memory-rebuild-1`;
+      const rebuilt = await jsonRequest(base, `/api/world-saves/${save.id}/memory/rebuild`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commandId: rebuildCommand, expectedRevision: reloaded.body.revision }),
+      });
+      assert.strictEqual(rebuilt.response.status, 200, `${id} derived memory rebuild commits`);
+      assert.strictEqual(rebuilt.body.save.revision, reloaded.body.revision, `${id} rebuild does not rewrite formal revision`);
+      assert.ok(rebuilt.body.save.eventMemory.some(item => item.kind === 'fact'), `${id} rebuild restores growth fact memory`);
+      assert.ok(rebuilt.body.save.eventMemory.some(item => item.visibility === 'hidden'), `${id} rebuild preserves hidden visibility`);
+      assert.ok(!JSON.stringify(rebuilt.body.diagnostics.rebuild.entries).includes('secret'), `${id} rebuild response redacts hidden memory`);
+      assert.strictEqual(rebuilt.body.save.memoryRebuild.sourceRevision, reloaded.body.revision, `${id} rebuild records source revision`);
+      const rebuildAgain = await jsonRequest(base, `/api/world-saves/${save.id}/memory/rebuild`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commandId: rebuildCommand, expectedRevision: reloaded.body.revision }),
+      });
+      assert.strictEqual(rebuildAgain.response.status, 200, `${id} rebuild is idempotent`);
+      assert.strictEqual(rebuildAgain.body.idempotent, true, `${id} rebuild idempotent receipt`);
       created[id] = reloaded.body;
     }
 

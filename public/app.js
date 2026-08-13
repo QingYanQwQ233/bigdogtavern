@@ -122,6 +122,8 @@ let theme = FIXED_THEME;
 let mode = localStorage.getItem(LS_MODE) || 'tavern'; // 'tavern' 酒馆模式 | 'rpg' RPG 模式
 let sending = false;
 const debugTraces = new Map(); // 仅内存、按 session.id 隔离，不把完整 Prompt 写入存档
+const debugMemoryDiagnostics = new Map(); // 仅内存、按 save.id 隔离，不写入世界存档
+const debugMemoryPending = new Set();
 let cmEditingId = null;
 let cmCreating = false;
 let wiEditingId = null;
@@ -799,6 +801,7 @@ async function openWorldSave(saveId, expectedToken = worldLoadToken) {
   localStorage.setItem(LS_CURRENT_WORLD, currentWorldId);
   localStorage.setItem(LS_CURRENT_WORLD_SAVE, currentWorldSaveId);
   renderWorldDetail();
+  renderDebugTerminal();
   return currentWorldSave;
 }
 function setWorldPlayerStatus(message, kind = '') {
@@ -4435,6 +4438,81 @@ function renderDebugTerminal() {
     : '当前会话 · 暂无记录';
   $('debug-input').textContent = trace?.input || '尚未向 AI 发送请求。';
   $('debug-output').textContent = trace?.output || '尚未收到 AI 响应。';
+  renderDebugMemory();
+}
+
+function renderDebugMemory() {
+  const pre = $('debug-memory');
+  const button = $('debug-memory-rebuild');
+  if (!pre || !button) return;
+  if (!worldModeActive()) {
+    pre.textContent = '仅世界存档提供派生记忆诊断。';
+    button.disabled = true;
+    return;
+  }
+  button.disabled = false;
+  const saveId = currentWorldSaveId;
+  const diagnostics = debugMemoryDiagnostics.get(saveId);
+  if (diagnostics && diagnostics.revision !== currentWorldSave?.revision) {
+    debugMemoryDiagnostics.delete(saveId);
+    return renderDebugMemory();
+  }
+  if (!diagnostics) {
+    pre.textContent = '正在读取当前存档的记忆来源…';
+    loadDebugMemoryDiagnostics(saveId);
+    return;
+  }
+  pre.textContent = JSON.stringify(diagnostics, null, 2);
+}
+
+async function loadDebugMemoryDiagnostics(saveId = currentWorldSaveId) {
+  if (!saveId || !worldModeActive() || saveId !== currentWorldSaveId || debugMemoryDiagnostics.has(saveId) || debugMemoryPending.has(saveId)) return;
+  debugMemoryPending.add(saveId);
+  try {
+    const res = await fetch('/api/world-saves/' + encodeURIComponent(saveId) + '/memory');
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(worldApiError(data, '记忆诊断读取失败（HTTP ' + res.status + '）'));
+    if (worldModeActive() && currentWorldSaveId === saveId) {
+      debugMemoryDiagnostics.set(saveId, data);
+      renderDebugMemory();
+    }
+  } catch (err) {
+    if (worldModeActive() && currentWorldSaveId === saveId) $('debug-memory').textContent = `读取失败：${err.message}`;
+  } finally {
+    debugMemoryPending.delete(saveId);
+  }
+}
+
+async function rebuildDebugMemory() {
+  if (!worldModeActive() || !currentWorldSave) return;
+  if (!confirm('将用当前存档的正式事件与成长事实重建派生记忆；不会修改叙事、状态或世界卡。继续？')) return;
+  const button = $('debug-memory-rebuild');
+  const oldLabel = button.textContent;
+  button.disabled = true;
+  button.textContent = '重建中…';
+  try {
+    const saveId = currentWorldSave.id;
+    const res = await fetch('/api/world-saves/' + encodeURIComponent(saveId) + '/memory/rebuild', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ commandId: 'memory-rebuild-' + uid(), expectedRevision: currentWorldSave.revision }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.save?.id) throw new Error(worldApiError(data, '派生记忆重建失败（HTTP ' + res.status + '）'));
+    if (currentWorldSaveId === saveId) {
+      hydrateWorldSave(data.save);
+      currentWorldSave = data.save;
+      debugMemoryDiagnostics.set(saveId, data.diagnostics);
+      renderRPG();
+      renderMessages();
+      renderDebugMemory();
+    }
+  } catch (err) {
+    $('debug-memory').textContent = `重建失败：${err.message}`;
+  } finally {
+    button.disabled = false;
+    button.textContent = oldLabel;
+  }
 }
 
 function openDebugTerminal() {
@@ -4455,6 +4533,7 @@ function closeDebugTerminal() {
 function clearDebugTerminal() {
   const session = activeConversationScope();
   if (session) debugTraces.delete(session.id);
+  if (worldModeActive()) debugMemoryDiagnostics.delete(currentWorldSaveId);
   renderDebugTerminal();
 }
 
@@ -4462,7 +4541,8 @@ function copyDebugTerminal() {
   const session = activeConversationScope();
   const trace = session && debugTraces.get(session.id);
   if (!trace) return;
-  const text = `INPUT\n${trace.input || ''}\n\nOUTPUT\n${trace.output || ''}`;
+  const memory = worldModeActive() ? ($('debug-memory')?.textContent || '') : '';
+  const text = `INPUT\n${trace.input || ''}\n\nOUTPUT\n${trace.output || ''}${memory ? `\n\nMEMORY\n${memory}` : ''}`;
   (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject(new Error('no clipboard')))
     .catch(() => { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); });
 }
@@ -6124,6 +6204,7 @@ function bindEvents() {
   $('debug-close').addEventListener('click', closeDebugTerminal);
   $('debug-clear').addEventListener('click', clearDebugTerminal);
   $('debug-copy').addEventListener('click', copyDebugTerminal);
+  $('debug-memory-rebuild').addEventListener('click', rebuildDebugMemory);
   $('debug-panel').addEventListener('cancel', e => { e.preventDefault(); closeDebugTerminal(); });
   $('debug-panel').addEventListener('click', e => { if (e.target === e.currentTarget) closeDebugTerminal(); });
   // 模式切换：刷新快捷行动与 RPG 面板

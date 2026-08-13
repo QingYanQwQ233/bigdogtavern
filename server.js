@@ -1379,6 +1379,152 @@ function appendEventMemory(save, candidates, { world, revision, turns, eventIds,
   return next;
 }
 
+function rebuiltMemoryId(saveId, kind, sourceId) {
+  const hash = crypto.createHash('sha256').update(`${saveId}:memory-rebuild:${kind}:${sourceId}`).digest('hex').slice(0, 24);
+  return `memory-rebuild-${kind}-${hash}`;
+}
+
+function memorySourceTurnIds(entry, kind, sourceId) {
+  const turnIds = Array.isArray(entry?.turnIds) ? entry.turnIds.filter(id => typeof id === 'string' && id.trim()) : [];
+  return turnIds.length ? [...new Set(turnIds)] : [`source-${kind}-${sourceId}`];
+}
+
+function memorySourceTime(event, entry, sourceRevision) {
+  const time = event?.time || entry?.time;
+  return time && typeof time === 'object' && !Array.isArray(time) && typeof time.unit === 'string' && time.unit.trim() && time.unit.length <= 40 && Number.isFinite(time.value) && time.value >= 0 && time.value <= 1000000000
+    ? cloneJson(time)
+    : { unit: 'turn', value: sourceRevision };
+}
+
+function rebuildWorldEventMemory(save, world) {
+  const state = save?.state && typeof save.state === 'object' ? save.state : {};
+  const ledger = Array.isArray(save?.eventLedger) ? save.eventLedger : [];
+  const eventLedger = new Map();
+  for (const entry of ledger) {
+    for (const eventId of Array.isArray(entry?.worldEventIds) ? entry.worldEventIds : []) eventLedger.set(eventId, entry);
+  }
+  const growthLedger = new Map(ledger.filter(entry => entry?.growthApplicationId).map(entry => [entry.growthApplicationId, entry]));
+  const locationIds = worldLocationIds(world);
+  const entries = [];
+  for (const event of Array.isArray(state.worldEvents) ? state.worldEvents : []) {
+    if (!event || typeof event.eventId !== 'string' || !event.eventId.trim()) continue;
+    const source = eventLedger.get(event.eventId);
+    const sourceRevision = Number.isInteger(event.revision) ? event.revision : (Number.isInteger(source?.sourceRevision) ? source.sourceRevision : 0);
+    const consequences = Array.isArray(event.consequences) && event.consequences.length ? `；后果：${event.consequences.join('；')}` : '';
+    const summary = `${String(event.title || event.eventId).trim()}：${String(event.description || '事件已提交').trim()}${consequences}`.slice(0, 2000);
+    const locationId = locationIds.has(event.locationId) ? event.locationId : (locationIds.has(source?.locationId) ? source.locationId : null);
+    const entityIds = isSafeId(event.factionId) ? [event.factionId] : [];
+    entries.push({
+      id: rebuiltMemoryId(save.id, 'event', event.eventId), kind: 'event', summary,
+      entityIds, locationId, time: memorySourceTime(event, source, sourceRevision), sourceRevision,
+      sourceTurnIds: memorySourceTurnIds(source, 'event', event.eventId), sourceEventIds: [event.eventId],
+      visibility: ['public', 'local', 'hidden'].includes(event.visibility) ? event.visibility : 'public',
+      createdAt: Number.isFinite(event.createdAt) ? event.createdAt : sourceRevision,
+    });
+  }
+  const experiences = Array.isArray(state.experiences) ? state.experiences : [];
+  const experienceById = new Map(experiences.filter(item => item?.id).map(item => [item.id, item]));
+  for (const application of Array.isArray(state.growthApplications) ? state.growthApplications : []) {
+    if (!application || typeof application.id !== 'string' || !application.id.trim()) continue;
+    const source = growthLedger.get(application.id);
+    const experience = application.experienceId ? experienceById.get(application.experienceId) : null;
+    const sourceRevision = Number.isInteger(application.revision) ? application.revision : (Number.isInteger(source?.sourceRevision) ? source.sourceRevision : 0);
+    const summary = `${experience?.title || application.candidateId || '成长记录'}：${experience?.summary || `已${application.decision === 'accepted' ? '接受' : '处理'}成长候选`}`.slice(0, 2000);
+    const locationId = locationIds.has(experience?.locationId) ? experience.locationId : (locationIds.has(source?.locationId) ? source.locationId : null);
+    entries.push({
+      id: rebuiltMemoryId(save.id, 'growth', application.id), kind: 'fact', summary,
+      entityIds: [], locationId, time: memorySourceTime(experience, source, sourceRevision), sourceRevision,
+      sourceTurnIds: memorySourceTurnIds(source, 'growth', application.id), sourceEventIds: [],
+      visibility: 'public', createdAt: Number.isFinite(application.appliedAt) ? application.appliedAt : sourceRevision,
+    });
+  }
+  const next = entries.sort((a, b) => a.sourceRevision - b.sourceRevision || a.id.localeCompare(b.id)).slice(-EVENT_MEMORY_MAX);
+  const invalid = validateEventMemory(next, world);
+  if (invalid) throw new Error(invalid);
+  return { entries: next, sourceHash: sha256Json({ eventLedger: ledger, worldEvents: state.worldEvents || [], growthApplications: state.growthApplications || [], experiences: state.experiences || [] }) };
+}
+
+function memoryDebugView(item) {
+  if (!item || typeof item !== 'object') return null;
+  if (item.visibility === 'hidden') {
+    return { id: item.id, kind: item.kind, visibility: 'hidden', summary: '（隐藏记忆内容已省略）' };
+  }
+  return { ...item };
+}
+
+function worldMemoryDiagnostics(save, world) {
+  const memories = Array.isArray(save?.eventMemory) ? save.eventMemory : [];
+  const currentLocationId = save?.state?.locationId || null;
+  const visible = memories.filter(item => item && item.visibility !== 'hidden');
+  const local = visible.filter(item => item.visibility === 'local');
+  const current = visible.filter(item => item.visibility !== 'local' || !item.locationId || item.locationId === currentLocationId);
+  const rebuilt = rebuildWorldEventMemory(save, world);
+  return {
+    saveId: save.id, worldId: save.worldId, worldVersion: save.worldVersion, revision: save.revision,
+    locationId: currentLocationId,
+    memory: { total: memories.length, visible: visible.length, hidden: memories.length - visible.length, local: local.length, currentVisible: current.length },
+    sources: {
+      eventLedger: Array.isArray(save.eventLedger) ? save.eventLedger.length : 0,
+      worldEvents: Array.isArray(save.state?.worldEvents) ? save.state.worldEvents.length : 0,
+      growthApplications: Array.isArray(save.state?.growthApplications) ? save.state.growthApplications.length : 0,
+      experiences: Array.isArray(save.state?.experiences) ? save.state.experiences.length : 0,
+    },
+    rebuild: {
+      sourceHash: rebuilt.sourceHash, entryCount: rebuilt.entries.length,
+      hiddenEntryCount: rebuilt.entries.filter(item => item.visibility === 'hidden').length,
+      entries: rebuilt.entries.slice(-32).map(memoryDebugView), truncated: rebuilt.entries.length > 32,
+    },
+    lastRebuild: save.memoryRebuild || null,
+  };
+}
+
+async function handleWorldMemoryDiagnostics(req, res, saveId) {
+  const fp = savePath(saveId);
+  if (!fp) return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json');
+  try {
+    const save = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
+    const world = findWorldVersion(await loadWorlds(), save.worldId, save.worldVersion);
+    if (!world) return send(res, 409, JSON.stringify({ error: '存档绑定的世界版本不存在' }), 'application/json');
+    send(res, 200, JSON.stringify(worldMemoryDiagnostics(save, world)), 'application/json; charset=utf-8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return send(res, 404, JSON.stringify({ error: '存档不存在' }), 'application/json');
+    console.error('[world-saves] 记忆诊断失败:', err.message);
+    send(res, 500, JSON.stringify({ error: '记忆诊断失败: ' + err.message }), 'application/json');
+  }
+}
+
+async function handleWorldMemoryRebuild(req, res, saveId) {
+  const fp = savePath(saveId);
+  if (!fp) return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json');
+  let payload;
+  try { payload = await readJsonBody(req, 64 * 1024); }
+  catch (err) { return send(res, err.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400, JSON.stringify({ error: err.message }), 'application/json'); }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return send(res, 400, JSON.stringify({ error: '请求必须是 JSON 对象' }), 'application/json');
+  if (!Number.isSafeInteger(payload.expectedRevision) || payload.expectedRevision < 0) return send(res, 400, JSON.stringify({ error: 'expectedRevision 必须是非负整数' }), 'application/json');
+  if (typeof payload.commandId !== 'string' || !COMMAND_ID_RE.test(payload.commandId)) return send(res, 400, JSON.stringify({ error: 'commandId 无效' }), 'application/json');
+  return withWorldSaveLock(saveId, async () => {
+    try {
+      const current = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
+      if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
+      if (current.memoryRebuild?.commandId === payload.commandId) {
+        const world = findWorldVersion(await loadWorlds(), current.worldId, current.worldVersion);
+        return send(res, 200, JSON.stringify({ save: current, diagnostics: worldMemoryDiagnostics(current, world), idempotent: true }), 'application/json; charset=utf-8');
+      }
+      if (current.revision !== payload.expectedRevision) return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
+      const world = findWorldVersion(await loadWorlds(), current.worldId, current.worldVersion);
+      if (!world) return send(res, 409, JSON.stringify({ error: '存档绑定的世界版本不存在' }), 'application/json');
+      const rebuilt = rebuildWorldEventMemory(current, world);
+      const next = { ...current, eventMemory: rebuilt.entries, memoryRebuild: { commandId: payload.commandId, sourceRevision: current.revision, sourceHash: rebuilt.sourceHash, rebuiltAt: Date.now() }, updatedAt: Date.now() };
+      await writeJsonAtomic(fp, next);
+      send(res, 200, JSON.stringify({ save: next, diagnostics: worldMemoryDiagnostics(next, world), idempotent: false }), 'application/json; charset=utf-8');
+    } catch (err) {
+      if (err.code === 'ENOENT') return send(res, 404, JSON.stringify({ error: '存档不存在' }), 'application/json');
+      console.error('[world-saves] 派生记忆重建失败:', err.message);
+      send(res, 500, JSON.stringify({ error: '派生记忆重建失败: ' + err.message }), 'application/json');
+    }
+  });
+}
+
 function validateWorldObjectiveList(value, label, world = null) {
   if (value === undefined || value === null) return null;
   if (!Array.isArray(value) || value.length > 256) return `${label} 最多 256 项`;
@@ -3280,6 +3426,7 @@ async function handleWorldSaveCreate(req, res) {
     receipts: [],
     eventLedger: [],
     eventMemory: [],
+    memoryRebuild: null,
     generatedEntities: {},
     migrationHistory: [],
   };
@@ -4154,6 +4301,20 @@ const server = http.createServer((req, res) => {
   if (worldSaveListMatch) {
     if (req.method === 'GET') return handleWorldSavesList(req, res, url.searchParams.get('worldId') || '');
     if (req.method === 'POST') return handleWorldSaveCreate(req, res);
+  }
+  const worldSaveMemoryRebuildMatch = url.pathname.match(/^\/api\/world-saves\/([^/]+)\/memory\/rebuild\/?$/);
+  if (worldSaveMemoryRebuildMatch && req.method === 'POST') {
+    let saveId;
+    try { saveId = decodeURIComponent(worldSaveMemoryRebuildMatch[1]); }
+    catch { return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json'); }
+    return handleWorldMemoryRebuild(req, res, saveId);
+  }
+  const worldSaveMemoryMatch = url.pathname.match(/^\/api\/world-saves\/([^/]+)\/memory\/?$/);
+  if (worldSaveMemoryMatch && req.method === 'GET') {
+    let saveId;
+    try { saveId = decodeURIComponent(worldSaveMemoryMatch[1]); }
+    catch { return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json'); }
+    return handleWorldMemoryDiagnostics(req, res, saveId);
   }
   const rpgMigrationListMatch = url.pathname.match(/^\/api\/rpg-migrations\/?$/);
   if (rpgMigrationListMatch && req.method === 'POST') return handleRpgMigrationPreview(req, res);

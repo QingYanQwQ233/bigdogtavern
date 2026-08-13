@@ -194,6 +194,7 @@ DM 身份与玩家主权
 - `location` 从自由文本升级为稳定 `locationId`；展示名由世界卡读取。
 - 世界书仍可关键词触发，但必须带作用域（世界 / 地点 / NPC / 存档事件）与稳定 ID。
 - 上下文为请求级投影：当前地点、队伍、目标 / 线索、冲突参与者和已召回记忆优先；地图只给当前位置及相邻区域，事件 / 派系按地点与最近记录裁剪，并受 `prefs.worldContextBudget` 字符预算限制。
+- `eventMemory` 是可重建的派生层：`GET /api/world-saves/<saveId>/memory` 展示来源计数和脱敏预览，`POST /api/world-saves/<saveId>/memory/rebuild` 只从 `state.worldEvents`、成长应用和 `eventLedger` 引用重建，不改变正式世界 `revision`；隐藏内容在诊断预览中保持脱敏。
 - RPG 预设由世界卡引用；存档只记录其版本，不能回退到酒馆角色卡的 `presetName`。
 - 导入的 ST 正则、EJS、MVU 和脚本保留在来源 sidecar，默认不执行；展示清理规则也不得写入 RPG 正式状态。
 
