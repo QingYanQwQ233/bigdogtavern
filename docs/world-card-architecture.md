@@ -97,6 +97,10 @@
   },
   lorebookIds: ['lore-aurora-core'],
   rpgPresetName: '极光大陆 · DM',
+  failure: {
+    defaultMode: 'continue', onZeroHp: 'injured', onConflictDefeat: 'captured',
+    modes: [{ id: 'injured', label: '重伤', hpRatio: 0.25, effect: '重伤' }, { id: 'permadeath', label: '永久死亡', terminal: true }],
+  },
   npcIds: ['npc-lily', 'npc-ranger'],
   factionIds: ['faction-guild'],
   itemIds: ['wolf-fang'],
@@ -135,6 +139,7 @@
   state: {
     locationId: 'wolf-tooth-inn',
     stats: { level: 1, exp: 0, expNext: 100, hp: 20, maxHp: 20, mp: 5, maxMp: 5, gold: 10, buffs: [] },
+    failure: null, // 服务端结算：resolved | active | terminal
     inventory: [],
     quests: [],
     map: {

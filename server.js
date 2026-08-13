@@ -249,7 +249,7 @@ async function loadWorlds() {
     const fallback = defaultByKey.get(`${world.id}:${world.version}`);
     if (!fallback) return world;
     const next = { ...world };
-    for (const key of ['playerCreation', 'turnContract', 'time', 'events', 'factions', 'conflicts']) {
+    for (const key of ['playerCreation', 'turnContract', 'failure', 'time', 'events', 'factions', 'conflicts']) {
       if (next[key] === undefined && fallback[key] !== undefined) next[key] = cloneJson(fallback[key]);
     }
     return next;
@@ -297,6 +297,8 @@ function worldDraftFieldsValid(payload, requireRevision = false) {
   if (playerCreationInvalid) return playerCreationInvalid;
   const turnContractInvalid = validateTurnContract(payload.turnContract);
   if (turnContractInvalid) return turnContractInvalid;
+  const failureInvalid = validateWorldFailure(payload.failure);
+  if (failureInvalid) return failureInvalid;
   const timeInvalid = validateWorldTime(payload.time);
   if (timeInvalid) return timeInvalid;
   const eventsInvalid = validateWorldEvents(payload.events);
@@ -909,6 +911,114 @@ function validateTurnContract(value) {
   }
   if (value.actionIntent !== undefined && typeof value.actionIntent !== 'boolean') return 'turnContract.actionIntent 必须是布尔值';
   return null;
+}
+
+const BUILTIN_WORLD_FAILURE_MODES = [
+  { id: 'continue', label: '继续', description: '失败推进新的局面，保留玩家行动权。' },
+  { id: 'injured', label: '重伤', description: '保留世界线，恢复少量 HP 并附加重伤状态。', hpRatio: 0.25, effect: '重伤' },
+  { id: 'captured', label: '俘虏', description: '冲突失败后被控制，后续可通过行动脱困。', effect: '俘虏' },
+  { id: 'resource-loss', label: '资源损失', description: '以资源代价继续故事。', resourceLoss: { gold: 10 } },
+  { id: 'permadeath', label: '永久死亡', description: '当前世界线停止普通回合。', terminal: true },
+  { id: 'card', label: '按卡定义', description: '由世界卡说明具体失败流程。', cardDefined: true },
+];
+
+function validateWorldFailure(value) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'failure 必须是对象';
+  for (const key of ['defaultMode', 'onZeroHp', 'onConflictDefeat']) {
+    if (value[key] !== undefined && (typeof value[key] !== 'string' || !isSafeId(value[key]))) return `failure.${key} 无效`;
+  }
+  if (value.modes !== undefined) {
+    if (!Array.isArray(value.modes) || value.modes.length > 32) return 'failure.modes 最多 32 项';
+    const ids = new Set();
+    for (const mode of value.modes) {
+      if (!mode || typeof mode !== 'object' || Array.isArray(mode) || !isSafeId(mode.id) || ids.has(mode.id)) return 'failure.modes 含有重复或无效 ID';
+      if (!draftTextValid(mode.label, 120, true) || !draftTextValid(mode.description, 2000)) return `failure.modes.${mode.id} 文本无效`;
+      if (mode.terminal !== undefined && typeof mode.terminal !== 'boolean') return `failure.modes.${mode.id}.terminal 无效`;
+      if (mode.cardDefined !== undefined && typeof mode.cardDefined !== 'boolean') return `failure.modes.${mode.id}.cardDefined 无效`;
+      if (mode.hpRatio !== undefined && !validBoundedNumber(mode.hpRatio, 0, 1)) return `failure.modes.${mode.id}.hpRatio 无效`;
+      if (mode.effect !== undefined && !draftTextValid(mode.effect, 240)) return `failure.modes.${mode.id}.effect 无效`;
+      if (mode.resourceLoss !== undefined) {
+        if (!mode.resourceLoss || typeof mode.resourceLoss !== 'object' || Array.isArray(mode.resourceLoss) || Object.keys(mode.resourceLoss).length > 32) return `failure.modes.${mode.id}.resourceLoss 无效`;
+        for (const [resourceId, loss] of Object.entries(mode.resourceLoss)) {
+          if (!isSafeId(resourceId) || !validBoundedNumber(loss, 0, 1000000000000)) return `failure.modes.${mode.id}.resourceLoss 无效`;
+        }
+      }
+      ids.add(mode.id);
+    }
+  }
+  const configuredIds = new Set(Array.isArray(value.modes) ? value.modes.map(mode => mode?.id).filter(Boolean) : []);
+  const allowed = new Set([...BUILTIN_WORLD_FAILURE_MODES.map(mode => mode.id), ...configuredIds]);
+  for (const key of ['defaultMode', 'onZeroHp', 'onConflictDefeat']) if (value[key] !== undefined && !allowed.has(value[key])) return `failure.${key} 未声明对应模式`;
+  return null;
+}
+
+function worldFailureRules(world) {
+  const configured = world?.failure && typeof world.failure === 'object' && !Array.isArray(world.failure) ? world.failure : {};
+  const modes = new Map(BUILTIN_WORLD_FAILURE_MODES.map(mode => [mode.id, cloneJson(mode)]));
+  for (const mode of Array.isArray(configured.modes) ? configured.modes : []) {
+    if (mode && isSafeId(mode.id)) modes.set(mode.id, { ...modes.get(mode.id), ...cloneJson(mode) });
+  }
+  const fallback = configured.defaultMode && modes.has(configured.defaultMode) ? configured.defaultMode : 'continue';
+  return {
+    defaultMode: fallback,
+    onZeroHp: configured.onZeroHp && modes.has(configured.onZeroHp) ? configured.onZeroHp : fallback,
+    onConflictDefeat: configured.onConflictDefeat && modes.has(configured.onConflictDefeat) ? configured.onConflictDefeat : fallback,
+    modes,
+  };
+}
+
+function failureStateMatches(currentState, payloadState) {
+  if (currentState?.failure === undefined) return payloadState?.failure === undefined || payloadState?.failure === null;
+  return payloadState?.failure === undefined || canonicalJson(payloadState.failure) === canonicalJson(currentState.failure);
+}
+
+function failureResourceFloor(world, id) {
+  const resource = (playerCreationSchema(world)?.resources || []).find(item => item.id === id);
+  if (resource) return Number.isFinite(resource.min) ? resource.min : 0;
+  const currency = (playerEconomySchema(world)?.currencies || []).find(item => item.id === id);
+  return currency && Number.isFinite(currency.min) ? currency.min : 0;
+}
+
+function applyFailureMode(world, state, mode, cause, revision) {
+  const next = cloneJson(state);
+  const maxHp = Number(next.stats?.maxHp ?? (playerCreationSchema(world)?.resources || []).find(item => item.id === 'hp')?.max);
+  if (Number.isFinite(mode.hpRatio) && Number.isFinite(maxHp) && maxHp > 0) {
+    const hp = Math.max(failureResourceFloor(world, 'hp'), Math.ceil(maxHp * mode.hpRatio));
+    next.stats = { ...(next.stats || {}), hp };
+    if (next.player?.resources && next.player.resources.hp !== undefined) next.player.resources.hp = hp;
+  }
+  if (mode.resourceLoss && typeof mode.resourceLoss === 'object') {
+    for (const [id, loss] of Object.entries(mode.resourceLoss)) {
+      const floor = failureResourceFloor(world, id);
+      for (const bucket of [next.player?.resources, next.currencies, next.stats]) {
+        if (bucket && Number.isFinite(Number(bucket[id]))) bucket[id] = Math.max(floor, Number(bucket[id]) - loss);
+      }
+    }
+  }
+  if (mode.effect) {
+    const effects = Array.isArray(next.player?.effects) ? next.player.effects : [];
+    if (!effects.includes(mode.effect)) next.player = { ...(next.player || {}), effects: [...effects, mode.effect].slice(-128) };
+  }
+  const status = mode.terminal ? 'terminal' : mode.id === 'continue' ? 'resolved' : 'active';
+  next.failure = { mode: mode.id, status, cause, revision, label: mode.label, description: mode.description, recoverable: !mode.terminal };
+  return { state: next, record: cloneJson(next.failure) };
+}
+
+function resolveWorldFailure(world, currentState, nextState, revision) {
+  const rules = worldFailureRules(world);
+  const currentHp = Number(currentState?.stats?.hp);
+  const nextHp = Number(nextState?.stats?.hp);
+  let cause = Number.isFinite(currentHp) && Number.isFinite(nextHp) && currentHp > 0 && nextHp <= 0 ? 'hp_zero' : null;
+  if (!cause) {
+    const previous = currentState?.conflicts && typeof currentState.conflicts === 'object' ? currentState.conflicts : {};
+    const conflicts = nextState?.conflicts && typeof nextState.conflicts === 'object' ? nextState.conflicts : {};
+    cause = Object.entries(conflicts).some(([id, state]) => state?.status === 'failed' && previous[id]?.status !== 'failed') ? 'conflict_defeat' : null;
+  }
+  if (!cause) return { state: nextState, record: null };
+  const modeId = cause === 'hp_zero' ? rules.onZeroHp : rules.onConflictDefeat;
+  const mode = rules.modes.get(modeId) || rules.modes.get(rules.defaultMode) || BUILTIN_WORLD_FAILURE_MODES[0];
+  return applyFailureMode(world, nextState, mode, cause, revision);
 }
 
 function worldTurnOptionRules(world) {
@@ -2055,6 +2165,7 @@ function applyWorldDraftFields(world, payload) {
   next.lorebookIds = [...new Set(payload.lorebookIds.map(value => value.trim()))];
   if (payload.playerCreation !== undefined) next.playerCreation = cloneJson(payload.playerCreation);
   if (payload.turnContract !== undefined) next.turnContract = cloneJson(payload.turnContract);
+  if (payload.failure !== undefined) next.failure = cloneJson(payload.failure);
   if (payload.time !== undefined) next.time = cloneJson(payload.time);
   if (payload.events !== undefined) next.events = Array.isArray(payload.events) ? cloneJson(payload.events) : [];
   if (payload.factions !== undefined) next.factions = cloneJson(payload.factions);
@@ -2097,6 +2208,7 @@ function prepareWorldDraftPublication(draft) {
     lorebookIds: world.lorebookIds,
     ...(world.playerCreation !== undefined ? { playerCreation: world.playerCreation } : {}),
     ...(world.turnContract !== undefined ? { turnContract: world.turnContract } : {}),
+    ...(world.failure !== undefined ? { failure: world.failure } : {}),
     ...(world.time !== undefined ? { time: world.time } : {}),
     ...(world.events !== undefined ? { events: world.events } : {}),
     ...(world.factions !== undefined ? { factions: world.factions } : {}),
@@ -2849,6 +2961,8 @@ function worldPackageImportReport(pkg) {
     if (playerCreationInvalid) errors.push(playerCreationInvalid);
     const turnContractInvalid = validateTurnContract(world.turnContract);
     if (turnContractInvalid) errors.push(turnContractInvalid);
+    const failureInvalid = validateWorldFailure(world.failure);
+    if (failureInvalid) errors.push(failureInvalid);
     const timeInvalid = validateWorldTime(world.time);
     if (timeInvalid) errors.push(timeInvalid);
     const factionsInvalid = validateWorldFactions(world.factions);
@@ -3399,6 +3513,7 @@ async function handleWorldSaveCreate(req, res) {
       ...(playerState ? { player: playerState } : {}),
       ...(playerEconomySchema(world) ? economyState : {}),
       ...(worldConflictDefinitions(world).length || initial.conflicts !== undefined ? { conflicts: conflictStates } : {}),
+      failure: null,
       ...(playerGrowthSchema(world) || initial.growthCandidates !== undefined ? { growthCandidates } : {}),
       ...(playerGrowthSchema(world) || initial.growthApplications !== undefined ? { growthApplications } : {}),
       ...(playerGrowthSchema(world) || initial.experiences !== undefined ? { experiences } : {}),
@@ -3770,6 +3885,7 @@ async function handleWorldSavePut(req, res, saveId) {
       const current = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
       if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
       const world = findWorldVersion(await loadWorlds(), current.worldId, current.worldVersion);
+      if (!failureStateMatches(current.state, payload.state)) return send(res, 400, JSON.stringify({ error: 'state.failure 由服务端失败结算，客户端不能直接修改' }), 'application/json');
       const invalidLocation = validateWorldLocationIds(world, payload.state, current.npcStates);
       if (invalidLocation) return send(res, 400, JSON.stringify({ error: invalidLocation }), 'application/json');
       for (const [key, label] of [['goals', 'state.goals'], ['leads', 'state.leads']]) {
@@ -3805,6 +3921,7 @@ async function handleWorldSavePut(req, res, saveId) {
         return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
       }
       const nextState = cloneJson(payload.state);
+      if (current.state?.failure !== undefined) nextState.failure = cloneJson(current.state.failure);
       nextState.conflicts = materializeConflictOutcomes(world, nextState.conflicts);
       if (payload.state.factionStates === undefined && factionStatePayload !== undefined) nextState.factionStates = factionStatePayload;
       if (current.state?.time !== undefined) nextState.time = cloneJson(current.state.time);
@@ -3919,6 +4036,8 @@ async function handleWorldTurnPost(req, res, saveId) {
       const invalidNpcIds = validateNpcStates(payload.npcStates, allowedNpcIds);
       if (invalidNpcIds) return send(res, 400, JSON.stringify({ error: invalidNpcIds }), 'application/json');
       if (committedCommand(current, payload.commandId)) return send(res, 200, JSON.stringify(current), 'application/json; charset=utf-8');
+      if (!failureStateMatches(current.state, payload.state)) return send(res, 400, JSON.stringify({ error: 'state.failure 由服务端失败结算，客户端不能直接修改' }), 'application/json');
+      if (current.state?.failure?.status === 'terminal') return send(res, 409, JSON.stringify({ error: '当前存档已进入终止失败状态，请重开或等待后续结局流程', failure: current.state.failure }), 'application/json');
       if (current.revision !== payload.expectedRevision) {
         return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
       }
@@ -3927,6 +4046,7 @@ async function handleWorldTurnPost(req, res, saveId) {
       }
       const revision = current.revision + 1;
       const nextState = cloneJson(payload.state);
+      if (current.state?.failure !== undefined) nextState.failure = cloneJson(current.state.failure);
       nextState.conflicts = materializeConflictOutcomes(world, nextState.conflicts);
       if (payload.state.factionStates === undefined && factionStatePayload !== undefined) nextState.factionStates = factionStatePayload;
       const combatResult = resolveCombatChecks(world, current.state, nextState, payload.commandId, revision);
@@ -3939,6 +4059,8 @@ async function handleWorldTurnPost(req, res, saveId) {
       const settledFactionActions = settleWorldFactionActions(world, { ...current, state: { ...current.state, worldEvents: settledEvents.events } }, nextState, payload.commandId, revision);
       nextState.worldEvents = settledFactionActions.events;
       const conflictTransitions = conflictTransitionRecords(current.state?.conflicts, nextState.conflicts, payload.commandId, revision);
+      const failureResult = resolveWorldFailure(world, current.state, nextState, revision);
+      const settledState = failureResult.state;
       const committedTurns = payload.turns.map((turn, index) => ({
         ...cloneJson(turn),
         id: typeof turn.id === 'string' && turn.id.trim() ? turn.id.trim() : committedTurnId(saveId, revision, index),
@@ -3948,7 +4070,7 @@ async function handleWorldTurnPost(req, res, saveId) {
       }));
       const next = {
         ...current,
-        state: nextState,
+        state: settledState,
         npcStates: payload.npcStates === undefined ? (current.npcStates || {}) : cloneJson(payload.npcStates),
         generatedEntities: payload.createEntities && payload.createEntities.length
           ? materializeGeneratedEntities(current, payload.createEntities, saveId, payload.commandId, revision)
@@ -3962,6 +4084,7 @@ async function handleWorldTurnPost(req, res, saveId) {
           eventIds: settledEvents.eventIds,
           factionActionIds: settledFactionActions.eventIds,
           conflictTransitions,
+          ...(failureResult.record ? { failure: failureResult.record } : {}),
           combatChecks: combatResult.checks,
           conflictChecks: nonCombatResult.checks,
           deadlineIds,
@@ -3971,8 +4094,8 @@ async function handleWorldTurnPost(req, res, saveId) {
           kind: 'turn',
           commandId: payload.commandId,
           sourceRevision: revision,
-          locationId: nextState.locationId ?? null,
-          time: nextState.time ?? null,
+          locationId: settledState.locationId ?? null,
+          time: settledState.time ?? null,
           turnIds: committedTurns.map(turn => turn.id).filter(Boolean),
           worldEventIds: settledEvents.eventIds,
           factionActionIds: settledFactionActions.eventIds,
@@ -3983,8 +4106,8 @@ async function handleWorldTurnPost(req, res, saveId) {
           revision,
           turns: committedTurns,
           eventIds: [...settledEvents.eventIds, ...settledFactionActions.eventIds, ...deadlineIds],
-          time: nextState.time,
-          locationId: nextState.locationId ?? null,
+          time: settledState.time,
+          locationId: settledState.locationId ?? null,
         }),
         revision,
         updatedAt: Date.now(),

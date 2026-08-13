@@ -355,3 +355,5 @@ API additions: `POST /api/rpg-migrations` (preview/seal), `GET /api/rpg-migratio
 ### 目标 / 线索截止时限（R4.10）
 
 `deadline` 使用当前世界时钟的绝对值 `{ unit, value }`。每次正式回合先由服务端推进 `state.time`，再把同单位且已达到时限的 `active` 目标 / 线索原子标记为 `failed`，写入 `deadlineStatus: 'expired'`、`deadlineResolvedAt` 和回合 receipt 的 `deadlineIds`；重试不会重复结算，不同存档互不影响。
+### WorldSave 失败结算（R6.7）
+`state.failure` 由服务端依据 `WorldCard.failure` 在正式回合提交时写入，状态为 `resolved`、`active` 或 `terminal`。客户端和 AI 不能直接修改；`terminal` 存档会拒绝新的普通回合，重试同一 `commandId` 仍返回原提交结果。规则支持继续、重伤、俘虏、资源损失、永久死亡与卡定义模式，世界卡可以用 `defaultMode`、`onZeroHp`、`onConflictDefeat` 和 `modes[]` 覆盖描述与效果。

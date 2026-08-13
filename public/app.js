@@ -613,6 +613,7 @@ function fillWorldDraftForm(draft) {
   $('world-draft-lorebooks').value = Array.isArray(world.lorebookIds) ? world.lorebookIds.join(', ') : '';
   $('world-draft-player-creation').value = world.playerCreation ? JSON.stringify(world.playerCreation, null, 2) : '';
   $('world-draft-turn-contract').value = world.turnContract ? JSON.stringify(world.turnContract, null, 2) : '';
+  $('world-draft-failure').value = world.failure ? JSON.stringify(world.failure, null, 2) : '';
   $('world-draft-time').value = world.time ? JSON.stringify(world.time, null, 2) : '';
   $('world-draft-events').value = Array.isArray(world.events) ? JSON.stringify(world.events, null, 2) : '';
   $('world-draft-factions').value = Array.isArray(world.factions) ? JSON.stringify(world.factions, null, 2) : '';
@@ -675,6 +676,12 @@ async function saveWorldDraft() {
     try { turnContract = JSON.parse(turnContractText); }
     catch { setWorldDraftStatus('回合契约不是有效 JSON。', 'error'); $('world-draft-turn-contract').focus(); return false; }
   }
+  let failure = null;
+  const failureText = $('world-draft-failure').value.trim();
+  if (failureText) {
+    try { failure = JSON.parse(failureText); }
+    catch { setWorldDraftStatus('失败与死亡规则不是有效 JSON。', 'error'); $('world-draft-failure').focus(); return false; }
+  }
   let time = null;
   const timeText = $('world-draft-time').value.trim();
   if (timeText) {
@@ -712,7 +719,7 @@ async function saveWorldDraft() {
     const res = await fetch('/api/world-drafts/' + encodeURIComponent(worldDraft.worldId), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
-      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds, mapGeneration, locations, npcs, playerCreation, turnContract, time, events, factions }),
+      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds, mapGeneration, locations, npcs, playerCreation, turnContract, failure, time, events, factions }),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error(worldApiError(data, '世界草稿保存失败（HTTP ' + res.status + '）'));
@@ -1820,6 +1827,18 @@ function renderRPG() {
         return `<article class="rpg-item${conflict.status !== 'active' ? ' done' : ''}"><div class="rpg-item-name">${esc(definition?.label || conflict.id)} <small>${esc(statusLabels[conflict.status] || conflict.status || '进行中')}</small></div><div class="rpg-item-sub">第 ${esc(conflict.round || 1)} 轮 · ${esc(phase)}${participants ? ` · ${esc(participants)}` : ''}${objectives ? ` · 目标：${esc(objectives)}` : ''}</div></article>`;
       }).join('')
       : '<p class="hint">暂无冲突</p>';
+  }
+  const failureEl = $('rpg-failure');
+  if (failureEl) {
+    const failure = worldModeActive() ? currentWorldSave?.state?.failure : null;
+    if (!failure) {
+      failureEl.innerHTML = '<p class="hint">当前未触发失败模式。</p>';
+    } else {
+      const modes = new Map((Array.isArray(currentWorldCard()?.failure?.modes) ? currentWorldCard().failure.modes : []).map(item => [item.id, item]));
+      const mode = modes.get(failure.mode);
+      const statusLabels = { active: '进行中', resolved: '已结算', terminal: '终止' };
+      failureEl.innerHTML = `<article class="rpg-item rpg-failure-item ${failure.status === 'terminal' ? 'terminal' : 'active'}"><div class="rpg-item-name">${esc(mode?.label || failure.label || failure.mode)} <small>${esc(statusLabels[failure.status] || failure.status || '未知')}</small></div><div class="rpg-item-sub">${esc(mode?.description || failure.description || '')}</div><div class="rpg-item-sub">原因：${esc(failure.cause || '未记录')} · revision ${esc(failure.revision ?? '')}</div></article>`;
+    }
   }
   const q = $('rpg-quests');
   if (q) {
@@ -3891,6 +3910,15 @@ function buildWorldGrowthPromptPart() {
   return `【成长候选与人物经历】\n成长来源属于当前世界卡，候选记录只属于当前存档；来源=${sources || '无'}。可提议候选=${candidates || '无'}。当前待确认=${proposedText}。已确认人物经历=${experienceText}。当剧情确实产生训练、学习、探索、关系或事件成果时，才在 rpg JSON 输出 growth:[{candidateId,sourceId,reason}]；这只是待确认候选，必须等待玩家确认后才会改变能力、特质、关系、阵营声望或身份；不得伪造 delta/value，也不得自行输出 accepted/rejected。`;
 }
 
+function buildWorldFailurePromptPart() {
+  if (!worldModeActive()) return '';
+  const failure = currentWorldCard()?.failure;
+  const modes = Array.isArray(failure?.modes) ? failure.modes : [];
+  const modeText = modes.length ? modes.map(mode => `${mode.id}:${mode.label || mode.id}${mode.terminal ? '（终止）' : ''}${mode.hpRatio !== undefined ? ` HP=${mode.hpRatio}` : ''}`).join('、') : '使用服务端内置安全模式';
+  const current = currentWorldSave?.state?.failure;
+  return `【失败与死亡规则】失败结算由服务端根据 WorldCard.failure 触发，AI 不得直接写入 state.failure、伪造 HP/骰子结果或绕过模式。可用模式：${modeText}。HP 降到 0 与冲突失败由服务端判定；当前失败状态：${current ? `${current.mode}/${current.status}` : '未触发'}。永久死亡后不得继续普通回合。`;
+}
+
 function buildRpgPromptPart() {
   if (mode !== 'rpg') return '';
   const parts = [];
@@ -3957,6 +3985,8 @@ function buildRpgPromptPart() {
       if (eventMemoryPrompt) parts.push(eventMemoryPrompt);
       const conflictPrompt = buildWorldConflictPromptPart();
       if (conflictPrompt) parts.push(conflictPrompt);
+      const failurePrompt = buildWorldFailurePromptPart();
+      if (failurePrompt) parts.push(failurePrompt);
       const growthPrompt = buildWorldGrowthPromptPart();
       if (growthPrompt) parts.push(growthPrompt);
     }

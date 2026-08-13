@@ -549,6 +549,19 @@
         "options": { "min": 0, "max": 4 },
         "actionIntent": true
       },
+      "failure": {
+        "defaultMode": "continue",
+        "onZeroHp": "injured",
+        "onConflictDefeat": "captured",
+        "modes": [
+          { "id": "continue", "label": "继续", "description": "失败推进新的局面，保留玩家行动权。" },
+          { "id": "injured", "label": "重伤", "description": "保留世界线，恢复少量 HP 并附加重伤状态。", "hpRatio": 0.25, "effect": "重伤" },
+          { "id": "captured", "label": "俘虏", "description": "冲突失败后被控制，后续可通过行动脱困。", "effect": "俘虏" },
+          { "id": "resource-loss", "label": "资源损失", "description": "以资源代价继续故事。", "resourceLoss": { "gold": 10 } },
+          { "id": "permadeath", "label": "永久死亡", "description": "当前世界线停止普通回合。", "terminal": true },
+          { "id": "card", "label": "按卡定义", "description": "由世界卡说明具体失败流程。", "cardDefined": true }
+        ]
+      },
       "conflicts": [
         {
           "id": "wolf-skirmish",
@@ -720,6 +733,19 @@
         }
       },
       "turnContract": { "options": { "min": 0, "max": 4 }, "actionIntent": true },
+      "failure": {
+        "defaultMode": "continue",
+        "onZeroHp": "injured",
+        "onConflictDefeat": "captured",
+        "modes": [
+          { "id": "continue", "label": "继续", "description": "失败推进新的局面，保留玩家行动权。" },
+          { "id": "injured", "label": "重伤", "description": "保留世界线，恢复少量 HP 并附加重伤状态。", "hpRatio": 0.25, "effect": "重伤" },
+          { "id": "captured", "label": "俘虏", "description": "冲突失败后被控制，后续可通过行动脱困。", "effect": "俘虏" },
+          { "id": "resource-loss", "label": "资源损失", "description": "以资源代价继续故事。", "resourceLoss": { "gold": 10 } },
+          { "id": "permadeath", "label": "永久死亡", "description": "当前世界线停止普通回合。", "terminal": true },
+          { "id": "card", "label": "按卡定义", "description": "由世界卡说明具体失败流程。", "cardDefined": true }
+        ]
+      },
       "conflicts": [
         { "id": "dock-chase", "label": "码头追逐", "type": "combat", "description": "在狭窄码头处理一场危险追逐。", "maxRounds": 8, "phases": [{ "id": "pursuit", "label": "追逐" }, { "id": "resolve", "label": "收束" }], "actions": [{ "id": "strike", "label": "制服", "description": "在近距离内迫使对方停下。", "check": { "roll": "1d20", "modifier": { "bucket": "attributes", "id": "nerve", "factor": 1 }, "target": 10, "damage": { "roll": "1d4", "modifier": { "bucket": "attributes", "id": "nerve", "factor": 1 } } } }, { "id": "flee", "label": "撤离", "description": "离开危险的码头区域。" }], "outcomes": [{ "id": "secured", "label": "控制现场", "consequences": ["追逐结束，证据暂时保住了。"] }, { "id": "fled", "label": "撤离", "consequences": ["你离开码头，后续调查仍可继续。"] }] },
         { "id": "press-interview", "label": "媒体采访", "type": "social", "description": "用谈判和证据推进一次敏感采访。", "maxRounds": 8, "phases": [{ "id": "exchange", "label": "交涉" }, { "id": "resolve", "label": "定案" }], "actions": [{ "id": "persuade", "label": "说服", "description": "提出可信的交换条件。", "check": { "roll": "1d20", "modifier": { "bucket": "skills", "id": "negotiation", "factor": 1 }, "target": 11 } }, { "id": "probe", "label": "试探", "description": "先观察对方的顾虑。" }, { "id": "withdraw", "label": "暂退", "description": "结束本轮采访。" }], "outcomes": [{ "id": "agreed", "label": "达成合作", "consequences": ["对方同意提供一条关键线索。"] }, { "id": "fled", "label": "暂时离开", "consequences": ["采访暂时中止。"] }] },
@@ -757,6 +783,19 @@
         "growth": { "sources": [{ "id": "repair", "label": "维修", "kind": "training", "description": "从反复维修中掌握新的系统知识。" }, { "id": "signal", "label": "未知信号", "kind": "exploration", "description": "未知信号改变了你的判断方式。" }], "candidates": [{ "id": "hacking-repair", "label": "协议熟练", "sourceId": "repair", "bucket": "skills", "targetId": "hacking", "delta": 1, "description": "一次高压维修让你更熟悉站内协议。" }, { "id": "zero-g-signal", "label": "失重适应", "sourceId": "signal", "bucket": "traits", "targetId": "zero-g-trained", "description": "穿越失重舱段后，你形成了新的身体习惯。" }, { "id": "station-clearance", "label": "航站权限", "sourceId": "signal", "bucket": "identity", "targetId": "clearances", "value": "星环维修权限", "description": "未知信号为你打开了一层隐藏权限。" }] }
       },
       "turnContract": { "options": { "min": 0, "max": 4 }, "actionIntent": true },
+      "failure": {
+        "defaultMode": "continue",
+        "onZeroHp": "injured",
+        "onConflictDefeat": "captured",
+        "modes": [
+          { "id": "continue", "label": "继续", "description": "失败推进新的局面，保留玩家行动权。" },
+          { "id": "injured", "label": "重伤", "description": "保留世界线，恢复少量 HP 并附加重伤状态。", "hpRatio": 0.25, "effect": "重伤" },
+          { "id": "captured", "label": "俘虏", "description": "冲突失败后被控制，后续可通过行动脱困。", "effect": "俘虏" },
+          { "id": "resource-loss", "label": "资源损失", "description": "以资源代价继续故事。", "resourceLoss": { "gold": 10 } },
+          { "id": "permadeath", "label": "永久死亡", "description": "当前世界线停止普通回合。", "terminal": true },
+          { "id": "card", "label": "按卡定义", "description": "由世界卡说明具体失败流程。", "cardDefined": true }
+        ]
+      },
       "conflicts": [
         { "id": "hull-breach", "label": "舱壁破损", "type": "combat", "description": "在失压舱段中保护维修队。", "maxRounds": 8, "phases": [{ "id": "alert", "label": "警报" }, { "id": "resolve", "label": "处理" }], "actions": [{ "id": "stabilize", "label": "稳定舱段", "description": "在危险中抢修并控制失压。", "check": { "roll": "1d20", "modifier": { "bucket": "skills", "id": "hacking", "factor": 1 }, "target": 11, "damage": { "roll": "1d4", "modifier": { "bucket": "attributes", "id": "logic", "factor": 1 } } } }, { "id": "evacuate", "label": "撤离", "description": "放弃当前舱段并保存人员。" }], "outcomes": [{ "id": "sealed", "label": "成功封锁", "consequences": ["舱段重新获得短暂稳定。"] }, { "id": "fled", "label": "撤离", "consequences": ["维修队撤到安全舱段。"] }] },
         { "id": "customs-scan", "label": "海关扫描", "type": "social", "description": "面对航站检查员的权限审查。", "maxRounds": 8, "phases": [{ "id": "scan", "label": "扫描" }, { "id": "resolve", "label": "裁定" }], "actions": [{ "id": "negotiate", "label": "交涉", "description": "解释你的维修任务。", "check": { "roll": "1d20", "modifier": { "bucket": "skills", "id": "navigation", "factor": 1 }, "target": 12 } }, { "id": "inspect", "label": "观察", "description": "寻找扫描规则中的空隙。" }, { "id": "withdraw", "label": "离开", "description": "暂时离开检查区。" }], "outcomes": [{ "id": "cleared", "label": "放行", "consequences": ["检查员批准了你的通行。"] }, { "id": "fled", "label": "离开", "consequences": ["你离开检查区，另寻路线。"] }] }

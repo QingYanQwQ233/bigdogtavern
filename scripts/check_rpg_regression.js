@@ -79,6 +79,8 @@ async function main() {
       assert.strictEqual(saveResponse.response.status, 201, `${id} save creates`);
       const save = saveResponse.body;
       created[id] = save;
+      assert.strictEqual(save.state.failure, null, `${id} save starts without failure`);
+      assert.ok(world.failure && world.failure.modes.some(mode => mode.id === 'injured'), `${id} declares failure modes`);
       const firstResource = world.playerCreation.resources[0];
       assert.strictEqual(save.state.player.resources[firstResource.id], player.resources[firstResource.id]);
       assert.ok(save.state.map && save.state.map.strategy, `${id} keeps per-save map state`);
@@ -125,11 +127,27 @@ async function main() {
       });
       assert.strictEqual(invalidMemory.response.status, 400, `${id} rejects memory outside the world location scope`);
 
+      const failedState = { ...advanced.body.state, stats: { ...advanced.body.state.stats, hp: 0 } };
+      const failed = await jsonRequest(base, `/api/world-saves/${save.id}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commandId: `${id}-failure-1`, expectedRevision: advanced.body.revision, state: failedState, turns: [{ role: 'assistant', content: 'HP 归零，触发失败结算。' }], options: [] }),
+      });
+      assert.strictEqual(failed.response.status, 200, `${id} hp zero commits failure settlement`);
+      assert.strictEqual(failed.body.state.failure.mode, 'injured', `${id} selects injured mode`);
+      assert.strictEqual(failed.body.state.failure.status, 'active', `${id} keeps injured mode recoverable`);
+      assert.ok(failed.body.state.stats.hp > 0, `${id} injured mode restores hp`);
+      assert.strictEqual(failed.body.receipts.at(-1).failure.cause, 'hp_zero', `${id} receipt records hp failure cause`);
+      const tamperedFailure = await jsonRequest(base, `/api/world-saves/${save.id}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commandId: `${id}-failure-tamper-1`, expectedRevision: failed.body.revision, state: { ...failed.body.state, failure: { mode: 'permadeath', status: 'terminal' } }, turns: [{ role: 'assistant', content: '尝试伪造失败状态。' }], options: [] }),
+      });
+      assert.strictEqual(tamperedFailure.response.status, 400, `${id} rejects client-owned failure mutation`);
+
       const candidate = world.playerCreation.growth.candidates[0];
       const candidateRecord = { id: `${id}-growth-1`, candidateId: candidate.id, sourceId: candidate.sourceId, reason: '回归测试产生候选', status: 'proposed' };
       const proposed = await jsonRequest(base, `/api/world-saves/${save.id}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ commandId: `${id}-growth-1`, expectedRevision: advanced.body.revision, state: { ...advanced.body.state, growthCandidates: [candidateRecord] }, turns: [{ role: 'assistant', content: '记录一项成长。' }], options: [] }),
+        body: JSON.stringify({ commandId: `${id}-growth-1`, expectedRevision: failed.body.revision, state: { ...failed.body.state, growthCandidates: [candidateRecord] }, turns: [{ role: 'assistant', content: '记录一项成长。' }], options: [] }),
       });
       assert.strictEqual(proposed.response.status, 200, `${id} growth proposal commits`);
       const accepted = await jsonRequest(base, `/api/world-saves/${save.id}/growth`, {
