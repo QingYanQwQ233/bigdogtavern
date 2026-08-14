@@ -27,6 +27,9 @@ jobs:
 
       - name: Copy frontend into APK assets
         run: |
+          # 每个 APK 使用独立资源版本，避免覆盖安装后 WebView Service Worker 命中旧壳
+          ASSET_VERSION="apk-${{ github.run_number }}"
+          sed -i "s/20260813e/${ASSET_VERSION}/g" public/index.html public/sw.js
           mkdir -p android/app/src/main/assets/data
           # 前端资源（明确列出；绝不复制 public/data/ 下的运行时文件——含用户 API key）
           cp public/index.html public/styles.css public/app.js \
