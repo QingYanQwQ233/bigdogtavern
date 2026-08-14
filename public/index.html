@@ -69,7 +69,7 @@
 
       <!-- ═══ RPG 模式功能区（默认隐藏，RPG 模式显示） ═══ -->
       <aside id="rpg-left" class="rpg-panel">
-        <div class="rpg-panel-head">🧬 角色</div>
+        <div class="rpg-panel-head">🧬 角色 <button class="ghost-btn small rpg-drawer-close" type="button" data-rpg-drawer-close>关闭</button></div>
         <div id="rpg-char-summary"></div>
         <div id="rpg-player-sheet" class="rpg-player-sheet" role="region" aria-live="polite" aria-label="角色状态"></div>
         <div class="rpg-panel-head" style="margin-top:10px">🌱 成长候选</div>
@@ -86,7 +86,7 @@
         <div id="rpg-conflicts" class="rpg-list"></div>
       </aside>
       <aside id="rpg-right" class="rpg-panel">
-        <div class="rpg-panel-head">📜 任务</div>
+        <div class="rpg-panel-head">📜 任务 <button class="ghost-btn small rpg-drawer-close" type="button" data-rpg-drawer-close>关闭</button></div>
         <div id="rpg-quests" class="rpg-list"></div>
         <button class="ghost-btn" id="btn-rpg-quest" style="width:100%;margin-top:6px">＋ 添加任务</button>
         <div class="rpg-panel-head" style="margin-top:10px">🎯 目标</div>
@@ -125,6 +125,12 @@
         <div class="rpg-stat buffs"><span>状态</span><span id="rpg-buffs" class="rpg-buffs">—</span></div>
         <div id="rpg-dynamic-stats" class="rpg-dynamic-stats" aria-live="polite"></div>
       </div>
+
+      <div id="rpg-mobile-toolbar" class="rpg-mobile-toolbar" aria-label="RPG 工具">
+        <button class="ghost-btn small" type="button" data-rpg-drawer="left" aria-controls="rpg-left">角色与背包</button>
+        <button class="ghost-btn small" type="button" data-rpg-drawer="right" aria-controls="rpg-right">任务与地图</button>
+      </div>
+      <div id="rpg-mobile-scrim" class="rpg-mobile-scrim" hidden></div>
 
       <footer class="composer">
         <div class="quick-actions" id="quick-actions">
@@ -675,8 +681,6 @@
       <button class="ghost-btn" id="world-new-draft" type="button" style="width:100%;margin-top:6px">✎ 创建世界草稿</button>
       <button class="ghost-btn" id="world-import" type="button" style="width:100%;margin-top:6px">⇧ 导入世界包</button>
       <input id="world-import-file" type="file" accept="application/json,.json" hidden />
-      <button class="ghost-btn" id="world-migrate-rpg" type="button" style="width:100%;margin-top:6px">⇄ 迁移旧 RPG 会话</button>
-      <button class="ghost-btn" id="world-legacy-chat" type="button" style="width:100%;margin-top:6px">回到旧 RPG 对话</button>
     </div>
     <div class="cm-edit world-edit">
       <div class="cm-edit-head">
@@ -751,21 +755,6 @@
         <span class="world-draft-action-spacer" aria-hidden="true"></span>
         <button class="btn gold" id="world-import-commit" type="submit" disabled>确认导入</button>
       </footer>
-    </form>
-  </dialog>
-
-  <dialog id="rpg-migration-dialog" class="world-draft-dialog" aria-labelledby="rpg-migration-title">
-    <form id="rpg-migration-form" class="world-draft-card">
-      <header class="world-draft-head">
-        <div><h2 id="rpg-migration-title">迁移旧 RPG 会话</h2><p id="rpg-migration-base" class="world-draft-base">原会话只读保留；确认后创建新的独立世界存档。</p></div>
-        <button class="ghost-btn small" id="rpg-migration-close" type="button" aria-label="关闭迁移预览">✕</button>
-      </header>
-      <div class="world-draft-body">
-        <label class="field" for="rpg-migration-session"><span>来源会话</span><select id="rpg-migration-session"></select></label>
-        <div id="rpg-migration-report" class="world-import-report"></div>
-        <p id="rpg-migration-status" class="world-draft-status" role="status" aria-live="polite"></p>
-      </div>
-      <footer class="world-draft-actions"><button class="ghost-btn" id="rpg-migration-cancel" type="button">取消</button><span class="world-draft-action-spacer" aria-hidden="true"></span><button class="btn gold" id="rpg-migration-commit" type="submit" disabled>确认迁移</button></footer>
     </form>
   </dialog>
 

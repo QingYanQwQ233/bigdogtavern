@@ -6249,6 +6249,7 @@ function applyLayout() {
 /* 模式：酒馆 / RPG（body[data-mode] 控制布局与渲染分支） */
 function applyMode(name) {
   if (worldTurnPending) discardWorldTurnPending();
+  setRpgMobileDrawer('');
   mode = (name === 'rpg') ? 'rpg' : 'tavern';
   document.body.dataset.mode = mode;
   localStorage.setItem(LS_MODE, mode);
@@ -6836,6 +6837,18 @@ function renderQuickActions() {
   }
 }
 
+function setRpgMobileDrawer(panel) {
+  const current = document.body.dataset.rpgDrawer || '';
+  const next = panel && current !== panel ? panel : '';
+  if (next) document.body.dataset.rpgDrawer = next;
+  else delete document.body.dataset.rpgDrawer;
+  const scrim = $('rpg-mobile-scrim');
+  if (scrim) scrim.hidden = !next;
+  document.querySelectorAll('[data-rpg-drawer]').forEach(button => {
+    button.setAttribute('aria-expanded', button.dataset.rpgDrawer === next ? 'true' : 'false');
+  });
+}
+
 /* ─────────── 事件绑定 ─────────── */
 function bindEvents() {
   // 发送
@@ -7044,13 +7057,6 @@ function bindEvents() {
   $('world-new-draft').addEventListener('click', openWorldDraftEditor);
   $('world-import').addEventListener('click', openWorldPackageImport);
   $('world-import-file').addEventListener('change', e => previewWorldPackageImport(e.target.files?.[0]));
-  $('world-migrate-rpg').addEventListener('click', openRpgMigration);
-  $('rpg-migration-session').addEventListener('change', previewRpgMigration);
-  $('rpg-migration-form').addEventListener('submit', async e => { e.preventDefault(); await commitRpgMigration(); });
-  $('rpg-migration-close').addEventListener('click', closeRpgMigration);
-  $('rpg-migration-cancel').addEventListener('click', closeRpgMigration);
-  $('rpg-migration-dialog').addEventListener('cancel', e => { e.preventDefault(); closeRpgMigration(); });
-  $('rpg-migration-dialog').addEventListener('click', e => { if (e.target === e.currentTarget) closeRpgMigration(); });
   $('world-import-form').addEventListener('submit', async e => { e.preventDefault(); await commitWorldPackageImport(); });
   $('world-import-close').addEventListener('click', closeWorldPackageImport);
   $('world-import-cancel').addEventListener('click', closeWorldPackageImport);
@@ -7154,8 +7160,11 @@ function bindEvents() {
       btn.textContent = old;
     }
   });
-  $('world-legacy-chat').addEventListener('click', () => { closeWorldLibrary(); switchView('chat'); });
   $('world-close').addEventListener('click', () => { closeWorldLibrary(); switchView('chat'); });
+  document.querySelectorAll('[data-rpg-drawer]').forEach(button => button.addEventListener('click', () => setRpgMobileDrawer(button.dataset.rpgDrawer)));
+  document.querySelectorAll('[data-rpg-drawer-close]').forEach(button => button.addEventListener('click', () => setRpgMobileDrawer('')));
+  $('rpg-mobile-scrim')?.addEventListener('click', () => setRpgMobileDrawer(''));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.dataset.rpgDrawer) setRpgMobileDrawer(''); });
   document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closeSettings));
   $('btn-test-image').addEventListener('click', testImageGen);
   $('settings-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeSettings(); });
