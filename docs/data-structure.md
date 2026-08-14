@@ -286,7 +286,7 @@ RPG 控制块的 `player.attributes` / `player.skills` / `player.resources` 使�
 首次启动：_defaults.json → ensureDataFiles → 各 :type.json
 运行中：  前端状态 ← GET /api/data/:type（server 权威）
          前端保存 → localStorage 缓存 + PUT /api/data/:type（双写）
-模板恢复：前端「📦 载入示例」→ GET /api/data/seed（返回 _defaults.json 深拷贝）
+默认模板：前端启动时 GET /api/data/seed（读取 _defaults.json 深拷贝）；角色、世界书和预设由运行时数据文件独立管理
 ```
 
 ## 六、API 端点（server.js）

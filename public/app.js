@@ -2050,12 +2050,14 @@ async function loadWorldLibraryData(restoreWorkspace = false) {
     renderWorldList();
     renderWorldDetail();
     if (restoreWorkspace && worldModeActive() && currentWorldSaveId) enterWorldWorkspace();
+    else if (restoreWorkspace) $('world-mgr')?.classList.remove('hidden');
     return true;
   } catch (err) {
     if (token !== worldLoadToken) return false;
     worldCards = [];
     renderWorldList();
     renderWorldDetail();
+    if (restoreWorkspace) $('world-mgr')?.classList.remove('hidden');
     showWorldError(err.message);
     return false;
   }
@@ -2063,7 +2065,10 @@ async function loadWorldLibraryData(restoreWorkspace = false) {
 function openWorldLibrary(restoreWorkspace = false) {
   const mgr = $('world-mgr');
   if (!mgr) return;
-  mgr.classList.remove('hidden');
+  // 恢复已有 RPG 存档时先保持管理层隐藏，避免异步读取期间闪出世界卡界面。
+  // 没有可恢复的存档则正常展示世界库，让用户选择或创建世界。
+  const restoringSave = restoreWorkspace && !!currentWorldSaveId;
+  mgr.classList.toggle('hidden', restoringSave);
   loadWorldLibraryData(restoreWorkspace);
 }
 function closeWorldLibrary() {
@@ -3033,61 +3038,16 @@ function ensureLorebooks() {
   saveJSON(LS_PREFS, prefs);
 }
 
-/* 示例数据：从 server /api/data/seed 拉取模板（空库自动注入；force 追加，按名称去重） */
-async function fetchSeedTemplate() {
+/* 默认模板：从 server /api/data/seed 拉取 _defaults.json，代码不写死内容 */
+async function fetchDefaults() {
   try {
     const resp = await fetch('/api/data/seed');
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     return await resp.json();
   } catch (e) {
-    console.warn('[Tavern] 无法加载示例数据模板（server 未运行?）:', e.message);
+    console.warn('[Tavern] 无法加载默认模板（server 未运行?）:', e.message);
     return null;
   }
-}
-
-async function seedExamples(force) {
-  const seed = await fetchSeedTemplate();
-  if (!seed) return false;
-  const seedChar = (seed.characters || [])[0];
-  const seedPreset = seed.presets && seed.presets['RP 基础（示例）'];
-  let changed = false;
-  if ((force || !characters.length) && seedChar) {
-    if (!characters.find(c => c.name === seedChar.name)) {
-      const c = { id: uid(), ...seedChar, createdAt: Date.now() };
-      characters.push(c);
-      changed = true;
-    }
-    // 确保当前角色有效（指向已删除/不存在的 id 时回落为示例角色）
-    if (!currentCharId || !characters.find(x => x.id === currentCharId)) {
-      const sc = characters.find(x => x.name === seedChar.name);
-      if (sc) { currentCharId = sc.id; localStorage.setItem(LS_CURRENT_CHAR, currentCharId); }
-    }
-  }
-  const def = lorebooks['default'];
-  const seedEntries = (seed.lorebooks && seed.lorebooks.default && seed.lorebooks.default.entries) || [];
-  if (def && (force || !def.entries.length)) {
-    for (const e of seedEntries) {
-      if (!def.entries.find(x => x.title === e.title)) {
-        def.entries.push({ id: uid(), ...e });
-        changed = true;
-      }
-    }
-  }
-  if ((force || !Object.keys(promptPresets).length) && seedPreset) {
-    if (!promptPresets['RP 基础（示例）']) {
-      promptPresets['RP 基础（示例）'] = JSON.parse(JSON.stringify(seedPreset));
-      prefs.currentPresetByMode = { ...(prefs.currentPresetByMode || {}), tavern: 'RP 基础（示例）' };
-      prefs.currentPreset = 'RP 基础（示例）';
-      changed = true;
-    }
-  }
-  if (changed) {
-    saveChars();
-    saveLore();
-    savePresets();
-    saveJSON(LS_PREFS, prefs);
-  }
-  return changed;
 }
 
 function ensureSessions() {
@@ -3254,7 +3214,7 @@ function ensureChars() {
     saveChars();
     return;
   }
-  // 无旧数据：不创建占位角色，交给 seedExamples 注入示例角色
+  // 无旧数据：不创建占位角色，由服务端首次初始化的内置角色卡决定内容
   currentCharId = null;
   localStorage.removeItem(LS_CURRENT_CHAR);
 }
@@ -3265,7 +3225,7 @@ function renderCharacter() {
     $('hdr-char-race').textContent = 'RPG 只使用世界存档中的玩家角色';
     return;
   }
-  // 兜底：角色库为空时由 init 注入示例；此处仅选当前角色
+  // 兜底：角色库为空时保持空状态；此处仅选当前角色
   let c = currentChar();
   if (!c && characters.length) {
     currentCharId = characters[0].id;
@@ -5229,6 +5189,7 @@ function setApiStatus(text, isErr = false) {
 }
 
 function openSettings() {
+  closeNavDrawer();
   fillSettingsForm();
   renderProfileSelect();
   $('settings-modal').classList.remove('hidden');
@@ -6210,11 +6171,26 @@ async function sendMessage() {
 /* ─────────── 视图切换 ─────────── */
 const VIEW_PLACEHOLDER = {};
 
+function syncModeNavigation(view = 'chat') {
+  const visibleButtons = [...document.querySelectorAll('.nav-item[data-view]')].filter(button => {
+    const group = button.closest('[data-mode-nav]');
+    return !group || group.dataset.modeNav === mode;
+  });
+  const activeView = visibleButtons.some(button => button.dataset.view === view) ? view : 'chat';
+  document.querySelectorAll('.nav-item[data-view]').forEach(button => {
+    const group = button.closest('[data-mode-nav]');
+    const visible = !group || group.dataset.modeNav === mode;
+    const active = visible && button.dataset.view === activeView;
+    button.classList.toggle('active', active);
+    if (active) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
+}
+
 function switchView(name) {
   closeNavDrawer(); // 手机抽屉：切换视图后自动收起
   renderDebugTerminal();
-  document.querySelectorAll('.nav-item[data-view]').forEach(b =>
-    b.classList.toggle('active', b.dataset.view === name));
+  syncModeNavigation(name);
   ['char-mgr', 'prompt-mgr', 'lore-mgr', 'memory-mgr', 'world-mgr'].forEach(id => { const el = $(id); if (el) el.classList.add('hidden'); });
   if (name === 'worlds') { openWorldLibrary(false); return; }
   if (name === 'chat') {
@@ -6276,14 +6252,15 @@ function applyLayout() {
 function applyMode(name) {
   if (worldTurnPending) discardWorldTurnPending();
   setRpgMobileDrawer('');
+  closeNavDrawer();
   mode = (name === 'rpg') ? 'rpg' : 'tavern';
   document.body.dataset.mode = mode;
   localStorage.setItem(LS_MODE, mode);
-  const btn = $('btn-mode-switch');
-  if (btn) {
+  document.querySelectorAll('.js-mode-switch').forEach(btn => {
     btn.querySelector('.icon').textContent = mode === 'rpg' ? '⚔' : '🍺';
-    btn.querySelector('.label').textContent = mode === 'rpg' ? '模式：RPG' : '模式：酒馆';
-  }
+    btn.querySelector('.mode-switch-label').textContent = mode === 'rpg' ? '模式：RPG' : '模式：酒馆';
+  });
+  syncModeNavigation('chat');
   if (mode === 'tavern') activateSessionScope();
   // 酒馆使用角色会话；RPG 只使用 WorldCard → WorldSave，不创建/激活普通角色会话。
   renderSessions();
@@ -6983,9 +6960,6 @@ function bindEvents() {
   });
   document.addEventListener('click', e => {
     if (!$('session-menu').contains(e.target)) $('session-menu').classList.add('hidden');
-    if (!$('floating-panel').contains(e.target) && !$('floating-toggle').contains(e.target)) {
-      $('floating-panel').classList.add('hidden');
-    }
   });
   $('session-menu-new').addEventListener('click', () => { newSession(); $('session-menu').classList.add('hidden'); });
   // 角色管理
@@ -7071,7 +7045,7 @@ function bindEvents() {
   $('debug-panel').addEventListener('cancel', e => { e.preventDefault(); closeDebugTerminal(); });
   $('debug-panel').addEventListener('click', e => { if (e.target === e.currentTarget) closeDebugTerminal(); });
   // 模式切换：刷新快捷行动与 RPG 面板
-  $('btn-mode-switch').addEventListener('click', switchMode);
+  document.querySelectorAll('.js-mode-switch').forEach(button => button.addEventListener('click', switchMode));
   renderQuickActions();
   // 世界库：当前存档接管 RPG 主链；旧 RPG 回合仍保留兼容出口
   $('world-refresh').addEventListener('click', async () => {
@@ -7190,7 +7164,12 @@ function bindEvents() {
     }
   });
   $('world-close').addEventListener('click', () => {
-    if (mode === 'rpg' && !worldModeActive()) { openWorldLibrary(false); return; }
+    if (mode === 'rpg' && !worldModeActive()) {
+      closeWorldLibrary();
+      renderMessages();
+      syncModeNavigation('chat');
+      return;
+    }
     closeWorldLibrary();
     switchView('chat');
   });
@@ -7201,10 +7180,6 @@ function bindEvents() {
   document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closeSettings));
   $('btn-test-image').addEventListener('click', testImageGen);
   $('settings-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeSettings(); });
-  $('floating-toggle').addEventListener('click', e => {
-    e.stopPropagation();
-    $('floating-panel').classList.toggle('hidden');
-  });
   $('btn-save-settings').addEventListener('click', () => { readSettingsForm(); closeSettings(); });
   $('btn-test').addEventListener('click', testConnection);
   $('btn-export').addEventListener('click', exportSettings);
@@ -7274,13 +7249,6 @@ function bindEvents() {
   // 回到对话
   document.querySelectorAll('[data-back-chat]').forEach(b =>
     b.addEventListener('click', () => switchView('chat')));
-  // 载入示例数据
-  $('btn-seed').addEventListener('click', async () => {
-    const changed = await seedExamples(true);
-    alert(changed ? '✅ 已载入示例数据（角色「莉莉」/ 世界书条目 / 提示词预设）' : '示例数据已存在');
-    renderCharList();
-    renderCharacter();
-  });
 }
 
 /* 服务预设 / 格式指令下拉：从 JSON 数据动态渲染，不写死选项 */
@@ -7304,8 +7272,8 @@ function renderFormatOptions() {
 
 /* ─────────── 启动 ─────────── */
 async function init() {
-  // 从 server 加载默认模板（服务预设 / 格式指令 / 偏好 / 示例），失败回退空结构
-  defaults = await fetchSeedTemplate();
+  // 从 server 加载默认模板（服务预设 / 格式指令 / 偏好），失败回退空结构
+  defaults = await fetchDefaults();
   if (!defaults) defaults = { characters: [], presets: {}, lorebooks: {}, settings: {}, prefs: {}, format: {}, providers: [] };
   providers = Array.isArray(defaults.providers) ? defaults.providers : [];
   formatInstructions = (defaults.format && typeof defaults.format === 'object') ? defaults.format : {};
@@ -7352,7 +7320,6 @@ async function init() {
     localStorage.removeItem(LS_CURRENT_CHAR);
     saveChars();
   }
-  await seedExamples(false);
   const presetsMigrated = ensurePromptPresetsV2();
   prefs.currentPresetByMode = { ...(prefs.currentPresetByMode || {}) };
   for (const targetMode of ['tavern', 'rpg']) {

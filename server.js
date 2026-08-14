@@ -5118,7 +5118,7 @@ const server = http.createServer((req, res) => {
   const dataMatch = url.pathname.match(/^\/api\/data\/(\w+)$/);
   if (dataMatch) {
     if (req.method === 'GET' && dataMatch[1] === 'seed') {
-      // 返回默认模板（示例数据 + 格式指令 + 服务预设 + 偏好），深拷贝避免引用污染
+      // 返回 _defaults.json 模板，深拷贝避免引用污染
       return send(res, 200, JSON.stringify(JSON.parse(JSON.stringify(loadDefaults()))));
     }
     if (req.method === 'GET') return handleDataGet(req, res, dataMatch[1]);

@@ -21,14 +21,20 @@
       </div>
       <div class="logo-sub">AI ROLEPLAY · 框架占位</div>
       <nav id="nav">
-        <button class="nav-item active" data-view="chat"><span class="icon">❖</span><span class="label">对话</span></button>
-        <button class="nav-item" data-view="chars"><span class="icon">🐾</span><span class="label">角色</span></button>
-        <button class="nav-item" data-view="prompts"><span class="icon">✍</span><span class="label">提示词</span></button>
-        <button class="nav-item" data-view="lore"><span class="icon">📖</span><span class="label">世界书</span></button>
-        <button class="nav-item" data-view="memory"><span class="icon">🧠</span><span class="label">记忆</span></button>
+        <div class="sidebar-mode-nav" data-mode-nav="tavern" aria-label="酒馆导航">
+          <button class="nav-item active" data-view="chat"><span class="icon">❖</span><span class="label">对话</span></button>
+          <button class="nav-item" data-view="chars"><span class="icon">🐾</span><span class="label">角色</span></button>
+          <button class="nav-item" data-view="prompts"><span class="icon">✍</span><span class="label">提示词</span></button>
+          <button class="nav-item" data-view="lore"><span class="icon">📖</span><span class="label">世界书</span></button>
+          <button class="nav-item" data-view="memory"><span class="icon">🧠</span><span class="label">记忆</span></button>
+        </div>
+        <div class="sidebar-mode-nav" data-mode-nav="rpg" aria-label="RPG 导航">
+          <button class="nav-item active" data-view="chat"><span class="icon">⚔</span><span class="label">工作台</span></button>
+          <button class="nav-item" data-view="worlds"><span class="icon">🗺</span><span class="label">世界与存档</span></button>
+        </div>
       </nav>
       <div class="sidebar-footer">
-        <button class="nav-item api-entry" id="btn-mode-switch"><span class="icon">🍺</span><span class="label">模式：酒馆</span></button>
+        <button class="nav-item api-entry js-mode-switch" id="btn-mode-switch"><span class="icon">🍺</span><span class="label mode-switch-label">模式：酒馆</span></button>
         <button class="nav-item api-entry js-settings"><span class="icon">🔮</span><span class="label">设置</span></button>
       </div>
     </aside>
@@ -60,9 +66,6 @@
         </div>
         <span id="rpg-world-save" class="rpg-world-save" hidden></span>
         <button class="ghost-btn" id="btn-debug" type="button" aria-controls="debug-panel" aria-expanded="false">⌘ 终端</button>
-        <div class="fm-wrap" id="floating-wrap">
-          <button class="ghost-btn" id="floating-toggle" title="界面设置">🏮</button>
-        </div>
       </header>
 
       <div id="chat" class="chat" aria-live="polite"></div>
@@ -160,7 +163,7 @@
     <div class="cm-edit">
       <div class="cm-edit-head">
         <span id="cm-edit-title">编辑角色</span>
-        <button class="ghost-btn" data-back-chat>回到对话</button>
+        <button class="ghost-btn back-action" data-back-chat>回到对话</button>
       </div>
       <div class="char-wizard" aria-labelledby="cw-title">
         <div class="cw-head">
@@ -188,7 +191,7 @@
         </section>
         <section class="cw-panel hidden" id="cw-panel-3">
           <div class="cw-done">完整 JSON 角色卡已生成，请检查下方内容后保存。</div>
-          <button class="ghost-btn small" id="cw-back-2">返回调整基本信息</button>
+          <button class="ghost-btn small back-action" id="cw-back-2">返回调整基本信息</button>
         </section>
         <div id="cm-ai-status" class="hint" aria-live="polite"></div>
       </div>
@@ -243,7 +246,7 @@
     <div class="cm-edit">
       <div class="cm-edit-head">
         <span id="pg-edit-title">编辑预设 / 全局默认</span>
-        <button class="ghost-btn" data-back-chat>回到对话</button>
+        <button class="ghost-btn back-action" data-back-chat>回到对话</button>
       </div>
       <div class="field">
         <label for="pg-active">当前模式使用的预设</label>
@@ -293,7 +296,7 @@
     <div class="cm-edit">
       <div class="cm-edit-head">
         <span id="lb-edit-title">世界书</span>
-        <button class="ghost-btn" data-back-chat>回到对话</button>
+        <button class="ghost-btn back-action" data-back-chat>回到对话</button>
       </div>
       <div class="field row2">
         <div class="field"><label for="lb-scan-depth">扫描深度 <span class="hint-inline">最近 N 条消息</span></label><input id="lb-scan-depth" type="number" min="0" max="50" value="6" /></div>
@@ -370,11 +373,18 @@
         <button class="ghost-btn" id="btn-nav-drawer-close" title="关闭">✕</button>
       </div>
       <nav class="nd-nav">
-        <button class="nav-item active" data-view="chat"><span class="icon">❖</span><span class="label">对话</span></button>
-        <button class="nav-item" data-view="chars"><span class="icon">🐾</span><span class="label">角色</span></button>
-        <button class="nav-item" data-view="prompts"><span class="icon">✍</span><span class="label">提示词</span></button>
-        <button class="nav-item" data-view="lore"><span class="icon">📖</span><span class="label">世界书</span></button>
-        <button class="nav-item" data-view="memory"><span class="icon">🧠</span><span class="label">记忆</span></button>
+        <div class="sidebar-mode-nav" data-mode-nav="tavern" aria-label="酒馆导航">
+          <button class="nav-item active" data-view="chat"><span class="icon">❖</span><span class="label">对话</span></button>
+          <button class="nav-item" data-view="chars"><span class="icon">🐾</span><span class="label">角色</span></button>
+          <button class="nav-item" data-view="prompts"><span class="icon">✍</span><span class="label">提示词</span></button>
+          <button class="nav-item" data-view="lore"><span class="icon">📖</span><span class="label">世界书</span></button>
+          <button class="nav-item" data-view="memory"><span class="icon">🧠</span><span class="label">记忆</span></button>
+        </div>
+        <div class="sidebar-mode-nav" data-mode-nav="rpg" aria-label="RPG 导航">
+          <button class="nav-item active" data-view="chat"><span class="icon">⚔</span><span class="label">工作台</span></button>
+          <button class="nav-item" data-view="worlds"><span class="icon">🗺</span><span class="label">世界与存档</span></button>
+        </div>
+        <button class="nav-item api-entry js-mode-switch" type="button"><span class="icon">🍺</span><span class="label mode-switch-label">模式：酒馆</span></button>
         <button class="nav-item api-entry js-settings"><span class="icon">🔮</span><span class="label">设置</span></button>
       </nav>
     </div>
@@ -418,14 +428,6 @@
   </div>
 
   <!-- ═══ 浮动控制面板 ═══ -->
-  <div id="floating-panel" class="hidden">
-    <div class="fm-actions">
-      <button class="btn gold small js-settings">🔮 设置</button>
-      <button class="ghost-btn" id="btn-seed">📦 载入示例</button>
-      <button class="ghost-btn" data-back-chat>回到对话</button>
-    </div>
-  </div>
-
   <!-- ═══ 设置弹窗（连接 / 格式） ═══ -->
   <div id="settings-modal" class="modal hidden">
     <div class="modal-box">
@@ -685,7 +687,7 @@
     <div class="cm-edit world-edit">
       <div class="cm-edit-head">
         <span id="world-edit-title">选择一个世界</span>
-        <button class="ghost-btn" id="world-close" type="button">关闭</button>
+        <button class="ghost-btn back-action" id="world-close" type="button">返回工作台</button>
       </div>
       <div id="world-empty" class="world-empty">
         <div class="world-empty-mark" aria-hidden="true">✧</div>
