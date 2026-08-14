@@ -10,6 +10,10 @@ const root = path.resolve(__dirname, '..');
 const MapGen = require(path.join(root, 'public', 'mapgen.js'));
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tavern-world-'));
 const defaults = JSON.parse(fs.readFileSync(path.join(root, 'public', 'data', '_defaults.json'), 'utf8'));
+// This suite exercises storage/versioning; keep its fixture's opening static so
+// revision assertions remain focused on the APIs under test. AI planning is
+// covered by check_player_creation.js.
+defaults.worlds[0].start = { ...(defaults.worlds[0].start || {}), openingMode: 'static' };
 defaults.worlds[0].npcIds = ['npc-lily'];
 defaults.worlds[0].npcs = [{ id: 'npc-lily', name: 'Lily', role: 'innkeeper', secrets: [{ id: 'story-secret', content: 'narrative content' }] }];
 defaults.worlds[0].locations.push({ id: 'region-2', name: 'Region Two', type: 'region' });

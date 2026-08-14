@@ -8,7 +8,7 @@ const path = require('path');
 const root = path.resolve(__dirname, '..');
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tavern-player-'));
 const defaults = JSON.parse(fs.readFileSync(path.join(root, 'public', 'data', '_defaults.json'), 'utf8'));
-assert.ok(defaults.rpg.stateInstruction.includes('"skills"'));
+assert.ok(defaults.rpg.stateInstruction.includes('player.skill.delta'));
 const world = defaults.worlds[0];
 world.conflicts.find(conflict => conflict.id === 'wolf-skirmish').actions.find(action => action.id === 'strike').check.target = 1;
 world.conflicts.find(conflict => conflict.id === 'gate-negotiation').actions.find(action => action.id === 'persuade').check.target = 1;
@@ -62,6 +62,9 @@ async function main() {
     assert.strictEqual(worldResponse.body.playerCreation.mode, 'custom');
     assert.ok(worldResponse.body.playerCreation.fields.some(field => field.id === 'name'));
     assert.ok(worldResponse.body.playerCreation.skills.some(skill => skill.id === 'scouting'));
+    assert.ok(Array.isArray(worldResponse.body.playerCreation.choices), 'choice schema is exposed by world card');
+    assert.ok(Array.isArray(worldResponse.body.playerCreation.initialInventory), 'initial inventory schema is exposed by world card');
+    assert.ok(Array.isArray(worldResponse.body.sessionSetup.fields), 'session setup schema is exposed by world card');
     assert.strictEqual(worldResponse.body.playerCreation.derived[0].formula, 'attributes.wits + attributes.spirit');
     assert.strictEqual(worldResponse.body.playerCreation.derived[1].formula, 'skills.scouting + attributes.wits');
     assert.strictEqual(worldResponse.body.events[0].trigger.at, 10);
@@ -78,6 +81,8 @@ async function main() {
       skills: { scouting: 4, empathy: 2 },
       resources: { hp: 24, mp: 8, gold: 30 },
       traits: ['keen-sense'],
+      choices: ['keen-sense'],
+      initialInventory: { 'wolf-fang': 1 },
       relations: { 'npc-lily': 25 },
     };
     const first = await jsonRequest(base, '/api/world-saves', {
@@ -89,6 +94,7 @@ async function main() {
     assert.deepStrictEqual(first.body.player.snapshot.attributes, validPlayer.attributes);
     assert.deepStrictEqual(first.body.player.snapshot.skills, validPlayer.skills);
     assert.deepStrictEqual(first.body.player.snapshot.traits, validPlayer.traits);
+    assert.deepStrictEqual(first.body.player.snapshot.choices, validPlayer.choices);
     assert.strictEqual(first.body.state.player.resources.hp, 24);
     assert.strictEqual(first.body.state.stats.hp, 24);
     assert.deepStrictEqual(first.body.state.equipment, { 'main-hand': 'iron-sword' });
@@ -101,13 +107,47 @@ async function main() {
     assert.strictEqual(first.body.state.factionStates['north-guild'].relation, 10);
     assert.strictEqual(first.body.state.factionStates['north-guild'].resources.funds, 30);
     assert.strictEqual(first.body.openingMode, 'ai');
+    assert.strictEqual(first.body.setup.status, 'planning', 'AI opening starts in planning state');
+    const saveList = await jsonRequest(base, '/api/world-saves?worldId=world-aurora');
+    assert.strictEqual(saveList.response.status, 200);
+    assert.strictEqual(saveList.body.find(item => item.id === first.body.id).setupStatus, 'planning');
+    const planningTurn = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'turn-before-opening', expectedRevision: first.body.revision, actionIntent: { raw: '直接开始' }, state: first.body.state, turns: [{ role: 'assistant', content: '不应提交。' }], options: [] }),
+    });
+    assert.strictEqual(planningTurn.response.status, 409, 'planning save rejects formal turns');
+    const invalidSetupGame = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}/setup`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'setup-invalid-game', expectedRevision: first.body.revision, game: { unknownRule: true }, plan: { locationId: 'wolf-tooth-inn', presentNpcIds: [] } }),
+    });
+    assert.strictEqual(invalidSetupGame.response.status, 400, 'unknown session setup fields are rejected');
+    const setupPlan = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}/setup`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'setup-plan-1', expectedRevision: first.body.revision, game: { difficulty: 'story', sandboxIntensity: 'guided', combatEnabled: true, worldAdvance: false, allowNewEntities: false }, plan: { locationId: 'wolf-tooth-inn', presentNpcIds: ['npc-lily'], situation: '雨夜抵达旅店', hook: '极光在北方天际闪烁', knownFacts: ['旅店暂时安全'], boundaries: ['不替玩家决定行动'], tone: '克制而有悬念', time: { era: '星历 742 年', date: '霜月 12 日', period: '黄昏', value: 12 }, event: { mode: 'manual', title: '雨夜抵达', description: '玩家刚刚抵达旅店。' }, npcContexts: [{ npcId: 'npc-lily', relationship: '初次见面', currentGoal: '维持旅店秩序', currentState: '正在擦拭杯子', knowsPlayer: false, playerKnowsTruth: false }], preGameFacts: [{ id: 'arrival', scope: 'player-visible', content: '玩家刚抵达边境', confidence: 'confirmed' }], knowledge: { worldTruth: ['北方极光提前出现'], characterKnowledge: ['玩家正在寻找落脚处'], playerVisible: ['旅店暂时安全'], hidden: ['山脊下有裂隙'], rumors: ['有人说夜里听见了狼嚎'] }, initialHook: { id: 'find-room', title: '找到住宿', description: '只是一个可选的起点', optional: true } } }),
+    });
+    assert.strictEqual(setupPlan.response.status, 200, 'opening plan is saved independently');
+    assert.strictEqual(setupPlan.body.setup.status, 'planning');
+    assert.strictEqual(setupPlan.body.setup.plan.hook, '极光在北方天际闪烁');
+    assert.strictEqual(setupPlan.body.setup.game.difficulty, 'story');
+    const openingCandidate = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}/opening-candidate`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'opening-candidate-1', expectedRevision: setupPlan.body.revision, candidate: { narrative: '你在雨幕中推开旅店的门，炉火映出一张陌生的地图。', options: ['观察炉火', '询问店主', '查看地图', '走向窗边'] } }),
+    });
+    assert.strictEqual(openingCandidate.response.status, 200, 'opening candidate is persisted independently');
+    assert.strictEqual(openingCandidate.body.setup.status, 'planning');
+    assert.strictEqual(openingCandidate.body.setup.candidate.commandId, 'opening-candidate-1');
+    assert.strictEqual(openingCandidate.body.openingCommandId, null, 'candidate does not commit the formal opening');
     const opening = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}/opening`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ commandId: 'opening-check-1', expectedRevision: first.body.revision, opening: '你在雨幕中推开旅店的门。', options: ['观察炉火', '询问店主', '查看地图', '走向窗边'] }),
+      body: JSON.stringify({ commandId: 'opening-check-1', candidateCommandId: 'opening-candidate-1', expectedRevision: openingCandidate.body.revision, opening: '你在雨幕中推开旅店的门。', options: ['观察炉火', '询问店主', '查看地图', '走向窗边'] }),
     });
     assert.strictEqual(opening.response.status, 200);
     assert.strictEqual(opening.body.opening, '你在雨幕中推开旅店的门。');
     assert.deepStrictEqual(opening.body.openingOptions, ['观察炉火', '询问店主', '查看地图', '走向窗边']);
+    assert.strictEqual(opening.body.state.openingScenario.time.era, '星历 742 年');
+    assert.deepStrictEqual(opening.body.state.knownInformation.hidden, ['山脊下有裂隙']);
+    assert.strictEqual(opening.body.state.activeHooks[0].optional, true);
+    assert.strictEqual(opening.body.npcStates['npc-lily'].openingContext.currentGoal, '维持旅店秩序');
     const openingRetry = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}/opening`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ commandId: 'opening-check-1', expectedRevision: first.body.revision, opening: 'different', options: ['a', 'b', 'c', 'd'] }),
@@ -122,11 +162,11 @@ async function main() {
     });
     assert.strictEqual(freeTurn.response.status, 200, 'world card can allow zero suggestions');
     assert.strictEqual(freeTurn.body.turns.at(-2).actionIntent.raw, '攻击灰狼并说服守卫');
-    assert.strictEqual(freeTurn.body.state.time.value, 9, 'server advances world time once per committed turn');
+    assert.strictEqual(freeTurn.body.state.time.value, 13, 'server advances configured world time once per committed turn');
     assert.strictEqual(freeTurn.body.state.goals[0].status, 'failed', 'expired goals fail after the server advances time');
     assert.strictEqual(freeTurn.body.state.goals[0].deadlineStatus, 'expired');
     assert.deepStrictEqual(freeTurn.body.receipts.at(-1).deadlineIds, ['goals:deadline-goal']);
-    assert.deepStrictEqual(freeTurn.body.state.worldEvents.map(event => event.eventId), ['inn-echo', 'faction-north-guild-patrol-pass']);
+    assert.deepStrictEqual(freeTurn.body.state.worldEvents.map(event => event.eventId), ['aurora-omen', 'inn-echo', 'faction-north-guild-patrol-pass']);
     assert.strictEqual(freeTurn.body.state.factionStates['north-guild'].relation, 12);
     assert.strictEqual(freeTurn.body.state.factionStates['north-guild'].resources.funds, 25);
     assert.deepStrictEqual(freeTurn.body.receipts.at(-1).factionActionIds, ['north-guild:patrol-pass']);
@@ -161,8 +201,8 @@ async function main() {
       body: JSON.stringify({ commandId: 'turn-check-3', expectedRevision: freeTurn.body.revision, actionIntent: { raw: '继续观察' }, state: { ...freeTurn.body.state, currencies: { ...freeTurn.body.state.currencies, gold: 35 }, conflicts: { ...freeTurn.body.state.conflicts, 'wolf-encounter-1': { ...freeTurn.body.state.conflicts['wolf-encounter-1'], status: 'resolved', outcome: 'victory', actionId: 'strike' } }, player: { ...freeTurn.body.state.player, attributes: { ...freeTurn.body.state.player.attributes, might: 4 }, skills: { ...freeTurn.body.state.player.skills, scouting: 5 } }, goals: [{ id: 'find-aurora', title: '查明极光异动', desc: '找到山脊上的异常光源。', status: 'active', locationId: 'wolf-tooth-inn' }], leads: [{ id: 'inn-rumor', title: '旅店传闻', desc: '有人听见山脊方向的回响。', status: 'active', locationId: 'wolf-tooth-inn' }] }, turns: [{ role: 'user', content: '继续观察', ts: Date.now() }, { role: 'assistant', content: '极光忽然亮起。', ts: Date.now() }], options: [] }),
     });
     assert.strictEqual(eventTurn.response.status, 200);
-    assert.strictEqual(eventTurn.body.state.time.value, 10);
-    assert.deepStrictEqual(eventTurn.body.state.worldEvents.map(event => event.eventId), ['inn-echo', 'faction-north-guild-patrol-pass', 'aurora-omen']);
+    assert.strictEqual(eventTurn.body.state.time.value, 14);
+    assert.deepStrictEqual(eventTurn.body.state.worldEvents.map(event => event.eventId), ['aurora-omen', 'inn-echo', 'faction-north-guild-patrol-pass']);
     assert.deepStrictEqual(eventTurn.body.receipts.at(-1).factionActionIds, [], 'faction action does not repeat on later turns');
     assert.strictEqual(eventTurn.body.state.goals[0].id, 'find-aurora');
     assert.strictEqual(eventTurn.body.state.leads[0].id, 'inn-rumor');
@@ -171,7 +211,7 @@ async function main() {
     assert.strictEqual(eventTurn.body.state.currencies.gold, 35);
     assert.strictEqual(eventTurn.body.state.conflicts['wolf-encounter-1'].status, 'resolved');
     assert.strictEqual(eventTurn.body.receipts.at(-1).conflictTransitions[0].op, 'end');
-    assert.deepStrictEqual(eventTurn.body.receipts.at(-1).eventIds, ['aurora-omen']);
+    assert.deepStrictEqual(eventTurn.body.receipts.at(-1).eventIds, []);
     const invalidConflictReopen = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ commandId: 'turn-check-conflict-reopen', expectedRevision: eventTurn.body.revision, actionIntent: { raw: '重开冲突' }, state: { ...eventTurn.body.state, conflicts: { ...eventTurn.body.state.conflicts, 'wolf-encounter-1': { ...eventTurn.body.state.conflicts['wolf-encounter-1'], status: 'active', round: 3, outcome: null } } }, turns: [{ role: 'assistant', content: '拒绝。' }], options: [] }),
@@ -214,10 +254,20 @@ async function main() {
     assert.strictEqual(second.body.state.factionStates['north-guild'].relation, 10, 'faction relation is isolated per save');
     assert.strictEqual(second.body.state.factionStates['north-guild'].resources.funds, 30, 'faction resources are isolated per save');
     assert.strictEqual(first.body.player.snapshot.name, '澪', 'first save remains isolated');
+    const secondPlan = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(second.body.id)}/setup`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'setup-plan-2', expectedRevision: second.body.revision, plan: { locationId: 'wolf-tooth-inn', presentNpcIds: [], situation: '焰抵达旅店', hook: '极光在北方闪烁', knownFacts: [], boundaries: [], tone: '悬疑' } }),
+    });
+    assert.strictEqual(secondPlan.response.status, 200);
+    const secondOpening = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(second.body.id)}/opening`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'opening-check-2', expectedRevision: secondPlan.body.revision, opening: '焰在雨幕中推开旅店的门。', options: ['观察炉火', '询问店主', '查看地图', '走向窗边'] }),
+    });
+    assert.strictEqual(secondOpening.response.status, 200, 'second save also commits its own opening before turns');
 
     const secondProposal = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(second.body.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ commandId: 'growth-propose-2', expectedRevision: second.body.revision, actionIntent: { raw: '探索山脊' }, state: { ...second.body.state, growthCandidates: [{ id: 'growth-test-identity', candidateId: 'ridge-title', sourceId: 'exploration', reason: '完成山脊探索', status: 'proposed' }, { id: 'growth-test-trait', candidateId: 'steady-hand-training', sourceId: 'training', reason: '训练后保持专注', status: 'proposed' }] }, turns: [{ role: 'assistant', content: '你在山脊发现了极光。' }], options: [] }),
+      body: JSON.stringify({ commandId: 'growth-propose-2', expectedRevision: secondOpening.body.revision, actionIntent: { raw: '探索山脊' }, state: { ...secondOpening.body.state, growthCandidates: [{ id: 'growth-test-identity', candidateId: 'ridge-title', sourceId: 'exploration', reason: '完成山脊探索', status: 'proposed' }, { id: 'growth-test-trait', candidateId: 'steady-hand-training', sourceId: 'training', reason: '训练后保持专注', status: 'proposed' }] }, turns: [{ role: 'assistant', content: '你在山脊发现了极光。' }], options: [] }),
     });
     assert.strictEqual(secondProposal.response.status, 200);
     const growthReject = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(second.body.id)}/growth`, {

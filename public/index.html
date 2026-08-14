@@ -831,6 +831,8 @@
           <div class="world-draft-player-advanced"><button class="ghost-btn small" id="world-draft-player-validate-json" type="button">校验 JSON</button><button class="ghost-btn small" id="world-draft-player-load-json" type="button">从高级 JSON 载入编辑器</button><span class="hint-inline">先校验；点击载入后才替换可视化草稿，非法 JSON 不会覆盖最近有效内容</span></div>
           <label class="world-draft-player-preview-label" for="world-draft-player-preview">建角规则预览</label>
           <pre id="world-draft-player-preview" class="world-draft-player-preview" aria-live="polite"></pre>
+          <label for="world-draft-session-setup">本局游戏配置 Schema <span class="hint-inline">JSON；每个存档可独立选择</span></label>
+          <textarea id="world-draft-session-setup" name="worldDraftSessionSetup" rows="6" maxlength="20000" spellcheck="false" placeholder='{"title":"本局游戏配置","fields":[{"id":"difficulty","label":"难度","type":"select","options":[{"value":"standard","label":"标准"}],"default":"standard"}]}'></textarea>
           <div id="world-draft-growth-schema" class="world-draft-growth-schema" aria-label="成长规则条目">
             <section class="world-draft-rule-collection" aria-labelledby="world-draft-growth-sources-title">
               <div class="world-draft-collection-head"><div><h3 id="world-draft-growth-sources-title">成长来源</h3><p>训练、学习、探索、关系、事件或自定义来源。</p></div><button class="ghost-btn small" type="button" data-world-add="growthSources">＋成长来源</button></div>
@@ -998,6 +1000,81 @@
         <span class="world-draft-action-spacer" aria-hidden="true"></span>
         <button class="ghost-btn" id="world-player-cancel" type="button">取消</button>
         <button class="btn gold" id="world-player-create" type="submit">创建并打开存档</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="world-opening-dialog" class="world-draft-dialog world-opening-dialog" aria-labelledby="world-opening-title">
+    <form id="world-opening-form" class="world-draft-card">
+      <header class="world-draft-head">
+        <div>
+          <p class="world-eyebrow">WORLD SAVE · OPENING PLAN</p>
+          <h2 id="world-opening-title">规划你的开局</h2>
+          <p id="world-opening-intro" class="world-draft-base">先确定舞台与开场，再进入正式世界线。</p>
+        </div>
+        <button class="ghost-btn small" id="world-opening-close" type="button" aria-label="关闭开局规划">✕</button>
+      </header>
+      <div class="world-draft-body world-opening-body">
+        <nav class="world-setup-stepper" aria-label="开局配置步骤">
+          <span class="is-done">01 角色</span><span class="is-active">02 游戏配置</span><span>03 开场方案</span><span>04 确认</span>
+        </nav>
+        <section class="world-setup-card" aria-labelledby="world-opening-character-title">
+          <div class="world-opening-step"><span class="world-opening-step-no">01</span><div><strong id="world-opening-character-title">本局 RP 角色</strong><p id="world-opening-character-summary">角色快照只属于当前存档。</p></div><button class="ghost-btn small" id="world-opening-edit-player" type="button">编辑角色</button></div>
+          <div id="world-opening-character-fields" class="world-player-fields world-opening-character-fields"></div>
+        </section>
+        <section class="world-setup-card" aria-labelledby="world-session-config-title">
+          <div class="world-opening-step"><span class="world-opening-step-no">02</span><div><strong id="world-session-config-title">世界与游戏规则</strong><p>世界卡、世界书和 RPG Preset 提供稳定底座；以下只保存本局选择。</p></div></div>
+          <div id="world-session-binding" class="world-session-binding"></div>
+          <div id="world-session-fields" class="world-session-fields"></div>
+        </section>
+        <div class="world-opening-step"><span class="world-opening-step-no">03</span><div><strong>规划故事开场</strong><p>这些内容只绑定当前存档，不会改写世界卡。</p></div></div>
+        <label class="field"><span>起始地点</span><select id="world-opening-location"></select></label>
+        <label class="field"><span>在场 NPC（可多选）</span><div id="world-opening-npcs" class="world-opening-checks"></div></label>
+        <div id="world-opening-npc-contexts" class="world-opening-npc-contexts"></div>
+        <div class="field row2">
+          <label class="field"><span>世界纪年 / 时代</span><input id="world-opening-era" maxlength="240" placeholder="例如：星历 742 年·裂隙期" /></label>
+          <label class="field"><span>日期 / 时间段</span><input id="world-opening-date" maxlength="240" placeholder="例如：霜月 12 日·黄昏" /></label>
+        </div>
+        <label class="field"><span>精确时间值（可选）</span><input id="world-opening-time-value" type="number" min="0" max="1000000000" step="any" inputmode="decimal" placeholder="沿用世界卡时间" /></label>
+        <div class="field row2">
+          <label class="field"><span>当前局面</span><textarea id="world-opening-situation" rows="3" maxlength="4000" placeholder="此刻正在发生什么？"></textarea></label>
+          <label class="field"><span>开场钩子</span><textarea id="world-opening-hook" rows="3" maxlength="4000" placeholder="玩家马上会注意到什么？"></textarea></label>
+        </div>
+        <div class="field row2">
+          <label class="field"><span>开场事件类型</span><select id="world-opening-event-mode"><option value="manual">手动配置</option><option value="template">世界卡模板</option><option value="ai">AI 辅助生成</option><option value="random">随机 Sandbox</option></select></label>
+          <label class="field"><span>事件标题</span><input id="world-opening-event-title" maxlength="240" placeholder="为什么故事从这里开始？" /></label>
+        </div>
+        <label class="field"><span>开场事件说明</span><textarea id="world-opening-event-description" rows="3" maxlength="2000" placeholder="抵达、任务、突发事件、日常或自由 Sandbox…"></textarea></label>
+        <div class="field row2">
+          <label class="field"><span>前置历史（每行一条）</span><textarea id="world-opening-pregame-facts" rows="4" maxlength="12000" placeholder="scope|事实，例如：player-visible|你刚抵达边境"></textarea></label>
+          <label class="field"><span>知识权限（JSON，可选）</span><textarea id="world-opening-knowledge" rows="4" maxlength="16000" spellcheck="false" placeholder='{"worldTruth":[],"characterKnowledge":[],"playerVisible":[],"hidden":[],"rumors":[]}'></textarea></label>
+        </div>
+        <div class="field row2">
+          <label class="field"><span>初始目标 / Hook 标题（可选）</span><input id="world-opening-hook-title" maxlength="240" placeholder="例如：找到住宿" /></label>
+          <label class="field"><span>目标说明</span><input id="world-opening-hook-description" maxlength="2000" placeholder="只是推动第一批事件，不是强制主线" /></label>
+        </div>
+        <div class="field row2">
+          <label class="field"><span>已知事实（每行一条）</span><textarea id="world-opening-facts" rows="3" maxlength="8000" placeholder="玩家已知的事实"></textarea></label>
+          <label class="field"><span>边界与禁区（每行一条）</span><textarea id="world-opening-boundaries" rows="3" maxlength="8000" placeholder="不要替玩家决定的内容"></textarea></label>
+        </div>
+        <label class="field"><span>叙事基调</span><input id="world-opening-tone" maxlength="500" placeholder="例如：克制、悬疑、日常感" /></label>
+        <div class="world-opening-step"><span class="world-opening-step-no">04</span><div><strong>确认并初始化世界</strong><p>候选可以编辑或重新生成；确认后才会写入正式时间线与 Save State。</p></div></div>
+        <section class="world-setup-card world-setup-confirm-card" aria-labelledby="world-opening-confirm-title">
+          <div class="world-opening-step"><span class="world-opening-step-no">✓</span><div><strong id="world-opening-confirm-title">确认本局设定</strong><p>以下摘要来自当前存档草稿；正式开始前仍可返回修改。</p></div></div>
+          <div id="world-opening-confirm-summary" class="world-opening-confirm-summary"></div>
+        </section>
+        <div id="world-opening-candidate" class="world-opening-candidate" hidden>
+          <label class="field"><span>开场叙事</span><textarea id="world-opening-narrative" rows="8" maxlength="100000"></textarea></label>
+          <div class="world-opening-options"><label class="field"><span>行动选项 1</span><input data-opening-option="0" maxlength="500" /></label><label class="field"><span>行动选项 2</span><input data-opening-option="1" maxlength="500" /></label><label class="field"><span>行动选项 3</span><input data-opening-option="2" maxlength="500" /></label><label class="field"><span>行动选项 4</span><input data-opening-option="3" maxlength="500" /></label></div>
+        </div>
+        <p id="world-opening-status" class="world-draft-status" role="status" aria-live="polite"></p>
+      </div>
+      <footer class="world-draft-actions">
+        <button class="ghost-btn" id="world-opening-cancel" type="button">稍后规划</button>
+        <span class="world-draft-action-spacer"></span>
+        <button class="ghost-btn" id="world-opening-regenerate" type="button" hidden>重新生成</button>
+        <button class="btn gold" id="world-opening-save" type="submit">保存规划并生成开场</button>
+        <button class="btn gold" id="world-opening-confirm" type="button" hidden>确认并进入世界</button>
       </footer>
     </form>
   </dialog>

@@ -118,12 +118,12 @@
       "inventory": [],
       "quests": []
     },
-    "stateInstruction": "⚠️ 强制要求：每次回复必须以 ```rpg``` 代码块结尾，options 字段必须给出恰好 4 个玩家可执行的行动选项（即使状态无变化也必须给出）。\n```rpg 代码块内 JSON：{\"options\":[\"行动选项1\",\"行动选项2\",\"行动选项3\",\"行动选项4\"],\"hp\":相对增减数字或null,\"maxHp\":相对增减或null,\"mp\":相对增减或null,\"maxMp\":相对增减或null,\"gold\":相对增减或null,\"level\":相对增减或null,\"exp\":相对增减或null,\"location\":\"新位置或null\",\"buffs\":[\"状态效果\"]或null,\"player\":{\"attributes\":{\"属性 ID\":相对增减数字},\"skills\":{\"技能 ID\":相对增减数字},\"resources\":{\"资源 ID\":相对增减数字}}或null,\"currencies\":{\"货币 ID\":相对增减数字}或null,\"equipment\":{\"装备位 ID\":\"物品 ID 或 null\"}或null,\"inventory\":[{\"itemId\":\"物品 ID 或 null\",\"name\":\"道具名\",\"count\":数量,\"add\":true或false,\"desc\":\"描述\"}]或null,\"conflicts\":[{\"id\":\"冲突实例 ID\",\"op\":\"start|advance|end\",\"templateId\":\"世界卡冲突模板 ID\",\"status\":\"active|resolved|fled|failed\",\"phase\":\"阶段 ID 或 null\",\"round\":轮次,\"actionId\":\"动作 ID 或 null\",\"targetId\":\"目标实体 ID 或 null\",\"participants\":[{\"id\":\"实体 ID\",\"role\":\"角色\",\"hp\":当前 HP,\"maxHp\":最大 HP,\"defense\":防御值}],\"objectives\":[{\"id\":\"目标 ID\",\"title\":\"目标\",\"status\":\"active|done|failed\"}],\"availableActions\":[\"动作 ID\"],\"outcome\":\"结果 ID 或 null\",\"consequences\":[\"后果\"]}]或null,\"quests\":[{\"title\":\"标题\",\"desc\":\"内容\",\"status\":\"active或done\"}]或null,\"goals\":[{\"id\":\"稳定 ID\",\"title\":\"标题\",\"desc\":\"描述\",\"status\":\"active|done|failed|paused\",\"locationId\":\"地点 ID 或 null\"}]或null,\"leads\":[{\"id\":\"稳定 ID\",\"title\":\"标题\",\"desc\":\"描述\",\"status\":\"active|done|failed|paused\",\"locationId\":\"地点 ID 或 null\"}]或null}。\n正数增加、负数减少、null 不变；无变更时输出 {\"options\":[\"行动选项1\",\"行动选项2\",\"行动选项3\",\"行动选项4\"],\"hp\":null}。\n道具、任务、目标与线索必须由当前剧情合理产出；货币、装备位与物品 ID 只能使用当前世界卡已声明的规则，冲突只能按 start/advance/end 生命周期推进，不能重新打开已结束冲突；冲突中的攻击由服务端按模板 check 执行 d20 + 属性修正 对抗目标防御/target，命中后服务端才掷伤害骰并扣除目标 HP，AI 不得伪造攻击、伤害或参与者 HP；攻击行动必须填写 targetId。玩家动态属性 / 技能 / 资源只能使用当前世界卡已声明的 ID，数值为相对变化，禁止凭空添加。背包受世界卡的格数与重量限制。除叙事正文与唯一一个 ```rpg``` 块外不要输出其他内容。",
+    "stateInstruction": "⚠️ 强制要求：每次回复必须以唯一一个 <tavern_state_update> JSON 更新块结尾。块内必须使用 protocol=\"tavern.rpg.turn\"、version=1、当前存档 revision；options 必须给出恰好 4 个玩家可执行的行动选项（即使状态无变化也必须给出）。格式：<tavern_state_update>{\"protocol\":\"tavern.rpg.turn\",\"version\":1,\"baseRevision\":当前 revision,\"updates\":[{\"type\":\"player.resource.delta\",\"id\":\"资源 ID\",\"delta\":数字}],\"options\":[\"行动选项1\",\"行动选项2\",\"行动选项3\",\"行动选项4\"],\"eventMemory\":[],\"createEntities\":[]}</tavern_state_update>。允许的 updates：player.resource.delta、player.attribute.delta、player.skill.delta、currency.delta、inventory.delta、location.set、effect.add、effect.remove、objective.status；只使用当前世界卡已声明的 ID，数值是增量，状态无变化时 updates=[]。inventory.delta 只能增减已声明物品，location.set 只能使用已登记地点，objective.status 只能更新已存在目标；不得提交任意路径、完整 state、冲突 HP 或服务端判定结果。叙事正文必须使用 Markdown，先发生的变化才可写入更新块；不要输出标签外的解释、隐藏推理或额外代码块。",
     "eventMemoryInstruction": "长期事件记忆是可选的 AI 候选；只有本回合已经在叙事中发生、且值得未来回忆的事件才填写 eventMemory。格式：eventMemory:[{\"summary\":\"已发生事件的简短事实\",\"entityIds\":[\"当前世界/存档中的实体 ID\"],\"locationId\":\"当前世界已登记地点 ID 或 null\",\"time\":{\"unit\":\"时间单位\",\"value\":数字},\"visibility\":\"public|local|hidden\"}]。不要写未发生的计划、推测或其他存档事实；服务端会在正式提交后绑定来源回合、来源事件和 revision，AI 不能填写或伪造这些来源字段。没有值得长期记忆的事件时输出 eventMemory:[]。",
     "noOptions": "（等待 AI 给出行动选项…可先描述你的行动）",
     "exampleTurn": {
       "user": "我沿着泥泞的小径前行，看到一头灰毛野狼挡住去路。",
-      "assistant": "你沿着泥泞的小径前行，两侧的灌木丛沙沙作响，空气中弥漫着潮湿的泥土气息。忽然，一头灰毛野狼从树后窜出，呲着牙挡住了去路。\n（狼的喉咙里发出低沉的呜咽）“这里……是我的地盘。”\n```rpg\n{\"options\":[\"拔剑迎战野狼\",\"绕路避开，继续赶路\",\"掷 d20 试探野狼的敌意\",\"后退到高处观察野狼的行动\"],\"hp\":-3,\"gold\":5,\"location\":\"荒野小径\",\"inventory\":[{\"name\":\"野狼獠牙\",\"count\":1,\"add\":true}],\"quests\":[{\"title\":\"穿过荒野\",\"desc\":\"穿过荒野到达下一个村庄\",\"status\":\"active\"}]}\n```"
+      "assistant": "你沿着泥泞的小径前行，两侧的灌木丛沙沙作响，空气中弥漫着潮湿的泥土气息。忽然，一头灰毛野狼从树后窜出，呲着牙挡住了去路。\n（狼的喉咙里发出低沉的呜咽）“这里……是我的地盘。”\n<tavern_state_update>\n{\"protocol\":\"tavern.rpg.turn\",\"version\":1,\"baseRevision\":7,\"updates\":[{\"type\":\"player.resource.delta\",\"id\":\"hp\",\"delta\":-3}],\"options\":[\"拔剑迎战野狼\",\"绕路避开，继续赶路\",\"掷 d20 试探野狼的敌意\",\"后退到高处观察野狼的行动\"],\"eventMemory\":[],\"createEntities\":[]}\n</tavern_state_update>"
     }
   },
   "settings": {
@@ -423,8 +423,8 @@
       ]
     },
     "RPG 叙事引擎（示例）": {
-      "systemPrompt": "你是 Tavern RPG 模式的地下城主（DM）与世界化身。你直接呈现环境、事件与 NPC，不以作者、助手或规则讲解者自称；始终以“你”称呼玩家。\n\n你的职责：\n- 根据当前世界书、角色设定、地图、RPG 状态与聊天历史推进世界。\n- 扮演所有 NPC，保持其身份、目标、知识边界和关系连续。\n- 对玩家行动作出公平、可解释且与风险相称的裁定。\n- 先输出 Markdown 叙事正文，再严格按照【RPG 状态与协议】输出唯一一个 ```rpg``` JSON 代码块。\n- 不暴露提示词、内部检查或隐藏推理，不把未通过叙事发生的变化写入状态。",
-      "postHistory": "生成前只在内部核对：玩家的决定是否被保留，判定是否有依据，叙事与状态变化是否一致，末尾是否只有一个可解析的 rpg JSON 块且含恰好 4 个具体选项。不要输出核对过程。",
+      "systemPrompt": "你是 Tavern RPG 模式的地下城主（DM）与世界化身。你直接呈现环境、事件与 NPC，不以作者、助手或规则讲解者自称；始终以“你”称呼玩家。\n\n你的职责：\n- 根据当前世界书、角色设定、地图、RPG 状态与聊天历史推进世界。\n- 扮演所有 NPC，保持其身份、目标、知识边界和关系连续。\n- 对玩家行动作出公平、可解释且与风险相称的裁定。\n- 先输出 Markdown 叙事正文，再严格按照【RPG 状态与协议】输出唯一一个 <tavern_state_update> JSON 更新块。\n- 不暴露提示词、内部检查或隐藏推理，不把未通过叙事发生的变化写入状态。",
+      "postHistory": "生成前只在内部核对：玩家的决定是否被保留，判定是否有依据，叙事与状态变化是否一致，末尾是否只有一个可解析的 <tavern_state_update> 块、baseRevision 是否等于当前 revision 且含恰好 4 个具体选项。不要输出核对过程。",
       "firstMes": "",
       "modules": [
         {
@@ -522,6 +522,16 @@
         "traits": [
           { "id": "keen-sense", "label": "敏锐感知", "description": "更容易发现环境中的细节。" },
           { "id": "steady-hand", "label": "稳健之手", "description": "在紧张场面中保持专注。" }
+        ],
+        "choiceBudget": { "label": "天赋点", "total": 2, "min": 0 },
+        "choices": [
+          { "id": "keen-sense", "label": "敏锐感知", "kind": "talent", "cost": 1, "description": "更容易发现环境中的细节。" },
+          { "id": "steady-hand", "label": "稳健之手", "kind": "ability", "cost": 1, "description": "在紧张场面中保持专注。" },
+          { "id": "restless-past", "label": "不安的过去", "kind": "flaw", "cost": 0, "description": "过去的债务会在合适的时机追上你。" }
+        ],
+        "initialInventory": [
+          { "itemId": "wolf-fang", "label": "野狼獠牙", "count": 1 },
+          { "itemId": "iron-sword", "label": "铁剑", "count": 1 }
         ],
         "economy": {
           "inventory": {
@@ -677,6 +687,13 @@
       },
       "lorebookIds": [],
       "rpgPresetName": "RPG 叙事引擎（示例）",
+      "sessionSetup": { "title": "本局游戏配置", "fields": [
+        { "id": "difficulty", "label": "难度", "type": "select", "options": [{ "value": "story", "label": "故事" }, { "value": "standard", "label": "标准" }, { "value": "hard", "label": "严酷" }], "default": "standard" },
+        { "id": "sandboxIntensity", "label": "Sandbox 强度", "type": "select", "options": [{ "value": "guided", "label": "引导" }, { "value": "open", "label": "开放" }, { "value": "chaotic", "label": "高变" }], "default": "open" },
+        { "id": "combatEnabled", "label": "启用数值 / 战斗系统", "type": "boolean", "default": true },
+        { "id": "worldAdvance", "label": "世界主动推进", "type": "boolean", "default": true },
+        { "id": "allowNewEntities", "label": "允许 AI 创建新 NPC / 地点 / 事件", "type": "boolean", "default": true }
+      ] },
       "npcIds": [],
       "factionIds": [],
       "factions": [],
@@ -764,7 +781,7 @@
       "time": { "unit": "hour", "start": 18, "turnAdvance": 1 },
       "events": [{ "id": "harbor-blackout", "title": "港区停电", "description": "灰港的灯光突然熄灭，所有证词都变得可疑。", "trigger": { "afterTurns": 3 }, "visibility": "public", "once": true, "consequences": ["夜间调查的风险上升。"] }],
       "start": { "locationId": "grey-dock", "openingMode": "static", "opening": "雾从灰港的水面升起，一盏盏路灯在远处熄灭。", "playerTemplate": { "name": "未命名调查员", "race": "人类", "role": "调查员", "profileFields": [] }, "initialState": { "stats": { "level": 1, "exp": 0, "expNext": 100, "hp": 12, "maxHp": 12, "mp": 1, "maxMp": 1, "gold": 50, "buffs": [] }, "inventory": [], "quests": [] } },
-      "lorebookIds": [], "rpgPresetName": "RPG 现代调查", "npcIds": [], "factionIds": [], "factions": [], "itemIds": [], "questTemplateIds": [], "locations": [{ "id": "grey-dock", "name": "灰港码头", "type": "district" }], "map": { "strategy": "perSave", "baseMapId": null, "generation": { "seed": 22001, "size": 96, "regionCount": 8, "landRatio": 0.5, "mapgenSize": "small" } }, "ui": { "layout": "world-desk" }, "source": { "format": "native", "rawAssetRef": null }
+      "lorebookIds": [], "rpgPresetName": "RPG 现代调查", "sessionSetup": { "title": "本局调查配置", "fields": [{ "id": "difficulty", "label": "调查压力", "type": "select", "options": [{ "value": "steady", "label": "从容" }, { "value": "standard", "label": "标准" }, { "value": "tense", "label": "紧张" }], "default": "standard" }, { "id": "worldAdvance", "label": "城市局势主动推进", "type": "boolean", "default": true }] }, "npcIds": [], "factionIds": [], "factions": [], "itemIds": [], "questTemplateIds": [], "locations": [{ "id": "grey-dock", "name": "灰港码头", "type": "district" }], "map": { "strategy": "perSave", "baseMapId": null, "generation": { "seed": 22001, "size": 96, "regionCount": 8, "landRatio": 0.5, "mapgenSize": "small" } }, "ui": { "layout": "world-desk" }, "source": { "format": "native", "rawAssetRef": null }
     },
     {
       "schemaVersion": 1,
@@ -814,7 +831,7 @@
       "time": { "unit": "cycle", "start": 1, "turnAdvance": 1 },
       "events": [{ "id": "unknown-pulse", "title": "未知脉冲", "description": "空间站收到一段不属于任何登记航线的信号。", "trigger": { "afterTurns": 2 }, "visibility": "public", "once": true, "consequences": ["所有终端短暂出现同一组坐标。"] }],
       "start": { "locationId": "ring-station", "openingMode": "static", "opening": "星环航站的人工重力刚刚恢复，所有终端同时亮起一组陌生坐标。", "playerTemplate": { "name": "未命名航员", "race": "人类", "role": "维修员", "profileFields": [] }, "initialState": { "stats": { "level": 1, "exp": 0, "expNext": 100, "hp": 10, "maxHp": 10, "mp": 1, "maxMp": 1, "gold": 120, "buffs": [] }, "inventory": [], "quests": [] } },
-      "lorebookIds": [], "rpgPresetName": "RPG 星环航站", "npcIds": [], "factionIds": [], "factions": [], "itemIds": [], "questTemplateIds": [], "locations": [{ "id": "ring-station", "name": "星环航站", "type": "station" }], "map": { "strategy": "perSave", "baseMapId": null, "generation": { "seed": 22002, "size": 96, "regionCount": 8, "landRatio": 0.5, "mapgenSize": "small" } }, "ui": { "layout": "world-desk" }, "source": { "format": "native", "rawAssetRef": null }
+      "lorebookIds": [], "rpgPresetName": "RPG 星环航站", "sessionSetup": { "title": "本局航站配置", "fields": [{ "id": "difficulty", "label": "故障压力", "type": "select", "options": [{ "value": "calm", "label": "平稳" }, { "value": "standard", "label": "标准" }, { "value": "critical", "label": "危急" }], "default": "standard" }, { "id": "allowNewEntities", "label": "允许 AI 发现新航站实体", "type": "boolean", "default": true }] }, "npcIds": [], "factionIds": [], "factions": [], "itemIds": [], "questTemplateIds": [], "locations": [{ "id": "ring-station", "name": "星环航站", "type": "station" }], "map": { "strategy": "perSave", "baseMapId": null, "generation": { "seed": 22002, "size": 96, "regionCount": 8, "landRatio": 0.5, "mapgenSize": "small" } }, "ui": { "layout": "world-desk" }, "source": { "format": "native", "rawAssetRef": null }
     }
   ]
 }

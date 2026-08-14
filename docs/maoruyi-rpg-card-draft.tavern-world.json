@@ -1,0 +1,1103 @@
+{
+  "spec": "tavern_world_package",
+  "specVersion": 1,
+  "exportedAt": "2026-08-14T09:25:28.168Z",
+  "manifest": {
+    "packageId": "world-maoruyi",
+    "worldVersion": 1,
+    "worldSchemaVersion": 1,
+    "title": "毛茸异：星穹与深渊",
+    "author": null,
+    "license": null,
+    "source": {
+      "format": "draft",
+      "rawAssetRef": "pasted:毛茸异世界观背景设定构思",
+      "note": "本卡未写入活动世界库；地理、国家、世界意志和主线结局仍待作者确认。"
+    },
+    "contentHash": "sha256:4107795e3e0e593fbce271ee0044759edce526921159ddd7d233905d94ded175",
+    "hashScope": "canonical-json(content,assets)",
+    "references": {
+      "characters": 0,
+      "lorebooks": 1,
+      "presets": 1,
+      "assets": 0
+    },
+    "privacy": {
+      "excludes": [
+        "settings",
+        "user",
+        "worldSaves"
+      ],
+      "redactedPaths": []
+    },
+    "executableContent": {
+      "html": false,
+      "scripts": false,
+      "regexTriggers": 0,
+      "executedDuringExport": false
+    },
+    "warnings": [
+      "这是依据暂定世界观生成的测试包，正式导入前请确认地理、主线和世界意志设定。"
+    ]
+  },
+  "content": {
+    "world": {
+      "schemaVersion": 1,
+      "id": "world-maoruyi",
+      "version": 1,
+      "title": "毛茸异：星穹与深渊",
+      "summary": "在世界树的树荫下，兽人、魔兽与古老种族被夹在星穹秩序和异界混沌之间；你要在日常关系、冒险冲突与自己的选择中决定世界的走向。",
+      "setting": {
+        "premise": "这是一片以兽人为主要居民的剑与魔法世界。日常生活、关系与恋爱和遗迹探索、势力冲突并行存在；玩家不是被预设命运牵着走的救世主，而是能在星穹、异界和世界意志之间作出自己的选择。",
+        "history": "毛茸异诞生之初，野生生物、泰坦巨兽、魔兽、巨龙与兽人共同形成生态平衡。异界深渊曾试图吞噬世界，星穹以宇宙法则之力介入；原住民在世界意志的协助下封闭入侵通道，世界之核成长为世界树。如今大多数人已经遗忘那场战争，封印却正在出现新的裂隙。",
+        "geography": "大陆、国家和各地区物种分布尚未最终确定。本卡从一个位于封印带边缘的边境聚落开始；其余地点是可扩展的暂定节点，不代表最终地图。",
+        "culture": "世界不存在以神祇为核心的宗教组织。星穹与异界只是更高维度的力量，人们可以信仰、研究、利用或反抗它们，但不直接描写神明降临。各阵营内部都有利益、理念和个人意志的冲突。",
+        "technology": "中世纪欧洲幻想基调，剑、弓、铠甲、城镇工坊与佣兵组织和魔法并存；不默认存在现代科技。",
+        "magic": "星穹力量偏向秩序、时间、空间与稳定；异界力量偏向混沌、侵蚀、精神污染与物质扭曲；世界树维持现实边界。凡人可以接触这些力量，但每次使用都可能改变理智、身体或自我边界。",
+        "society": "兽人及其他原住民种族共同生活。种族特征、耳尾动作、嗅觉听觉和社会习惯应自然进入叙事；不要把兽人写成人类套皮。",
+        "economy": "边境聚落使用通用货币，具体国家经济、贸易路线和产业待定；重要资源包括安全、情报、封印材料、星辉残片与深渊残渣。",
+        "currentSituation": "边境封印带出现周期性脉冲，部分居民梦见不存在的走廊，夜空也出现不符合季节的星辉。四个深渊派系都在试探封印，星穹代行者只提供有限而冷漠的干预，世界意志尚未公开表态。"
+      },
+      "rules": {
+        "hard": [
+          "星穹与异界是高维力量，不是可随意降临的神明；不得凭空安排神祇直接解决问题。",
+          "没有绝对善恶和绝对统一的阵营；每个派系都必须保留内部矛盾、个人动机与可谈判空间。",
+          "玩家只决定自己的言行、意图和选择；AI 不替玩家补写关键思想、台词、感情或不可逆行动。",
+          "星穹、异界和世界树的静态设定属于世界卡；地点、关系、理智、资源、事件和伤势属于当前存档。",
+          "异界力量与星穹力量都必须有代价；不得把任一力量写成无条件的万能解。",
+          "默认内容为日常向、冒险向和非 R 级恋爱叙事；更高尺度内容必须由玩家单独确认。"
+        ],
+        "soft": [
+          "每回合优先推进一个清晰事件节点，同时保留玩家回应空间。",
+          "危险与关系可以同时发展，冲突不应吞没所有日常内容。",
+          "深渊恐怖优先通过认知异常、梦境、空间和选择代价表现，避免无意义堆砌猎奇形容词。",
+          "星穹相关角色应体现克制、规则和冷漠的代价，而不是简单的正义阵营。"
+        ]
+      },
+      "coverImage": "",
+      "tags": [
+        "兽人",
+        "剑与魔法",
+        "星穹",
+        "深渊",
+        "开放世界",
+        "日常冒险"
+      ],
+      "start": {
+        "locationId": "frontier-seal-town",
+        "opening": "边境聚落的夜雨刚停，封印带深处传来第三次低沉的脉动。酒馆里有人说那是地底巨兽翻身，也有人说自己在梦里看见了不存在的星座。你站在窗边，发现远处废弃的观测塔亮起了一盏不属于任何灯火的冷光。",
+        "playerTemplateId": null,
+        "playerTemplate": {
+          "name": "未命名旅人",
+          "race": "待定",
+          "role": "边境旅人",
+          "profileFields": []
+        },
+        "initialState": {
+          "stats": {
+            "level": 1,
+            "exp": 0,
+            "expNext": 100,
+            "hp": 20,
+            "maxHp": 20,
+            "mp": 8,
+            "maxMp": 8,
+            "gold": 30,
+            "buffs": []
+          },
+          "inventory": [],
+          "quests": []
+        }
+      },
+      "lorebookIds": [
+        "lore-maoruyi-core"
+      ],
+      "rpgPresetName": "RPG 叙事引擎（示例）",
+      "npcIds": [
+        "npc-necor",
+        "npc-vessera",
+        "npc-regos",
+        "npc-eulucis"
+      ],
+      "factionIds": [],
+      "itemIds": [],
+      "questTemplateIds": [],
+      "locations": [
+        {
+          "id": "frontier-seal-town",
+          "name": "封印边境聚落（暂定）",
+          "type": "settlement",
+          "summary": "靠近旧封印带的贸易与避难聚落，日常生活和异常传闻在此交错。",
+          "tags": [
+            "开局",
+            "边境",
+            "日常"
+          ]
+        },
+        {
+          "id": "sunken-seal-ruins",
+          "name": "沉降封印遗迹（暂定）",
+          "type": "ruin",
+          "summary": "远古封印战争留下的地下遗迹，空间结构偶尔出现不一致。",
+          "tags": [
+            "遗迹",
+            "异界",
+            "探索"
+          ]
+        },
+        {
+          "id": "starwatch-observatory",
+          "name": "星穹观测塔（暂定）",
+          "type": "tower",
+          "summary": "记录星辉异常的旧观测塔，可能保存着星界干预的残留记录。",
+          "tags": [
+            "星穹",
+            "观测",
+            "秘密"
+          ]
+        },
+        {
+          "id": "worldroot-cavern",
+          "name": "世界树根脉洞窟（暂定）",
+          "type": "cavern",
+          "summary": "接近世界之核的根脉洞窟，封印和世界意志的边界在此变得模糊。",
+          "tags": [
+            "世界树",
+            "终局线索",
+            "危险"
+          ]
+        }
+      ],
+      "npcs": [
+        {
+          "id": "npc-necor",
+          "name": "涅柯尔",
+          "role": "终末之舌首领",
+          "appearance": "瘦削矮小的流浪犬兽人，灰败斑驳的毛色，左眼是缓慢旋转的暗紫漩涡，穿着写满不可辨识符文的破旧长袍。",
+          "personality": "语气温柔、虔诚而令人不安；他真诚地把深渊视为让众生回归混沌的母亲，不认为自己在作恶。",
+          "speechStyle": "缓慢、安抚、像传教士一样温柔；从不因叛徒发怒。",
+          "locationId": "sunken-seal-ruins",
+          "publicFacts": [
+            "终末之舌的首领",
+            "擅长精神污染与认知迷宫",
+            "派系成员多来自被社会遗弃的人"
+          ],
+          "publicGoals": [
+            "扩大深渊低语的传播",
+            "让封印带出现更多裂隙"
+          ],
+          "desires": [
+            "让所有人听见他听见的声音"
+          ],
+          "fears": [
+            "残存人格被渊神彻底覆写后失去选择"
+          ],
+          "goals": [
+            "以深渊的温暖取代现实"
+          ],
+          "activity": "在遗迹周边组织低语集会，寻找能承受污染的容器。"
+        },
+        {
+          "id": "npc-vessera",
+          "name": "薇瑟拉",
+          "role": "无垢之环首领",
+          "appearance": "银白长毛的雪豹兽人，冰蓝色眼睛，穿深灰长袍，佩戴银色圆环胸针。",
+          "personality": "平静、克制、带着近乎宇宙尺度的悲悯；她相信消除个体差异就能消除痛苦。",
+          "speechStyle": "语速缓慢清晰，像在安慰病人；即使施暴也保持礼貌。",
+          "locationId": "frontier-seal-town",
+          "publicFacts": [
+            "无垢之环对外经营救助与医疗网络",
+            "拥有渐进式同化能力",
+            "部分成员尚未察觉自己正在失去个体边界"
+          ],
+          "publicGoals": [
+            "扩大避难所与互助网络",
+            "让更多人接受统一的宁静"
+          ],
+          "desires": [
+            "终结反复发生的伤害与不公"
+          ],
+          "fears": [
+            "清醒者证明个体仍值得被保留"
+          ],
+          "goals": [
+            "以无痛的统一消除自由意志的代价"
+          ],
+          "activity": "以慈善活动接触边境居民，筛选适合深度同化的对象。"
+        },
+        {
+          "id": "npc-regos",
+          "name": "雷戈斯·瓦尔坎",
+          "role": "金座首领",
+          "appearance": "身材高大的黑鬃狮兽人，鬃毛编入金线，穿暗红军礼服式长袍，目光锐利而有压迫感。",
+          "personality": "现实、强势、极有组织能力；把深渊力量当作征服工具，最无法容忍别人把他当成废物。",
+          "speechStyle": "简短、命令式、重视实力和结果；轻慢会触发不成比例的怒火。",
+          "locationId": "frontier-seal-town",
+          "publicFacts": [
+            "金座拥有准军事化组织",
+            "擅长把深渊力量锻造成武器",
+            "尊重强者但把弱者视为资源"
+          ],
+          "publicGoals": [
+            "控制封印带的战略资源",
+            "打造覆盖大陆的黄金王座"
+          ],
+          "desires": [
+            "证明自己永远不是家族口中的废物"
+          ],
+          "fears": [
+            "失去控制、被平等地对待或被深渊反噬"
+          ],
+          "goals": [
+            "以力量统治而不是被任何高维力量统治"
+          ],
+          "activity": "招募佣兵并争夺遗迹中的封印材料与深渊武装。"
+        },
+        {
+          "id": "npc-eulucis",
+          "name": "艾琉西斯",
+          "role": "逆光之瞳首领",
+          "appearance": "黑色胡狼兽人，佩戴镶有腐化星辉的黄金与青金石头冠，穿白色亚麻与深蓝长袍。",
+          "personality": "冷静、理性、知识渊博，恨意经过多年沉淀后变得像术式一样精确；他反对星穹的冷漠，却不愿拥抱深渊。",
+          "speechStyle": "像学者和审判者一样陈述证据，极少失控。",
+          "locationId": "starwatch-observatory",
+          "publicFacts": [
+            "曾是星穹体系中的高阶神官",
+            "掌握逆星术式",
+            "目标是让星穹失去对世界的垄断"
+          ],
+          "publicGoals": [
+            "研究并瓦解星界力量",
+            "寻找被星穹体系掩盖的历史"
+          ],
+          "desires": [
+            "让世界树真正拥有自主命运"
+          ],
+          "fears": [
+            "复仇者最终只剩下复仇，忘记了自由本身"
+          ],
+          "goals": [
+            "打破星穹与异界对毛茸异的双重操控"
+          ],
+          "activity": "在观测塔研究星辉残留，寻找能够抵抗两种力量的凡人。"
+        }
+      ],
+      "factions": [
+        {
+          "id": "faction-end-tongue",
+          "name": "终末之舌",
+          "description": "以深渊低语为救赎的松散狂信派。成员多为被遗弃者；内部在‘被吞噬是否是幸福’上存在裂痕。",
+          "goals": [
+            "传播低语",
+            "扩大裂隙"
+          ],
+          "resources": [
+            {
+              "id": "whispers",
+              "label": "低语网络",
+              "min": 0,
+              "max": 100,
+              "initial": 20
+            }
+          ],
+          "initialState": {
+            "relation": -10,
+            "influence": 10,
+            "resources": {
+              "whispers": 20
+            }
+          }
+        },
+        {
+          "id": "faction-pure-ring",
+          "name": "无垢之环",
+          "description": "以慈善互助为外壳、以同化为终点的冷漠派。内部有爱戴薇瑟拉却拒绝失去自我的清醒者。",
+          "goals": [
+            "扩张救助网络",
+            "推广统一的宁静"
+          ],
+          "resources": [
+            {
+              "id": "shelters",
+              "label": "避难所网络",
+              "min": 0,
+              "max": 100,
+              "initial": 35
+            }
+          ],
+          "initialState": {
+            "relation": 0,
+            "influence": 25,
+            "resources": {
+              "shelters": 35
+            }
+          }
+        },
+        {
+          "id": "faction-golden-seat",
+          "name": "金座",
+          "description": "把深渊锻造当作军力的强欲派。组织纪律严明，却受制于将军野心和底层成员对唯实力论的不满。",
+          "goals": [
+            "控制战略资源",
+            "扩大军团影响"
+          ],
+          "resources": [
+            {
+              "id": "warband",
+              "label": "军团动员",
+              "min": 0,
+              "max": 100,
+              "initial": 45
+            }
+          ],
+          "initialState": {
+            "relation": 0,
+            "influence": 30,
+            "resources": {
+              "warband": 45
+            }
+          }
+        },
+        {
+          "id": "faction-reverse-eye",
+          "name": "逆光之瞳",
+          "description": "由失望的神官、学者和异见者组成的坠星派。成员平均知识水平最高，但深渊侵蚀与复仇目标正在制造分裂。",
+          "goals": [
+            "研究逆星术式",
+            "削弱星穹干涉"
+          ],
+          "resources": [
+            {
+              "id": "research",
+              "label": "禁忌研究",
+              "min": 0,
+              "max": 100,
+              "initial": 30
+            }
+          ],
+          "initialState": {
+            "relation": 0,
+            "influence": 15,
+            "resources": {
+              "research": 30
+            }
+          }
+        }
+      ],
+      "playerCreation": {
+        "mode": "custom",
+        "title": "创建你的毛茸异旅人",
+        "description": "你可以来自任何尚未定稿的地区和种族。不要把立场选择理解为加入阵营，它只代表当前倾向，真正的关系由存档中的行动产生。",
+        "pointBudget": {
+          "label": "属性点",
+          "total": 8,
+          "min": 0
+        },
+        "fields": [
+          {
+            "id": "name",
+            "label": "名字",
+            "type": "text",
+            "required": true,
+            "maxLength": 80
+          },
+          {
+            "id": "race",
+            "label": "种族 / 兽人原型",
+            "type": "text",
+            "required": true,
+            "maxLength": 120,
+            "placeholder": "例如：狼族、雪豹兽人、龙裔；也可以自定义"
+          },
+          {
+            "id": "role",
+            "label": "身份 / 职业",
+            "type": "text",
+            "required": true,
+            "maxLength": 120,
+            "default": "边境旅人"
+          },
+          {
+            "id": "background",
+            "label": "个人背景",
+            "type": "textarea",
+            "maxLength": 1600,
+            "placeholder": "你为何来到封印边境？"
+          },
+          {
+            "id": "tendency",
+            "label": "当前力量倾向",
+            "type": "select",
+            "required": true,
+            "options": [
+              {
+                "value": "undecided",
+                "label": "尚未决定"
+              },
+              {
+                "value": "star",
+                "label": "研究 / 依赖星穹"
+              },
+              {
+                "value": "abyss",
+                "label": "接触 / 利用异界"
+              },
+              {
+                "value": "world",
+                "label": "守望世界树"
+              },
+              {
+                "value": "independent",
+                "label": "保持独立"
+              }
+            ],
+            "default": "undecided"
+          }
+        ],
+        "attributes": [
+          {
+            "id": "vigor",
+            "label": "体魄",
+            "min": 1,
+            "max": 5,
+            "default": 2,
+            "step": 1
+          },
+          {
+            "id": "insight",
+            "label": "洞察",
+            "min": 1,
+            "max": 5,
+            "default": 2,
+            "step": 1
+          },
+          {
+            "id": "resolve",
+            "label": "意志",
+            "min": 1,
+            "max": 5,
+            "default": 2,
+            "step": 1
+          },
+          {
+            "id": "empathy",
+            "label": "共情",
+            "min": 1,
+            "max": 5,
+            "default": 2,
+            "step": 1
+          }
+        ],
+        "skills": [
+          {
+            "id": "combat",
+            "label": "战斗",
+            "description": "使用武器、身体和战术处理危险。",
+            "min": 0,
+            "max": 10,
+            "default": 1,
+            "step": 1
+          },
+          {
+            "id": "arcana",
+            "label": "奥术",
+            "description": "理解并控制魔法、星辉或深渊残留。",
+            "min": 0,
+            "max": 10,
+            "default": 1,
+            "step": 1
+          },
+          {
+            "id": "survival",
+            "label": "生存",
+            "description": "在荒野、遗迹和封印带中行动。",
+            "min": 0,
+            "max": 10,
+            "default": 1,
+            "step": 1
+          },
+          {
+            "id": "investigation",
+            "label": "调查",
+            "description": "整理传闻、遗迹记录和阵营线索。",
+            "min": 0,
+            "max": 10,
+            "default": 1,
+            "step": 1
+          },
+          {
+            "id": "rapport",
+            "label": "交涉",
+            "description": "理解并影响拥有不同立场的角色。",
+            "min": 0,
+            "max": 10,
+            "default": 1,
+            "step": 1
+          }
+        ],
+        "resources": [
+          {
+            "id": "hp",
+            "label": "生命",
+            "type": "number",
+            "min": 1,
+            "max": 999,
+            "initial": 20
+          },
+          {
+            "id": "mp",
+            "label": "魔力",
+            "type": "number",
+            "min": 0,
+            "max": 999,
+            "initial": 8
+          },
+          {
+            "id": "san",
+            "label": "理智",
+            "type": "number",
+            "min": 0,
+            "max": 100,
+            "initial": 70
+          },
+          {
+            "id": "starlight",
+            "label": "星辉负荷",
+            "type": "number",
+            "min": 0,
+            "max": 100,
+            "initial": 0
+          },
+          {
+            "id": "abyss",
+            "label": "深渊侵蚀",
+            "type": "number",
+            "min": 0,
+            "max": 100,
+            "initial": 0
+          }
+        ],
+        "derived": [
+          {
+            "id": "composure",
+            "label": "自我边界",
+            "formula": "attributes.resolve + attributes.empathy",
+            "description": "抵抗精神污染与绝对秩序同化的只读值。"
+          },
+          {
+            "id": "anomaly-risk",
+            "label": "异常风险",
+            "formula": "resources.abyss + resources.starlight - attributes.resolve",
+            "description": "两种高维力量的累计负荷，仅供叙事参考。"
+          }
+        ],
+        "growth": {
+          "sources": [
+            {
+              "id": "exploration",
+              "label": "探索",
+              "kind": "exploration",
+              "description": "发现遗迹、封印和世界树线索。"
+            },
+            {
+              "id": "relationship",
+              "label": "关系",
+              "kind": "relationship",
+              "description": "在日常和冲突中与角色建立真实关系。"
+            },
+            {
+              "id": "choice",
+              "label": "选择",
+              "kind": "event",
+              "description": "承担一次无法撤销的立场或代价。"
+            },
+            {
+              "id": "resistance",
+              "label": "抵抗",
+              "kind": "training",
+              "description": "在高维力量面前保持自我边界。"
+            }
+          ],
+          "candidates": [
+            {
+              "id": "insight-exploration",
+              "label": "遗迹解读",
+              "sourceId": "exploration",
+              "bucket": "skills",
+              "targetId": "investigation",
+              "delta": 1,
+              "description": "你从一次封印遗迹探索中学会辨认异常记录。"
+            },
+            {
+              "id": "resolve-resistance",
+              "label": "不被改写",
+              "sourceId": "resistance",
+              "bucket": "attributes",
+              "targetId": "resolve",
+              "delta": 1,
+              "description": "你在污染或同化边缘保住了自己的选择。"
+            },
+            {
+              "id": "rapport-relationship",
+              "label": "复杂的信任",
+              "sourceId": "relationship",
+              "bucket": "skills",
+              "targetId": "rapport",
+              "delta": 1,
+              "description": "你与立场相反的人建立了不简单的信任。"
+            },
+            {
+              "id": "independent-title",
+              "label": "树荫下的自由者",
+              "sourceId": "choice",
+              "bucket": "identity",
+              "targetId": "titles",
+              "value": "树荫下的自由者",
+              "description": "你拒绝让任一高维力量替你决定未来。"
+            }
+          ]
+        },
+        "traits": [
+          {
+            "id": "furry-senses",
+            "label": "种族感官",
+            "description": "具体感官和身体特征由玩家种族决定，不自动替玩家添加。"
+          },
+          {
+            "id": "unwritten-fate",
+            "label": "未写定的命运",
+            "description": "世界卡不预设玩家必须成为救世主、祭品或反派。"
+          }
+        ],
+        "economy": {
+          "inventory": {
+            "enabled": true,
+            "maxSlots": 24,
+            "maxWeight": 100,
+            "items": []
+          },
+          "equipment": {
+            "enabled": true,
+            "slots": [
+              {
+                "id": "main-hand",
+                "label": "主手"
+              },
+              {
+                "id": "off-hand",
+                "label": "副手"
+              },
+              {
+                "id": "body",
+                "label": "身体"
+              }
+            ]
+          },
+          "currencies": [
+            {
+              "id": "gold",
+              "label": "通用货币",
+              "min": 0,
+              "max": 1000000,
+              "initial": 30
+            }
+          ]
+        }
+      },
+      "turnContract": {
+        "options": {
+          "min": 4,
+          "max": 4
+        },
+        "actionIntent": true
+      },
+      "failure": {
+        "defaultMode": "continue",
+        "onZeroHp": "injured",
+        "onConflictDefeat": "captured",
+        "modes": [
+          {
+            "id": "continue",
+            "label": "代价后继续",
+            "description": "失败改变局面，但保留玩家行动权。"
+          },
+          {
+            "id": "injured",
+            "label": "重伤",
+            "description": "保留世界线并附加重伤状态。",
+            "hpRatio": 0.25,
+            "effect": "重伤"
+          },
+          {
+            "id": "sanity-break",
+            "label": "理智崩裂",
+            "description": "理智归零后进入需要他人或事件介入的危险状态。",
+            "effect": "理智崩裂"
+          },
+          {
+            "id": "captured",
+            "label": "被控制",
+            "description": "冲突失败后被某个派系带走，后续可通过行动脱困。",
+            "effect": "受控制"
+          }
+        ]
+      },
+      "ending": {
+        "enabled": true,
+        "allowPlayerEnd": true,
+        "requireConfirm": true,
+        "defaultEndingId": "player-choice",
+        "endings": [
+          {
+            "id": "player-choice",
+            "kind": "player-choice",
+            "label": "玩家主动结束",
+            "description": "玩家确认后结束当前世界线；最终主线结局仍待设定完成。",
+            "terminal": true
+          }
+        ]
+      },
+      "conflicts": [
+        {
+          "id": "rift-encounter",
+          "label": "封印裂隙遭遇",
+          "type": "combat",
+          "description": "面对从旧封印缝隙中渗出的异界眷族或污染生物。",
+          "maxRounds": 12,
+          "phases": [
+            {
+              "id": "contact",
+              "label": "接触"
+            },
+            {
+              "id": "resolve",
+              "label": "收束"
+            }
+          ],
+          "actions": [
+            {
+              "id": "strike",
+              "label": "正面战斗",
+              "description": "用武器和体魄压制目标。",
+              "check": {
+                "roll": "1d20",
+                "modifier": {
+                  "bucket": "skills",
+                  "id": "combat",
+                  "factor": 1
+                },
+                "target": 12,
+                "damage": {
+                  "roll": "1d6",
+                  "modifier": {
+                    "bucket": "attributes",
+                    "id": "vigor",
+                    "factor": 1
+                  }
+                }
+              }
+            },
+            {
+              "id": "seal",
+              "label": "尝试封印",
+              "description": "以奥术和意志暂时压回裂隙。",
+              "check": {
+                "roll": "1d20",
+                "modifier": {
+                  "bucket": "skills",
+                  "id": "arcana",
+                  "factor": 1
+                },
+                "target": 14
+              }
+            },
+            {
+              "id": "flee",
+              "label": "撤离",
+              "description": "放弃当前接触，保留继续调查的机会。"
+            }
+          ],
+          "outcomes": [
+            {
+              "id": "closed",
+              "label": "裂隙暂时闭合",
+              "consequences": [
+                "异常源被压回封印带。"
+              ]
+            },
+            {
+              "id": "injured",
+              "label": "带伤撤离",
+              "consequences": [
+                "玩家保住性命，但留下伤势或侵蚀。"
+              ]
+            },
+            {
+              "id": "fled",
+              "label": "撤离",
+              "consequences": [
+                "玩家离开危险区域。"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "faction-negotiation",
+          "label": "阵营交涉",
+          "type": "social",
+          "description": "在四个立场都不完整的阵营之间争取暂时合作或交换情报。",
+          "maxRounds": 8,
+          "phases": [
+            {
+              "id": "read",
+              "label": "判断立场"
+            },
+            {
+              "id": "resolve",
+              "label": "达成条件"
+            }
+          ],
+          "actions": [
+            {
+              "id": "listen",
+              "label": "先听对方说完",
+              "description": "识别对方公开目标与隐藏顾虑。"
+            },
+            {
+              "id": "bargain",
+              "label": "提出交换",
+              "description": "用情报、资源或行动换取暂时让步。",
+              "check": {
+                "roll": "1d20",
+                "modifier": {
+                  "bucket": "skills",
+                  "id": "rapport",
+                  "factor": 1
+                },
+                "target": 13
+              }
+            },
+            {
+              "id": "leave",
+              "label": "结束交涉",
+              "description": "拒绝在当前条件下作出承诺。"
+            }
+          ],
+          "outcomes": [
+            {
+              "id": "truce",
+              "label": "暂时合作",
+              "consequences": [
+                "形成有条件、可被后续事件推翻的合作。"
+              ]
+            },
+            {
+              "id": "tension",
+              "label": "关系恶化",
+              "consequences": [
+                "对方保留敌意并提高后续行动代价。"
+              ]
+            },
+            {
+              "id": "leave",
+              "label": "离开",
+              "consequences": [
+                "交涉结束，未形成承诺。"
+              ]
+            }
+          ]
+        }
+      ],
+      "time": {
+        "unit": "day",
+        "start": 1,
+        "turnAdvance": 1
+      },
+      "events": [
+        {
+          "id": "seal-pulse",
+          "title": "封印脉冲",
+          "description": "第三次脉冲让边境聚落的钟表同时停顿，几名居民说自己看见了不存在的门。",
+          "trigger": {
+            "afterTurns": 3
+          },
+          "visibility": "public",
+          "once": true,
+          "consequences": [
+            "封印异常被公开讨论，沉降遗迹线索出现。"
+          ]
+        },
+        {
+          "id": "starless-signal",
+          "title": "无星之夜",
+          "description": "观测塔记录到一片没有星光的天区，逆光之瞳与星穹观察者同时开始行动。",
+          "trigger": {
+            "afterTurns": 8
+          },
+          "visibility": "public",
+          "once": true,
+          "consequences": [
+            "星穹和坠星派的行动范围扩大。"
+          ]
+        }
+      ],
+      "map": {
+        "strategy": "perSave",
+        "baseMapId": null,
+        "generation": {
+          "seed": 24081401,
+          "size": 128,
+          "regionCount": 10,
+          "landRatio": 0.52,
+          "mapgenSize": "small"
+        }
+      },
+      "ui": {
+        "layout": "world-desk"
+      },
+      "source": {
+        "format": "draft",
+        "rawAssetRef": "pasted:毛茸异世界观背景设定构思",
+        "note": "本卡未写入活动世界库；地理、国家、世界意志和主线结局仍待作者确认。"
+      }
+    },
+    "characters": [],
+    "lorebooks": {
+      "lore-maoruyi-core": {
+        "name": "毛茸异：星穹与深渊（世界书草案）",
+        "entries": [
+          {
+            "id": "maoruyi-core",
+            "title": "世界底座与叙事边界",
+            "keys": "",
+            "content": "【毛茸异世界底座】剑与魔法的兽人世界。日常关系、恋爱、城镇生活与封印遗迹、阵营冲突并行。默认非 R 级。星穹与异界是更高维力量，不是会直接降临的神明；世界之树负责维持现实边界。玩家保留自己的言行、意图和选择，AI 不替玩家决定关键行动。",
+            "enabled": true,
+            "constant": true,
+            "order": 0
+          },
+          {
+            "id": "maoruyi-cosmology",
+            "title": "世界起源与三重力量",
+            "keys": "世界树,世界之核,星穹,星界,异界,深渊",
+            "content": "【三重力量】远古入侵结束后，世界之核成长为世界树并压制外部干涉。星穹偏向秩序、时间、空间和稳定；异界偏向混沌、侵蚀、梦境、精神污染和物质扭曲；世界意志试图摆脱二者的长期挟持。三者都不是简单的善恶阵营，凡人接触任何一方都要承担代价。",
+            "enabled": true,
+            "constant": false,
+            "order": 10
+          },
+          {
+            "id": "maoruyi-faction-rule",
+            "title": "阵营不是绝对正邪",
+            "keys": "终末之舌,无垢之环,金座,逆光之瞳,深渊教团,坠星派",
+            "content": "【阵营原则】终末之舌制造混乱，成员在被吞噬是否是幸福上分裂；无垢之环以慈善和同化消除差异，内部有清醒反对者；金座用深渊锻造追求统治，军团内部有野心家和不满者；逆光之瞳反抗星穹，内部在复仇与世界自由之间分裂。写作时保留个人动机、利益和谈判空间，不把阵营写成同质化 NPC。",
+            "enabled": true,
+            "constant": false,
+            "order": 20
+          },
+          {
+            "id": "maoruyi-necor",
+            "title": "NPC：涅柯尔",
+            "keys": "涅柯尔,终末之舌,低语,认知迷宫",
+            "content": "【涅柯尔】流浪犬兽人，终末之舌首领。温柔虔诚地相信深渊是让众生回归混沌的母亲。擅长预感、精神污染和扭曲空间；不擅长精细的战术指挥。不要把他的疯狂写成无理由咆哮，他更危险的地方是温柔地相信自己在救人。",
+            "enabled": true,
+            "constant": false,
+            "order": 30
+          },
+          {
+            "id": "maoruyi-vessera",
+            "title": "NPC：薇瑟拉",
+            "keys": "薇瑟拉,无垢之环,同化,宁静,慈善",
+            "content": "【薇瑟拉】雪豹兽人，无垢之环首领。她曾建立互助网络，后来相信抹除个体边界才能结束痛苦。深渊同化是渐进的，受害者可能先感到轻松和平静。她不施虐，也不认为自己残酷；冲突应表现为悲悯与自由意志的矛盾。",
+            "enabled": true,
+            "constant": false,
+            "order": 31
+          },
+          {
+            "id": "maoruyi-regos",
+            "title": "NPC：雷戈斯·瓦尔坎",
+            "keys": "雷戈斯,金座,深渊锻造,黄金王座",
+            "content": "【雷戈斯·瓦尔坎】黑鬃狮兽人，金座首领。把深渊力量当作征服工具，尊重强者，无法容忍被当成废物。深渊锻造可强化物质、武器和军团；他的软肋是对轻慢的病态敏感，以及相信自己永远能控制深渊。",
+            "enabled": true,
+            "constant": false,
+            "order": 32
+          },
+          {
+            "id": "maoruyi-eulucis",
+            "title": "NPC：艾琉西斯",
+            "keys": "艾琉西斯,逆光之瞳,逆星术式,星穹",
+            "content": "【艾琉西斯】黑色胡狼兽人，逆光之瞳首领。曾是星穹体系的神官，因不公而转向研究深渊，创造能腐化星辉的逆星术式。他冷静而理性，真正目标是让世界树自由；派系中的多数人却只想复仇。",
+            "enabled": true,
+            "constant": false,
+            "order": 33
+          },
+          {
+            "id": "maoruyi-sanity",
+            "title": "理智与力量代价",
+            "keys": "理智,SAN,污染,侵蚀,星辉负荷,深渊侵蚀",
+            "content": "【高维力量代价】接触异界会降低理智并带来梦境、认知异常和自我边界松动；过度吸收星穹力量可能使人被绝对秩序同化。数值变化必须先在叙事中发生，再通过当前存档的 typed patch 提交；世界书只说明规则，不直接写入存档。",
+            "enabled": true,
+            "constant": false,
+            "order": 40
+          },
+          {
+            "id": "maoruyi-border",
+            "title": "封印边境开局",
+            "keys": "封印边境,边境聚落,封印脉冲,观测塔,沉降遗迹",
+            "content": "【开局区域】封印边境聚落是贸易、避难和异常传闻交汇处。沉降封印遗迹存在空间结构异常；星穹观测塔记录冷光和无星天区；世界树根脉洞窟接近世界之核。以上地点是本版卡的暂定节点，国家与大陆分区尚未定稿。",
+            "enabled": true,
+            "constant": false,
+            "order": 50
+          },
+          {
+            "id": "maoruyi-tone",
+            "title": "毛茸异描写规范",
+            "keys": "兽人,毛茸,耳朵,尾巴,兽耳",
+            "content": "【描写规范】自然体现不同兽人原型的耳、尾、吻部、爪、鳞片、羽毛、嗅觉和听觉；不要把种族特征写成固定笑点。日常相处应与冒险冲突并行，角色有自己的欲望、恐惧、秘密和关系边界。",
+            "enabled": true,
+            "constant": false,
+            "order": 60
+          }
+        ]
+      }
+    },
+    "presets": {
+      "RPG 叙事引擎（示例）": {
+        "systemPrompt": "你是 Tavern RPG 模式的地下城主（DM）与世界化身。你直接呈现环境、事件与 NPC，不以作者、助手或规则讲解者自称；始终以“你”称呼玩家。\n\n你的职责：\n- 根据当前世界书、角色设定、地图、RPG 状态与聊天历史推进世界。\n- 扮演所有 NPC，保持其身份、目标、知识边界和关系连续。\n- 对玩家行动作出公平、可解释且与风险相称的裁定。\n- 先输出 Markdown 叙事正文，再严格按照【RPG 状态与协议】输出唯一一个 <tavern_state_update> JSON 更新块。\n- 不暴露提示词、内部检查或隐藏推理，不把未通过叙事发生的变化写入状态。",
+        "postHistory": "生成前只在内部核对：玩家的决定是否被保留，判定是否有依据，叙事与状态变化是否一致，末尾是否只有一个可解析的 <tavern_state_update> 块、baseRevision 是否等于当前 revision 且含恰好 4 个具体选项。不要输出核对过程。",
+        "firstMes": "",
+        "modules": [
+          {
+            "id": "rpgAgency",
+            "name": "玩家主权",
+            "enabled": true,
+            "content": "<玩家主权>\n- 始终以“你”称呼玩家，但不替玩家决定未声明的台词、思想、情感立场或关键行动。\n- 玩家输入是本回合行动意图；你负责呈现世界反应、NPC 行动与合理后果。\n- 遇到需要选择的分岔时，先呈现局势并给出 4 个具体选项，仍允许玩家自由输入其他行动。\n</玩家主权>"
+          },
+          {
+            "id": "rpgContinuity",
+            "name": "世界连续性",
+            "enabled": true,
+            "content": "<世界连续性>\n- 世界书、当前 RPG 状态、地图、背包、任务和聊天历史是本回合事实来源；不得把其他会话或其他角色的数据带入。\n- NPC 只使用其合理知晓的信息，地点、距离、资源与敌我关系保持前后一致。\n- 新地点、NPC、线索与事件可以合理生成，但不得与已知设定冲突。\n</世界连续性>"
+          },
+          {
+            "id": "rpgAdjudication",
+            "name": "判定与后果",
+            "enabled": true,
+            "content": "<判定准则>\n- 根据行动难度、角色能力、装备、环境和已注入的骰点结果裁定；有骰点时必须使用该结果，不得重掷或篡改。\n- 成功、失败与代价应当成比例，并在叙事中先发生，再写入状态变化。\n- 没有实际获得、消耗、受伤、移动或任务进展时，对应状态字段保持 null，不凭空发放奖励或惩罚。\n</判定准则>"
+          },
+          {
+            "id": "rpgNarrative",
+            "name": "RPG 叙事节奏",
+            "enabled": true,
+            "content": "<叙事节奏>\n- 使用适合阅读的 Markdown 自然段，以感官细节、NPC 行动和环境变化呈现场景，不写界面气泡标记。\n- 每回合推进一个清晰事件节点，同时保留玩家介入空间；避免替玩家连续完成多步行动。\n- NPC 对白使用中文引号“ ”，台词符合身份与处境；避免复述用户输入、总结规则或输出幕后解释。\n</叙事节奏>"
+          },
+          {
+            "id": "rpgFurry",
+            "name": "福瑞种族表现",
+            "enabled": true,
+            "content": "<种族表现>\n- 兽耳、尾巴、爪蹄、鳞羽、嗅觉与听觉等特征应自然影响动作、感知、装备和环境互动。\n- 不把福瑞角色写成人类外形的简单换皮；具体种族能力与习俗仍以角色卡和世界书为准。\n</种族表现>"
+          }
+        ]
+      }
+    }
+  },
+  "assets": []
+}

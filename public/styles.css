@@ -1746,6 +1746,40 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
 .world-draft-check-list button { width: fit-content; padding: 0; border: 0; background: none; color: var(--danger); font: inherit; text-align: left; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .world-draft-check-pass { color: var(--ok); }
 .world-player-dialog { width: min(620px, calc(100vw - 32px)); }
+.world-opening-dialog { width: min(820px, calc(100vw - 32px)); }
+.world-opening-body { display: grid; gap: 12px; max-height: min(72vh, 720px); overflow: auto; }
+.world-setup-stepper { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-bottom: 2px; }
+.world-setup-stepper span { padding: 7px 5px; border-bottom: 2px solid var(--line); color: var(--muted); font: 10px var(--font-mono); text-align: center; }
+.world-setup-stepper span.is-done { border-color: rgba(var(--ok-rgb), 0.65); color: var(--ok); }
+.world-setup-stepper span.is-active { border-color: var(--accent); color: var(--accent); }
+.world-setup-card { display: grid; gap: 10px; padding: 11px; border: 1px solid var(--line-soft); border-radius: 10px; background: rgba(var(--bg-0-rgb), 0.2); }
+.world-setup-card .world-opening-step { margin: -1px -1px 0; }
+.world-opening-step button { margin-left: auto; flex: 0 0 auto; }
+.world-opening-character-fields { max-height: 330px; overflow: auto; padding-right: 3px; }
+.world-session-binding { display: flex; flex-wrap: wrap; gap: 6px; }
+.world-session-binding span { padding: 6px 8px; border: 1px solid var(--line-soft); border-radius: 7px; color: var(--muted); font-size: 10.5px; }
+.world-session-binding b { color: var(--text); font-weight: 600; }
+.world-session-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.world-session-toggle, .world-player-inline-check { display: flex; gap: 8px; align-items: center; min-height: 36px; padding: 8px 9px; border: 1px solid var(--line-soft); border-radius: 8px; background: rgba(var(--bg-0-rgb), 0.22); color: var(--text); font-size: 11.5px; }
+.world-player-inline-check input { width: 70px; }
+.world-opening-npc-contexts { display: grid; gap: 9px; }
+.world-opening-npc-context { display: grid; gap: 8px; margin: 0; padding: 10px; border: 1px solid var(--line-soft); border-radius: 9px; }
+.world-opening-npc-context legend { padding: 0 5px; color: var(--accent); font: 12px var(--font-display); }
+.world-opening-npc-flags { display: flex; flex-wrap: wrap; gap: 12px; color: var(--muted); font-size: 10.5px; }
+.world-opening-confirm-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.world-opening-confirm-summary div { min-width: 0; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 9px; background: rgba(var(--bg-0-rgb), 0.22); }
+.world-opening-confirm-summary small { display: block; margin-bottom: 3px; color: var(--muted); }
+.world-opening-confirm-summary strong { display: block; overflow-wrap: anywhere; white-space: pre-wrap; }
+.world-opening-step { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid rgba(var(--accent-rgb), 0.28); border-radius: 10px; background: rgba(var(--accent-rgb), 0.06); }
+.world-opening-step-no { color: var(--accent); font: 700 12px var(--font-mono); letter-spacing: 1px; }
+.world-opening-step strong { color: var(--text); font: 14px var(--font-display); }
+.world-opening-step p { margin: 3px 0 0; color: var(--muted); font-size: 11px; }
+.world-opening-checks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.world-opening-check { display: flex; gap: 7px; align-items: center; padding: 8px 9px; border: 1px solid var(--line-soft); border-radius: 8px; background: rgba(var(--bg-0-rgb), 0.24); color: var(--text); font-size: 11.5px; }
+.world-opening-candidate { display: grid; gap: 10px; padding: 11px; border: 1px solid rgba(var(--accent-rgb), 0.32); border-radius: 10px; background: rgba(var(--accent-rgb), 0.05); }
+.world-opening-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+@media (max-width: 560px) { .world-opening-options, .world-opening-checks { grid-template-columns: 1fr; } .world-opening-dialog { width: calc(100vw - 16px); } }
+@media (max-width: 560px) { .world-setup-stepper { grid-template-columns: repeat(2, minmax(0, 1fr)); } .world-session-fields { grid-template-columns: 1fr; } .world-opening-confirm-summary { grid-template-columns: 1fr; } }
 .world-player-fields { display: grid; gap: 12px; }
 .world-player-fields .field { margin: 0; }
 .world-player-fields .field > span:first-child { display: block; margin-bottom: 5px; color: var(--muted); font-size: 11px; letter-spacing: 0.4px; }

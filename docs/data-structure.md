@@ -63,7 +63,7 @@ W1 已实现世界卡目录到存档的创建、列表和打开；W2 已把当�
 
 旧会话缺少 `kind` 时迁移为 `tavern`，缺少 `charId` 时绑定到迁移时的当前角色；已有归属不会被改写。
 
-消息显示也按 `kind` 分流：酒馆模式保留引号对白/旁白拆分；RPG 模式把 AI 正文作为一条连续叙事渲染，不按引号生成气泡。末尾 ` ```rpg ```` 控制块只由 RPG 会话解析，不进入正文或酒馆消息。
+消息显示也按 `kind` 分流：酒馆模式保留引号对白/旁白拆分；RPG 模式把 AI 正文作为一条连续叙事渲染，不按引号生成气泡。末尾 `<tavern_state_update>` 控制块只由 RPG 回合解析，不进入正文或酒馆消息；旧 ` ```rpg ```` 仅作兼容输入。
 
 AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最终请求体和原始响应；不写入 `session`、localStorage 或 server JSON，刷新页面即清空。请求视图不包含单独传给代理的 `apiKey`。
 
@@ -106,6 +106,8 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 
 `playerCreation.economy` 是可选的声明式经济规则：`inventory.enabled/maxSlots/maxWeight/items[]` 控制背包、物品重量与堆叠；`equipment.enabled/slots[]` 控制装备位；`currencies[]` 控制货币 ID、范围和初始值。启用后，存档状态使用 `state.inventory`、`state.equipment` 与 `state.currencies`，每次创建、普通保存和正式回合都会按当前世界卡重新校验；未声明该段的旧世界继续使用兼容的自由背包 / `stats.gold`。
 
+`sessionSetup.fields[]` 是本局游戏规则 Schema；字段类型只允许 `text/textarea/select/number/boolean`，可声明默认值、必填、选项、范围和自定义值。世界草稿编辑器以高级 JSON 保存它，创建存档时物化为 `WorldSave.setup.game`，因此难度、Sandbox、战斗开关、世界推进与新实体许可等规则不会写死在前端。
+
 `playerCreation.growth` 是可选的成长声明：`sources[]` 记录训练、学习、探索、关系与事件等来源，`candidates[]` 只声明允许的目标 bucket、目标 ID 与 delta/value；bucket 可为属性、技能、资源、特质、NPC 关系、阵营声望或身份标签。运行态 `WorldSave.state.growthCandidates` 只保存当前存档的 `proposed` 候选及其 `reason`；玩家通过 `POST /api/world-saves/<saveId>/growth` 的 `accepted/rejected` 决策处理候选，服务端才会应用世界卡声明的变化。接受结果写入 `state.growthApplications` 与 `state.experiences`，人物经历带有 candidate/source、效果、地点和 revision，可回溯且不会跨存档共享。
 
 世界草稿编辑器对 `playerCreation.fields/attributes/skills/resources/traits` 提供分组条目操作；条目顺序就是数组顺序，新增、删除和排序只改变当前世界草稿，不会改写已发布世界版本或已有存档。每条可保留 schema 允许之外的扩展键，保存时仍由服务端 `validatePlayerCreationSchema` 负责最终校验；高级 JSON 可显式载入编辑器，若直接修改后保存也会按原始文本校验，解析失败不会覆盖最近一次有效草稿。
@@ -140,7 +142,7 @@ R6.5 的上下文组装是请求级派生结果：NPC 按当前地点、队伍�
 
 兼容旧 WorldSave 时，前端仅在 `state.goals` 缺失且存在 `state.quests` 时生成 `legacy-*` 目标投影；原 `quests` 不删除，下一次正式提交才会把投影随当前存档一起保存。
 
-RPG 控制块的 `player.attributes` / `player.skills` / `player.resources` 使用相对数值变化（例如 `{ "player": { "skills": { "scouting": 1 }, "resources": { "focus": -2 } } }`）；客户端按卡片范围预览，服务端按当前 `playerCreation` 再校验。玩家创建字段、特质和关系在正式回合中保持不可变，避免 AI 通过叙事篡改身份。
+RPG 控制块使用 `protocol: 'tavern.rpg.turn'`、`version: 1`、`baseRevision` 与 `updates[]` typed patch；允许的更新类型由服务端白名单约束（资源 / 属性 / 技能 / 货币增量、背包、地点、效果和目标状态），不接受任意路径或完整 state。客户端只把候选 patch 交给服务端，服务端在当前 `WorldSave@revision` 上物化、校验并原子提交；玩家创建字段、特质和关系在正式回合中保持不可变，避免 AI 通过叙事篡改身份。
 
 `generatedEntities` 按 `npcs` / `items` / `quests` / `locations` 分桶保存 AI 提出的临时实体。回合请求只能提交候选 `createEntities`（最多 32 个），服务端按当前 `saveId` 生成 `save:<saveId>:<kind>:<n>` ID 后写入当前存档；重复命令不会重复创建，其他世界存档不可见。
 
@@ -160,6 +162,12 @@ RPG 控制块的 `player.attributes` / `player.skills` / `player.resources` 使�
     map: { strategy: 'perSave', data: null, imagePath: null, markers: [] }
   },
   opening: '世界卡 start.opening 的开局叙事',
+  setup: {
+    status: 'planning' | 'active',
+    game: { /* 由 WorldCard.sessionSetup.fields 动态物化的本局规则 */ },
+    plan: null | { locationId, presentNpcIds, situation, hook, knownFacts, boundaries, tone, time, event, npcContexts, preGameFacts, knowledge, initialHook },
+    candidate: null
+  },
   openingMode: 'static' | 'ai', openingOptions: [], openingCommandId: null,
   turns: [{ id, role: 'user' | 'assistant' | 'system', content, ts, options?, actionIntent?: { raw, verb?, target?, method?, risk? } }],
   receipts: [], eventLedger: [], eventMemory: [], memoryRebuild: null, worldLineSummary: null, generatedEntities: {},
@@ -168,7 +176,9 @@ RPG 控制块的 `player.attributes` / `player.skills` / `player.resources` 使�
 }
 ```
 
-创建时由服务端从当前 `WorldCard.start` 复制玩家快照、初始状态和 NPC 初始状态；角色库或世界卡后续编辑不会静默改写已有存档。`playerCreation` 只声明字段与范围，客户端提交的 `player.fields / attributes / skills / resources / traits / relations` 会在 `POST /api/world-saves` 处重新校验；未知 ID、缺失必填项、越界数值或超预算都会被拒绝。每个存档保存一份规范化 `player.snapshot`，并把可变化部分复制到 `state.player`，因此不同存档的建角数据、关系和资源互不共享。世界卡的 `npcIds` / `npcs` 只负责静态登记，关系、位置、认知和状态只写当前 `WorldSave.npcStates`。客户端不能提交文件路径或自行指定 `saveId`。`turnContract.options.min/max` 定义本卡建议行动数量（0–4），自由文本不受限制；服务端按当前 `worldVersion` 二次校验，未达到规则的候选回合不会写入。普通存档维护可通过 `PUT /api/world-saves/<saveId>` 提交完整的 `state + turns + opening`，带 `expectedRevision` 做顺序校验；正式 RPG 新行动使用 `POST /api/world-saves/<saveId>`，携带稳定 `commandId`、`expectedRevision`、候选 `state`、本回合 `turns`、卡片允许数量的 `options`，以及可选的 `npcStates`，服务端在同一临界区校验版本、追加带 revision 的回合并写入幂等 `receipts`。`state.conflicts` 与其他存档状态一样必须随当前 revision 完整提交；冲突状态只允许从当前值推进一轮，已结束冲突不能重开，receipt 的 `conflictTransitions` 记录生命周期变化。存档升级必须先对目标世界版本预演；地点、NPC 或任务稳定 ID 缺失时拒绝写入，成功时只更新 `worldVersion`、为新增世界 NPC 初始化本存档状态，并追加幂等 `migrationHistory`。地图网格写入 JSON 前转为数字数组，读取后恢复为 `Uint16Array`，图片只保存受校验的本地 `/images/...` 路径。
+创建时由服务端从当前 `WorldCard.start` 复制玩家快照、初始状态和 NPC 初始状态；角色库或世界卡后续编辑不会静默改写已有存档。`playerCreation` 只声明字段与范围，客户端提交的 `player.fields / attributes / skills / resources / traits / relations` 会在 `POST /api/world-saves` 处重新校验；未知 ID、缺失必填项、越界数值或超预算都会被拒绝。每个存档保存一份规范化 `player.snapshot`，并把可变化部分复制到 `state.player`，因此不同存档的建角数据、关系和资源互不共享。世界卡的 `npcIds` / `npcs` 只负责静态登记，关系、位置、认知和状态只写当前 `WorldSave.npcStates`。客户端不能提交文件路径或自行指定 `saveId`。`turnContract.options.min/max` 定义本卡建议行动数量（0–4），自由文本不受限制；服务端按当前 `worldVersion` 二次校验，未达到规则的候选回合不会写入。普通存档维护可通过 `PUT /api/world-saves/<saveId>` 提交完整的 `state + turns + opening`，带 `expectedRevision` 做顺序校验；正式 RPG 新行动使用 `POST /api/world-saves/<saveId>`，携带稳定 `commandId`、`expectedRevision`、`patch: { protocol, version, baseRevision, updates }`、本回合 `turns` 和卡片允许数量的 `options`，服务端在同一临界区物化 patch、推进时间、追加带 revision 的回合并写入幂等 `receipts`；旧客户端仍可提交完整 `state`。`state.conflicts` 与其他存档状态一样必须随当前 revision 完整提交；冲突状态只允许从当前值推进一轮，已结束冲突不能重开，receipt 的 `conflictTransitions` 记录生命周期变化。存档升级必须先对目标世界版本预演；地点、NPC 或任务稳定 ID 缺失时拒绝写入，成功时只更新 `worldVersion`、为新增世界 NPC 初始化本存档状态，并追加幂等 `migrationHistory`。地图网格写入 JSON 前转为数字数组，读取后恢复为 `Uint16Array`，图片只保存受校验的本地 `/images/...` 路径。
+
+`setup.game` 只接受当前世界卡 `sessionSetup.fields` 声明的键；`setup.plan` 是本局开场配置草稿，确认后会物化为 `state.openingScenario`、`state.preGameFacts`、分层 `state.knownInformation`、可选 `state.activeHooks`，并把 NPC 的开局关系与认知写入当前存档的 `npcStates`。
 
 ### 世界包 `*.tavern-world.json`
 
@@ -315,10 +325,12 @@ RPG 控制块的 `player.attributes` / `player.skills` / `player.resources` 使�
 | `POST /api/worlds/<worldId>/versions` | 显式把来源存档中的生成 NPC 收录进下一不可变世界版本；要求 `sourceSaveId`、`npcId`，可选 `expectedRevision` / `title` |
 | `GET /api/world-saves?worldId=<worldId>` | 列出指定世界的存档摘要 |
 | `POST /api/world-saves` | 按世界卡创建一个独立存档；可提交 `player: { fields, attributes, skills, resources, traits, relations }`，服务端按当前卡规则校验并分配 `saveId` |
-| `POST /api/world-saves/<saveId>/opening` | 以 `commandId + expectedRevision` 幂等提交 AI 开场正文与 4 个选项；只更新当前存档的 `opening` / `openingOptions` |
+| `PUT /api/world-saves/<saveId>/setup` | 在 `planning` 状态下，以 `commandId + expectedRevision` 保存独立的开局规划草案；改动会清空尚未提交的候选 |
+| `POST /api/world-saves/<saveId>/opening-candidate` | 在 `planning` 状态下，以 `commandId + expectedRevision` 保存独立的 `OpeningCandidate`（叙事正文 + 4 个选项）；不写入正式开场 |
+| `POST /api/world-saves/<saveId>/opening` | 以 `commandId + expectedRevision` 幂等提交 AI 开场正文与 4 个选项；原子把 `setup.status` 切为 `active` 并更新当前存档的 `opening` / `openingOptions` |
 | `GET /api/world-saves/<saveId>` | 读取一个完整 WorldSave |
 | `PUT /api/world-saves/<saveId>` | 使用 `expectedRevision` 原子提交当前存档的 `state`、`turns` 与 `opening`；版本冲突返回 409 |
-| `POST /api/world-saves/<saveId>` | 提交一次 RPG 回合候选；校验 `commandId`、assistant 回合、卡片允许数量的唯一选项、玩家 `actionIntent.raw`、状态数值/背包/任务/目标/线索边界和 revision，成功后在原子提交中推进时间、结算 `events`、把行动意图附着到本回合并记录 receipt；相同 commandId 幂等返回 |
+| `POST /api/world-saves/<saveId>` | 提交一次 RPG 回合候选；新协议携带 `patch { protocol, version, baseRevision, updates }`，服务端在当前存档上严格校验、物化并按 revision 原子提交；同时校验 `commandId`、assistant 回合、卡片允许数量的唯一选项、玩家 `actionIntent.raw`，成功后推进时间、结算 `events`、把行动意图附着到本回合并记录 receipt；旧完整 `state` 提交与相同 commandId 继续兼容且幂等返回 |
 | `POST /api/world-saves/<saveId>/growth` | 使用 `commandId + expectedRevision` 接受或拒绝一个当前存档的成长候选；接受时服务端应用能力 / 特质 / 关系 / 阵营声望 / 身份标签并追加人物经历，拒绝时只追加处理记录；相同 commandId 幂等返回 |
 | `GET /api/world-saves/<saveId>/memory` | 只读返回当前存档的派生记忆统计、正式来源数量与脱敏重建预览；隐藏记忆不展开内容 |
 | `POST /api/world-saves/<saveId>/memory/rebuild` | 使用 `commandId + expectedRevision` 从世界事件、成长事实与 `eventLedger` 来源引用重建 `eventMemory`；不改变正式 world revision，重复 commandId 幂等 |

@@ -246,13 +246,20 @@ async function loadWorlds() {
   const defaults = loadDefaults();
   const defaultWorlds = Array.isArray(defaults.worlds) ? defaults.worlds : [];
   const defaultByKey = new Map(defaultWorlds.map(world => [`${world.id}:${world.version}`, world]));
+  const defaultById = new Map(defaultWorlds.map(world => [world.id, world]));
   const loaded = worlds.map(world => {
     if (!world) return world;
-    const fallback = defaultByKey.get(`${world.id}:${world.version}`);
+    const fallback = defaultByKey.get(`${world.id}:${world.version}`) || defaultById.get(world.id);
     if (!fallback) return world;
     const next = { ...world };
-    for (const key of ['playerCreation', 'turnContract', 'failure', 'ending', 'time', 'events', 'factions', 'conflicts']) {
-      if (next[key] === undefined && fallback[key] !== undefined) next[key] = cloneJson(fallback[key]);
+    for (const key of ['playerCreation', 'turnContract', 'failure', 'ending', 'time', 'events', 'factions', 'conflicts', 'sessionSetup']) {
+      const source = fallback?.[key] !== undefined ? fallback : defaultById.get(world.id);
+      if ((next[key] === undefined || next[key] === null) && source?.[key] !== undefined) next[key] = cloneJson(source[key]);
+    }
+    if (next.playerCreation && fallback?.playerCreation) {
+      for (const key of ['choices', 'choiceBudget', 'initialInventory']) {
+        if ((next.playerCreation[key] === undefined || next.playerCreation[key] === null) && fallback.playerCreation[key] !== undefined) next.playerCreation[key] = cloneJson(fallback.playerCreation[key]);
+      }
     }
     return next;
   });
@@ -301,6 +308,8 @@ function worldDraftFieldsValid(payload, requireRevision = false) {
   if (rulesInvalid) return rulesInvalid;
   const playerCreationInvalid = validatePlayerCreationSchema(payload.playerCreation);
   if (playerCreationInvalid) return playerCreationInvalid;
+  const sessionSetupInvalid = validateSessionSetupSchema(payload.sessionSetup);
+  if (sessionSetupInvalid) return sessionSetupInvalid;
   const turnContractInvalid = validateTurnContract(payload.turnContract);
   if (turnContractInvalid) return turnContractInvalid;
   const failureInvalid = validateWorldFailure(payload.failure);
@@ -541,6 +550,28 @@ function validatePlayerCreationSchema(schema, world = null) {
     const id = typeof trait?.id === 'string' ? trait.id.trim() : '';
     if (!isSafeId(id) || traitIds.has(id) || !draftTextValid(trait.label, 120, true) || (trait.description !== undefined && !draftTextValid(trait.description, 1000))) return 'playerCreation.traits 含有重复或无效条目';
     traitIds.add(id);
+  }
+  const choiceIds = new Set();
+  const choices = schema.choices === undefined ? [] : schema.choices;
+  if (!Array.isArray(choices) || choices.length > 256) return 'playerCreation.choices 最多 256 项';
+  for (const choice of choices) {
+    const id = typeof choice?.id === 'string' ? choice.id.trim() : '';
+    if (!isSafeId(id) || choiceIds.has(id) || !draftTextValid(choice.label, 160, true)) return 'playerCreation.choices 含有重复或无效条目';
+    if (choice.kind !== undefined && (!isSafeId(String(choice.kind)) || String(choice.kind).length > 80)) return `playerCreation.choices.${id}.kind 无效`;
+    if (choice.cost !== undefined && !validBoundedNumber(choice.cost, 0, 999)) return `playerCreation.choices.${id}.cost 无效`;
+    for (const key of ['requires', 'excludes']) if (choice[key] !== undefined && (!Array.isArray(choice[key]) || choice[key].length > 32 || choice[key].some(ref => !isSafeId(String(ref))))) return `playerCreation.choices.${id}.${key} 无效`;
+    if (choice.description !== undefined && !draftTextValid(choice.description, 1200)) return `playerCreation.choices.${id}.description 无效`;
+    choiceIds.add(id);
+  }
+  for (const choice of choices) for (const key of ['requires', 'excludes']) for (const ref of choice[key] || []) if (!choiceIds.has(String(ref))) return `playerCreation.choices.${choice.id}.${key} 引用了不存在条目`;
+  if (schema.choiceBudget !== undefined) {
+    const budget = schema.choiceBudget;
+    if (!budget || typeof budget !== 'object' || Array.isArray(budget) || !validBoundedNumber(budget.total, 0, 999) || (budget.min !== undefined && !validBoundedNumber(budget.min, 0, budget.total))) return 'playerCreation.choiceBudget 无效';
+  }
+  if (schema.initialInventory !== undefined) {
+    if (!Array.isArray(schema.initialInventory) || schema.initialInventory.length > 64) return 'playerCreation.initialInventory 无效';
+    const itemIds = new Set((schema.economy?.inventory?.items || []).map(item => item?.id).filter(isSafeId));
+    for (const item of schema.initialInventory) if (!item || !isSafeId(item.itemId) || (itemIds.size && !itemIds.has(item.itemId)) || !Number.isInteger(item.count ?? 1) || (item.count ?? 1) < 1 || (item.count ?? 1) > 1000000) return 'playerCreation.initialInventory 无效';
   }
   const relationIds = new Set();
   if (schema.relations !== undefined) {
@@ -836,8 +867,15 @@ function materializePlayerEconomyState(world, initial = {}, playerState = null) 
     if (currencies[currency.id] === undefined && Number.isFinite(playerState?.resources?.[currency.id])) currencies[currency.id] = playerState.resources[currency.id];
     if (currencies[currency.id] === undefined) currencies[currency.id] = currency.initial ?? currency.min ?? 0;
   }
+  const inventory = Array.isArray(initial.inventory) ? cloneJson(initial.inventory) : [];
+  const itemDefinitions = new Map((Array.isArray(economy.inventory?.items) ? economy.inventory.items : []).map(item => [item.id, item]));
+  for (const item of Array.isArray(playerState?.initialInventory) ? playerState.initialInventory : []) {
+    const definition = itemDefinitions.get(item.itemId);
+    if (!definition) continue;
+    inventory.push({ itemId: item.itemId, name: definition.label || item.itemId, count: item.count || 1, ...(definition.weight !== undefined ? { weight: definition.weight } : {}) });
+  }
   return {
-    inventory: Array.isArray(initial.inventory) ? cloneJson(initial.inventory) : [],
+    inventory,
     equipment: initial.equipment && typeof initial.equipment === 'object' && !Array.isArray(initial.equipment) ? cloneJson(initial.equipment) : {},
     currencies,
   };
@@ -926,7 +964,7 @@ function validateDynamicPlayerState(world, value, current = null, immutable = fa
     }
   }
   if (immutable && current) {
-    for (const key of ['fields', 'traits', 'relations', 'identity']) {
+    for (const key of ['fields', 'traits', 'choices', 'initialInventory', 'relations', 'identity']) {
       if (canonicalJson(value[key] ?? null) !== canonicalJson(current[key] ?? null)) return `state.player.${key} 只能由存档创建时确定`;
     }
   }
@@ -1497,7 +1535,7 @@ function validateEventLedger(value) {
   if (value === undefined || value === null) return null;
   if (!Array.isArray(value) || value.length > EVENT_LEDGER_MAX) return `eventLedger 最多 ${EVENT_LEDGER_MAX} 项`;
   const ids = new Set();
-  const kinds = new Set(['opening', 'turn', 'growth', 'ending', 'world-version-upgrade', 'migration']);
+  const kinds = new Set(['opening', 'opening-candidate', 'setup', 'setup-plan', 'turn', 'growth', 'ending', 'world-version-upgrade', 'migration']);
   for (const entry of value) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return 'eventLedger 含有无效记录';
     const id = typeof entry?.id === 'string' ? entry.id.trim() : '';
@@ -2252,6 +2290,7 @@ function validatePlayerCreationInput(world, input) {
   const resources = Object.fromEntries((Array.isArray(schema.resources) ? schema.resources : []).map(resource => [resource.id, resource]));
   const skills = Object.fromEntries((Array.isArray(schema.skills) ? schema.skills : []).map(skill => [skill.id, skill]));
   const traits = new Map((Array.isArray(schema.traits) ? schema.traits : []).map(trait => [trait.id, trait]));
+  const choices = new Map((Array.isArray(schema.choices) ? schema.choices : []).map(choice => [choice.id, choice]));
   const values = input.fields && typeof input.fields === 'object' && !Array.isArray(input.fields) ? input.fields : {};
   const normalizedFields = {};
   for (const [id, field] of Object.entries(fields)) {
@@ -2298,6 +2337,17 @@ function validatePlayerCreationInput(world, input) {
   for (const id of Object.keys(inputSkills)) if (!Object.hasOwn(skills, id)) return { error: `player.skills.${id} 不是当前世界卡技能` };
   const selectedTraits = Array.isArray(input.traits) ? [...new Set(input.traits.map(String))] : [];
   if (selectedTraits.length > traits.size || selectedTraits.some(id => !traits.has(id))) return { error: 'player.traits 含有无效条目' };
+  const selectedChoices = Array.isArray(input.choices) ? [...new Set(input.choices.map(String))] : [];
+  if (selectedChoices.length > choices.size || selectedChoices.some(id => !choices.has(id))) return { error: 'player.choices 含有无效条目' };
+  const selectedChoiceSet = new Set(selectedChoices);
+  const choiceCost = selectedChoices.reduce((sum, id) => sum + Number(choices.get(id)?.cost || 0), 0);
+  for (const id of selectedChoices) {
+    const choice = choices.get(id);
+    if ((choice.requires || []).some(ref => !selectedChoiceSet.has(String(ref)))) return { error: `player.choices.${id} 缺少前置条件` };
+    if ((choice.excludes || []).some(ref => selectedChoiceSet.has(String(ref)))) return { error: `player.choices.${id} 与其他选择互斥` };
+  }
+  if (schema.choiceBudget && choiceCost > Number(schema.choiceBudget.total)) return { error: `选择点不能超过 ${schema.choiceBudget.total}` };
+  if (schema.choiceBudget && choiceCost < Number(schema.choiceBudget.min || 0)) return { error: `选择点不能少于 ${schema.choiceBudget.min}` };
   const inputRelations = input.relations && typeof input.relations === 'object' && !Array.isArray(input.relations) ? input.relations : {};
   const relationRules = Object.fromEntries((Array.isArray(schema.relations) ? schema.relations : []).map(rule => [rule.npcId, rule]));
   const normalizedRelations = {};
@@ -2307,12 +2357,25 @@ function validatePlayerCreationInput(world, input) {
     normalizedRelations[npcId] = value;
   }
   for (const id of Object.keys(inputRelations)) if (!Object.hasOwn(relationRules, id)) return { error: `player.relations.${id} 不是当前世界卡关系` };
+  const initialInventoryRules = new Map((Array.isArray(schema.initialInventory) ? schema.initialInventory : []).map(item => [item.itemId, item]));
+  const inputInventory = input.initialInventory && typeof input.initialInventory === 'object' && !Array.isArray(input.initialInventory) ? input.initialInventory : {};
+  const normalizedInitialInventory = [];
+  for (const [itemId, rawCount] of Object.entries(inputInventory)) {
+    if (!initialInventoryRules.has(itemId)) return { error: `player.initialInventory.${itemId} 不是当前世界卡初始物品` };
+    const count = Number(rawCount);
+    const max = Number(initialInventoryRules.get(itemId)?.count || 1);
+    if (!Number.isInteger(count) || count < 0 || count > max) return { error: `player.initialInventory.${itemId} 数量无效` };
+    if (count > 0) normalizedInitialInventory.push({ itemId, count });
+  }
+  if (!Object.keys(inputInventory).length) normalizedInitialInventory.push(...cloneJson(schema.initialInventory || []));
   const snapshot = {
     fields: normalizedFields,
     attributes: normalizedAttributes,
     skills: normalizedSkills,
     resources: normalizedResources,
     traits: selectedTraits,
+    choices: selectedChoices,
+    initialInventory: normalizedInitialInventory,
     relations: normalizedRelations,
     name: normalizedFields.name || '未命名冒险者',
     race: normalizedFields.race || '待定',
@@ -2321,7 +2384,7 @@ function validatePlayerCreationInput(world, input) {
   };
   return {
     snapshot,
-    statePlayer: { fields: normalizedFields, attributes: normalizedAttributes, skills: normalizedSkills, resources: normalizedResources, traits: selectedTraits, relations: normalizedRelations, effects: [] },
+    statePlayer: { fields: normalizedFields, attributes: normalizedAttributes, skills: normalizedSkills, resources: normalizedResources, traits: selectedTraits, choices: selectedChoices, initialInventory: normalizedInitialInventory, relations: normalizedRelations, effects: [] },
     relations: normalizedRelations,
   };
 }
@@ -2435,6 +2498,7 @@ function applyWorldDraftFields(world, payload) {
   if (payload.setting !== undefined) next.setting = payload.setting === null ? null : cloneJson(payload.setting);
   if (payload.rules !== undefined) next.rules = payload.rules === null ? null : cloneJson(payload.rules);
   if (payload.playerCreation !== undefined) next.playerCreation = cloneJson(payload.playerCreation);
+  if (payload.sessionSetup !== undefined) next.sessionSetup = cloneJson(payload.sessionSetup);
   if (payload.turnContract !== undefined) next.turnContract = cloneJson(payload.turnContract);
   if (payload.failure !== undefined) next.failure = cloneJson(payload.failure);
   if (payload.ending !== undefined) next.ending = cloneJson(payload.ending);
@@ -2694,6 +2758,7 @@ function worldSummary(world, saveCount = 0) {
 }
 
 function saveSummary(save) {
+  const setupStatus = save.setup && save.setup.status === 'planning' ? 'planning' : 'active';
   return {
     id: save.id,
     name: save.name,
@@ -2703,6 +2768,8 @@ function saveSummary(save) {
     updatedAt: save.updatedAt,
     revision: save.revision,
     locationId: save.state && save.state.locationId || null,
+    setupStatus,
+    openingReady: setupStatus === 'active' && typeof save.opening === 'string' && !!save.opening.trim(),
   };
 }
 
@@ -3403,6 +3470,8 @@ function worldPackageImportReport(pkg) {
     if (rulesInvalid) errors.push(rulesInvalid);
     const playerCreationInvalid = validatePlayerCreationSchema(world.playerCreation, world);
     if (playerCreationInvalid) errors.push(playerCreationInvalid);
+    const sessionSetupInvalid = validateSessionSetupSchema(world.sessionSetup);
+    if (sessionSetupInvalid) errors.push(sessionSetupInvalid);
     const turnContractInvalid = validateTurnContract(world.turnContract);
     if (turnContractInvalid) errors.push(turnContractInvalid);
     const failureInvalid = validateWorldFailure(world.failure);
@@ -3885,6 +3954,7 @@ async function handleWorldEndingPost(req, res, saveId) {
     try {
       const current = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
       if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
+      if (current.setup?.status === 'planning') return send(res, 409, JSON.stringify({ error: '请先完成开局规划，再结束世界线' }), 'application/json');
       if (committedCommand(current, payload.commandId)) return send(res, 200, JSON.stringify(current), 'application/json; charset=utf-8');
       if (current.revision !== payload.expectedRevision) return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
       if (current.state?.ending?.status === 'ended') return send(res, 409, JSON.stringify({ error: '当前世界线已经结束', ending: current.state.ending }), 'application/json');
@@ -3980,6 +4050,7 @@ async function handleWorldSaveReopen(req, res, saveId) {
         if (Number.isFinite(maxHp)) next.state.player.resources.hp = Math.max(1, maxHp);
       }
       next.opening = '（世界线已从上一条终止线重开；上一条世界线的记忆、状态与总结已作为过去记录保留。）';
+      next.setup = { status: 'active', plan: null, candidate: null };
       next.openingMode = 'static';
       next.openingOptions = [];
       next.openingCommandId = null;
@@ -4042,6 +4113,8 @@ async function handleWorldSaveCreate(req, res) {
   const stats = initial.stats && typeof initial.stats === 'object' ? cloneJson(initial.stats) : {};
   const schemaInvalid = validatePlayerCreationSchema(world.playerCreation, world);
   if (schemaInvalid) return send(res, 400, JSON.stringify({ error: schemaInvalid }), 'application/json');
+  const sessionSetupInvalid = validateSessionSetupSchema(world.sessionSetup);
+  if (sessionSetupInvalid) return send(res, 400, JSON.stringify({ error: sessionSetupInvalid }), 'application/json');
   const timeInvalid = validateWorldTime(world.time);
   if (timeInvalid) return send(res, 400, JSON.stringify({ error: timeInvalid }), 'application/json');
   const factionsInvalid = validateWorldFactions(world.factions, world);
@@ -4077,6 +4150,9 @@ async function handleWorldSaveCreate(req, res) {
   const economyState = materializePlayerEconomyState(world, initial, playerState);
   const economyStateInvalid = validatePlayerEconomyState(world, economyState);
   if (economyStateInvalid) return send(res, 400, JSON.stringify({ error: economyStateInvalid }), 'application/json');
+  const initialGameConfig = materializeSessionSetup(world, start.sessionConfig);
+  const initialGameConfigInvalid = validateSessionSetupInput(world, initialGameConfig);
+  if (initialGameConfigInvalid) return send(res, 400, JSON.stringify({ error: initialGameConfigInvalid }), 'application/json');
   const derivedStats = { ...stats };
   for (const key of ['hp', 'mp', 'gold']) {
     if (playerState?.resources && Number.isFinite(playerState.resources[key])) derivedStats[key] = playerState.resources[key];
@@ -4120,8 +4196,14 @@ async function handleWorldSaveCreate(req, res) {
       },
     },
     npcStates: initialNpcStates(world, start, playerResult.relations),
+    setup: {
+      status: start.openingMode === 'static' ? 'active' : 'planning',
+      game: initialGameConfig,
+      plan: null,
+      candidate: null,
+    },
     opening: String(start.opening || ''),
-    openingMode: start.openingMode === 'ai' ? 'ai' : 'static',
+    openingMode: start.openingMode === 'static' ? 'static' : 'ai',
     openingOptions: [],
     openingCommandId: null,
     turns: [],
@@ -4315,6 +4397,315 @@ function materializeGeneratedEntities(current, candidates, saveId, commandId, re
   return generated;
 }
 
+function validateWorldOpeningPlan(plan, world) {
+  if (!plan || typeof plan !== 'object' || Array.isArray(plan)) return 'plan 必须是对象';
+  const locationIds = worldLocationIds(world);
+  const npcIds = new Set(worldNpcIds(world));
+  const presentNpcIds = new Set(Array.isArray(plan.presentNpcIds) ? plan.presentNpcIds : []);
+  if (plan.locationId !== null && plan.locationId !== undefined && (!isSafeId(plan.locationId) || !locationIds.has(plan.locationId))) return 'plan.locationId 必须引用当前世界已登记的 locationId';
+  if (plan.presentNpcIds !== undefined && (!Array.isArray(plan.presentNpcIds) || plan.presentNpcIds.length > 32 || new Set(plan.presentNpcIds).size !== plan.presentNpcIds.length || plan.presentNpcIds.some(id => typeof id !== 'string' || !isSafeId(id) || !npcIds.has(id)))) return 'plan.presentNpcIds 包含无效 NPC';
+  for (const [key, max] of [['situation', 4000], ['hook', 4000], ['tone', 500]]) {
+    if (plan[key] !== undefined && (typeof plan[key] !== 'string' || plan[key].length > max)) return `plan.${key} 无效`;
+  }
+  for (const key of ['knownFacts', 'boundaries']) {
+    if (plan[key] !== undefined && (!Array.isArray(plan[key]) || plan[key].length > 32 || plan[key].some(item => typeof item !== 'string' || !item.trim() || item.length > 500))) return `plan.${key} 无效`;
+  }
+  if (plan.time !== undefined) {
+    if (!plan.time || typeof plan.time !== 'object' || Array.isArray(plan.time)) return 'plan.time 无效';
+    for (const key of ['era', 'date', 'period', 'description', 'unit']) if (plan.time[key] !== undefined && (typeof plan.time[key] !== 'string' || plan.time[key].length > 240)) return `plan.time.${key} 无效`;
+    if (plan.time.value !== undefined && (!Number.isFinite(Number(plan.time.value)) || Number(plan.time.value) < 0 || Number(plan.time.value) > 1000000000)) return 'plan.time.value 无效';
+  }
+  if (plan.event !== undefined) {
+    if (!plan.event || typeof plan.event !== 'object' || Array.isArray(plan.event)) return 'plan.event 无效';
+    for (const key of ['mode', 'templateId', 'title', 'description']) if (plan.event[key] !== undefined && (typeof plan.event[key] !== 'string' || plan.event[key].length > 2000)) return `plan.event.${key} 无效`;
+    if (plan.event.mode !== undefined && !isSafeId(plan.event.mode)) return 'plan.event.mode 无效';
+  }
+  if (plan.npcContexts !== undefined) {
+    if (!Array.isArray(plan.npcContexts) || plan.npcContexts.length > 32) return 'plan.npcContexts 无效';
+    const ids = new Set();
+    for (const context of plan.npcContexts) {
+      if (!context || typeof context !== 'object' || Array.isArray(context) || typeof context.npcId !== 'string' || !npcIds.has(context.npcId) || (Array.isArray(plan.presentNpcIds) && !presentNpcIds.has(context.npcId)) || ids.has(context.npcId)) return 'plan.npcContexts 包含无效 NPC';
+      for (const key of ['relationship', 'currentGoal', 'currentState']) if (context[key] !== undefined && (typeof context[key] !== 'string' || context[key].length > 1000)) return `plan.npcContexts.${context.npcId}.${key} 无效`;
+      for (const key of ['knowsPlayer', 'playerKnowsTruth']) if (context[key] !== undefined && typeof context[key] !== 'boolean') return `plan.npcContexts.${context.npcId}.${key} 无效`;
+      ids.add(context.npcId);
+    }
+  }
+  if (plan.preGameFacts !== undefined) {
+    if (!Array.isArray(plan.preGameFacts) || plan.preGameFacts.length > 64) return 'plan.preGameFacts 无效';
+    const ids = new Set();
+    for (const fact of plan.preGameFacts) {
+      if (!fact || typeof fact !== 'object' || Array.isArray(fact) || !isSafeId(fact.id) || ids.has(fact.id) || !draftTextValid(fact.content, 2000, true) || !['world-truth', 'character-knowledge', 'player-visible', 'hidden', 'rumor'].includes(fact.scope || 'player-visible')) return 'plan.preGameFacts 包含无效事实';
+      if (fact.confidence !== undefined && !['confirmed', 'uncertain'].includes(fact.confidence)) return `plan.preGameFacts.${fact.id}.confidence 无效`;
+      ids.add(fact.id);
+    }
+  }
+  if (plan.knowledge !== undefined) {
+    if (!plan.knowledge || typeof plan.knowledge !== 'object' || Array.isArray(plan.knowledge)) return 'plan.knowledge 无效';
+    for (const key of ['worldTruth', 'characterKnowledge', 'playerVisible', 'hidden', 'rumors']) if (plan.knowledge[key] !== undefined && (!Array.isArray(plan.knowledge[key]) || plan.knowledge[key].length > 64 || plan.knowledge[key].some(item => typeof item !== 'string' || !item.trim() || item.length > 1000))) return `plan.knowledge.${key} 无效`;
+  }
+  if (plan.initialHook !== undefined) {
+    if (!plan.initialHook || typeof plan.initialHook !== 'object' || Array.isArray(plan.initialHook)) return 'plan.initialHook 无效';
+    if (plan.initialHook.id !== undefined && !isSafeId(plan.initialHook.id)) return 'plan.initialHook.id 无效';
+    for (const key of ['title', 'description']) if (plan.initialHook[key] !== undefined && !draftTextValid(plan.initialHook[key], 2000, key === 'title')) return `plan.initialHook.${key} 无效`;
+    if (plan.initialHook.optional !== undefined && typeof plan.initialHook.optional !== 'boolean') return 'plan.initialHook.optional 无效';
+  }
+  return null;
+}
+
+const SESSION_SETUP_FIELD_TYPES = new Set(['text', 'textarea', 'select', 'number', 'boolean']);
+
+function validateSessionSetupSchema(schema) {
+  if (schema === undefined || schema === null) return null;
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return 'sessionSetup 必须是对象';
+  if (schema.title !== undefined && !draftTextValid(schema.title, 160, true)) return 'sessionSetup.title 无效';
+  const fields = schema.fields === undefined ? [] : schema.fields;
+  if (!Array.isArray(fields) || fields.length > 64) return 'sessionSetup.fields 最多 64 项';
+  const ids = new Set();
+  for (const field of fields) {
+    const id = typeof field?.id === 'string' ? field.id.trim() : '';
+    if (!isSafeId(id) || ids.has(id) || !draftTextValid(field.label, 160, true) || !SESSION_SETUP_FIELD_TYPES.has(field.type)) return 'sessionSetup.fields 含有重复或无效条目';
+    if (field.required !== undefined && typeof field.required !== 'boolean') return `sessionSetup.fields.${id}.required 无效`;
+    if (field.allowCustom !== undefined && typeof field.allowCustom !== 'boolean') return `sessionSetup.fields.${id}.allowCustom 无效`;
+    if (field.type === 'select') {
+      if (!Array.isArray(field.options) || field.options.length > 128 || !field.options.length) return `sessionSetup.fields.${id}.options 无效`;
+      const options = new Set();
+      for (const option of field.options) {
+        const value = typeof option === 'string' ? option.trim() : String(option?.value || '').trim();
+        const label = typeof option === 'string' ? option.trim() : option?.label;
+        if (!value || value.length > 160 || options.has(value) || !draftTextValid(label, 160, true)) return `sessionSetup.fields.${id}.options 无效`;
+        options.add(value);
+      }
+      if (field.default !== undefined && !options.has(String(field.default)) && field.allowCustom !== true) return `sessionSetup.fields.${id}.default 无效`;
+    }
+    if (field.type === 'number') {
+      const min = field.min ?? -1000000;
+      const max = field.max ?? 1000000;
+      if (!validBoundedNumber(min, -1000000000, 1000000000) || !validBoundedNumber(max, min, 1000000000) || (field.step !== undefined && !validBoundedNumber(field.step, 0.000001, 1000000000))) return `sessionSetup.fields.${id}.range 无效`;
+      if (field.default !== undefined && !validBoundedNumber(Number(field.default), min, max)) return `sessionSetup.fields.${id}.default 无效`;
+    }
+    if (field.type === 'boolean' && field.default !== undefined && typeof field.default !== 'boolean') return `sessionSetup.fields.${id}.default 无效`;
+    if (['text', 'textarea'].includes(field.type) && field.default !== undefined && (!draftTextValid(field.default, field.maxLength || 4000) || (field.type === 'text' && field.maxLength !== undefined && field.default.length > field.maxLength))) return `sessionSetup.fields.${id}.default 无效`;
+    ids.add(id);
+  }
+  return null;
+}
+
+function sessionSetupSchema(world) {
+  const schema = world?.sessionSetup;
+  return schema && typeof schema === 'object' && !Array.isArray(schema) ? schema : null;
+}
+
+function materializeSessionSetup(world, value = undefined) {
+  const schema = sessionSetupSchema(world);
+  const input = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  if (!schema) return {};
+  const result = {};
+  for (const field of Array.isArray(schema.fields) ? schema.fields : []) {
+    if (input[field.id] !== undefined) result[field.id] = input[field.id];
+    else if (field.default !== undefined) result[field.id] = cloneJson(field.default);
+  }
+  return result;
+}
+
+function validateSessionSetupInput(world, value, current = undefined) {
+  const schema = sessionSetupSchema(world);
+  if (!schema) return value === undefined || value === null || (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0) ? null : '当前世界卡未声明可配置的游戏规则';
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'setup.game 必须是对象';
+  const fields = new Map((Array.isArray(schema.fields) ? schema.fields : []).map(field => [field.id, field]));
+  for (const key of Object.keys(value)) if (!fields.has(key)) return `setup.game.${key} 不是当前世界卡配置项`;
+  for (const [id, field] of fields) {
+    const raw = value[id] !== undefined ? value[id] : current?.[id] !== undefined ? current[id] : field.default;
+    if (raw === undefined || raw === null || raw === '') {
+      if (field.required) return `setup.game.${id} 不能为空`;
+      continue;
+    }
+    if (field.type === 'boolean' && typeof raw !== 'boolean') return `setup.game.${id} 必须是布尔值`;
+    if (field.type === 'number' && !validBoundedNumber(Number(raw), field.min ?? -1000000, field.max ?? 1000000)) return `setup.game.${id} 超出范围`;
+    if (field.type === 'select') {
+      const options = new Set((field.options || []).map(option => typeof option === 'string' ? option : option.value));
+      if (!options.has(String(raw)) && field.allowCustom !== true) return `setup.game.${id} 选项无效`;
+      if (String(raw).length > 240) return `setup.game.${id} 过长`;
+    }
+    if (['text', 'textarea'].includes(field.type) && (typeof raw !== 'string' || raw.length > (field.maxLength || 4000))) return `setup.game.${id} 文本无效`;
+  }
+  return null;
+}
+
+function validateWorldOpeningCandidate(candidate) {
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return 'candidate 必须是对象';
+  if (typeof candidate.narrative !== 'string' || !candidate.narrative.trim() || candidate.narrative.length > 100000) return 'candidate.narrative 必须是非空文本';
+  if (!Array.isArray(candidate.options) || candidate.options.length !== 4 || candidate.options.some(option => typeof option !== 'string' || !option.trim() || option.length > 500)) return 'candidate.options 必须恰好包含 4 个非空选项';
+  if (new Set(candidate.options.map(option => option.trim())).size !== 4) return 'candidate.options 不能重复';
+  return null;
+}
+
+async function handleWorldSaveOpeningCandidatePost(req, res, saveId) {
+  const fp = savePath(saveId);
+  if (!fp) return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json');
+  let payload;
+  try { payload = await readJsonBody(req, 256 * 1024); }
+  catch (err) { return send(res, err.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400, JSON.stringify({ error: err.message }), 'application/json'); }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return send(res, 400, JSON.stringify({ error: '请求必须是 JSON 对象' }), 'application/json');
+  if (typeof payload.commandId !== 'string' || !COMMAND_ID_RE.test(payload.commandId)) return send(res, 400, JSON.stringify({ error: 'commandId 无效' }), 'application/json');
+  if (!Number.isInteger(payload.expectedRevision) || payload.expectedRevision < 0) return send(res, 400, JSON.stringify({ error: 'expectedRevision 必须是非负整数' }), 'application/json');
+  const invalidCandidate = validateWorldOpeningCandidate(payload.candidate);
+  if (invalidCandidate) return send(res, 400, JSON.stringify({ error: invalidCandidate }), 'application/json');
+  return withWorldSaveLock(saveId, async () => {
+    try {
+      const current = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
+      if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
+      if (committedCommand(current, payload.commandId)) return send(res, 200, JSON.stringify(current), 'application/json; charset=utf-8');
+      if (current.setup?.status !== 'planning') return send(res, 409, JSON.stringify({ error: '当前存档已经完成开局规划' }), 'application/json');
+      if (!current.setup?.plan) return send(res, 409, JSON.stringify({ error: '请先保存开局规划，再生成候选' }), 'application/json');
+      if (current.revision !== payload.expectedRevision) return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
+      const revision = current.revision + 1;
+      const generatedAt = Date.now();
+      const candidate = { narrative: payload.candidate.narrative.trim(), options: payload.candidate.options.map(option => option.trim()), generatedAt, commandId: payload.commandId, sourceRevision: revision };
+      const next = {
+        ...current,
+        setup: { ...(current.setup && typeof current.setup === 'object' ? current.setup : {}), status: 'planning', candidate },
+        receipts: [...(Array.isArray(current.receipts) ? current.receipts : []), { commandId: payload.commandId, kind: 'opening-candidate', revision, committedAt: generatedAt }].slice(-200),
+        revision,
+        updatedAt: generatedAt,
+      };
+      await writeJsonAtomic(fp, next);
+      send(res, 200, JSON.stringify(next), 'application/json; charset=utf-8');
+    } catch (err) {
+      if (err.code === 'ENOENT') return send(res, 404, JSON.stringify({ error: '存档不存在' }), 'application/json');
+      console.error('[world-saves] 开场候选保存失败:', err.message);
+      send(res, 500, JSON.stringify({ error: '开场候选保存失败: ' + err.message }), 'application/json');
+    }
+  });
+}
+
+function initializeWorldStateFromOpeningPlan(current, world, plan) {
+  const state = cloneJson(current.state || {});
+  const npcStates = cloneJson(current.npcStates || {});
+  if (plan?.locationId) {
+    state.locationId = plan.locationId;
+    state.map = { ...(state.map || {}), discoveredLocationIds: [...new Set([...(Array.isArray(state.map?.discoveredLocationIds) ? state.map.discoveredLocationIds : []), plan.locationId])] };
+  }
+  if (plan?.time && typeof plan.time === 'object') {
+    state.time = {
+      ...(state.time || {}),
+      ...(plan.time.unit ? { unit: plan.time.unit } : {}),
+      ...(plan.time.value !== undefined ? { value: Number(plan.time.value) } : {}),
+      ...(plan.time.era ? { era: plan.time.era } : {}),
+      ...(plan.time.date ? { date: plan.time.date } : {}),
+      ...(plan.time.period ? { period: plan.time.period } : {}),
+      ...(plan.time.description ? { description: plan.time.description } : {}),
+    };
+  }
+  const npcContexts = Array.isArray(plan?.npcContexts) ? cloneJson(plan.npcContexts) : [];
+  for (const context of npcContexts) {
+    const previous = npcStates[context.npcId] && typeof npcStates[context.npcId] === 'object' ? npcStates[context.npcId] : {};
+    npcStates[context.npcId] = {
+      ...previous,
+      ...(state.locationId ? { locationId: context.locationId || previous.locationId || state.locationId } : {}),
+      relation: { ...(previous.relation || {}), ...(context.relationship ? { playerContext: context.relationship } : {}) },
+      knowledge: Array.isArray(previous.knowledge) ? previous.knowledge : [],
+      status: [...new Set([...(Array.isArray(previous.status) ? previous.status : []), ...(context.currentState ? [context.currentState] : [])])].slice(-32),
+      knowsPlayer: context.knowsPlayer === true,
+      playerKnowsTruth: context.playerKnowsTruth === true,
+      openingContext: { currentGoal: context.currentGoal || '', relationship: context.relationship || '' },
+    };
+  }
+  const facts = Array.isArray(plan?.preGameFacts) ? cloneJson(plan.preGameFacts) : [];
+  const knowledge = plan?.knowledge && typeof plan.knowledge === 'object' ? cloneJson(plan.knowledge) : {};
+  state.openingScenario = {
+    time: plan?.time ? cloneJson(plan.time) : null,
+    locationId: plan?.locationId ?? state.locationId ?? null,
+    event: plan?.event ? cloneJson(plan.event) : null,
+    npcContexts,
+    preGameFacts: facts,
+    initialHook: plan?.initialHook ? cloneJson(plan.initialHook) : null,
+    knowledge,
+  };
+  state.preGameFacts = facts;
+  state.knownInformation = {
+    worldTruth: Array.isArray(knowledge.worldTruth) ? knowledge.worldTruth : facts.filter(fact => fact.scope === 'world-truth').map(fact => fact.content),
+    characterKnowledge: Array.isArray(knowledge.characterKnowledge) ? knowledge.characterKnowledge : facts.filter(fact => fact.scope === 'character-knowledge').map(fact => fact.content),
+    playerVisible: Array.isArray(knowledge.playerVisible) ? knowledge.playerVisible : facts.filter(fact => fact.scope === 'player-visible').map(fact => fact.content),
+    hidden: Array.isArray(knowledge.hidden) ? knowledge.hidden : facts.filter(fact => fact.scope === 'hidden').map(fact => fact.content),
+    rumors: Array.isArray(knowledge.rumors) ? knowledge.rumors : facts.filter(fact => fact.scope === 'rumor').map(fact => fact.content),
+  };
+  state.activeHooks = plan?.initialHook?.title ? [{ id: plan.initialHook.id || 'initial-hook', title: plan.initialHook.title, description: plan.initialHook.description || '', optional: plan.initialHook.optional !== false, status: 'open', source: 'opening' }] : [];
+  return { state, npcStates };
+}
+
+async function handleWorldSaveSetupPut(req, res, saveId) {
+  const fp = savePath(saveId);
+  if (!fp) return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json');
+  let payload;
+  try { payload = await readJsonBody(req, 128 * 1024); }
+  catch (err) { return send(res, err.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400, JSON.stringify({ error: err.message }), 'application/json'); }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return send(res, 400, JSON.stringify({ error: '请求必须是 JSON 对象' }), 'application/json');
+  if (typeof payload.commandId !== 'string' || !COMMAND_ID_RE.test(payload.commandId)) return send(res, 400, JSON.stringify({ error: 'commandId 无效' }), 'application/json');
+  if (!Number.isInteger(payload.expectedRevision) || payload.expectedRevision < 0) return send(res, 400, JSON.stringify({ error: 'expectedRevision 必须是非负整数' }), 'application/json');
+  return withWorldSaveLock(saveId, async () => {
+    try {
+      const current = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
+      if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
+      if (committedCommand(current, payload.commandId)) return send(res, 200, JSON.stringify(current), 'application/json; charset=utf-8');
+      if (current.setup?.status !== 'planning') return send(res, 409, JSON.stringify({ error: '当前存档已经完成开局规划' }), 'application/json');
+      if (current.revision !== payload.expectedRevision) return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
+      const world = findWorldVersion(await loadWorlds(), current.worldId, current.worldVersion);
+      if (!world) return send(res, 409, JSON.stringify({ error: '存档绑定的世界版本不存在' }), 'application/json');
+      const plan = payload.plan === undefined ? (current.setup?.plan || null) : cloneJson(payload.plan);
+      const invalidPlan = plan ? validateWorldOpeningPlan(plan, world) : null;
+      if (invalidPlan) return send(res, 400, JSON.stringify({ error: invalidPlan }), 'application/json');
+      const game = payload.game === undefined ? materializeSessionSetup(world, current.setup?.game) : cloneJson(payload.game);
+      const invalidGame = validateSessionSetupInput(world, game, current.setup?.game);
+      if (invalidGame) return send(res, 400, JSON.stringify({ error: invalidGame }), 'application/json');
+      let playerSnapshot = current.player?.snapshot || null;
+      let playerState = current.state?.player || null;
+      let playerRelations = null;
+      if (payload.player !== undefined) {
+        const playerResult = validatePlayerCreationInput(world, payload.player);
+        if (playerResult.error) return send(res, 400, JSON.stringify({ error: playerResult.error }), 'application/json');
+        playerSnapshot = playerResult.snapshot;
+        playerState = playerResult.statePlayer;
+        playerRelations = playerResult.relations;
+        const economyState = materializePlayerEconomyState(world, current.state || {}, playerState);
+        const economyInvalid = validatePlayerEconomyState(world, economyState);
+        if (economyInvalid) return send(res, 400, JSON.stringify({ error: economyInvalid }), 'application/json');
+      }
+      let nextState = cloneJson(current.state || {});
+      let nextNpcStates = cloneJson(current.npcStates || {});
+      if (playerState) {
+        nextState.player = playerState;
+        const economyState = materializePlayerEconomyState(world, nextState, playerState);
+        nextState.inventory = economyState.inventory;
+        nextState.equipment = economyState.equipment;
+        nextState.currencies = economyState.currencies;
+        nextState.stats = { ...(nextState.stats || {}) };
+        for (const [key, value] of Object.entries(playerState.resources || {})) nextState.stats[key] = value;
+      }
+      if (playerRelations) {
+        for (const [npcId, relation] of Object.entries(playerRelations)) nextNpcStates[npcId] = { ...(nextNpcStates[npcId] || {}), relation: { ...(nextNpcStates[npcId]?.relation || {}), player: relation } };
+      }
+      const revision = current.revision + 1;
+      const setupKind = payload.plan === undefined ? 'setup' : 'setup-plan';
+      const next = {
+        ...current,
+        ...(playerSnapshot ? { player: { ...(current.player || {}), snapshot: playerSnapshot } } : {}),
+        state: nextState,
+        npcStates: nextNpcStates,
+        setup: { ...(current.setup || {}), status: 'planning', game, plan, candidate: null },
+        receipts: [...(Array.isArray(current.receipts) ? current.receipts : []), { commandId: payload.commandId, kind: setupKind, revision, ...(plan ? { plan } : {}), game, committedAt: Date.now() }].slice(-200),
+        revision,
+        updatedAt: Date.now(),
+      };
+      await writeJsonAtomic(fp, next);
+      send(res, 200, JSON.stringify(next), 'application/json; charset=utf-8');
+    } catch (err) {
+      if (err.code === 'ENOENT') return send(res, 404, JSON.stringify({ error: '存档不存在' }), 'application/json');
+      console.error('[world-saves] 开局规划保存失败:', err.message);
+      send(res, 500, JSON.stringify({ error: '开局规划保存失败: ' + err.message }), 'application/json');
+    }
+  });
+}
+
 async function handleWorldSaveOpeningPost(req, res, saveId) {
   const fp = savePath(saveId);
   if (!fp) return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json');
@@ -4327,20 +4718,34 @@ async function handleWorldSaveOpeningPost(req, res, saveId) {
   if (typeof payload.opening !== 'string' || !payload.opening.trim() || payload.opening.length > 100000) return send(res, 400, JSON.stringify({ error: 'opening 必须是非空文本' }), 'application/json');
   if (!Array.isArray(payload.options) || payload.options.length !== 4 || payload.options.some(option => typeof option !== 'string' || !option.trim() || option.length > 500)) return send(res, 400, JSON.stringify({ error: 'opening options 必须恰好包含 4 个非空选项' }), 'application/json');
   if (new Set(payload.options.map(option => option.trim())).size !== 4) return send(res, 400, JSON.stringify({ error: 'opening options 不能重复' }), 'application/json');
+  if (payload.candidateCommandId !== undefined && (typeof payload.candidateCommandId !== 'string' || !COMMAND_ID_RE.test(payload.candidateCommandId))) return send(res, 400, JSON.stringify({ error: 'candidateCommandId 无效' }), 'application/json');
   return withWorldSaveLock(saveId, async () => {
     try {
       const current = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
       if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
       if (current.openingCommandId === payload.commandId) return send(res, 200, JSON.stringify(current), 'application/json; charset=utf-8');
+      if (current.setup?.status !== 'planning') return send(res, 409, JSON.stringify({ error: '开场已经提交，不能重复覆盖' }), 'application/json');
+      if (current.setup?.status === 'planning' && !current.setup?.plan) return send(res, 409, JSON.stringify({ error: '请先保存开局规划，再提交开场' }), 'application/json');
+      if (payload.candidateCommandId !== undefined && current.setup?.candidate?.commandId !== payload.candidateCommandId) return send(res, 409, JSON.stringify({ error: '开场候选已变化，请重新确认' }), 'application/json');
       if (current.revision !== payload.expectedRevision) return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
+      const world = findWorldVersion(await loadWorlds(), current.worldId, current.worldVersion);
+      if (!world) return send(res, 409, JSON.stringify({ error: '存档绑定的世界版本不存在' }), 'application/json');
+      const initialized = initializeWorldStateFromOpeningPlan(current, world, current.setup.plan);
       const revision = current.revision + 1;
       const next = {
         ...current,
+        setup: {
+          ...(current.setup && typeof current.setup === 'object' ? current.setup : {}),
+          status: 'active',
+          candidate: null,
+        },
+        state: initialized.state,
+        npcStates: initialized.npcStates,
         opening: payload.opening.trim(),
         openingOptions: payload.options.map(option => option.trim()),
         openingCommandId: payload.commandId,
         receipts: [...(Array.isArray(current.receipts) ? current.receipts : []), { commandId: payload.commandId, kind: 'opening', revision, committedAt: Date.now() }].slice(-200),
-        eventLedger: appendEventLedger(current, { kind: 'opening', commandId: payload.commandId, sourceRevision: revision, locationId: current.state?.locationId ?? null, time: current.state?.time ?? null }),
+        eventLedger: appendEventLedger(current, { kind: 'opening', commandId: payload.commandId, sourceRevision: revision, locationId: initialized.state?.locationId ?? null, time: initialized.state?.time ?? null }),
         revision,
         updatedAt: Date.now(),
       };
@@ -4371,6 +4776,7 @@ async function handleWorldGrowthPost(req, res, saveId) {
     try {
       const current = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
       if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
+      if (current.setup?.status === 'planning') return send(res, 409, JSON.stringify({ error: '请先完成开局规划，再应用成长' }), 'application/json');
       const world = findWorldVersion(await loadWorlds(), current.worldId, current.worldVersion);
       if (committedCommand(current, payload.commandId)) return send(res, 200, JSON.stringify(current), 'application/json; charset=utf-8');
       if (current.state?.ending?.status === 'ended') return send(res, 409, JSON.stringify({ error: '当前世界线已经结束，不能继续应用成长' }), 'application/json');
@@ -4511,6 +4917,7 @@ async function handleWorldSavePut(req, res, saveId) {
       if (current.revision !== payload.expectedRevision) {
         return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
       }
+      if (current.setup?.status === 'planning') return send(res, 409, JSON.stringify({ error: '请先完成开局规划，再提交正式回合' }), 'application/json');
       const nextState = cloneJson(payload.state);
       if (current.state?.failure !== undefined) nextState.failure = cloneJson(current.state.failure);
       if (current.state?.ending !== undefined) nextState.ending = cloneJson(current.state.ending);
@@ -4536,11 +4943,135 @@ async function handleWorldSavePut(req, res, saveId) {
   });
 }
 
+const RPG_PATCH_PROTOCOL = 'tavern.rpg.turn';
+const RPG_PATCH_VERSION = 1;
+const RPG_PATCH_MAX_UPDATES = 32;
+const RPG_PATCH_TYPES = new Set([
+  'player.resource.delta', 'player.attribute.delta', 'player.skill.delta',
+  'currency.delta', 'inventory.delta', 'location.set', 'effect.add', 'effect.remove',
+  'objective.status',
+]);
+
+function validateRpgPatch(patch) {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return 'patch 必须是对象';
+  const allowedPatchKeys = new Set(['protocol', 'version', 'baseRevision', 'updates', 'options', 'createEntities', 'eventMemory']);
+  if (Object.keys(patch).some(key => !allowedPatchKeys.has(key))) return 'patch 含有未声明字段';
+  if (patch.protocol !== RPG_PATCH_PROTOCOL || patch.version !== RPG_PATCH_VERSION) return 'patch protocol/version 不受支持';
+  if (!Number.isInteger(patch.baseRevision) || patch.baseRevision < 0) return 'patch.baseRevision 必须是非负整数';
+  if (!Array.isArray(patch.updates) || patch.updates.length > RPG_PATCH_MAX_UPDATES) return `patch.updates 必须是最多 ${RPG_PATCH_MAX_UPDATES} 项的数组`;
+  for (const update of patch.updates) {
+    if (!update || typeof update !== 'object' || Array.isArray(update) || !RPG_PATCH_TYPES.has(update.type)) return 'patch.updates 含有不受支持的操作';
+    const allowedKeys = update.type === 'inventory.delta' ? ['type', 'itemId', 'delta', 'name', 'desc', 'weight']
+      : update.type === 'location.set' ? ['type', 'locationId']
+        : update.type === 'effect.add' || update.type === 'effect.remove' ? ['type', 'value']
+          : update.type === 'objective.status' ? ['type', 'kind', 'id', 'status'] : ['type', 'id', 'delta'];
+    if (Object.keys(update).some(key => !allowedKeys.includes(key))) return `patch.${update.type} 含有未声明字段`;
+    if (update.type.endsWith('.delta')) {
+      if (!isSafeId(String(update.id ?? update.itemId ?? '')) || !validBoundedNumber(update.delta, -1000000000, 1000000000)) return `patch.${update.type} 的 id/delta 无效`;
+    } else if (update.type === 'location.set') {
+      if (!isSafeId(String(update.locationId ?? ''))) return 'patch.location.set.locationId 无效';
+    } else if (update.type === 'effect.add' || update.type === 'effect.remove') {
+      if (typeof update.value !== 'string' || !update.value.trim() || update.value.length > 240) return `patch.${update.type}.value 无效`;
+    } else if (update.type === 'objective.status') {
+      if (!isSafeId(String(update.id ?? '')) || !['goals', 'leads', 'quests'].includes(update.kind) || !['active', 'done', 'failed', 'paused'].includes(update.status)) return 'patch.objective.status 参数无效';
+    }
+    if (update.type === 'inventory.delta') {
+      if (!Number.isInteger(update.delta) || update.delta === 0) return 'patch.inventory.delta 必须是非零整数';
+      if (update.name !== undefined && !draftTextValid(update.name, 200, true)) return 'patch.inventory.delta.name 无效';
+      if (update.desc !== undefined && !draftTextValid(update.desc, 2000)) return 'patch.inventory.delta.desc 无效';
+      if (update.weight !== undefined && !validBoundedNumber(update.weight, 0, 1000000)) return 'patch.inventory.delta.weight 无效';
+    }
+  }
+  return null;
+}
+
+function applyRpgPatch(world, currentState, patch) {
+  const state = cloneJson(currentState || {});
+  const economy = playerEconomySchema(world) || {};
+  const definitions = {
+    attributes: new Map((Array.isArray(playerCreationSchema(world)?.attributes) ? playerCreationSchema(world).attributes : []).map(item => [item.id, item])),
+    skills: new Map((Array.isArray(playerCreationSchema(world)?.skills) ? playerCreationSchema(world).skills : []).map(item => [item.id, item])),
+    resources: new Map((Array.isArray(playerCreationSchema(world)?.resources) ? playerCreationSchema(world).resources : []).map(item => [item.id, item])),
+    currencies: new Map((Array.isArray(economy.currencies) ? economy.currencies : []).map(item => [item.id, item])),
+    items: new Map((Array.isArray(economy.inventory?.items) ? economy.inventory.items : []).map(item => [item.id, item])),
+  };
+  const applyDelta = (bucket, id, delta, label) => {
+    if (!state.player || typeof state.player !== 'object') state.player = {};
+    if (!state.player[bucket] || typeof state.player[bucket] !== 'object' || Array.isArray(state.player[bucket])) state.player[bucket] = {};
+    if (!Object.hasOwn(state.player[bucket], id) && !definitions[bucket].has(id)) return `${label} 引用了未声明条目 ${id}`;
+    const definition = definitions[bucket].get(id);
+    const next = Number(state.player[bucket][id] ?? definition?.initial ?? definition?.default ?? 0) + delta;
+    const min = definition?.min ?? 0;
+    const max = definition?.max ?? (bucket === 'resources' ? 1000000 : 100);
+    if (!validBoundedNumber(next, min, max)) return `${label}.${id} 超出世界卡范围`;
+    state.player[bucket][id] = next;
+    return null;
+  };
+  for (const update of patch.updates) {
+    const type = update.type;
+    let error = null;
+    if (type === 'player.resource.delta' && (!playerCreationSchema(world)) && state.stats && Number.isFinite(state.stats[update.id])) {
+      const maxKey = update.id === 'hp' ? 'maxHp' : update.id === 'mp' ? 'maxMp' : null;
+      const next = state.stats[update.id] + update.delta;
+      const max = maxKey && Number.isFinite(state.stats[maxKey]) ? state.stats[maxKey] : update.id === 'level' ? 999999 : 1000000000;
+      if (!validBoundedNumber(next, update.id === 'hp' || update.id === 'mp' || update.id === 'gold' || update.id === 'exp' ? 0 : 1, max)) return { error: `patch.player.resource.delta.${update.id} 超出范围` };
+      state.stats[update.id] = next;
+      continue;
+    }
+    if (type === 'player.resource.delta') {
+      error = applyDelta('resources', update.id, update.delta, 'patch.player.resource.delta');
+      const legacyKey = update.id === 'gold' || update.id === 'hp' || update.id === 'mp' ? update.id : null;
+      if (!error && legacyKey && state.stats && Number.isFinite(state.stats[legacyKey])) state.stats[legacyKey] += update.delta;
+    } else if (type === 'player.attribute.delta' || type === 'player.skill.delta') {
+      error = applyDelta(type.endsWith('attribute.delta') ? 'attributes' : 'skills', update.id, update.delta, `patch.${type}`);
+    } else if (type === 'currency.delta') {
+      if (!definitions.currencies.has(update.id) && !(state.currencies && Object.hasOwn(state.currencies, update.id))) error = `patch.currency.delta 引用了未声明货币 ${update.id}`;
+      const definition = definitions.currencies.get(update.id);
+      const next = Number(state.currencies?.[update.id] ?? definition?.initial ?? definition?.min ?? 0) + update.delta;
+      if (!error && !validBoundedNumber(next, definition?.min ?? 0, definition?.max ?? 1000000000000)) error = `patch.currency.delta.${update.id} 超出世界卡范围`;
+      if (!error) {
+        state.currencies = { ...(state.currencies || {}), [update.id]: next };
+        if (update.id === 'gold' && state.stats && Number.isFinite(state.stats.gold)) state.stats.gold = next;
+      }
+    } else if (type === 'inventory.delta') {
+      if (!definitions.items.has(update.itemId) && economy.inventory?.allowUnknownItems !== true && !update.name) error = `patch.inventory.delta 引用了未声明物品 ${update.itemId}`;
+      const inventory = Array.isArray(state.inventory) ? state.inventory : [];
+      const index = inventory.findIndex(item => String(item?.itemId || '') === update.itemId);
+      if (!error && index >= 0) {
+        const count = (inventory[index].count ?? 1) + update.delta;
+        if (count <= 0) inventory.splice(index, 1); else inventory[index] = { ...inventory[index], count };
+      } else if (!error && update.delta > 0) {
+        const definition = definitions.items.get(update.itemId);
+        inventory.push({ itemId: update.itemId, name: update.name || definition?.label || update.itemId, count: update.delta, ...(update.desc !== undefined ? { desc: update.desc } : {}), ...(update.weight !== undefined ? { weight: update.weight } : {}) });
+      } else if (!error) error = `patch.inventory.delta 不能减少不存在的物品 ${update.itemId}`;
+      if (!error) state.inventory = inventory;
+    } else if (type === 'location.set') {
+      if (!worldLocationIds(world).has(update.locationId)) error = `patch.location.set 引用了未登记地点 ${update.locationId}`;
+      else state.locationId = update.locationId;
+    } else if (type === 'effect.add' || type === 'effect.remove') {
+      if (!state.player || typeof state.player !== 'object') state.player = {};
+      const effects = Array.isArray(state.player.effects) ? state.player.effects : [];
+      state.player.effects = type === 'effect.add' ? [...new Set([...effects, update.value.trim()])] : effects.filter(value => value !== update.value.trim());
+      if (state.stats?.buffs && Array.isArray(state.stats.buffs)) state.stats.buffs = type === 'effect.add' ? [...new Set([...state.stats.buffs, update.value.trim()])] : state.stats.buffs.filter(value => value !== update.value.trim());
+    } else if (type === 'objective.status') {
+      const list = Array.isArray(state[update.kind]) ? state[update.kind] : [];
+      const item = list.find(entry => entry?.id === update.id);
+      if (!item) error = `patch.objective.status 找不到 ${update.kind}.${update.id}`;
+      else item.status = update.status;
+      state[update.kind] = list;
+    }
+    if (error) return { error };
+  }
+  return { state };
+}
+
 function validateWorldTurn(payload, optionRules = { min: 4, max: 4 }) {
-  const invalid = validateWorldSavePatch(payload);
+  const patchMode = payload && payload.patch !== undefined;
+  const invalid = patchMode ? validateRpgPatch(payload.patch) : validateWorldSavePatch(payload);
   if (invalid) return invalid;
+  if (patchMode && payload.patch.baseRevision !== payload.expectedRevision) return 'patch.baseRevision 必须等于 expectedRevision';
   if (typeof payload.commandId !== 'string' || !COMMAND_ID_RE.test(payload.commandId)) return 'commandId 无效';
-  if (payload.turns.length > 32) return '单回合最多提交 32 条消息';
+  if (!Array.isArray(payload.turns) || payload.turns.length > 32) return 'turns 必须是最多 32 条消息的数组';
   if (!payload.turns.some(turn => turn && turn.role === 'assistant')) return '回合必须包含 assistant 消息';
   for (const turn of payload.turns) {
     if (!turn || typeof turn !== 'object' || !['user', 'assistant', 'system'].includes(turn.role)) return '回合消息 role 无效';
@@ -4575,7 +5106,19 @@ async function handleWorldTurnPost(req, res, saveId) {
     try {
       const current = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
       if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
+      if (current.setup?.status === 'planning') return send(res, 409, JSON.stringify({ error: '请先完成开局规划，再提交正式回合' }), 'application/json');
       const world = findWorldVersion(await loadWorlds(), current.worldId, current.worldVersion);
+      if (committedCommand(current, payload.commandId)) return send(res, 200, JSON.stringify(current), 'application/json; charset=utf-8');
+      if (payload.patch !== undefined) {
+        if (payload.patch.baseRevision !== current.revision) return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
+        const patched = applyRpgPatch(world, current.state, payload.patch);
+        if (patched.error) return send(res, 400, JSON.stringify({ error: patched.error }), 'application/json');
+        payload.state = patched.state;
+        if (payload.options !== undefined && payload.patch.options !== undefined && canonicalJson(payload.options) !== canonicalJson(payload.patch.options)) return send(res, 400, JSON.stringify({ error: 'options 在请求顶层与 patch 内不一致' }), 'application/json');
+        if (payload.options === undefined && payload.patch.options !== undefined) payload.options = payload.patch.options;
+        if (payload.createEntities === undefined && payload.patch.createEntities !== undefined) payload.createEntities = payload.patch.createEntities;
+        if (payload.eventMemory === undefined && payload.patch.eventMemory !== undefined) payload.eventMemory = payload.patch.eventMemory;
+      }
       const optionRules = worldTurnOptionRules(world);
       const contractInvalid = validateWorldTurn(payload, optionRules);
       if (contractInvalid) return send(res, 400, JSON.stringify({ error: contractInvalid }), 'application/json');
@@ -4676,6 +5219,7 @@ async function handleWorldTurnPost(req, res, saveId) {
           kind: 'turn',
           revision,
           turnIds: committedTurns.map(turn => turn.id).filter(Boolean),
+          ...(payload.patch ? { patch: { protocol: payload.patch.protocol, version: payload.patch.version, updateCount: payload.patch.updates.length } } : {}),
           eventIds: settledEvents.eventIds,
           factionActionIds: settledFactionActions.eventIds,
           conflictTransitions,
@@ -5083,6 +5627,20 @@ const server = http.createServer((req, res) => {
     try { saveId = decodeURIComponent(worldSaveOpeningMatch[1]); }
     catch { return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json'); }
     return handleWorldSaveOpeningPost(req, res, saveId);
+  }
+  const worldSaveOpeningCandidateMatch = url.pathname.match(/^\/api\/world-saves\/([^/]+)\/opening-candidate\/?$/);
+  if (worldSaveOpeningCandidateMatch && req.method === 'POST') {
+    let saveId;
+    try { saveId = decodeURIComponent(worldSaveOpeningCandidateMatch[1]); }
+    catch { return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json'); }
+    return handleWorldSaveOpeningCandidatePost(req, res, saveId);
+  }
+  const worldSaveSetupMatch = url.pathname.match(/^\/api\/world-saves\/([^/]+)\/setup\/?$/);
+  if (worldSaveSetupMatch && req.method === 'PUT') {
+    let saveId;
+    try { saveId = decodeURIComponent(worldSaveSetupMatch[1]); }
+    catch { return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json'); }
+    return handleWorldSaveSetupPut(req, res, saveId);
   }
   const worldGrowthMatch = url.pathname.match(/^\/api\/world-saves\/([^/]+)\/growth\/?$/);
   if (worldGrowthMatch && req.method === 'POST') {

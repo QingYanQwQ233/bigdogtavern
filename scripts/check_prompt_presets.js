@@ -257,7 +257,8 @@ assert.deepStrictEqual(defaultData.prefs.currentPresetByMode, { tavern: 'RP 基�
 assert.match(defaultData.rpg.stateInstruction, /恰好 4 个/);
 assert.match(defaultData.rpg.eventMemoryInstruction, /eventMemory/);
 assert.strictEqual(defaultData.prefs.worldContextBudget, 24000);
-const exampleState = JSON.parse(defaultData.rpg.exampleTurn.assistant.match(/```rpg\n([\s\S]*?)\n```/)[1]);
+const exampleState = JSON.parse(defaultData.rpg.exampleTurn.assistant.match(/<tavern_state_update>\n([\s\S]*?)\n<\/tavern_state_update>/)[1]);
+assert.strictEqual(exampleState.protocol, 'tavern.rpg.turn');
 assert.strictEqual(exampleState.options.length, 4);
 
 console.log('prompt preset check passed');

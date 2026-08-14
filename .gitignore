@@ -3,6 +3,7 @@ public/data/*.json
 !public/data/_defaults.json
 public/data/saves/
 public/data/rpg-migrations/
+public/data/world-imports/
 
 # Android 构建产物
 android/.gradle/
