@@ -29,6 +29,8 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
     private val dataDir: File = File(ctx.filesDir, "data")
     private val imgDir: File = File(ctx.filesDir, "images")
     private val dataTypes = setOf("characters", "presets", "lorebooks", "settings")
+    private val worldsFile: File = File(dataDir, "worlds.json")
+    private val worldDraftsFile: File = File(dataDir, "world-drafts.json")
 
     override fun serve(session: IHTTPSession): Response {
         val uri = try {
@@ -42,6 +44,10 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
                 session.method == Method.POST && uri == "/api/image" -> handleImage(session)
                 session.method == Method.POST && uri == "/api/image-save" -> handleImageSave(session)
                 session.method == Method.GET && uri == "/api/models" -> handleModels(session)
+                session.method == Method.GET && uri == "/api/worlds" -> handleWorlds()
+                session.method == Method.POST && uri == "/api/world-drafts" -> handleWorldDraftCreate(session)
+                uri.startsWith("/api/world-drafts/") && (session.method == Method.GET || session.method == Method.PUT) ->
+                    handleWorldDraftItem(session, uri.removePrefix("/api/world-drafts/"))
                 uri.startsWith("/api/data/") -> handleData(session, uri)
                 else -> serveStatic(uri)
             }
@@ -105,6 +111,124 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
     private fun json(res: Response.Status, obj: JSONObject): Response =
         // 禁用 gzip：NanoHTTPD 默认对 json 启用 gzip+chunked，WebView fetch 在错误路径上解压失败 → body 读不到
         newFixedLengthResponse(res, "application/json; charset=utf-8", obj.toString()).also { it.setGzipEncoding(false) }
+
+    private fun jsonArray(array: org.json.JSONArray): Response =
+        newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", array.toString()).also { it.setGzipEncoding(false) }
+
+    private fun readArray(file: File, defaultKey: String): org.json.JSONArray {
+        dataDir.mkdirs()
+        if (file.exists()) return org.json.JSONArray(file.readText(Charsets.UTF_8))
+        val defaults = JSONObject(ctx.assets.open("data/_defaults.json").readBytes().toString(Charsets.UTF_8))
+        val seeded = defaults.optJSONArray(defaultKey) ?: org.json.JSONArray()
+        file.writeText(seeded.toString(), Charsets.UTF_8)
+        return org.json.JSONArray(seeded.toString())
+    }
+
+    private fun writeArray(file: File, value: org.json.JSONArray) {
+        dataDir.mkdirs()
+        file.writeText(value.toString(), Charsets.UTF_8)
+    }
+
+    private fun worldSummary(world: JSONObject, saveCount: Int = 0): JSONObject {
+        val tags = world.optJSONArray("tags") ?: org.json.JSONArray()
+        val locations = world.optJSONArray("locations") ?: org.json.JSONArray()
+        val npcs = world.optJSONArray("npcs") ?: world.optJSONArray("npcIds") ?: org.json.JSONArray()
+        return JSONObject().apply {
+            put("id", world.optString("id"))
+            put("version", world.optInt("version", 1))
+            put("title", world.optString("title", world.optString("id")))
+            put("summary", world.optString("summary"))
+            put("coverImage", world.optString("coverImage"))
+            put("tags", tags)
+            put("locationCount", locations.length())
+            put("npcCount", npcs.length())
+            put("saveCount", saveCount)
+        }
+    }
+
+    private fun handleWorlds(): Response {
+        return try {
+            val worlds = readArray(worldsFile, "worlds")
+            val result = org.json.JSONArray()
+            for (index in 0 until worlds.length()) {
+                val world = worlds.optJSONObject(index) ?: continue
+                result.put(worldSummary(world))
+            }
+            jsonArray(result)
+        } catch (e: Exception) {
+            json(Response.Status.INTERNAL_ERROR, JSONObject().put("error", "worlds read failed: ${e.message}"))
+        }
+    }
+
+    private fun draftView(draft: JSONObject): JSONObject = JSONObject(draft.toString())
+
+    @Synchronized
+    private fun handleWorldDraftCreate(session: IHTTPSession): Response {
+        return try {
+            val body = JSONObject(readBody(session))
+            val worldId = body.optString("worldId")
+            if (worldId.isBlank()) return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "missing worldId"))
+            val baseVersion = if (body.has("baseVersion")) body.optInt("baseVersion", 0) else null
+            val worlds = readArray(worldsFile, "worlds")
+            var source: JSONObject? = null
+            for (index in 0 until worlds.length()) {
+                val world = worlds.optJSONObject(index) ?: continue
+                if (world.optString("id") == worldId && (baseVersion == null || world.optInt("version", 1) == baseVersion)) source = world
+            }
+            if (source == null) return json(Response.Status.NOT_FOUND, JSONObject().put("error", "world not found"))
+            val drafts = readArray(worldDraftsFile, "worldDrafts")
+            for (index in 0 until drafts.length()) {
+                val existing = drafts.optJSONObject(index) ?: continue
+                if (existing.optString("worldId") == worldId) return json(Response.Status.OK, draftView(existing))
+            }
+            val now = System.currentTimeMillis()
+            val draft = JSONObject().apply {
+                put("schemaVersion", 1)
+                put("worldId", worldId)
+                put("baseVersion", source!!.optInt("version", 1))
+                put("world", JSONObject(source.toString()))
+                put("createdAt", now)
+                put("updatedAt", now)
+            }
+            drafts.put(draft)
+            writeArray(worldDraftsFile, drafts)
+            val response = draftView(draft)
+            json(Response.Status.CREATED, response)
+        } catch (e: Exception) {
+            json(Response.Status.BAD_REQUEST, JSONObject().put("error", "invalid world draft: ${e.message}"))
+        }
+    }
+
+    @Synchronized
+    private fun handleWorldDraftItem(session: IHTTPSession, worldId: String): Response {
+        if (worldId.isBlank()) return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "missing worldId"))
+        return try {
+            val drafts = readArray(worldDraftsFile, "worldDrafts")
+            var index = -1
+            for (i in 0 until drafts.length()) if (drafts.optJSONObject(i)?.optString("worldId") == worldId) { index = i; break }
+            if (index < 0) return json(Response.Status.NOT_FOUND, JSONObject().put("error", "world draft not found"))
+            val current = drafts.getJSONObject(index)
+            if (session.method == Method.GET) return json(Response.Status.OK, draftView(current))
+            val payload = JSONObject(readBody(session))
+            val expectedUpdatedAt = payload.optLong("expectedUpdatedAt", -1)
+            if (expectedUpdatedAt >= 0 && expectedUpdatedAt != current.optLong("updatedAt")) {
+                return json(Response.Status.CONFLICT, JSONObject().put("error", "world draft was updated"))
+            }
+            val world = JSONObject(current.optJSONObject("world")?.toString() ?: "{}")
+            val fields = arrayOf("title", "summary", "tags", "lorebookIds", "setting", "rules", "playerCreation", "turnContract", "failure", "ending", "time", "events", "factions", "conflicts", "locations", "npcs", "mapGeneration")
+            for (field in fields) if (payload.has(field)) world.put(field, payload.get(field))
+            val next = JSONObject(current.toString()).apply {
+                put("world", world)
+                put("baseVersion", payload.optInt("baseVersion", current.optInt("baseVersion", 1)))
+                put("updatedAt", maxOf(System.currentTimeMillis(), current.optLong("updatedAt") + 1))
+            }
+            drafts.put(index, next)
+            writeArray(worldDraftsFile, drafts)
+            json(Response.Status.OK, draftView(next))
+        } catch (e: Exception) {
+            json(Response.Status.BAD_REQUEST, JSONObject().put("error", "invalid world draft: ${e.message}"))
+        }
+    }
 
     /* ---------- /api/chat：SSE 流式转发 ---------- */
 
