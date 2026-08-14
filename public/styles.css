@@ -37,6 +37,7 @@ body[data-theme="vibrancy"] {
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; }
 .hidden { display: none !important; }
+[hidden] { display: none !important; }
 
 body {
   font-family: var(--font-body);
@@ -366,23 +367,6 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   color: var(--text);
 }
 .char-race { font-size: 12px; color: var(--muted); letter-spacing: 0.5px; }
-
-.relation { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
-.relation-label { font-size: 10.5px; letter-spacing: 2px; color: var(--muted); }
-.soul-line {
-  width: 140px; height: 4px;
-  border-radius: 99px;
-  background: rgba(255, 255, 255, 0.06);
-  overflow: hidden;
-}
-.soul-line i {
-  display: block;
-  height: 100%;
-  border-radius: 99px;
-  background: linear-gradient(90deg, var(--ok), var(--accent));
-  box-shadow: 0 0 10px var(--glow);
-  transition: width 0.6s ease;
-}
 
 /* ── 消息区 ── */
 .chat {
@@ -1446,7 +1430,6 @@ body[data-theme="vibrancy"] .msg.user .bubble {
   background: var(--panel);
   border-color: rgba(255, 255, 255, 0.10);
 }
-body[data-theme="vibrancy"] .soul-line i { box-shadow: none; }
 body[data-theme="vibrancy"] .card { background: rgba(255, 255, 255, 0.03); }
 body[data-theme="vibrancy"] textarea#input,
 body[data-theme="vibrancy"] .field input,
@@ -1746,6 +1729,15 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
 .world-draft-check-list button { width: fit-content; padding: 0; border: 0; background: none; color: var(--danger); font: inherit; text-align: left; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .world-draft-check-pass { color: var(--ok); }
 .world-player-dialog { width: min(620px, calc(100vw - 32px)); }
+.world-save-preset { display: grid; gap: 5px; margin-top: 10px; color: var(--muted); font-size: 11px; }
+.world-save-preset span { color: var(--text); }
+.world-save-preset small { color: var(--muted); font-size: 10px; }
+.world-player-ai { display: grid; gap: 9px; margin: 0 20px 12px; padding: 11px; border: 1px solid rgba(var(--accent-rgb), 0.32); border-radius: 10px; background: rgba(var(--accent-rgb), 0.05); }
+.world-player-ai-head, .world-player-ai-actions { display: flex; align-items: center; justify-content: space-between; gap: 9px; flex-wrap: wrap; }
+.world-player-ai-head strong { color: var(--accent); font: 14px var(--font-display); }
+.world-player-ai-head p { margin: 3px 0 0; color: var(--muted); font-size: 10.5px; }
+.world-player-ai-head select { width: min(240px, 100%); }
+.world-player-ai-actions { justify-content: flex-end; }
 .world-opening-dialog { width: min(820px, calc(100vw - 32px)); }
 .world-opening-body { display: grid; gap: 12px; max-height: min(72vh, 720px); overflow: auto; }
 .world-setup-stepper { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-bottom: 2px; }
@@ -2006,10 +1998,13 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
 .debug-head strong { display: block; font: 14px var(--font-display); letter-spacing: 1px; }
 .debug-head #debug-scope { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
 .debug-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-.debug-body { min-height: 0; flex: 1; display: grid; grid-template-columns: 1fr 1fr; }
-.debug-stream { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.debug-stream + .debug-stream { border-left: 1px solid var(--line); }
-.debug-memory-stream { grid-column: 1 / -1; min-height: 150px; max-height: 250px; border-top: 1px solid var(--line); }
+.debug-tabs { display: flex; gap: 4px; padding: 8px 12px 0; border-bottom: 1px solid var(--line); background: var(--bg-1); overflow-x: auto; }
+.debug-tab { appearance: none; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); padding: 8px 12px 9px; cursor: pointer; white-space: nowrap; font: 12px var(--font-body); transition: color .16s ease, border-color .16s ease, background .16s ease; }
+.debug-tab:hover { color: var(--text); background: rgba(var(--accent-rgb), .08); }
+.debug-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+.debug-tab small { margin-left: 5px; color: var(--muted); opacity: .7; font: 700 9px ui-monospace, Consolas, monospace; letter-spacing: .6px; }
+.debug-body { min-height: 0; flex: 1; display: flex; }
+.debug-stream { min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; }
 .debug-memory-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line-soft); }
 .debug-memory-head h2 { flex: 1; min-width: 0; border-bottom: 0; }
 .debug-stream h2 {
@@ -2022,6 +2017,7 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
 .debug-direction { margin-right: 7px; font: 700 10px ui-monospace, Consolas, monospace; }
 .debug-direction.input { color: var(--accent); }
 .debug-direction.output { color: var(--ok); }
+.debug-direction.sections { color: #77c8ff; }
 .debug-direction.memory { color: #c9a7ff; }
 .debug-stream pre {
   flex: 1;
@@ -2058,7 +2054,6 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
   .main { grid-column: 1; grid-row: 1; }
   .char-mgr { inset: 0; grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
   .cm-side { max-height: 38vh; }
-  .relation { display: none; }
 }
 
 /* ── 手机（≤640px）细适配：单列化、缩边距、弹窗贴边 ── */
@@ -2110,12 +2105,10 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
   .cm-profile-row { grid-template-columns: 1fr auto; }
   .cm-profile-row > label, .cm-profile-label { grid-column: 1 / -1; }
   .sess-item { padding: 8px 10px; font-size: 13px; }
-  .relation { display: none; }
   .debug-panel { width: 100%; height: 100%; border-radius: 0; }
-  .debug-body { grid-template-columns: 1fr; overflow-y: auto; }
-  .debug-stream { min-height: 45vh; }
-  .debug-memory-stream { min-height: 30vh; max-height: 36vh; }
-  .debug-stream + .debug-stream { border-left: 0; border-top: 1px solid var(--line); }
+  .debug-body { overflow: hidden; }
+  .debug-stream { min-height: 0; }
+  .debug-tab { padding-inline: 9px; }
   .msg .bubble { font-size: 14.5px; }
   .msg.narration .bubble { font-size: 14px; }
   .msg.rpg-narrative { padding-bottom: 24px; }

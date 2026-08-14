@@ -120,6 +120,80 @@
     },
     "stateInstruction": "⚠️ 强制要求：每次回复必须以唯一一个 <tavern_state_update> JSON 更新块结尾。块内必须使用 protocol=\"tavern.rpg.turn\"、version=1、当前存档 revision；options 必须给出恰好 4 个玩家可执行的行动选项（即使状态无变化也必须给出）。格式：<tavern_state_update>{\"protocol\":\"tavern.rpg.turn\",\"version\":1,\"baseRevision\":当前 revision,\"updates\":[{\"type\":\"player.resource.delta\",\"id\":\"资源 ID\",\"delta\":数字}],\"options\":[\"行动选项1\",\"行动选项2\",\"行动选项3\",\"行动选项4\"],\"eventMemory\":[],\"createEntities\":[]}</tavern_state_update>。允许的 updates：player.resource.delta、player.attribute.delta、player.skill.delta、currency.delta、inventory.delta、location.set、effect.add、effect.remove、objective.status；只使用当前世界卡已声明的 ID，数值是增量，状态无变化时 updates=[]。inventory.delta 只能增减已声明物品，location.set 只能使用已登记地点，objective.status 只能更新已存在目标；不得提交任意路径、完整 state、冲突 HP 或服务端判定结果。叙事正文必须使用 Markdown，先发生的变化才可写入更新块；不要输出标签外的解释、隐藏推理或额外代码块。",
     "eventMemoryInstruction": "长期事件记忆是可选的 AI 候选；只有本回合已经在叙事中发生、且值得未来回忆的事件才填写 eventMemory。格式：eventMemory:[{\"summary\":\"已发生事件的简短事实\",\"entityIds\":[\"当前世界/存档中的实体 ID\"],\"locationId\":\"当前世界已登记地点 ID 或 null\",\"time\":{\"unit\":\"时间单位\",\"value\":数字},\"visibility\":\"public|local|hidden\"}]。不要写未发生的计划、推测或其他存档事实；服务端会在正式提交后绑定来源回合、来源事件和 revision，AI 不能填写或伪造这些来源字段。没有值得长期记忆的事件时输出 eventMemory:[]。",
+    "agent": {
+      "protocol": "tavern.rpg.agent",
+      "version": 1,
+      "mode": "native",
+      "maxSteps": 2,
+      "tools": {
+        "dice.roll": {
+          "enabled": true,
+          "execution": "client",
+          "description": "Roll a bounded dice expression on the client and return the submitted result.",
+          "parameters": {
+            "type": "object",
+            "properties": { "expr": { "type": "string", "description": "Dice expression such as 1d20+3." } },
+            "required": ["expr"],
+            "additionalProperties": false
+          }
+        },
+        "rules.check": {
+          "enabled": true,
+          "execution": "server",
+          "description": "Check a declared world rule without changing save state.",
+          "parameters": {
+            "type": "object",
+            "properties": { "ruleId": { "type": "string" }, "input": { "type": "object", "additionalProperties": true } },
+            "required": ["ruleId"],
+            "additionalProperties": false
+          }
+        },
+        "state.patch": {
+          "enabled": true,
+          "execution": "server",
+          "description": "Propose typed state updates for the current world turn; the server validates them before commit.",
+          "parameters": {
+            "type": "object",
+            "properties": { "updates": { "type": "array", "items": { "type": "object", "additionalProperties": true } } },
+            "required": ["updates"],
+            "additionalProperties": false
+          }
+        },
+        "entity.create": {
+          "enabled": true,
+          "execution": "server",
+          "description": "Propose a new world entity for the current turn; the server validates and scopes it to this save.",
+          "parameters": {
+            "type": "object",
+            "properties": { "type": { "type": "string" }, "id": { "type": "string" }, "name": { "type": "string" }, "description": { "type": "string" } },
+            "required": ["type", "name"],
+            "additionalProperties": true
+          }
+        },
+        "memory.record": {
+          "enabled": true,
+          "execution": "server",
+          "description": "Propose a concise event memory from facts that happened in this turn.",
+          "parameters": {
+            "type": "object",
+            "properties": { "summary": { "type": "string" }, "entityIds": { "type": "array", "items": { "type": "string" } }, "locationId": { "type": ["string", "null"] }, "visibility": { "type": "string", "enum": ["public", "local", "hidden"] } },
+            "required": ["summary"],
+            "additionalProperties": false
+          }
+        },
+        "context.retrieve": {
+          "enabled": true,
+          "execution": "client-readonly",
+          "description": "Retrieve relevant read-only context from the current world save within the allowed knowledge scope.",
+          "parameters": {
+            "type": "object",
+            "properties": { "query": { "type": "string" }, "scope": { "type": "string", "enum": ["world", "character", "public", "known", "hidden"] }, "limit": { "type": "integer", "minimum": 1, "maximum": 12 } },
+            "required": ["query"],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
     "noOptions": "（等待 AI 给出行动选项…可先描述你的行动）",
     "exampleTurn": {
       "user": "我沿着泥泞的小径前行，看到一头灰毛野狼挡住去路。",
@@ -473,7 +547,13 @@
         "mode": "custom",
         "title": "创建你的冒险者",
         "description": "这些字段只属于当前世界存档，不会写回角色库或其他存档。",
-        "pointBudget": { "label": "属性点", "total": 8, "min": 0 },
+        "pointBudget": { "label": "属性点", "total": 12, "min": 0, "mode": "pool", "cost": "above-min" },
+        "defaultPresetId": "wanderer",
+        "buildPresets": [
+          { "id": "wanderer", "label": "自由旅人", "description": "均衡起步，适合先探索世界。", "values": { "fields": { "role": "旅人" }, "attributes": { "might": 2, "wits": 3, "spirit": 2, "fortune": 3 }, "skills": { "scouting": 2, "empathy": 2 } } },
+          { "id": "pathfinder", "label": "边境侦察者", "description": "偏向观察、追踪与野外行动。", "values": { "fields": { "role": "边境侦察者" }, "attributes": { "might": 2, "wits": 5, "spirit": 2, "fortune": 2 }, "skills": { "scouting": 4, "empathy": 1 }, "choices": ["keen-sense"] } },
+          { "id": "story", "label": "自由叙事", "description": "保留世界规则，但不预设职业方向。", "values": { "fields": { "role": "自定义身份" } } }
+        ],
         "fields": [
           { "id": "name", "label": "名字", "type": "text", "required": true, "maxLength": 80 },
           { "id": "race", "label": "种族", "type": "select", "required": true, "options": [
@@ -703,7 +783,7 @@
         { "id": "wolf-tooth-inn", "name": "断牙之角", "type": "inn" }
       ],
       "map": {
-        "strategy": "perSave",
+        "strategy": "worldCard",
         "baseMapId": null,
         "generation": { "seed": 12345, "size": 128, "regionCount": 10, "landRatio": 0.55, "mapgenSize": "small" }
       },
@@ -781,7 +861,7 @@
       "time": { "unit": "hour", "start": 18, "turnAdvance": 1 },
       "events": [{ "id": "harbor-blackout", "title": "港区停电", "description": "灰港的灯光突然熄灭，所有证词都变得可疑。", "trigger": { "afterTurns": 3 }, "visibility": "public", "once": true, "consequences": ["夜间调查的风险上升。"] }],
       "start": { "locationId": "grey-dock", "openingMode": "static", "opening": "雾从灰港的水面升起，一盏盏路灯在远处熄灭。", "playerTemplate": { "name": "未命名调查员", "race": "人类", "role": "调查员", "profileFields": [] }, "initialState": { "stats": { "level": 1, "exp": 0, "expNext": 100, "hp": 12, "maxHp": 12, "mp": 1, "maxMp": 1, "gold": 50, "buffs": [] }, "inventory": [], "quests": [] } },
-      "lorebookIds": [], "rpgPresetName": "RPG 现代调查", "sessionSetup": { "title": "本局调查配置", "fields": [{ "id": "difficulty", "label": "调查压力", "type": "select", "options": [{ "value": "steady", "label": "从容" }, { "value": "standard", "label": "标准" }, { "value": "tense", "label": "紧张" }], "default": "standard" }, { "id": "worldAdvance", "label": "城市局势主动推进", "type": "boolean", "default": true }] }, "npcIds": [], "factionIds": [], "factions": [], "itemIds": [], "questTemplateIds": [], "locations": [{ "id": "grey-dock", "name": "灰港码头", "type": "district" }], "map": { "strategy": "perSave", "baseMapId": null, "generation": { "seed": 22001, "size": 96, "regionCount": 8, "landRatio": 0.5, "mapgenSize": "small" } }, "ui": { "layout": "world-desk" }, "source": { "format": "native", "rawAssetRef": null }
+      "lorebookIds": [], "rpgPresetName": "RPG 现代调查", "sessionSetup": { "title": "本局调查配置", "fields": [{ "id": "difficulty", "label": "调查压力", "type": "select", "options": [{ "value": "steady", "label": "从容" }, { "value": "standard", "label": "标准" }, { "value": "tense", "label": "紧张" }], "default": "standard" }, { "id": "worldAdvance", "label": "城市局势主动推进", "type": "boolean", "default": true }] }, "npcIds": [], "factionIds": [], "factions": [], "itemIds": [], "questTemplateIds": [], "locations": [{ "id": "grey-dock", "name": "灰港码头", "type": "district" }], "map": { "strategy": "worldCard", "baseMapId": null, "generation": { "seed": 22001, "size": 96, "regionCount": 8, "landRatio": 0.5, "mapgenSize": "small" } }, "ui": { "layout": "world-desk" }, "source": { "format": "native", "rawAssetRef": null }
     },
     {
       "schemaVersion": 1,
@@ -831,7 +911,7 @@
       "time": { "unit": "cycle", "start": 1, "turnAdvance": 1 },
       "events": [{ "id": "unknown-pulse", "title": "未知脉冲", "description": "空间站收到一段不属于任何登记航线的信号。", "trigger": { "afterTurns": 2 }, "visibility": "public", "once": true, "consequences": ["所有终端短暂出现同一组坐标。"] }],
       "start": { "locationId": "ring-station", "openingMode": "static", "opening": "星环航站的人工重力刚刚恢复，所有终端同时亮起一组陌生坐标。", "playerTemplate": { "name": "未命名航员", "race": "人类", "role": "维修员", "profileFields": [] }, "initialState": { "stats": { "level": 1, "exp": 0, "expNext": 100, "hp": 10, "maxHp": 10, "mp": 1, "maxMp": 1, "gold": 120, "buffs": [] }, "inventory": [], "quests": [] } },
-      "lorebookIds": [], "rpgPresetName": "RPG 星环航站", "sessionSetup": { "title": "本局航站配置", "fields": [{ "id": "difficulty", "label": "故障压力", "type": "select", "options": [{ "value": "calm", "label": "平稳" }, { "value": "standard", "label": "标准" }, { "value": "critical", "label": "危急" }], "default": "standard" }, { "id": "allowNewEntities", "label": "允许 AI 发现新航站实体", "type": "boolean", "default": true }] }, "npcIds": [], "factionIds": [], "factions": [], "itemIds": [], "questTemplateIds": [], "locations": [{ "id": "ring-station", "name": "星环航站", "type": "station" }], "map": { "strategy": "perSave", "baseMapId": null, "generation": { "seed": 22002, "size": 96, "regionCount": 8, "landRatio": 0.5, "mapgenSize": "small" } }, "ui": { "layout": "world-desk" }, "source": { "format": "native", "rawAssetRef": null }
+      "lorebookIds": [], "rpgPresetName": "RPG 星环航站", "sessionSetup": { "title": "本局航站配置", "fields": [{ "id": "difficulty", "label": "故障压力", "type": "select", "options": [{ "value": "calm", "label": "平稳" }, { "value": "standard", "label": "标准" }, { "value": "critical", "label": "危急" }], "default": "standard" }, { "id": "allowNewEntities", "label": "允许 AI 发现新航站实体", "type": "boolean", "default": true }] }, "npcIds": [], "factionIds": [], "factions": [], "itemIds": [], "questTemplateIds": [], "locations": [{ "id": "ring-station", "name": "星环航站", "type": "station" }], "map": { "strategy": "worldCard", "baseMapId": null, "generation": { "seed": 22002, "size": 96, "regionCount": 8, "landRatio": 0.5, "mapgenSize": "small" } }, "ui": { "layout": "world-desk" }, "source": { "format": "native", "rawAssetRef": null }
     }
   ]
 }

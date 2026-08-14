@@ -57,6 +57,16 @@ function activeConflict(definition, id) {
   };
 }
 
+function clientDice(expr) {
+  const match = String(expr || '').match(/^(\d*)d(\d+)([+-]\d+)?$/i);
+  assert.ok(match, `valid dice expression: ${expr}`);
+  const count = Math.max(1, Number(match[1] || 1));
+  const sides = Number(match[2]);
+  const bonus = Number(match[3] || 0);
+  const rolls = Array.from({ length: count }, () => sides);
+  return { expr, rolls, bonus, total: rolls.reduce((sum, value) => sum + value, bonus) };
+}
+
 async function main() {
   try {
     await startServer(0);
@@ -102,24 +112,31 @@ async function main() {
       });
       assert.strictEqual(started.response.status, 200, `${id} conflict start commits: ${JSON.stringify(started.body)}`);
       const nextConflicts = JSON.parse(JSON.stringify(started.body.state.conflicts));
+      const clientRolls = [];
       for (const [key, definition] of [[combatKey, combat], [socialKey, social]]) {
         const state = nextConflicts[key];
         const action = definition.actions.find(item => item.check);
         state.round = 2;
         state.actionId = action.id;
         if (key === 'combat') state.targetId = state.participants[1].id;
+        clientRolls.push(clientDice(action.check.roll));
+        if (key === combatKey && action.check.damage?.roll) clientRolls.push(clientDice(action.check.damage.roll));
       }
       const advanced = await jsonRequest(base, `/api/world-saves/${save.id}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ commandId: `${id}-advance-1`, expectedRevision: started.body.revision, state: { ...started.body.state, conflicts: nextConflicts }, turns: [{ role: 'assistant', content: '冲突判定完成。' }], options: [], eventMemory: [{ summary: '冲突中的一次判定已经完成。', locationId: started.body.state.locationId, time: { unit: 'tick', value: 2 }, visibility: 'local' }] }),
+        body: JSON.stringify({ commandId: `${id}-advance-1`, expectedRevision: started.body.revision, actionIntent: { raw: '执行冲突行动', dice: clientRolls }, state: { ...started.body.state, conflicts: nextConflicts }, turns: [{ role: 'assistant', content: '冲突判定完成。' }], options: [], eventMemory: [{ summary: '冲突中的一次判定已经完成。', locationId: started.body.state.locationId, time: { unit: 'tick', value: 2 }, visibility: 'local' }] }),
       });
-      assert.strictEqual(advanced.response.status, 200, `${id} conflict advance commits`);
-      assert.ok(advanced.body.receipts.at(-1).combatChecks.length === 1, `${id} server rolls combat`);
+      assert.strictEqual(advanced.response.status, 200, `${id} conflict advance commits: ${JSON.stringify(advanced.body)}`);
+      assert.ok(advanced.body.receipts.at(-1).combatChecks.length === 1, `${id} client dice drives combat`);
       assert.strictEqual(advanced.body.receipts.at(-1).conflictChecks[0].type, 'social', `${id} server records social check`);
       const turnLedger = advanced.body.eventLedger.find(entry => entry.commandId === `${id}-advance-1`);
       assert.ok(turnLedger, `${id} committed turn has an event ledger entry`);
       assert.strictEqual(turnLedger.sourceRevision, advanced.body.revision, `${id} ledger keeps source revision`);
       assert.deepStrictEqual(turnLedger.turnIds, advanced.body.receipts.at(-1).turnIds, `${id} ledger points to committed turns`);
+      const agentEvidence = advanced.body.receipts.at(-1).agent;
+      assert.strictEqual(agentEvidence.protocol, 'tavern.rpg.agent', `${id} receipt records agent protocol`);
+      assert.strictEqual(agentEvidence.steps[0].status, 'committed', `${id} agent step commits with turn`);
+      assert.ok(agentEvidence.steps[0].toolCalls.some(tool => tool.name === 'rules.resolve'), `${id} agent evidence records server rule resolution`);
       const memory = advanced.body.eventMemory.at(-1);
       assert.ok(memory, `${id} committed turn extracts event memory`);
       assert.strictEqual(memory.sourceRevision, advanced.body.revision, `${id} memory keeps source revision`);

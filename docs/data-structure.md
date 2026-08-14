@@ -74,7 +74,9 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
   id: 'world-aurora', version: 1, title: '极光大陆', summary: '…', tags: ['…'],
   playerCreation: {
     mode: 'custom', title: '创建你的冒险者',
-    pointBudget: { label: '属性点', total: 8, min: 0 },
+    pointBudget: { label: '属性点', total: 12, min: 0, mode: 'pool', cost: 'above-min' },
+    defaultPresetId: 'wanderer',
+    buildPresets: [{ id: 'wanderer', label: '自由旅人', values: { fields: { role: '旅人' }, attributes: { might: 2 } } }],
     fields: [{ id: 'name', label: '名字', type: 'text', required: true }],
     attributes: [{ id: 'might', label: '力量', min: 1, max: 5, default: 2, step: 1 }],
     skills: [{ id: 'scouting', label: '侦察', min: 0, max: 10, default: 1, step: 1, description: '发现环境细节' }],
@@ -93,7 +95,7 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
   },
   lorebookIds: [], rpgPresetName: 'RPG 叙事引擎（示例）',
   locations: [], npcs: [], factions: [], items: [], quests: [],
-  map: { strategy: 'perSave', generation: { seed, size, regionCount, landRatio, mapgenSize } },
+  map: { strategy: 'worldCard', data: null, imagePath: null },
   ui: { layout: 'world-desktop', source: 'json' }
 }
 ```
@@ -102,11 +104,13 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 
 `setting` 保存世界观稳定段（`premise/history/geography/culture/technology/magic/society/economy/currentSituation`）；`rules.hard` / `rules.soft` 保存作者的硬 / 软叙事约束。二者只属于 `WorldCard@worldVersion`，由 Prompt 作为只读设定投影，不进入 `WorldSave`；硬规则的结构化游戏结算仍必须使用 `turnContract`、失败、冲突、时间和结局等正式字段。
 
-`map.generation` 是世界版本的地图生成配置：`seed`、`size`、`regionCount`、`landRatio` 与 `mapgenSize`。`landRatio` 在 fallback 引擎中是目标陆地占比，在 Mapgen2 中映射为大陆膨胀参数，因此 UI 预览会另外显示实际陆地占比。地图首次生成后，完整数据和生成参数一起写入所属 `WorldSave.state.map.data`；重生成只影响当前存档。
+地图数据属于世界卡：可选 `map.data` 保存序列化后的地图网格、区域、地标与邻接，`map.imagePath` 保存受校验的本地图片路径。运行时不再按 `map.generation` 随机生成地图；创建存档时只复制世界卡明确提供的数据，没有地图则保持 `state.map.data = null`。旧的 `generation` 字段仍可保留，供未来地图编辑器恢复。
 
 `playerCreation.economy` 是可选的声明式经济规则：`inventory.enabled/maxSlots/maxWeight/items[]` 控制背包、物品重量与堆叠；`equipment.enabled/slots[]` 控制装备位；`currencies[]` 控制货币 ID、范围和初始值。启用后，存档状态使用 `state.inventory`、`state.equipment` 与 `state.currencies`，每次创建、普通保存和正式回合都会按当前世界卡重新校验；未声明该段的旧世界继续使用兼容的自由背包 / `stats.gold`。
 
 `sessionSetup.fields[]` 是本局游戏规则 Schema；字段类型只允许 `text/textarea/select/number/boolean`，可声明默认值、必填、选项、范围和自定义值。世界草稿编辑器以高级 JSON 保存它，创建存档时物化为 `WorldSave.setup.game`，因此难度、Sandbox、战斗开关、世界推进与新实体许可等规则不会写死在前端。
+
+`playerCreation.buildPresets[]` 只声明建角起点，`values` 可按同一 Schema 提供 fields、attributes、skills、resources、traits、choices、initialInventory 和 relations 的默认值；用户和 AI 的后续修改会覆盖预设。创建接口会校验 `playerPresetId` 并将其写入当前 `WorldSave.setup`，但最终实际值仍独立保存到 `player.snapshot` 与 `state.player`。`pointBudget.mode` 支持 `pool` / `free`，`cost: 'above-min'` 表示只计算超过各属性最低值的部分，因此不同世界可以使用不同点数规则，不再由前端固定总和。
 
 `playerCreation.growth` 是可选的成长声明：`sources[]` 记录训练、学习、探索、关系与事件等来源，`candidates[]` 只声明允许的目标 bucket、目标 ID 与 delta/value；bucket 可为属性、技能、资源、特质、NPC 关系、阵营声望或身份标签。运行态 `WorldSave.state.growthCandidates` 只保存当前存档的 `proposed` 候选及其 `reason`；玩家通过 `POST /api/world-saves/<saveId>/growth` 的 `accepted/rejected` 决策处理候选，服务端才会应用世界卡声明的变化。接受结果写入 `state.growthApplications` 与 `state.experiences`，人物经历带有 candidate/source、效果、地点和 revision，可回溯且不会跨存档共享。
 
@@ -126,23 +130,25 @@ WorldNPC 的静态资料按公开边界读取：`role`、`description`、`person
 
 `events[]` 是不可执行的声明式事件模板：`trigger.at`、`trigger.afterTurns` 和 `trigger.locationId` 可组合为 AND 条件，默认只触发一次；`visibility` 控制后续上下文可见范围。每次成功回合由服务端在同一存档锁内推进时间并结算到期事件，结果写入 `state.worldEvents` 与回合 receipt；重复 commandId 不会重复触发，未提交回合不会推进时间。
 
-`eventLedger[]` 是服务端维护的长期提交索引（当前最多 4096 条），不接受客户端直接改写。每条记录带稳定 `id`、`kind`、`commandId`、`sourceRevision` 和时间 / 地点作用域，并引用已提交的回合、世界事件或成长应用；它与按上限裁剪的 `receipts[]` 分离，后续长期记忆应引用账本记录而不是复制一份状态摘要。
+`eventLedger[]` 是服务端维护的长期提交索引（当前最多 4096 条），不接受客户端直接改写。每条记录带稳定 `id`、`kind`、`commandId`、`sourceRevision` 和时间 / 地点作用域，并引用已提交的回合、世界事件或成长应用；它与按上限裁剪的 `receipts[]` 分离，后续长期记忆应引用账本记录而不是复制一份状态摘要。Agent 两阶段执行期间只写入 `WorldSave.agentRuntime.pending`，不会提前推进 revision、turns 或 eventLedger；正式 narrate 提交后才生成 receipt 与账本记录。
 
 RPG Prompt 的短期窗口由前端 `buildWorldRecentContext()` 在请求前从当前 `WorldSave.turns`、待提交消息和 `eventLedger` 重建：默认使用设置中的最近 N 条消息；若账本记录出当前位置切换，则优先保留当前位置之后的消息。该窗口只作为本次请求的 history 投影，不写入存档，也不替代 `turns`、`state` 或账本事实。
 
 `eventMemory[]` 是服务端在正式回合提交后规范化的长期事件记忆（最多 512 条），只接受 AI 提交的本回合候选摘要；来源回合、来源事件、`sourceRevision`、地点和时间由服务端绑定，不能由客户端伪造或改写。每项带 `entityIds`、`locationId`、`time`、`visibility` 与来源 ID，Prompt 只注入当前存档可见且地点匹配的记忆；删除或清理派生记忆不会改变 `turns`、`state` 或 `eventLedger`。R6.6 增加 `GET /api/world-saves/<saveId>/memory` 诊断和 `POST /api/world-saves/<saveId>/memory/rebuild` 重建：重建只读取结构化世界事件、成长事实及账本来源引用，不读取原始叙事正文，不改变正式 `revision`；诊断中的隐藏记忆只保留脱敏占位。
 
+RPG Agent Profile 来自 `_defaults.json.rpg.agent`，可由 RPG Preset 的 `agent` 和未来 WorldCard 的 `agent` 覆盖。它只声明协议、模式、最大步骤数和工具执行策略，不保存玩家状态。`tools.*.parameters` 是 OpenAI-compatible JSON Schema，可被世界卡 / 预设调整，但不能注入 handler、任意路径或脚本。原生请求对外使用符合 OpenAI 函数名约束的 wire name（如 `dice_roll`），收到后映射回内部能力 ID（如 `dice.roll`），服务端兼容层仍使用内部 ID。原生 `mode: native` 请求会在同一模型请求链中循环 `assistant.tool_calls → tool`，最多 `maxSteps` 次；`context.retrieve` 是当前 WorldSave 作用域内的只读工具，不会进入提交候选。`WorldSave.agentRuntime` 仅保存 `{ version, status, pending }` 的短暂执行协调信息：pending 绑定 `commandId + baseRevision`，包含已校验的预览 state、NPC 状态、生成实体和规则结果；正式事实仍以 `state`、`turns`、`receipts` 和 `eventLedger` 为准。前端 Typed Patch 回合会先调用 `agent-execute`，叙事提交失败可复用同一 pending，放弃回合则调用 `agent-cancel`。
+
 R6.4 的事实层级不复制一份“当前世界”：`WorldCard@worldVersion` 保留稳定简介、地点、NPC 公共资料、派系定义、事件模板和规则；`WorldSave@revision` 保留当前地点、时间、NPC 状态、目标、冲突、已提交事件和记忆。Prompt 同时标明两者的来源与作用，冲突时只让存档状态解释当前局面，不回写世界卡，也不让旧静态默认值覆盖已提交状态。
 
 R6.5 的上下文组装是请求级派生结果：NPC 按当前地点、队伍、任务 / 目标 / 线索、冲突参与者和已召回记忆筛选；地图只注入当前位置及相邻区域；事件、派系和长期记忆按当前地点与最近记录裁剪。所有作用域段共享 `prefs.worldContextBudget` 字符预算（默认 24000，范围 6000–60000），按当前状态、目标、记忆、NPC、事件到地图 / 派系的优先级保留；超预算只裁剪请求文本，不删除或改写 `WorldSave` 正式事实。
 
-正式回合 receipt 采用 `{ kind: 'turn', commandId, revision, turnIds, eventIds, committedAt }`，开场等其他 receipt 不计入成功回合数。
+正式回合 receipt 采用 `{ kind: 'turn', commandId, revision, turnIds, eventIds, agent, committedAt }`，开场等其他 receipt 不计入成功回合数。`agent.proposedTools` 只保存经过 Schema 校验的 AI 候选名称；`agent-execute` 阶段不写正式 receipt，`narrate` 阶段才把预览结果转为一次正式提交。正式 RPG 回合的骰子由客户端生成并写入 `actionIntent.dice`，服务端只校验表达式、面值和总和；`/api/dice` 保留为兼容/诊断接口，不再是世界回合的随机源。
 
 `state.goals` 与 `state.leads` 是存档级目标 / 线索投影，使用稳定 `id`、`title`、`desc`、`status`，可选引用当前世界的 `actorId` / `locationId` 与 `deadline`；它们与旧 `quests` 并存，AI 只能通过本回合结构化控制块增量 upsert，服务端会校验 ID、状态和地点引用。
 
 兼容旧 WorldSave 时，前端仅在 `state.goals` 缺失且存在 `state.quests` 时生成 `legacy-*` 目标投影；原 `quests` 不删除，下一次正式提交才会把投影随当前存档一起保存。
 
-RPG 控制块使用 `protocol: 'tavern.rpg.turn'`、`version: 1`、`baseRevision` 与 `updates[]` typed patch；允许的更新类型由服务端白名单约束（资源 / 属性 / 技能 / 货币增量、背包、地点、效果和目标状态），不接受任意路径或完整 state。客户端只把候选 patch 交给服务端，服务端在当前 `WorldSave@revision` 上物化、校验并原子提交；玩家创建字段、特质和关系在正式回合中保持不可变，避免 AI 通过叙事篡改身份。
+RPG 控制块使用 `protocol: 'tavern.rpg.turn'`、`version: 1`、`baseRevision` 与 `updates[]` typed patch；允许的更新类型由服务端白名单约束（资源 / 属性 / 技能 / 货币增量、背包、地点、效果和目标状态），不接受任意路径或完整 state。可选 `toolCalls` 只允许声明式工具名称和受限参数，前端将其从 patch 中剥离，通过回合请求的 `agentCalls` 单独提交；服务端只做候选校验和证据记录。客户端只把候选 patch 交给服务端，服务端在当前 `WorldSave@revision` 上物化、校验并原子提交；玩家创建字段、特质和关系在正式回合中保持不可变，避免 AI 通过叙事篡改身份。
 
 `generatedEntities` 按 `npcs` / `items` / `quests` / `locations` 分桶保存 AI 提出的临时实体。回合请求只能提交候选 `createEntities`（最多 32 个），服务端按当前 `saveId` 生成 `save:<saveId>:<kind>:<n>` ID 后写入当前存档；重复命令不会重复创建，其他世界存档不可见。
 
@@ -159,7 +165,7 @@ RPG 控制块使用 `protocol: 'tavern.rpg.turn'`、`version: 1`、`baseRevision
   npcStates: { [npcId]: { locationId, relation, knowledge: [], status: [] } },
   state: {
     stats, player: { fields, attributes, skills, resources, traits, relations, identity: {}, effects: [] }, time: { unit, value }, worldEvents: [], goals: [], leads: [], inventory: [], equipment: {}, currencies: {}, conflicts: {}, growthCandidates: [], growthApplications: [], experiences: [], quests: [], locationId,
-    map: { strategy: 'perSave', data: null, imagePath: null, markers: [] }
+    map: { strategy: 'worldCard', data: null, imagePath: null, markers: [] }
   },
   opening: '世界卡 start.opening 的开局叙事',
   setup: {
@@ -306,7 +312,7 @@ RPG 控制块使用 `protocol: 'tavern.rpg.turn'`、`version: 1`、`baseRevision
 | `POST /api/chat` | AI 代理：拼 `baseUrl + /chat/completions`，注入 Bearer，SSE 透传；上游默认 120 秒超时，超时返回 504（可用 `TAVERN_PROXY_TIMEOUT_MS` 调整，仅用于本地测试/运维） |
 | `POST /api/image` | 文生图代理：`kind='openai'` → `/images/generations`；`kind='sd'` → `/sdapi/v1/txt2img`，原样转发 |
 | `GET /api/models` | 模型列表代理（读 X-Base-Url / X-Api-Key 头）；上游默认 120 秒超时，超时返回 504 |
-| `POST /api/dice` | 由 Node 服务生成最多 16 个标准骰子表达式结果；世界回合把结果写入 `actionIntent.dice` |
+| `POST /api/dice` | 兼容/诊断用的标准骰子接口；正式世界回合由客户端生成 `actionIntent.dice`，服务端只校验 |
 | `GET /api/data/seed` | 返回 _defaults.json 全量（深拷贝） |
 | `GET/PUT /api/data/:type` | 读写 characters / presets / lorebooks / settings |
 | `GET /api/worlds` | 返回世界卡摘要与每个世界的存档数量 |
@@ -331,6 +337,8 @@ RPG 控制块使用 `protocol: 'tavern.rpg.turn'`、`version: 1`、`baseRevision
 | `GET /api/world-saves/<saveId>` | 读取一个完整 WorldSave |
 | `PUT /api/world-saves/<saveId>` | 使用 `expectedRevision` 原子提交当前存档的 `state`、`turns` 与 `opening`；版本冲突返回 409 |
 | `POST /api/world-saves/<saveId>` | 提交一次 RPG 回合候选；新协议携带 `patch { protocol, version, baseRevision, updates }`，服务端在当前存档上严格校验、物化并按 revision 原子提交；同时校验 `commandId`、assistant 回合、卡片允许数量的唯一选项、玩家 `actionIntent.raw`，成功后推进时间、结算 `events`、把行动意图附着到本回合并记录 receipt；旧完整 `state` 提交与相同 commandId 继续兼容且幂等返回 |
+| `POST /api/world-saves/<saveId>/agent-execute` | 先执行 Typed Patch 与世界规则，结果写入带 `baseRevision` 的 `agentRuntime.pending`，不推进正式 revision；相同 commandId 幂等返回 |
+| `POST /api/world-saves/<saveId>/agent-cancel` | 使用 `commandId + expectedRevision` 清理未提交的 Agent pending，不改变正式 revision |
 | `POST /api/world-saves/<saveId>/growth` | 使用 `commandId + expectedRevision` 接受或拒绝一个当前存档的成长候选；接受时服务端应用能力 / 特质 / 关系 / 阵营声望 / 身份标签并追加人物经历，拒绝时只追加处理记录；相同 commandId 幂等返回 |
 | `GET /api/world-saves/<saveId>/memory` | 只读返回当前存档的派生记忆统计、正式来源数量与脱敏重建预览；隐藏记忆不展开内容 |
 | `POST /api/world-saves/<saveId>/memory/rebuild` | 使用 `commandId + expectedRevision` 从世界事件、成长事实与 `eventLedger` 来源引用重建 `eventMemory`；不改变正式 world revision，重复 commandId 幂等 |

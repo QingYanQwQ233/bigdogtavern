@@ -1,175 +1,195 @@
 # Tavern · AI RP / RPG 框架
 
-角色扮演 × AI 驱动 RPG 的前端框架 demo。
+Tavern 是一个面向福瑞日式西幻与 AI 角色扮演的本地 Web 应用。它把普通的角色卡聊天和“大世界” RPG 存档拆成两条独立链路：
 
-**双模式**：🍺 酒馆模式（AI RP 聊天）+ ⚔ RPG 模式（AI 驱动冒险）——同一套数据基建，两种玩法形态。
-**世界地图**：🗺 算法生成 + 数据层 + AI 美化 + 上下文注入（RPG 模式右栏，可重新生成 / AI 作画 / 查看数据）。
-世界观与角色设定仍未确定，所有设定性文字均为**占位**；提示词与预设数据全部外置可编辑。
+- **酒馆模式**：角色卡是创作对象，AI 负责连续的 RP 叙事。
+- **RPG 模式**：世界卡是规则与世界的来源，AI 负责扮演 DM / 世界化身，玩家通过存档参与一条独立世界线。
+
+项目的核心不变量是：**数据按所有权分层绑定，不跨角色、跨会话、跨存档串数据；能结构化保存的状态不只依赖 AI 记忆。**
 
 ## 快速开始
 
-需要 Node.js 18+（零依赖，无需 `npm install`）。
+需要 Node.js 18+，运行时零 npm 依赖。
 
 ```bash
 node server.js
-# 打开 http://localhost:3000
 ```
 
-1. 侧栏左下「设置」→ 连接
-2. 选服务预设（OpenAI / DeepSeek / OpenRouter / Ollama / LM Studio / 自定义）或手动填 Base URL + Key
-3. 点「获取」从上游拉模型列表，「测试连接」验证后保存
-4. 侧栏底部「模式：酒馆 ⇄ 模式：RPG」切换玩法
+打开 <http://localhost:3000>，然后在「设置 → 连接」中填写 OpenAI 兼容接口的 Base URL、API Key 和模型。支持 OpenAI、DeepSeek、OpenRouter、Ollama、LM Studio 以及其他 `/chat/completions` 兼容服务。
 
-RPG 模式进入「世界库」：世界卡来自 JSON，可创建/打开彼此独立的世界存档。RPG 不读取普通酒馆角色卡，也不会为普通角色创建 RPG 会话；只有进入 `WorldSave` 后才显示 RPG 叙事工作区。当前世界模式的开场、叙事时间线、RPG 状态、地图数据和 AI 美化图路径都由当前 `WorldSave` 持有；旧 RPG `sessions` 仅保留兼容数据，不会被新世界工作区读取或改写。
+常用检查：
 
-新建 AI 世界存档会先进入「待开局」：玩家依次确认本局 RP 角色、Schema 驱动的属性/能力/天赋与初始资源、世界与游戏规则、Opening Scenario（时间、地点、NPC、事件、前置历史与 Knowledge Scope），AI 只生成可编辑的 `OpeningCandidate`；玩家确认后服务端才初始化 `Save State`、写入正式时间线并进入回合。规划中的存档会保留在世界库，刷新后可继续。
+```bash
+node --check server.js
+node --check public/app.js
+node scripts/check_rpg_protocol.js
+```
 
-世界卡在发布前可进入草稿编辑器执行「检查发布条件」。检查会覆盖世界定义、稳定引用、开局运行态及世界书 / 正则 Prompt 契约；失败项可点击定位到对应表单，服务端发布时还会重复校验，不能绕过前端直接发布。详见 [数据结构说明](docs/data-structure.md)。
+完整回归脚本位于 `scripts/check_*.js`。
 
-## 🍺 酒馆模式（AI 角色扮演聊天）
+## 数据所有权
 
-- **角色卡**：多角色创建/编辑；AI 按“一句话定角色 → 动态基本信息表 → 完整 JSON 角色卡”三步生成；支持 Character Card V1/V2 JSON 导入导出
-- **提示词预设**（「提示词」栏）：多套 System Prompt + 历史后指令模板，命名保存/切换/删除；角色卡可绑定预设
-- **世界书**：多本世界书 × 条目（触发词支持正则 / 常驻 / 顺序 / 扫描深度 / 整词匹配）；一本全局生效，其余可绑定角色
-- **记忆 / 玩家设定**：玩家外形背景偏好 + 记忆条目（注入上下文）
-- **旁白 / 对白拆分（状态机）**：引号内 → 角色气泡，其余 → 旁白；支持中文「」『』“”/ 英文 `"` `'`、嵌套引号、不成对回退、`*动作*` 归旁白
-- **消息操作**：hover 重新生成 / 编辑 / 删除 / 复制
-- **AI 调试终端**：对话顶栏「⌘ 终端」打开独立调试窗口，查看当前角色、模式与会话最近一次发给 AI 的完整消息数组及原始响应；记录仅驻留内存，不写入存档
+默认模板只有一个来源：`public/data/_defaults.json`。首次启动时，服务端根据它初始化运行时 JSON。
 
-## ⚔ RPG 模式（AI 驱动冒险）
+```text
+_defaults.json
+  ├─ characters.json       角色库
+  ├─ presets.json          提示词预设
+  ├─ lorebooks.json        世界书
+  ├─ settings.json         连接与运行设置
+  ├─ user.json             玩家设定与酒馆手动记忆
+  └─ worlds.json            世界卡目录
 
-**布局**：顶栏（角色 / Lv / 金币 / 位置）· 左栏（角色面板 + 背包）· 中央 AI 叙事流 · 右栏（任务 + 世界地图）· 底栏（HP/MP/EXP 状态条 + 快捷行动 + 输入）
+saves/<saveId>.json        RPG WorldSave，服务端按存档独立读写
+```
 
-**一切由 AI 驱动**（AI 输出 → 正则处理 → 自动执行）：
+`localStorage` 只保存离线缓存和当前 ID，服务端 JSON 是权威源。`WorldCard@worldVersion` 保存稳定世界资料；`WorldSave@revision` 保存本局玩家、状态、事件、回合和记忆。世界卡或角色卡后续编辑不会静默覆盖已有存档。
 
-| AI 输出 | 正则规则 | 前端处理 |
-|---|---|---|
-| `<tavern_state_update>` JSON 更新块 | 标签提取 + JSON 校验 | 服务端按 typed patch 与当前 `WorldSave.revision` 原子应用资源/属性/技能/货币/背包/地点/效果/目标状态；旧 ` ```rpg ```` 仅读兼容 |
-| 骰子表达式 `d20+5` / `2d6` | `(\d*)d(\d+)([+-]\d+)?` | 自动掷骰，结果以 meta 消息注入并**进入 AI 上下文**（AI 能基于结果推进） |
-| 叙事正文 | 不做引号拆分 | 对白、旁白统一显示为连续叙事，支持 GFM Markdown，不生成 AI 气泡 |
-| `options` 字段 | 更新块内 JSON | 渲染为底部**快捷行动栏**（点击即发送该行动） |
+## 酒馆模式
 
-RPG 的末尾控制块只在 RPG 模式解析；流式生成时不会显示未闭合的控制 JSON。骰子仅扫描叙事正文，行动选项中的 `d20` 会等玩家真正选择后再掷。
+酒馆模式围绕“角色卡 + 对话会话”工作：
 
-RPG 回合协议：默认预设输出唯一的 `<tavern_state_update>...</tavern_state_update>` JSON 更新块。服务端按 `protocol/version/baseRevision` 校验 typed updates，在当前 WorldSave 上物化并通过 revision/CAS 原子提交；旧版 ```rpg``` 仍只读兼容。
+- 角色卡创建、编辑、删除，以及 Character Card V1/V2 JSON 导入导出；
+- 三步 AI 写卡：一句话定角色 → JSON Schema 动态填表 → 生成完整结构化角色卡；
+- 动态角色字段、可自定义栏目和运行时保存，不把世界观字段写死在前端；
+- SillyTavern 风格提示词预设：System、历史前/后指令、In-Chat、Relative、宏、排序和导入导出；
+- 多本世界书：触发词、正则、常驻、扫描深度、整词匹配和角色绑定；
+- 玩家设定、手动记忆、消息编辑/删除/复制/重生成；
+- 旁白/对白拆分状态机；
+- AI 消息 Markdown 渲染与安全清洗；
+- 文生图消息（OpenAI 兼容或 Stable Diffusion），图片保存后可持久化。
 
-- **DM 身份**：RPG 模式下 AI 是"世界的化身 / 地下城主"，直接扮演所有 NPC、称呼玩家为"你"，禁止以"作者"口吻自称（含反例约束）
-- **正反示例**：预设内置 1 个完整正例 + 4 个反例（缺选项 / 空泛选项 / 凭空物品 / 对白混旁白），并在对话历史最前注入示例回合（in-context few-shot）
-- **世界存档边界**：世界模式从 `WorldSave.turns` 投影叙事，状态 / 背包 / 任务 / 地图 / 图片只随 `saveId` 切换；服务端用 `expectedRevision` 顺序写回。旧 RPG 会话保留兼容路径，但新前端不再显示旧 RPG 对话或迁移入口。
-- **开局规划**：AI 世界存档先进入“待开局”，规划草案与 `OpeningCandidate` 独立保存；确认前不进入正式回合，调试终端会标记 `opening-plan` / 候选状态。
-- **禁止凭空添加**：道具/任务必须由剧情产出（掉落、NPC 委托等）
+酒馆记忆目前是用户级手动记忆，保存在 `user.json`，尚未完全绑定到单一角色和单一会话。
 
-## 🗺 世界地图系统（AI 协作生成）
+## RPG 世界卡模式
 
-三步法：**算法生成 → 数据层 → AI 美化**，地图数据同时注入 AI 上下文参与叙事。
+RPG 不再把普通角色卡当作世界入口。流程是：
 
-### 算法生成（`public/mapgen.js`）
+```text
+选择世界卡
+  → 创建独立 WorldSave
+  → 待开局规划
+  → 配置玩家角色与建角数据
+  → 配置本局规则
+  → 规划 Opening Scenario
+  → 确认并初始化 Save State
+  → 正式 RPG 回合
+```
 
-- 优先使用 `vendor/mapgen2.bundle.js`（Red Blob Games mapgen2，Apache-2.0，bundle 含 Delaunator / Poisson / Simplex），加载失败自动回退自研噪声 + Voronoi 实现（`generateViaOwn`）
-- **单地区图**：区域数按 `regionCount` 目标收敛（默认约 8-14 个大区域），被剔除的小胞腔归属最近的保留区域（大陆完整、邻接真实）
-- 输出：`{size, regions[], points[], grid(Uint16Array), adjacency, engine, seed}`——`grid` 用 **Uint16Array**（区域 >255 不会溢出）
-- **biome 6 大类**：海岸 / 草原 / 森林 / 荒野 / 雪原 / 湿地——`elevation` 取 mapgen2 均值、`moisture` 用「到水域的 BFS 距离场」（天然空间连续）+ 各一次邻域平滑；**高对比色板**（跨 biome 边界色差 127-179，色块可辨）
+开局配置由世界卡 Schema 驱动，可包括：
 
-### 渲染（`renderWorldMap`）
+- 玩家身份、出身、地区、势力、职业、性格和经历；
+- 基础属性、技能、资源、特质、缺陷、初始装备；
+- 属性点预算、最低/最高值、预设与自由模式；
+- 世界书、RPG Preset、难度、时间、战斗/死亡规则；
+- 开场时间、地点、NPC、事件、前置事实、知识权限和 Initial Hook。
 
-- 像素级**反距离加权混合**区域颜色 → 地形渐变（告别色块拼图，数据层不变）
-- 区域边界地形符号：山脉 ▲ / 森林树形 / 湿地波纹（白描边）；两种文字模式：参考图大字 biome 标注 / 展示图浅色小字区域名
+### 可信回合内核
 
-### 地图窗口（点击地图预览打开）
+AI 输出的结构化控制块是：
 
-- 功能集中：**重新生成 / ✨ AI 美化 / 🏷 参考图 / 📋 数据（JSON 一键复制）/ 🔍 大图 / 关闭**
-- 窗口内点击区域 → 显示区域/地点信息（预览图仅作入口）
-- 有美化图时可切换「🖼 原始底图 ⇄ ✨ 美化图」对比查看
+```text
+<tavern_state_update>{...}</tavern_state_update>
+```
 
-### AI 美化（`mapBeautify`）
+服务端会校验 `protocol`、`version`、`baseRevision`、typed updates、行动选项、地点 ID、玩家状态和存档 revision，再执行原子提交。旧版 `rpg` 控制块只作为兼容输入，不绕过新校验。
 
-- 独立渲染**标注参考图**（地形符号 + biome 大字标注）→ `POST /api/image`（edits 接口）→ 替换为真实地形插画
-- 提示词携带地图约束（`regionCount` / biome 列表 / 区域明细），并要求：不写任何文字、不画边界线与连接线、按原图群系替换为真实地形
+支持的状态更新包括资源、属性、技能、货币、背包、地点、效果和目标状态。正式回合还会推进世界时间、结算世界事件、派系行动、截止时间、冲突、失败、结局和成长记录。
 
-### 上下文注入
+### 客户端骰子
 
-- 地图数据（区域 / 可达性 / 当前位置 / 地标）注入 RPG system；AI 输出协议中 `location` 支持「区域 N」与地图联动
+骰子由客户端生成，服务端只验证结果：
 
-## 预设与数据外置（不写死）
+```text
+客户端随机 → actionIntent.dice → 服务端校验 → 规则结算
+```
 
-所有可编辑内容在 `public/data/_defaults.json`（新环境自动初始化），运行时数据存 `public/data/*.json`：
+AI 或叙事文本不能直接产生权威骰子结果。缺少客户端结果时，服务端会拒绝本回合，而不是偷偷重新随机。`POST /api/dice` 仅保留为兼容/诊断接口。
 
-- `presets`：SillyTavern 风格的提示词素材库 + 启用顺序；支持固定数据槽位、自定义条目、Role、Relative / In-Chat、宏以及 ST Chat Completion JSON 导入/导出
-- 内置「RP 基础（示例）」（writer 身份、玩家主权、角色稳定、叙事风格）与 **「RPG 叙事引擎（示例）」**（DM 身份、世界连续性、判定、四选项状态协议）；角色、世界书、记忆、历史和 RPG 状态在运行时填入固定槽位，不复制进预设
-- `rpg`：初始状态 / 输出协议（stateInstruction）/ 行动选项空提示 / 示例回合（exampleTurn，few-shot 注入 history 最前）
-- `gen`：角色基本信息动态栏目（`charFields`）+ 两阶段角色卡生成指令 + 世界书条目生成指令
-- `user`：玩家设定（外形 / 背景 / 偏好）+ 记忆条目
-- 酒馆与 RPG 分别记忆当前预设；角色卡绑定只作用于酒馆，避免两个模式串用身份提示词
+### Agent Runtime
 
-## 文生图（测试功能，默认关闭）
+RPG 支持声明式 OpenAI-compatible tools：
 
-设置 → 文生图：API 类型 `openai`（`/images/generations`，dall-e-3 / gpt-image-2 等）或 `sd`（Stable Diffusion WebUI `/sdapi/v1/txt2img`）；提示词来源可选 LLM 生成或剧情文本；自动生图（异步）；图片以 `role:'image'` 消息显示、**不进对话上下文**，本地保存后持久化。
+- `dice.roll`：客户端执行并绑定本回合结果；
+- `context.retrieve`：当前世界存档范围内的只读检索；
+- `state.patch`、`entity.create`、`memory.record`：候选操作；
+- `rules.check`：工具契约已预留，完整世界规则执行器仍在完善。
 
-## 支持哪些 API
+Agent 回合采用 `agent-execute → narrate` 两阶段提交。正式状态仍由 WorldSave 服务端校验，Agent 不能直接改写存档。
 
-任意 **OpenAI 兼容 Chat Completions** 接口（本地代理 `POST /api/chat` 注入 `Authorization` 并转发，绕 CORS）：
+## RPG 记忆与上下文
 
-| 服务 | Base URL |
-|---|---|
-| OpenAI | `https://api.openai.com/v1` |
-| DeepSeek | `https://api.deepseek.com/v1` |
-| OpenRouter | `https://openrouter.ai/api/v1` |
-| Ollama（本地） | `http://localhost:11434/v1` |
-| LM Studio（本地） | `http://localhost:1234/v1` |
-| 任意中转 / 自建 | 兼容 `/chat/completions` 即可 |
+RPG 记忆不是一段模糊的 AI 摘要，而是几层结构化事实：
 
-## 移动端 / PWA
+- `turns[]`：当前存档的短期回合历史；
+- `eventMemory[]`：长期事件记忆，最多 512 条；
+- `eventLedger[]`：服务端维护的事实来源索引；
+- `state.knownInformation`：World Truth、Character Knowledge、Player-visible、Hidden、Rumor；
+- `npcStates.knowledge`：每个 NPC 的已知事实。
 
-- 移动优先布局：侧栏默认隐藏，汉堡打开抽屉导航；桌面侧栏可收起（滑出 + 主区让位，动画可靠）
-- PWA：manifest + service worker + 图标（对话气泡风格），套壳 APK 全屏可用
-- Android 套壳：`android/` 内嵌 NanoHTTPD 服务器（移植 server.js），WebView 加载本地页面，可构建离线 APK（GitHub Actions workflow）
+长期记忆由 AI 提交候选，服务端在正式回合后补充来源 revision、回合、事件、地点和时间，并按 `public / local / hidden` 控制注入。当前地点不匹配的 local 记忆和 hidden 记忆不会直接注入玩家上下文。
+
+记忆诊断窗口支持查看来源统计和从正式世界事件、成长事实、账本重建 `eventMemory`。重建不读取原始叙事，也不改变正式世界 revision。
+
+## 地图状态
+
+地图生成与渲染代码仍保留在 `public/mapgen.js`，但当前地图 UI 和运行时随机生成已隐藏。新存档只读取世界卡明确提供的 `map.data` / `map.imagePath`；没有地图时保持空状态。这样地图属于世界卡，不会在不同存档之间随机漂移或串联。
+
+## AI 调试终端
+
+对话顶栏的「⌘ 终端」打开独立调试窗口，分区查看：
+
+- INPUT：发送给 AI 的完整请求；
+- OUTPUT：正则处理前的完整原文、结构化标签摘录和 `reasoning_content`；
+- Prompt：本次请求的 Prompt 分区与字符预算；
+- MEMORY：当前 RPG 存档的记忆诊断与重建入口。
+
+调试记录只保存在当前页面内存，不写入角色、会话或 RPG 存档。
 
 ## 项目结构
 
-```
-server.js                     # 本地服务器：静态服务 + /api/chat + /api/image + /api/image-save + /api/models + /api/data + /api/worlds + /api/world-saves（零依赖）
-public/
-  index.html                  # 双模式布局（酒馆三区 / RPG 五区）+ 设置弹窗 + 角色/世界库 + 地图窗口
-  styles.css                  # 语义化 CSS 变量 + macOS 深色主题 + 双模式布局
-  app.js                      # 前端逻辑：模式/会话/角色/预设/世界书/记忆/生图/RPG 状态机/掷骰/地图窗口/AI 美化
-  mapgen.js                   # 世界地图：mapgen2 适配 + 自研 fallback + 渲染 + biome 气候
-  manifest.json + sw.js       # PWA（离线壳）
-  data/_defaults.json         # 模板数据（预设/世界书/角色/世界卡/rpg 协议/生成指令/UI 文案）
-  data/*.json                 # 运行时数据（本地生成，不入库）
-  data/saves/*.json           # WorldSave 运行时存档（本地生成，不入库）
-  vendor/                     # marked + DOMPurify + mapgen2.bundle（本地依赖，零网络）
-android/                      # WebView 套壳工程（NanoHTTPD 内嵌服务器）
-docs/                         # 架构与数据结构文档（data-structure.md / android-apk.md）
-scripts/                      # 辅助脚本（图标生成 / 打包上传 zip）
-.github/workflows/android-apk.yml  # push 自动构建 APK
+```text
+server.js                     Node 静态服务、AI/图片代理、世界与存档 API
+public/index.html             双模式页面与弹窗
+public/styles.css             macOS 深色主题与响应式布局
+public/app.js                 前端状态、会话、Prompt、解析和 UI
+public/mapgen.js               地图生成兼容代码（当前隐藏）
+public/data/_defaults.json    默认配置、预设、世界卡与输出协议
+public/data/*.json             本地运行时数据（含 API Key，不入库）
+public/data/saves/*.json       WorldSave（不入库）
+public/vendor/                 marked、DOMPurify、mapgen2 本地依赖
+android/                       NanoHTTPD + WebView Android 套壳
+scripts/                       回归检查、打包与图标脚本
+docs/                          数据结构、世界卡与 Android 文档
 ```
 
 ## 当前状态
 
-- [x] 自定义 API 接入（OpenAI 兼容 + 本地代理 + 测试连接 + 导入导出）
-- [x] 双模式（酒馆 RP / RPG 冒险），会话按模式分流
-- [x] RPG 全 AI 驱动（状态/数值/道具/任务/骰子/行动选项 正则解析自动执行）
-- [x] 提示词预设 / 世界书 / 角色卡 / 记忆系统
-- [x] AI 生成角色卡与世界书条目
-- [x] 旁白/对白状态机拆分、消息编辑/重生成/复制
-- [x] 文生图（openai / SD 双格式）、PWA、Android 套壳
-- [x] 世界地图系统（mapgen2 算法 + 单地区图 + biome 气候 + AI 美化 + 地图窗口 + 上下文注入）
-- [x] W1 世界卡 → 独立世界存档（创建 / 列表 / 打开 / 刷新恢复）
-- [x] W2 世界存档时间线、状态、地图和图片正式接管 RPG 主链路（Web）
-- [ ] W3 世界回合候选校验、revision 原子提交与幂等回执（已完成 Web 状态边界 + 回合提交 + 重试切片；稳定实体协议 / 对账待补）
-- [ ] W4 世界角色静态定义与存档动态状态（已完成玩家快照 / `npcStates` / 稳定 `locationId` / NPC 与世界书 Prompt 作用域 / 秘密解锁边界 / 存档内生成实体 / 显式收录 NPC 创建不可变世界版本；队伍 UI 待补）
-- [x] W5 世界卡草稿与版本发布（W5.1–W5.7 已完成：草稿、地点/NPC、地图参数、不可变发布、存档升级、带哈希/隐私报告的 JSON 世界包导出与封存确认导入）
-- [x] R7.7 世界卡发布前完整性检查（作者页预检 + 服务端发布复检；检查定义、引用、开局状态与 Prompt 契约）
-- [x] W6 旧 RPG 会话迁移（只读封存、字段预演、目标世界确认、确定 ID 幂等生成 WorldSave）
-- [x] W7.3 PWA 壳更新（缓存版本与页面脚本版本同步；API/运行时存档仍不进入缓存）
-- [x] W7.2 服务端恢复边界（代理超时 504、坏 JSON/超大请求、revision 冲突、损坏存档回归检查）
-- [ ] 世界观 / 角色设定（全部占位）
-- [x] 地图参数可视化调节（seed / size / regionCount / landRatio / mapgenSize）
-- [ ] 地图生成调优（海岸占比偏大、山脉偏少）
-- [ ] 短期 / 长期记忆分层
-- [x] 风格定稿（macOS 深色主题）
+### 已完成
+
+- 酒馆 / RPG 双模式与会话隔离；
+- 角色卡、提示词预设、世界书、世界卡和 WorldSave；
+- Schema 驱动的 RPG 建角与开局规划；
+- Typed Patch、revision/CAS、幂等回执和服务端状态校验；
+- 客户端骰子与冲突/事件/成长/失败/结局结算；
+- Agent 两阶段执行与工具候选协议；
+- 分层 Prompt、知识权限、长期事件记忆和记忆诊断；
+- 文生图、PWA、Android 套壳与本地调试终端；
+- 世界卡草稿、版本发布、导入导出和旧 RPG 会话迁移。
+
+### 当前限制
+
+- 世界观与角色内容仍有占位，需要实际世界卡填充；
+- 地图展示暂时关闭，地图生成调优暂缓；
+- 酒馆手动记忆仍是用户级共享；
+- RPG 记忆尚无向量检索、自动聚类和完整人工编辑器；
+- Agent `rules.check` 尚未连接完整规则执行器；
+- 队伍管理和部分作者工作台仍需完善；
+- 服务端默认无鉴权和 SSRF 防护，只适合本地开发/演示；
+- Android 需要在真实设备上继续验收。
+
+详细数据结构见 [docs/data-structure.md](docs/data-structure.md)，产品路线见 [docs/rpg-card-product-roadmap.md](docs/rpg-card-product-roadmap.md)。
 
 ## 安全提醒
 
-`server.js` 的代理不做鉴权与 SSRF 防护，**仅供本地开发 / 演示**，勿部署公网。
-API Key 只存浏览器本地与本地数据文件（`public/data/*.json` 已在 `.gitignore`），代理仅转发不落盘。
+不要把此开发服务器直接暴露到公网。API Key 只应保存在本地运行时数据中；`public/data/*.json`、存档和图片目录已加入 `.gitignore`。

@@ -72,4 +72,26 @@ const rootArray = parse('<tavern_state_update>[]</tavern_state_update>');
 assert.strictEqual(rootArray.errorCode, 'update.root_not_object');
 assert.strictEqual(rootArray.repairable, false);
 
+// Markdown 叙事中的骰子表达式是文本，不能触发任何骰子副作用。
+context.rollCalls = 0;
+const originalRollDiceIn = context.rollDiceIn;
+vm.runInContext("mode = 'rpg'; rollDiceIn = function () { rollCalls++; return []; };", context);
+const narrative = vm.runInContext(`processAIOutput(${JSON.stringify('叙事提到 d20+5，但没有执行掷骰。\n<tavern_state_update>{"protocol":"tavern.rpg.turn","version":1,"baseRevision":7,"updates":[],"options":[]}</tavern_state_update>')})`, context);
+assert.strictEqual(narrative.content, '叙事提到 d20+5，但没有执行掷骰。');
+assert.strictEqual(context.rollCalls, 0);
+context.rollDiceIn = originalRollDiceIn;
+
+const toolCandidate = vm.runInContext(`processAIOutput(${JSON.stringify('工具候选。\n<tavern_state_update>' + JSON.stringify({ protocol: 'tavern.rpg.turn', version: 1, baseRevision: 7, updates: [], options: [], toolCalls: [{ callId: 'roll-1', name: 'dice.roll', arguments: { expr: 'd20' } }] }) + '</tavern_state_update>')})`, context);
+assert.strictEqual(toolCandidate.agentCalls[0].name, 'dice.roll');
+assert.strictEqual(Object.hasOwn(toolCandidate.patch, 'toolCalls'), false);
+
+const locationPatch = vm.runInContext(`processAIOutput(${JSON.stringify('<tavern_state_update>' + JSON.stringify({ protocol: 'tavern.rpg.turn', version: 1, baseRevision: 7, updates: [{ type: 'location.set', location: { id: 'wolf-tooth-inn' }, name: '多余显示名' }], options: [] }) + '</tavern_state_update>')})`, context);
+assert.deepStrictEqual(JSON.parse(JSON.stringify(locationPatch.patch.updates)), [{ type: 'location.set', locationId: 'wolf-tooth-inn' }]);
+
+context.fetch = () => { throw new Error('world dice must not call /api/dice'); };
+const localDice = vm.runInContext("rollWorldDice('1d6')", context);
+assert.strictEqual(localDice.length, 1);
+assert.strictEqual(localDice[0].expr, '1d6');
+assert.ok(localDice[0].total >= 1 && localDice[0].total <= 6);
+
 console.log('rpg protocol parser check passed');

@@ -64,6 +64,8 @@ async function main() {
     assert.ok(worldResponse.body.playerCreation.skills.some(skill => skill.id === 'scouting'));
     assert.ok(Array.isArray(worldResponse.body.playerCreation.choices), 'choice schema is exposed by world card');
     assert.ok(Array.isArray(worldResponse.body.playerCreation.initialInventory), 'initial inventory schema is exposed by world card');
+    assert.ok(worldResponse.body.playerCreation.buildPresets.some(preset => preset.id === 'wanderer'), 'build presets are exposed by world card');
+    assert.strictEqual(worldResponse.body.playerCreation.pointBudget.cost, 'above-min');
     assert.ok(Array.isArray(worldResponse.body.sessionSetup.fields), 'session setup schema is exposed by world card');
     assert.strictEqual(worldResponse.body.playerCreation.derived[0].formula, 'attributes.wits + attributes.spirit');
     assert.strictEqual(worldResponse.body.playerCreation.derived[1].formula, 'skills.scouting + attributes.wits');
@@ -87,7 +89,7 @@ async function main() {
     };
     const first = await jsonRequest(base, '/api/world-saves', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ worldId: 'world-aurora', worldVersion: 1, name: '澪的第一条世界线', player: validPlayer }),
+      body: JSON.stringify({ worldId: 'world-aurora', worldVersion: 1, name: '澪的第一条世界线', playerPresetId: 'wanderer', player: validPlayer }),
     });
     assert.strictEqual(first.response.status, 201);
     assert.deepStrictEqual(first.body.player.snapshot.fields, validPlayer.fields);
@@ -108,6 +110,7 @@ async function main() {
     assert.strictEqual(first.body.state.factionStates['north-guild'].resources.funds, 30);
     assert.strictEqual(first.body.openingMode, 'ai');
     assert.strictEqual(first.body.setup.status, 'planning', 'AI opening starts in planning state');
+    assert.strictEqual(first.body.setup.playerPresetId, 'wanderer', 'preset source is bound to the save');
     const saveList = await jsonRequest(base, '/api/world-saves?worldId=world-aurora');
     assert.strictEqual(saveList.response.status, 200);
     assert.strictEqual(saveList.body.find(item => item.id === first.body.id).setupStatus, 'planning');
@@ -155,7 +158,7 @@ async function main() {
     assert.strictEqual(openingRetry.response.status, 200, 'opening command is idempotent');
     const freeTurn = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ commandId: 'turn-check-1', expectedRevision: opening.body.revision, actionIntent: { raw: '攻击灰狼并说服守卫', risk: '高' }, state: { ...opening.body.state, growthCandidates: [{ id: 'growth-test-1', candidateId: 'scouting-training', sourceId: 'training', reason: '完成一次训练', status: 'proposed' }], conflicts: { ...opening.body.state.conflicts, 'wolf-encounter-1': { ...opening.body.state.conflicts['wolf-encounter-1'], round: 2, actionId: 'strike', targetId: 'wolf-alpha' }, 'gate-talk-1': { ...opening.body.state.conflicts['gate-talk-1'], round: 2, actionId: 'persuade' }, 'wolf-encounter-2': { id: 'wolf-encounter-2', templateId: 'wolf-skirmish', type: 'combat', status: 'active', phase: 'engage', round: 1, participants: ['pc-hero', 'wolf-beta'], availableActions: ['strike', 'flee'] } } }, turns: [
+      body: JSON.stringify({ commandId: 'turn-check-1', expectedRevision: opening.body.revision, actionIntent: { raw: '攻击灰狼并说服守卫', risk: '高', dice: [{ expr: '1d20', rolls: [20], bonus: 0, total: 20 }, { expr: '1d6', rolls: [6], bonus: 0, total: 6 }, { expr: '1d20', rolls: [20], bonus: 0, total: 20 }] }, state: { ...opening.body.state, growthCandidates: [{ id: 'growth-test-1', candidateId: 'scouting-training', sourceId: 'training', reason: '完成一次训练', status: 'proposed' }], conflicts: { ...opening.body.state.conflicts, 'wolf-encounter-1': { ...opening.body.state.conflicts['wolf-encounter-1'], round: 2, actionId: 'strike', targetId: 'wolf-alpha' }, 'gate-talk-1': { ...opening.body.state.conflicts['gate-talk-1'], round: 2, actionId: 'persuade' }, 'wolf-encounter-2': { id: 'wolf-encounter-2', templateId: 'wolf-skirmish', type: 'combat', status: 'active', phase: 'engage', round: 1, participants: ['pc-hero', 'wolf-beta'], availableActions: ['strike', 'flee'] } } }, turns: [
         { role: 'user', content: '攻击灰狼并说服守卫', ts: Date.now() },
         { role: 'assistant', content: '你看见雨水沿着窗棂滑落。', ts: Date.now() },
       ], options: [] }),
@@ -171,7 +174,7 @@ async function main() {
     assert.strictEqual(freeTurn.body.state.factionStates['north-guild'].resources.funds, 25);
     assert.deepStrictEqual(freeTurn.body.receipts.at(-1).factionActionIds, ['north-guild:patrol-pass']);
     assert.strictEqual(freeTurn.body.state.conflicts['wolf-encounter-1'].round, 2);
-    assert.strictEqual(freeTurn.body.receipts.at(-1).combatChecks.length, 1);
+    assert.strictEqual(freeTurn.body.receipts.at(-1).combatChecks.length, 1, 'client dice drives combat check');
     assert.strictEqual(freeTurn.body.receipts.at(-1).combatChecks[0].attack.hit, true);
     assert.ok(freeTurn.body.state.conflicts['wolf-encounter-1'].participants.find(item => item.id === 'wolf-alpha').hp < 8, 'server applies damage after a hit');
     assert.strictEqual(freeTurn.body.receipts.at(-1).conflictChecks.length, 1);
@@ -181,6 +184,12 @@ async function main() {
     assert.deepStrictEqual(freeTurn.body.state.growthCandidates.map(item => item.candidateId), ['scouting-training']);
     assert.strictEqual(freeTurn.body.receipts.at(-1).conflictTransitions[0].op, 'advance');
     assert.ok(freeTurn.body.receipts.at(-1).conflictTransitions.some(item => item.id === 'wolf-encounter-2' && item.op === 'start'));
+    const implicitDice = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'turn-check-no-client-dice', expectedRevision: freeTurn.body.revision, actionIntent: { raw: '不提供骰子结果' }, state: { ...freeTurn.body.state, conflicts: { ...freeTurn.body.state.conflicts, 'wolf-encounter-1': { ...freeTurn.body.state.conflicts['wolf-encounter-1'], round: 3, actionId: 'strike' } } }, turns: [{ role: 'assistant', content: '拒绝隐式判定。' }], options: [] }),
+    });
+    assert.strictEqual(implicitDice.response.status, 400, 'server rejects rule checks without client dice');
+    assert.match(implicitDice.body.error, /缺少客户端骰子结果/);
     const tamperedCombatHp = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(first.body.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ commandId: 'turn-check-combat-hp', expectedRevision: freeTurn.body.revision, actionIntent: { raw: '伪造伤害' }, state: { ...freeTurn.body.state, conflicts: { ...freeTurn.body.state.conflicts, 'wolf-encounter-1': { ...freeTurn.body.state.conflicts['wolf-encounter-1'], participants: freeTurn.body.state.conflicts['wolf-encounter-1'].participants.map(item => item.id === 'wolf-alpha' ? { ...item, hp: item.hp === 0 ? 1 : 0 } : item) } } }, turns: [{ role: 'assistant', content: '拒绝。' }], options: [] }),

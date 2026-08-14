@@ -18,6 +18,8 @@ const context = vm.createContext({
 
 const source = fs.readFileSync('public/app.js', 'utf8').replace(/\ninit\(\);\s*$/, '');
 const defaultData = JSON.parse(fs.readFileSync('public/data/_defaults.json', 'utf8'));
+assert.strictEqual(defaultData.rpg.agent.protocol, 'tavern.rpg.agent');
+assert.strictEqual(defaultData.rpg.agent.tools['state.patch'].execution, 'server');
 vm.runInContext(source, context);
 vm.runInContext(`
   defaults = { gen: {}, rpg: {} };

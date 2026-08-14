@@ -54,10 +54,6 @@
           <div class="char-name" id="hdr-char-name">？？？</div>
           <div class="char-race" id="hdr-char-race">种族待定 · 身份待定</div>
         </div>
-        <div class="relation" title="好感度（框架占位，设定确定后接入）">
-          <span class="relation-label">好感（占位）</span>
-          <div class="soul-line"><i id="hdr-relation" style="width:50%"></i></div>
-        </div>
         <button class="ghost-btn" id="btn-clear-chat" title="清空当前对话">清空对话</button>
         <div class="rpg-hdr" id="rpg-hdr-info">
           <span class="rpg-hdr-chip">Lv.<span id="rpg-level">1</span></span>
@@ -110,8 +106,8 @@
         <button class="ghost-btn" id="rpg-summary-rebuild" type="button" style="width:100%;margin-top:6px">生成 / 更新总结</button>
         <div class="rpg-panel-head" style="margin-top:10px">📖 人物经历</div>
         <div id="rpg-experiences" class="rpg-list" role="log" aria-live="polite" aria-label="已记录的人物经历"></div>
-        <div class="rpg-panel-head" style="margin-top:10px">🗺 地图</div>
-        <div class="rpg-map-wrap">
+        <div class="rpg-panel-head" style="margin-top:10px" hidden>🗺 地图</div>
+        <div class="rpg-map-wrap" hidden>
           <div class="rpg-map-head">
             <span class="rpg-map-title">🗺 世界地图 <span class="tag">点击打开</span></span>
           </div>
@@ -131,7 +127,7 @@
 
       <div id="rpg-mobile-toolbar" class="rpg-mobile-toolbar" aria-label="RPG 工具">
         <button class="ghost-btn small" type="button" data-rpg-drawer="left" aria-controls="rpg-left">角色与背包</button>
-        <button class="ghost-btn small" type="button" data-rpg-drawer="right" aria-controls="rpg-right">任务与地图</button>
+        <button class="ghost-btn small" type="button" data-rpg-drawer="right" aria-controls="rpg-right">任务与世界状态</button>
       </div>
       <div id="rpg-mobile-scrim" class="rpg-mobile-scrim" hidden></div>
 
@@ -391,7 +387,7 @@
   </div>
 
   <!-- ═══ 地图窗口（点击地图打开，功能集中于此） ═══ -->
-  <div id="map-modal" class="map-modal hidden">
+  <div id="map-modal" class="map-modal hidden" hidden>
     <div class="map-modal-box">
       <div class="map-modal-head">
         <span class="rpg-map-title">🗺 世界地图</span>
@@ -414,7 +410,7 @@
   </div>
 
   <!-- ═══ 地图数据 JSON 查看（📋 数据） ═══ -->
-  <div id="map-json-modal" class="map-modal hidden">
+  <div id="map-json-modal" class="map-modal hidden" hidden>
     <div class="map-modal-box">
       <div class="map-modal-head">
         <span class="rpg-map-title">📋 地图数据 JSON</span>
@@ -713,15 +709,16 @@
           <div class="world-section-head">
             <div>
               <h2>建立新存档</h2>
-              <p>存档会独立保存你的进度、地图和叙事记录。</p>
+              <p>存档会独立保存你的进度与叙事记录。</p>
             </div>
-            <span class="world-lock" aria-label="世界存档会独立保存叙事、状态和地图">🔒 W2</span>
+            <span class="world-lock" aria-label="世界存档会独立保存叙事与状态">🔒 W2</span>
           </div>
           <label for="world-save-name">存档名称</label>
           <div class="world-save-row">
             <input id="world-save-name" name="worldSaveName" type="text" maxlength="120" autocomplete="off" placeholder="例如：第一次踏入极光大陆…" required />
             <button id="world-save-create" class="btn gold" type="submit">创建存档</button>
           </div>
+          <label class="world-save-preset" for="world-save-preset"><span>开局预设</span><select id="world-save-preset"><option value="">自定义配置</option></select><small>预设只提供起点，后续仍可由 AI 填写并手动微调。</small></label>
           <p id="world-error" class="world-error" aria-live="polite"></p>
         </form>
         <section class="world-saves">
@@ -927,7 +924,7 @@
           <label class="world-draft-array-preview-label" for="world-draft-conflicts-preview">冲突模板预览</label>
           <pre id="world-draft-conflicts-preview" class="world-draft-array-preview" aria-live="polite"></pre>
         </section>
-        <section class="world-draft-collection world-draft-map" aria-labelledby="world-draft-map-title">
+        <section class="world-draft-collection world-draft-map" aria-labelledby="world-draft-map-title" hidden>
           <div class="world-draft-collection-head">
             <div>
               <h3 id="world-draft-map-title">地图生成</h3>
@@ -994,6 +991,11 @@
         </div>
         <button class="ghost-btn small" id="world-player-close" type="button" aria-label="关闭玩家创建">✕</button>
       </header>
+      <section class="world-player-ai" aria-labelledby="world-player-ai-title">
+        <div class="world-player-ai-head"><div><strong id="world-player-ai-title">AI 建角向导</strong><p>一句话 → AI 填表 → 你微调 → AI 完成结构化玩家状态</p></div><select id="world-player-preset" aria-label="选择建角预设"><option value="">自定义配置</option></select></div>
+        <label class="field"><span>第一步：描述你想扮演的角色</span><textarea id="world-player-ai-brief" rows="2" maxlength="1200" placeholder="例如：来自北境、擅长追踪但背负债务的狐人旅人"></textarea></label>
+        <div class="world-player-ai-actions"><button class="ghost-btn small" id="world-player-ai-basic" type="button">① AI 填写基本信息</button><button class="ghost-btn small" id="world-player-ai-full" type="button">③ AI 完善结构</button></div>
+      </section>
       <div id="world-player-fields" class="world-draft-body world-player-fields"></div>
       <footer class="world-draft-actions">
         <p id="world-player-status" class="world-draft-status" role="status" aria-live="polite"></p>
@@ -1091,16 +1093,26 @@
         <button class="ghost-btn small" id="debug-close" type="button" aria-label="关闭 AI 调试终端">关闭</button>
       </div>
     </header>
+    <nav class="debug-tabs" role="tablist" aria-label="调试信息分区">
+      <button class="debug-tab" id="debug-tab-output" type="button" role="tab" aria-controls="debug-pane-output" aria-selected="true" data-debug-tab="output">输出 <small>RAW</small></button>
+      <button class="debug-tab" id="debug-tab-input" type="button" role="tab" aria-controls="debug-pane-input" aria-selected="false" data-debug-tab="input">输入 <small>REQUEST</small></button>
+      <button class="debug-tab" id="debug-tab-sections" type="button" role="tab" aria-controls="debug-pane-sections" aria-selected="false" data-debug-tab="sections">Prompt <small>SECTIONS</small></button>
+      <button class="debug-tab" id="debug-tab-memory" type="button" role="tab" aria-controls="debug-pane-memory" aria-selected="false" data-debug-tab="memory">记忆 <small>MEMORY</small></button>
+    </nav>
     <div class="debug-body">
-      <section class="debug-stream" aria-labelledby="debug-input-title">
+      <section class="debug-stream debug-pane" id="debug-pane-input" role="tabpanel" aria-labelledby="debug-tab-input" data-debug-pane="input" hidden>
         <h2 id="debug-input-title"><span class="debug-direction input">INPUT</span> 发送给 AI</h2>
         <pre id="debug-input">尚未向 AI 发送请求。</pre>
       </section>
-      <section class="debug-stream" aria-labelledby="debug-output-title">
-        <h2 id="debug-output-title"><span class="debug-direction output">OUTPUT</span> AI 原始输出</h2>
+      <section class="debug-stream debug-pane" id="debug-pane-output" role="tabpanel" aria-labelledby="debug-tab-output" data-debug-pane="output">
+        <h2 id="debug-output-title"><span class="debug-direction output">OUTPUT</span> AI 原始输出 · 正则前</h2>
         <pre id="debug-output">尚未收到 AI 响应。</pre>
       </section>
-      <section class="debug-stream debug-memory-stream" aria-labelledby="debug-memory-title">
+      <section class="debug-stream debug-pane" id="debug-pane-sections" role="tabpanel" aria-labelledby="debug-tab-sections" data-debug-pane="sections" hidden>
+        <h2 id="debug-sections-title"><span class="debug-direction sections">SECTIONS</span> Prompt 分区</h2>
+        <pre id="debug-sections">尚未生成 RPG Prompt 分区。</pre>
+      </section>
+      <section class="debug-stream debug-pane" id="debug-pane-memory" role="tabpanel" aria-labelledby="debug-tab-memory" data-debug-pane="memory" hidden>
         <div class="debug-memory-head">
           <h2 id="debug-memory-title"><span class="debug-direction memory">MEMORY</span> 派生记忆诊断</h2>
           <button class="ghost-btn small" id="debug-memory-rebuild" type="button" disabled>从正式事实重建</button>

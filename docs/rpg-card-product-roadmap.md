@@ -6,7 +6,7 @@
 >
 > 架构底座与历史实施记录仍见 [world-card-architecture.md](world-card-architecture.md) 和 [world-card-implementation-plan.md](world-card-implementation-plan.md)。本文是后续 RPG 产品功能的主路线图。
 
-> 当前执行：R5.3–R6.10、R7.1–R7.7 已完成，下一步进入 R7.8 声明式 UI 投影。R7.6 延续 SillyTavern / JSON Editor 的双视图思路，但保持零依赖声明式 JSON，不引入运行时编辑器依赖。
+> 当前执行：R5.3–R6.10、R7.1–R7.7 已完成；Agent Runtime 第一切片已接入（Prompt Sections、叙事副作用隔离、服务端执行摘要），后续进入真正的结构化工具候选与可恢复多阶段回合。R7.6 延续 SillyTavern / JSON Editor 的双视图思路，但保持零依赖声明式 JSON，不引入运行时编辑器依赖。
 
 ## 0. 结论
 
@@ -16,6 +16,18 @@
 - 部分已有：世界编辑器、自由文本行动、Markdown 叙事、NPC 动态状态、背包、任务、状态栏、失败重试。
 - 主要缺失：按卡定义的玩家创建、动态能力 / 资源 / 特质、可信判定流程、NPC 主动生活、世界时间与事件、通用冲突、成长、分层记忆、失败 / 死亡 / 结局、动态信息 UI。
 - 因此，后续不再沿“再补一个底层接口”的顺序推进，而按玩家可感知闭环推进：**建角开局 → 一次可信行动 → NPC 持续反应 → 世界随时间演化 → 系统与成长 → 长期故事与结局 → 平台验收**。
+
+### 0.1 Agent Runtime 第一切片（已实现）
+
+当前 RPG 仍使用兼容的 `tavern.rpg.turn v1` 回合协议和现有 Typed Patch，Agent 化改造暂不替换状态真相源：
+
+- RPG Prompt 已按稳定 ID 组织为 Sections，并继续合并为唯一一条 system 消息；每次请求的 Section ID、来源和字符数只进入内存调试记录。
+- AI 叙事 Markdown、NPC 台词和行动选项中的 `d20` 等文本不会触发骰子；骰子仍只能由玩家明确输入或受控规则流程产生。
+- 回合协议支持受限的 `toolCalls` 候选（`dice.roll`、`rules.check`、`state.patch`、`entity.create`、`memory.record`）；RPG Agent Profile 现在可声明 OpenAI-compatible `tools` Schema，原生模式按 `maxSteps` 循环解析流式 `tool_calls`，并将状态 / 实体 / 记忆候选接入服务端 Agent 执行入口。`context.retrieve` 仅读取当前存档允许的知识作用域，不进入服务端提交。
+- 服务端在正式回合 receipt 中生成 `tavern.rpg.agent v1` 执行摘要，记录兼容状态提交、实体创建、事件记忆、规则结算和世界时间推进等工具类别及提交状态。
+- 执行摘要是存档级证据，不是第二份状态；`state`、`turns`、`eventLedger` 仍分别负责状态、原始回合和世界事件来源。
+
+当前已落地最小两阶段边界：`POST /api/world-saves/<saveId>/agent-execute` 在不增加正式 revision 的情况下结算并保存 `agentRuntime.pending`，前端对 Typed Patch 回合自动执行后再提交 `agentPhase:'narrate'`，此时才一次性写入 state、turns、receipt 与 eventLedger；待叙事结果带 baseRevision，过期或重复执行会被拒绝，用户放弃回合时可取消 pending。原生工具循环已支持有限的多步调用；完整 Observe / Decide / Guard 编排、跨回合恢复和独立规则执行器仍未实现。
 
 ### 状态标记
 
