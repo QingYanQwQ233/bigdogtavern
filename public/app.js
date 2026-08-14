@@ -65,6 +65,7 @@ let formatInstructions = {}; // { key: 指令文字 }
 /* 空状态提示：从 _defaults.json 的 ui 段读取模板，{name}/{role} 插值当前角色，不写死文案 */
 function buildGuide() {
   const ui = (defaults && defaults.ui) || {};
+  if (mode === 'rpg' && !worldModeActive()) return 'RPG 模式不读取普通角色卡，请先从世界库创建或打开世界存档。';
   const char = currentChar();
   if (char && char.name && char.name !== '？？？' && ui.emptyGuideWithChar) {
     return ui.emptyGuideWithChar
@@ -77,6 +78,7 @@ function buildGuide() {
 /* 空状态标题：从 _defaults.json 的 ui 段读取 */
 function emptyTitle() {
   const ui = (defaults && defaults.ui) || {};
+  if (mode === 'rpg' && !worldModeActive()) return '请先选择世界存档';
   return ui.emptyTitle || '';
 }
 
@@ -2082,6 +2084,7 @@ function curSession() { return Array.isArray(sessions) ? sessions.find(s => s.id
 function activeConversationScope() { return worldModeActive() ? currentWorldSave : curSession(); }
 function curMessages() {
   if (worldModeActive()) return worldTimelineMessages();
+  if (mode === 'rpg') return [];
   const s = curSession();
   return s ? s.messages : [];
 }
@@ -3118,6 +3121,7 @@ function activateSessionScope() {
 }
 
 function newSession(askName = true) {
+  if (mode === 'rpg') { openWorldLibrary(); return; }
   const char = currentChar();
   if (!char) { if (askName) alert('请先创建 / 选择角色'); return; }
   const defaultName = '会话 ' + (sessions.filter(sessionMatches).length + 1);
@@ -3168,6 +3172,18 @@ function renderSessions() {
     if (ml) ml.innerHTML = '<div class="sess-empty">当前显示世界存档，不读取旧 RPG 会话</div>';
     const saveMark = $('rpg-world-save');
     if (saveMark) { saveMark.hidden = false; saveMark.textContent = `世界 · ${currentWorldSave.name || currentWorldSave.id}`; }
+    return;
+  }
+  if (mode === 'rpg') {
+    if (nameEl) nameEl.textContent = '选择世界存档';
+    const hdrName = $('hdr-char-name');
+    const hdrRace = $('hdr-char-race');
+    if (hdrName) hdrName.textContent = '选择世界存档';
+    if (hdrRace) hdrRace.textContent = 'RPG 只使用世界存档中的玩家角色';
+    const saveMark = $('rpg-world-save');
+    if (saveMark) saveMark.hidden = true;
+    const ml = $('session-menu-list');
+    if (ml) ml.innerHTML = '<div class="sess-empty">请先从世界库创建或打开世界存档</div>';
     return;
   }
   const s = curSession();
@@ -3244,6 +3260,11 @@ function ensureChars() {
 }
 
 function renderCharacter() {
+  if (mode === 'rpg' && !worldModeActive()) {
+    $('hdr-char-name').textContent = '选择世界存档';
+    $('hdr-char-race').textContent = 'RPG 只使用世界存档中的玩家角色';
+    return;
+  }
   // 兜底：角色库为空时由 init 注入示例；此处仅选当前角色
   let c = currentChar();
   if (!c && characters.length) {
@@ -6136,6 +6157,7 @@ async function requestReply() {
 
 async function sendMessage() {
   if (sending || worldTurnPreparing || worldTurnPending || (worldModeActive() && (currentWorldSave?.state?.ending?.status === 'ended' || currentWorldSave?.state?.failure?.status === 'terminal'))) return;
+  if (mode === 'rpg' && !worldModeActive()) { openWorldLibrary(); return; }
   const input = $('input');
   const text = input.value.trim();
   if (!text) return;
@@ -6195,8 +6217,12 @@ function switchView(name) {
     b.classList.toggle('active', b.dataset.view === name));
   ['char-mgr', 'prompt-mgr', 'lore-mgr', 'memory-mgr', 'world-mgr'].forEach(id => { const el = $(id); if (el) el.classList.add('hidden'); });
   if (name === 'worlds') { openWorldLibrary(false); return; }
-  if (name === 'chat') return;
+  if (name === 'chat') {
+    if (mode === 'rpg' && !worldModeActive()) openWorldLibrary(false);
+    return;
+  }
   if (name === 'chars') {
+    if (mode === 'rpg') { openWorldLibrary(false); return; }
     renderBindSelects();
     $('char-mgr').classList.remove('hidden');
     renderCharList();
@@ -6258,11 +6284,14 @@ function applyMode(name) {
     btn.querySelector('.icon').textContent = mode === 'rpg' ? '⚔' : '🍺';
     btn.querySelector('.label').textContent = mode === 'rpg' ? '模式：RPG' : '模式：酒馆';
   }
-  activateSessionScope();
-  // 模式切换：会话按 charId + kind 双重分流
+  if (mode === 'tavern') activateSessionScope();
+  // 酒馆使用角色会话；RPG 只使用 WorldCard → WorldSave，不创建/激活普通角色会话。
   renderSessions();
   renderMessages();
-  if (mode === 'rpg') openWorldLibrary(true);
+  if (mode === 'rpg') {
+    ['char-mgr', 'prompt-mgr', 'lore-mgr', 'memory-mgr'].forEach(id => $(id)?.classList.add('hidden'));
+    openWorldLibrary(true);
+  }
   else { closeWorldLibrary(); renderCharacter(); }
 }
 
@@ -6949,7 +6978,7 @@ function bindEvents() {
   // 会话
   $('btn-session').addEventListener('click', e => {
     e.stopPropagation();
-    if (worldModeActive()) { openWorldLibrary(); return; }
+    if (mode === 'rpg') { openWorldLibrary(); return; }
     $('session-menu').classList.toggle('hidden');
   });
   document.addEventListener('click', e => {
@@ -7160,7 +7189,11 @@ function bindEvents() {
       btn.textContent = old;
     }
   });
-  $('world-close').addEventListener('click', () => { closeWorldLibrary(); switchView('chat'); });
+  $('world-close').addEventListener('click', () => {
+    if (mode === 'rpg' && !worldModeActive()) { openWorldLibrary(false); return; }
+    closeWorldLibrary();
+    switchView('chat');
+  });
   document.querySelectorAll('[data-rpg-drawer]').forEach(button => button.addEventListener('click', () => setRpgMobileDrawer(button.dataset.rpgDrawer)));
   document.querySelectorAll('[data-rpg-drawer-close]').forEach(button => button.addEventListener('click', () => setRpgMobileDrawer('')));
   $('rpg-mobile-scrim')?.addEventListener('click', () => setRpgMobileDrawer(''));
