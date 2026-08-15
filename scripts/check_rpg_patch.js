@@ -55,6 +55,7 @@ async function main() {
     assert.strictEqual(committed.body.revision, save.revision + 1);
     assert.strictEqual(committed.body.state.player.resources[firstResource.id], player.resources[firstResource.id] - 1);
     assert.strictEqual(committed.body.state.player.attributes[firstAttribute.id], player.attributes[firstAttribute.id] + 1);
+    assert.deepStrictEqual(committed.body.turns.at(-1).options, options);
     assert.deepStrictEqual(committed.body.receipts.at(-1).patch, { protocol: 'tavern.rpg.turn', version: 1, updateCount: 2 });
     assert.deepStrictEqual(committed.body.receipts.at(-1).agent.proposedTools, [{ callId: 'roll-1', name: 'dice.roll', status: 'observed' }]);
     const idempotent = await request(base, `/api/world-saves/${save.id}`, { commandId, expectedRevision: save.revision, patch, turns: [{ role: 'assistant', content: '重复提交。' }], options });

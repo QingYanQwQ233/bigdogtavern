@@ -51,7 +51,7 @@ const FIXED_THEME = 'vibrancy';
 
 const DEFAULT_SETTINGS = {
   preset: '', baseUrl: '', apiKey: '', model: '',
-  temperature: 0.9, maxTokens: 1024,
+  temperature: 0.9, maxTokens: 32000,
   topP: 1, frequencyPenalty: 0, presencePenalty: 0, seed: -1,
   history: 20, stream: true,
   systemPrompt: '', postHistory: '', firstMes: '',
@@ -65,7 +65,11 @@ let formatInstructions = {}; // { key: 指令文字 }
 /* 空状态提示：从 _defaults.json 的 ui 段读取模板，{name}/{role} 插值当前角色，不写死文案 */
 function buildGuide() {
   const ui = (defaults && defaults.ui) || {};
-  if (mode === 'rpg' && !worldModeActive()) return 'RPG 模式不读取普通角色卡，请先从世界库创建或打开世界存档。';
+  if (mode === 'rpg') {
+    if (!worldModeActive()) return 'RPG 模式不读取普通角色卡，请先从世界库创建或打开世界存档。';
+    return String(ui.rpgEmptyGuide || '当前存档：{save}。RPG 叙事只读取这条世界线。')
+      .replace('{save}', currentWorldSave?.name || currentWorldSaveId || '当前世界存档');
+  }
   const char = currentChar();
   if (char && char.name && char.name !== '？？？' && ui.emptyGuideWithChar) {
     return ui.emptyGuideWithChar
@@ -78,7 +82,7 @@ function buildGuide() {
 /* 空状态标题：从 _defaults.json 的 ui 段读取 */
 function emptyTitle() {
   const ui = (defaults && defaults.ui) || {};
-  if (mode === 'rpg' && !worldModeActive()) return '请先选择世界存档';
+  if (mode === 'rpg') return worldModeActive() ? (ui.rpgEmptyTitle || '世界线已绑定') : '请先选择世界存档';
   return ui.emptyTitle || '';
 }
 
@@ -131,6 +135,8 @@ const debugTraces = new Map(); // 仅内存、按 session.id 隔离，不把完�
 const debugMemoryDiagnostics = new Map(); // 仅内存、按 save.id 隔离，不写入世界存档
 const debugMemoryPending = new Set();
 let debugTab = 'output';
+const devtoolsEnabled = typeof location !== 'undefined' && /(?:^|[?&])dev=1(?:&|$)/.test(location.search || '');
+let devtoolsScenarios = [];
 let cmEditingId = null;
 let cmCreating = false;
 let wiEditingId = null;
@@ -2328,11 +2334,14 @@ function renderWorldList() {
   list.innerHTML = worldCards.map(world => {
     const active = world.id === currentWorldId ? ' active' : '';
     const saves = worldSavesByWorld.get(world.id) || [];
-    return `<button class="world-item${active}" type="button" data-world-id="${esc(world.id)}">
-      <span class="world-item-title">${esc(world.title || world.id)}</span>
-      <span class="world-item-summary">${esc(world.summary || '尚无简介')}</span>
-      <span class="world-item-meta"><span>v${esc(world.version)}</span><span>${saves.length || world.saveCount || 0} 份存档</span></span>
-    </button>`;
+    const saveCount = worldSavesByWorld.has(world.id) ? saves.length : (world.saveCount || 0);
+    return `<div class="world-item${active}">
+      <button class="world-item-main" type="button" data-world-id="${esc(world.id)}">
+        <span class="world-item-title">${esc(world.title || world.id)}</span>
+        <span class="world-item-summary">${esc(world.summary || '尚无简介')}</span>
+        <span class="world-item-meta"><span>v${esc(world.version)}</span><span>${saveCount} 份存档</span></span>
+      </button>
+    </div>`;
   }).join('');
   list.querySelectorAll('[data-world-id]').forEach(el => el.addEventListener('click', async () => {
     if (worldTurnPending) discardWorldTurnPending();
@@ -2359,6 +2368,72 @@ function showWorldError(message) {
   const el = $('world-error');
   if (el) el.textContent = message || '';
 }
+async function deleteWorldSave(saveId, button) {
+  const saves = worldSavesByWorld.get(currentWorldId) || [];
+  const save = saves.find(item => item.id === saveId);
+  if (!save) return;
+  if (worldTurnPendingActive() && currentWorldSaveId === saveId) {
+    showWorldError('当前存档还有未完成的回合，请先结束或放弃本回合。');
+    return;
+  }
+  if (!confirm(`确定删除存档“${save.name || save.id}”？\n\n这会永久删除该存档的状态与叙事记录。`)) return;
+  const old = button?.textContent;
+  if (button) { button.disabled = true; button.textContent = '删除中…'; }
+  try {
+    const res = await fetch('/api/world-saves/' + encodeURIComponent(saveId), { method: 'DELETE' });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(worldApiError(data, '存档删除失败（HTTP ' + res.status + '）'));
+    const wasCurrent = currentWorldSaveId === saveId;
+    if (wasCurrent) {
+      discardWorldTurnPending();
+      currentWorldSave = null;
+      currentWorldSaveId = null;
+      localStorage.removeItem(LS_CURRENT_WORLD_SAVE);
+      renderMessages();
+      renderSessions();
+      $('world-mgr')?.classList.remove('hidden');
+    }
+    await loadWorldSaves(save.worldId || currentWorldId);
+    renderWorldList();
+    renderWorldDetail();
+  } catch (err) {
+    showWorldError(err.message);
+  } finally {
+    if (button) { button.disabled = false; button.textContent = old || '删除'; }
+  }
+}
+async function deleteWorldCard(worldId, button) {
+  const world = worldCardById(worldId);
+  if (!world) return;
+  const saves = worldSavesByWorld.get(worldId) || [];
+  if (saves.length) {
+    showWorldError(`“${world.title || world.id}”还有 ${saves.length} 份存档，请先删除存档。`);
+    return;
+  }
+  if (!confirm(`确定删除世界卡“${world.title || world.id}”？\n\n世界卡的全部版本与未发布草稿都会移除。`)) return;
+  const old = button?.textContent;
+  if (button) { button.disabled = true; button.textContent = '删除中…'; }
+  try {
+    const res = await fetch('/api/worlds/' + encodeURIComponent(worldId), { method: 'DELETE' });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(worldApiError(data, '世界卡删除失败（HTTP ' + res.status + '）'));
+    if (currentWorldId === worldId) {
+      discardWorldTurnPending();
+      currentWorldId = null;
+      currentWorldSave = null;
+      currentWorldSaveId = null;
+      localStorage.removeItem(LS_CURRENT_WORLD);
+      localStorage.removeItem(LS_CURRENT_WORLD_SAVE);
+    }
+    worldSavesByWorld.delete(worldId);
+    await loadWorldLibraryData(false);
+    showWorldError(`世界卡“${world.title || world.id}”已删除。`);
+  } catch (err) {
+    showWorldError(err.message);
+  } finally {
+    if (button) { button.disabled = false; button.textContent = old || '删除'; }
+  }
+}
 function renderWorldDetail() {
   const empty = $('world-empty');
   const detail = $('world-detail');
@@ -2380,22 +2455,28 @@ function renderWorldDetail() {
     .map(tag => `<span class="world-tag">${esc(tag)}</span>`).join('');
   renderWorldPlayerPresetSelects(world, world.defaultPresetId || '');
   if (!world.playerCreation) loadWorldCardVersion(world.id, world.version).then(fullWorld => { if (currentWorldId === world.id) renderWorldPlayerPresetSelects(fullWorld, fullWorld.playerCreation?.defaultPresetId || ''); }).catch(() => {});
+  const saves = worldSavesByWorld.get(world.id) || [];
   const facts = [
     [world.locationCount || 0, '已登记地点'],
     [world.npcCount || 0, '世界角色'],
-    [worldSavesByWorld.get(world.id)?.length || world.saveCount || 0, '独立存档'],
+    [worldSavesByWorld.has(world.id) ? saves.length : (world.saveCount || 0), '独立存档'],
   ];
   $('world-facts').innerHTML = facts.map(([value, label]) => `<div class="world-fact"><b>${esc(value)}</b><span>${esc(label)}</span></div>`).join('');
   showWorldError('');
-  const saves = worldSavesByWorld.get(world.id) || [];
+  const openStatus = $('world-open-status');
+  if (openStatus && (!currentWorldSave || currentWorldSave.worldId !== world.id)) openStatus.textContent = '选择一个存档后进入对应的 RPG 世界线。';
   $('world-save-count').textContent = saves.length + ' 份';
   const list = $('world-save-list');
   const latestVersion = Number(world.version);
   list.innerHTML = saves.length ? saves.map(save => `<div class="world-save-card${save.id === currentWorldSaveId ? ' active' : ''}">
     <div class="world-save-main"><span class="world-save-name">${esc(save.name)} ${save.setupStatus === 'planning' ? '<em class="world-save-planning">待开局</em>' : ''}</span><span class="world-save-meta">世界 v${esc(save.worldVersion)} · ${esc(save.locationId || '未定位')} · revision ${esc(save.revision)} · ${esc(formatWorldDate(save.updatedAt))}</span></div>
-    <div class="world-save-actions">${Number(save.worldVersion) < latestVersion ? `<button class="ghost-btn small" type="button" data-upgrade-save="${esc(save.id)}">升级…</button>` : ''}<button class="ghost-btn small" type="button" data-open-save="${esc(save.id)}">${save.setupStatus === 'planning' ? '继续规划' : save.id === currentWorldSaveId ? '已打开' : '打开存档'}</button></div>
+    <div class="world-save-actions">${Number(save.worldVersion) < latestVersion ? `<button class="ghost-btn small" type="button" data-upgrade-save="${esc(save.id)}">升级…</button>` : ''}<button class="ghost-btn small" type="button" data-open-save="${esc(save.id)}">${save.setupStatus === 'planning' ? '继续规划' : save.id === currentWorldSaveId ? '已打开' : '打开存档'}</button><button class="ghost-btn small danger" type="button" data-delete-save="${esc(save.id)}">删除</button></div>
   </div>`).join('') : '<p class="hint">这个世界还没有存档，先创建一份吧。</p>';
   list.querySelectorAll('[data-upgrade-save]').forEach(btn => btn.addEventListener('click', () => openWorldSaveUpgrade(btn.dataset.upgradeSave, btn)));
+  list.querySelectorAll('[data-delete-save]').forEach(btn => btn.addEventListener('click', event => {
+    event.stopPropagation();
+    deleteWorldSave(btn.dataset.deleteSave, btn);
+  }));
   list.querySelectorAll('[data-open-save]').forEach(btn => btn.addEventListener('click', async () => {
     const token = worldLoadToken;
     btn.disabled = true;
@@ -3062,7 +3143,9 @@ function renderRPG() {
       : '<p class="hint">尚无公开事件。</p>';
   }
   const cs = $('rpg-char-summary');
-  const c = worldModeActive() ? (currentWorldSave.player?.snapshot || null) : currentChar();
+  const c = mode === 'rpg'
+    ? (worldModeActive() ? (currentWorldSave.player?.snapshot || null) : null)
+    : currentChar();
   if (cs) {
     cs.innerHTML = c
       ? `<div class="rpg-item"><span class="rpg-item-name">${esc(c.name || '未命名冒险者')}</span><div class="rpg-item-sub">${esc([c.race, c.role].filter(Boolean).join(' · ') || '种族/身份待定')}</div></div>`
@@ -3264,7 +3347,7 @@ function processAIOutput(reply) {
     patch = normalizeRpgPatch(patch);
   }
   return {
-    content: parsed.narrative,
+    content: stripRpgNarrativeOptions(parsed.narrative),
     options: Array.isArray(update?.options) ? update.options : null,
     createEntities: update?.createEntities || null,
     eventMemory: update?.eventMemory || null,
@@ -3272,6 +3355,16 @@ function processAIOutput(reply) {
     patch,
     protocol: parsed,
   };
+}
+
+// 叙事正文只保留故事；选项统一来自控制块并由底部快捷栏渲染。
+function stripRpgNarrativeOptions(text) {
+  const source = String(text || '').trim();
+  const match = source.match(/\n(?:#{1,3}\s*)?(?:行动选项|可选行动|可选动作|下一步行动|选项|接下来(?:你)?可以|你可以(?:选择)?)\s*[:：]?\s*\n([\s\S]*)$/i);
+  if (!match) return source;
+  const optionLines = match[1].split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const marked = optionLines.filter(line => /^(?:[-*•]|\d+[.)、])\s+/.test(line));
+  return marked.length >= 2 ? source.slice(0, match.index).trim() : source;
 }
 
 function normalizeRpgPatch(patch) {
@@ -3499,18 +3592,6 @@ function rollWorldDice(text) {
   String(text || '').replace(DICE_RE, match => { if (!expressions.includes(match)) expressions.push(match); return match; });
   if (!expressions.length) return [];
   return rollDiceIn(expressions.join(' '));
-}
-
-async function executeRpgAgentCalls(calls) {
-  if (!Array.isArray(calls) || !calls.length) return [];
-  const rolls = [];
-  for (const call of calls) {
-    if (call?.name !== 'dice.roll') continue;
-    const expr = typeof call.arguments?.expr === 'string' ? call.arguments.expr.trim() : '';
-    if (!expr) throw new Error(`工具 ${call.callId || 'dice.roll'} 缺少 arguments.expr`);
-    rolls.push(...await rollWorldDice(expr));
-  }
-  return rolls;
 }
 
 /* ─────────── Markdown 渲染（marked + DOMPurify 消毒） ───────────
@@ -5320,7 +5401,7 @@ function buildRpgPromptSections() {
       pushSection('turn.side-effects', '【副作用边界】Markdown 叙事、NPC 台词、行动选项和普通文本中的骰子表达式都只是文本，不会自动执行骰子或改写状态；只有协议中通过服务端校验的结构化更新才可产生状态变化。');
       pushSection('turn.tool-candidates', agentProfile.mode === 'native'
         ? '【Agent 原生工具】本回合可按工具 Schema 调用已启用的 Agent 工具；工具调用会在当前请求内最多循环 maxSteps 次。dice.roll 由客户端生成并绑定到本回合 actionIntent，服务端只校验结果，不能自行掷骰；context.retrieve 只能读取当前存档作用域；state.patch、entity.create、memory.record 先形成候选，最终仍须通过服务端 Typed Patch、实体和记忆校验。最后必须返回叙事正文与唯一 <tavern_state_update>，并提供回合契约要求的行动选项。'
-        : '【Agent 工具候选（兼容层）】可选 toolCalls 只能使用 dice.roll、rules.check、state.patch、entity.create、memory.record。dice.roll 会由客户端生成并绑定到本回合 actionIntent；其余工具当前只作候选记录，不能替代 updates、createEntities 或 eventMemory，也不会直接获得执行权。所有正式状态变化仍必须通过服务端 Typed Patch 与规则结算。');
+        : '【Agent 工具候选（兼容层）】可选 toolCalls 只能使用 dice.roll、rules.check、state.patch、entity.create、memory.record。兼容层不会在模型回复后补掷 dice.roll，避免骰子结果无法回传给模型；要让判定结果影响叙事，必须使用原生 Agent 工具或玩家明确输入骰子。其余工具当前只作候选记录，不能替代 updates、createEntities 或 eventMemory，也不会直接获得执行权。所有正式状态变化仍必须通过服务端 Typed Patch 与规则结算。');
       const npcPrompt = buildWorldNpcPromptPart();
       if (npcPrompt) pushSection('world.npcs', npcPrompt);
       const factionPrompt = buildWorldFactionPromptPart();
@@ -5346,6 +5427,7 @@ function buildRpgPromptSections() {
     sections.length = 0;
     sections.push(...budgeted);
   }
+  if (defaults?.rpg?.diceInstruction) pushSection('turn.dice-contract', defaults.rpg.diceInstruction, 'preset');
   pushSection('output.protocol', (defaults?.rpg?.stateInstruction) || '每次回复末尾输出唯一的 <tavern_state_update> JSON 状态更新块。', 'preset');
   if (defaults?.rpg?.eventMemoryInstruction) pushSection('output.event-memory', defaults.rpg.eventMemoryInstruction, 'preset');
   return sections;
@@ -5594,9 +5676,32 @@ function retrieveRpgAgentContext(query, scope = 'known', limit = 6, snapshot = n
   return { scope, query: wanted, matches: ranked.map(({ doc, score }) => ({ ...doc, score })) };
 }
 
-async function executeRpgNativeToolCalls(calls, profile, targetScope, snapshot = null) {
+async function executeRpgNativeToolCalls(calls, profile, targetScope, snapshot = null, gate = {}) {
   const trace = [];
   const accepted = [];
+  gate.checkApproved = gate.checkApproved === true;
+  gate.diceUses = Number.isInteger(gate.diceUses) ? gate.diceUses : 0;
+  const declaredRules = new Set();
+  const world = snapshot?.world;
+  const addRule = value => {
+    const id = typeof value === 'string' ? value.trim() : value && typeof value === 'object' ? (value.id || value.ruleId || value.name || '') : '';
+    if (id) declaredRules.add(String(id));
+  };
+  const configuredRules = world?.rules?.checks || world?.checks;
+  if (typeof configuredRules === 'string') addRule(configuredRules);
+  else if (Array.isArray(configuredRules)) configuredRules.forEach(addRule);
+  else if (configuredRules && typeof configuredRules === 'object') Object.entries(configuredRules).forEach(([id, definition]) => { addRule(id); addRule(definition); });
+  const activeTemplates = new Set(Object.values(snapshot?.save?.state?.conflicts || {}).filter(item => item?.status === 'active').map(item => item.templateId).filter(Boolean));
+  (Array.isArray(world?.conflicts) ? world.conflicts : []).filter(definition => activeTemplates.has(definition.id)).forEach(definition => {
+    (Array.isArray(definition.actions) ? definition.actions : []).filter(action => action?.check).forEach(action => {
+      addRule(action.id);
+      addRule(`${definition.id}.${action.id}`);
+    });
+  });
+  // 模型可能在同一批 tool_calls 中同时声明判定和骰子，先识别有效门控，避免调用顺序造成误拒绝。
+  if (Array.isArray(calls) && calls.some(call => call?.name === 'rules.check'
+    && profile?.tools?.['rules.check']?.enabled !== false
+    && declaredRules.has(String(call.arguments?.ruleId || '').trim()))) gate.checkApproved = true;
   for (const call of Array.isArray(calls) ? calls : []) {
     const config = profile?.tools?.[call.name];
     if (!RPG_NATIVE_TOOL_NAMES.has(call.name) || !config || config.enabled === false) {
@@ -5612,17 +5717,30 @@ async function executeRpgNativeToolCalls(calls, profile, targetScope, snapshot =
       if (call.name === 'dice.roll') {
         const expr = String(call.arguments.expr || '').trim();
         if (!expr || expr.length > 80) throw new Error('expr 为空或过长');
-        result = { ok: true, rolls: await rollWorldDice(expr) };
+        if (!gate.checkApproved) {
+          result = { ok: false, error: '必须先调用 rules.check；没有真实判定时禁止掷骰' };
+        } else if (gate.diceUses >= 4) {
+          result = { ok: false, error: '本次判定最多允许 4 次骰子调用' };
+        } else {
+          const rolls = await rollWorldDice(expr);
+          if (!rolls.length) throw new Error('expr 不是受支持的骰子表达式');
+          result = { ok: true, rolls };
+          gate.diceUses += 1;
+        }
       } else if (call.name === 'context.retrieve') {
         result = { ok: true, ...retrieveRpgAgentContext(call.arguments.query, call.arguments.scope, call.arguments.limit, snapshot) };
       } else if (call.name === 'rules.check') {
-        result = { ok: false, error: 'rules.check 尚未连接世界规则执行器，已保留为候选工具' };
+        const ruleId = String(call.arguments.ruleId || '').trim();
+        if (!ruleId || ruleId.length > 120) throw new Error('ruleId 为空或过长');
+        if (!world || !declaredRules.has(ruleId)) throw new Error('ruleId 未在当前世界规则或进行中的冲突中声明');
+        gate.checkApproved = true;
+        result = { ok: true, kind: 'rules.check', ruleId, requiresRoll: true, instruction: '仅本次行动允许掷骰；请根据结果在叙事中分支并说明后果。' };
       } else {
         // Typed patch / entity / memory remain candidates until final narrative
         // submit, so native tools cannot mutate state during the model loop.
         result = { ok: true, accepted: 'candidate', name: call.name, arguments: call.arguments };
       }
-      accepted.push({ callId: call.callId, name: call.name, arguments: call.arguments });
+      if (result?.ok) accepted.push({ callId: call.callId, name: call.name, arguments: call.arguments });
     } catch (error) {
       result = { ok: false, error: error.message };
     }
@@ -5670,6 +5788,7 @@ async function requestRpgAgentReply(payload, targetScope) {
   const maxSteps = Math.max(1, Math.min(8, Number(profile.maxSteps) || 1));
   const accepted = [];
   const toolTrace = [];
+  const diceGate = {};
   let cot = '';
   for (let step = 0; step <= maxSteps; step++) {
     const request = { ...payload, body: { ...payload.body, messages } };
@@ -5687,7 +5806,7 @@ async function requestRpgAgentReply(payload, targetScope) {
     if (step >= maxSteps) throw new Error(`Agent 工具调用超过 maxSteps=${maxSteps}`);
     const rawCalls = response.calls.map(call => call.rawCall || { id: call.callId, type: 'function', function: { name: call.name, arguments: call.rawArguments } });
     messages.push({ role: 'assistant', content: response.content || null, tool_calls: rawCalls });
-    const executed = await executeRpgNativeToolCalls(response.calls, profile, targetScope, snapshot);
+    const executed = await executeRpgNativeToolCalls(response.calls, profile, targetScope, snapshot, diceGate);
     accepted.push(...executed.accepted);
     toolTrace.push(...executed.trace.map(item => ({ ...item, step: step + 1 })));
     for (const item of executed.trace) {
@@ -5702,7 +5821,7 @@ async function requestRpgAgentReply(payload, targetScope) {
  * 仍复用原 system（含世界书 / 状态 / 输出守则），不在前端臆造 options，
  * 也不把修复结果直接写入存档；最终仍走同一套服务端 Typed Patch 校验。
  */
-async function repairRpgOutput(payload, reply, optionRules, targetScope) {
+async function repairRpgOutput(payload, reply, optionRules, targetScope, toolTrace = []) {
   const body = {
     ...payload.body,
     stream: false,
@@ -5714,6 +5833,9 @@ async function repairRpgOutput(payload, reply, optionRules, targetScope) {
   };
   delete body.tools;
   delete body.tool_choice;
+  const diceResults = toolTrace.filter(item => item?.name === 'dice.roll' && Array.isArray(item.result?.rolls))
+    .flatMap(item => item.result.rolls).map(roll => `${roll.expr}=${roll.total}`).join('、');
+  if (diceResults && body.messages.length) body.messages[body.messages.length - 1].content += ` 本回合已完成客户端判定：${diceResults}。修复时必须让该结果在叙事中产生明确后果，不得重新掷骰。`;
   const data = await callAPI({ ...payload, body });
   const message = data?.choices?.[0]?.message || {};
   const repaired = String(message.content || '').trim();
@@ -6174,6 +6296,232 @@ function copyDebugTerminal() {
     .catch(() => { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); });
 }
 
+/* ─────────── 开发者实验台（?dev=1，仅复用正式世界存档提交链） ─────────── */
+function devtoolsConfig() {
+  return defaults?.devtools && typeof defaults.devtools === 'object' ? defaults.devtools : {};
+}
+function devtoolsTokens() {
+  const world = currentWorldCard() || {};
+  const save = currentWorldSave || {};
+  const locationId = save.state?.locationId || world.start?.locationId || world.locations?.[0]?.id || '';
+  const locations = Array.isArray(world.locations) ? world.locations : [];
+  const nextLocationId = locations.find(item => item?.id && item.id !== locationId)?.id || locationId;
+  const resource = Array.isArray(world.playerCreation?.resources) ? world.playerCreation.resources.find(item => item?.id) : null;
+  const resourceId = resource?.id || '';
+  const current = Number(save.state?.player?.resources?.[resourceId] ?? resource?.initial ?? resource?.default ?? 0);
+  const min = Number(resource?.min ?? 0);
+  const max = Number(resource?.max ?? Number.POSITIVE_INFINITY);
+  const resourceDelta = current < max ? 1 : current > min ? -1 : 0;
+  const activeTemplateIds = new Set(Object.values(save.state?.conflicts || {}).filter(item => item?.status === 'active').map(item => item.templateId).filter(Boolean));
+  const conflictDefinitions = Array.isArray(world.conflicts) ? world.conflicts : [];
+  const checkDefinition = [...conflictDefinitions.filter(definition => activeTemplateIds.has(definition.id)), ...conflictDefinitions]
+    .map(definition => ({ definition, action: (definition.actions || []).find(item => item?.check) }))
+    .find(item => item.action);
+  const configuredChecks = world.rules?.checks || world.checks;
+  const configuredCheckId = typeof configuredChecks === 'string' ? configuredChecks
+    : Array.isArray(configuredChecks) ? (configuredChecks.find(item => typeof item === 'string') || configuredChecks.find(item => item?.id || item?.ruleId)?.id || configuredChecks.find(item => item?.ruleId)?.ruleId || '')
+      : configuredChecks && typeof configuredChecks === 'object' ? Object.keys(configuredChecks)[0] || '' : '';
+  return {
+    locationId,
+    nextLocationId,
+    firstResourceId: resourceId,
+    resourceDelta,
+    timeValue: Number(save.state?.time?.value ?? save.revision ?? 0),
+    checkRuleId: checkDefinition?.action?.id || configuredCheckId,
+  };
+}
+function resolveDevtoolsTemplate(value, tokens = devtoolsTokens()) {
+  if (typeof value === 'string') {
+    const exact = value.match(/^\{\{([A-Za-z0-9_]+)\}\}$/);
+    if (exact && Object.prototype.hasOwnProperty.call(tokens, exact[1])) return tokens[exact[1]];
+    return value.replace(/\{\{([A-Za-z0-9_]+)\}\}/g, (match, key) => Object.prototype.hasOwnProperty.call(tokens, key) ? String(tokens[key]) : match);
+  }
+  if (Array.isArray(value)) return value.map(item => resolveDevtoolsTemplate(item, tokens));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, resolveDevtoolsTemplate(item, tokens)]));
+  return value;
+}
+function devtoolsScenario() {
+  const id = $('devtools-scenario')?.value;
+  return devtoolsScenarios.find(item => item?.id === id) || devtoolsScenarios[0] || null;
+}
+function devtoolsSetOutput(value) {
+  const output = $('devtools-output');
+  if (output) output.textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+}
+function devtoolsJson(id, fallback) {
+  const text = $(id)?.value?.trim() || '';
+  if (!text) return fallback;
+  try { return JSON.parse(text); } catch (error) { throw new Error(`${id} JSON 无效：${error.message}`); }
+}
+function devtoolsFillJson(id, value) {
+  const input = $(id);
+  if (input) input.value = JSON.stringify(value ?? [], null, 2);
+}
+function devtoolsFeedback({ dice, patch, options, agentCalls, agentTrace, entities, memory }) {
+  const lines = ['---', '**开发者测试反馈**'];
+  const check = (agentTrace || []).find(item => item?.name === 'rules.check');
+  const roll = (agentTrace || []).find(item => item?.name === 'dice.roll');
+  if (check || roll) {
+    lines.push('**Agent 判定回路**');
+    lines.push(`- rules.check：${check?.result?.ok ? '通过' : `失败（${check?.result?.error || '未通过'}）`}`);
+    lines.push(`- dice.roll：${roll?.result?.ok ? '客户端已执行' : `未执行（${roll?.result?.error || '未通过'}）`}`);
+    lines.push('- tool 回传 → AI 继续叙事：已模拟');
+  }
+  if (dice.length) {
+    lines.push('**骰子**');
+    for (const roll of dice) lines.push(`- 🎲 ${roll.expr}：${roll.rolls.join(' + ')}${roll.bonus ? ` ${roll.bonus > 0 ? '+' : '-'} ${Math.abs(roll.bonus)}` : ''} = **${roll.total}**`);
+  }
+  const updates = Array.isArray(patch?.updates) ? patch.updates : [];
+  if (updates.length) {
+    lines.push('**状态变更**');
+    for (const update of updates) {
+      const detail = update.type === 'location.set' ? `→ ${update.locationId}` : `${update.id || update.itemId || ''} ${update.delta > 0 ? '+' : ''}${update.delta}`;
+      lines.push(`- ${update.type}：${detail}`);
+    }
+  } else lines.push('- 状态变更：无（仅验证提交链）');
+  if (options.length) lines.push(`**行动选项**：已生成 ${options.length} 个，可在叙事栏下方直接点击。`);
+  if (agentCalls.length) lines.push(`**Agent 工具**：已记录 ${agentCalls.length} 个候选调用。`);
+  if (entities.length) lines.push(`**实体**：已提交 ${entities.length} 个实体候选。`);
+  if (memory.length) lines.push(`**记忆**：已提交 ${memory.length} 条事件记忆候选。`);
+  return lines.join('\n');
+}
+function loadDevtoolsScenario() {
+  const scenario = devtoolsScenario();
+  if (!scenario) return;
+  const resolved = resolveDevtoolsTemplate(scenario);
+  $('devtools-action').value = resolved.action || '';
+  $('devtools-dice').value = resolved.dice || '';
+  $('devtools-narrative').value = resolved.narrative || '';
+  devtoolsFillJson('devtools-options', resolved.options || []);
+  devtoolsFillJson('devtools-patch', resolved.patch || { updates: [] });
+  devtoolsFillJson('devtools-agent-calls', resolved.agentCalls || []);
+  devtoolsFillJson('devtools-entities', resolved.createEntities || []);
+  devtoolsFillJson('devtools-memory', resolved.eventMemory || []);
+  devtoolsSetOutput(`${scenario.label || scenario.id}\n\n${scenario.description || ''}`);
+}
+function copyDevtoolsState() {
+  if (!currentWorldSave) return;
+  const text = JSON.stringify(currentWorldSave, null, 2);
+  (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject(new Error('no clipboard')))
+    .then(() => devtoolsSetOutput('已复制当前世界存档 JSON。'))
+    .catch(() => { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); devtoolsSetOutput('已复制当前世界存档 JSON。'); });
+}
+function devtoolsAgentSnapshot() {
+  const world = currentWorldCard();
+  const save = cloneValue(currentWorldSave);
+  const active = Object.values(save.state?.conflicts || {}).some(item => item?.status === 'active');
+  if (!active) {
+    const definition = (Array.isArray(world?.conflicts) ? world.conflicts : []).find(item => Array.isArray(item.actions) && item.actions.some(action => action?.check));
+    if (definition) save.state.conflicts = { ...(save.state.conflicts || {}), [`devtools-${definition.id}`]: { status: 'active', templateId: definition.id } };
+  }
+  return { world: cloneValue(world), save };
+}
+function renderDevtools() {
+  const button = $('btn-devtools');
+  if (!button) return;
+  button.hidden = !devtoolsEnabled;
+  if (!devtoolsEnabled) return;
+  const select = $('devtools-scenario');
+  const configured = Array.isArray(devtoolsConfig().scenarios) ? devtoolsConfig().scenarios : [];
+  devtoolsScenarios = configured.filter(item => item && item.id);
+  if (select) {
+    const selected = select.value;
+    select.innerHTML = devtoolsScenarios.map(item => `<option value="${esc(item.id)}">${esc(item.label || item.id)}</option>`).join('');
+    if (devtoolsScenarios.some(item => item.id === selected)) select.value = selected;
+  }
+  const scope = $('devtools-scope');
+  if (scope) scope.textContent = worldModeActive()
+    ? `${currentWorldCard()?.title || currentWorldSave.worldId} · ${currentWorldSave.name} · revision ${currentWorldSave.revision}`
+    : '仅在 ?dev=1 开启 · 当前没有世界存档';
+  const submit = $('devtools-submit');
+  if (submit) submit.disabled = !worldModeActive() || worldSavePlanning() || worldTurnPendingActive() || sending;
+}
+function openDevtools() {
+  if (!devtoolsEnabled) return;
+  renderDevtools();
+  const panel = $('devtools-panel');
+  if (!panel.open) panel.showModal();
+  $('btn-devtools')?.setAttribute('aria-expanded', 'true');
+  if (!$('devtools-action')?.value) loadDevtoolsScenario();
+  $('devtools-close')?.focus();
+}
+function closeDevtools() {
+  const panel = $('devtools-panel');
+  if (panel?.open) panel.close();
+  $('btn-devtools')?.setAttribute('aria-expanded', 'false');
+  $('btn-devtools')?.focus();
+}
+async function submitDevtoolsScenario() {
+  if (!worldModeActive()) throw new Error('请先打开正式 RPG 世界存档');
+  if (worldSavePlanning()) throw new Error('当前存档仍在开局规划，请先完成开局配置');
+  if (worldTurnPendingActive()) throw new Error('当前已有回合正在提交');
+  const options = devtoolsJson('devtools-options', []);
+  if (!Array.isArray(options)) throw new Error('行动选项必须是 JSON 数组');
+  const parsedPatch = devtoolsJson('devtools-patch', { updates: [] });
+  if (!parsedPatch || typeof parsedPatch !== 'object' || Array.isArray(parsedPatch)) throw new Error('Typed Patch 必须是 JSON 对象');
+  const patch = resolveDevtoolsTemplate(cloneValue(parsedPatch));
+  const currentLocationId = currentWorldSave.state?.locationId || null;
+  patch.updates = (Array.isArray(patch.updates) ? patch.updates : []).filter(update => {
+    if (!update || typeof update !== 'object') return false;
+    if (update.type === 'player.resource.delta' && Number(update.delta) === 0) return false;
+    if (update.type === 'location.set' && update.locationId === currentLocationId) return false;
+    return true;
+  });
+  patch.protocol = 'tavern.rpg.turn';
+  patch.version = 1;
+  patch.baseRevision = currentWorldSave.revision;
+  patch.options = options;
+  const action = $('devtools-action')?.value?.trim() || '[开发者测试] 推进一回合。';
+  const narrative = $('devtools-narrative')?.value?.trim() || '开发者实验台提交了一个测试回合。';
+  const diceText = $('devtools-dice')?.value?.trim() || '';
+  const agentCalls = devtoolsJson('devtools-agent-calls', []);
+  const entities = devtoolsJson('devtools-entities', []);
+  const memory = devtoolsJson('devtools-memory', []);
+  if (!Array.isArray(agentCalls)) throw new Error('Agent 工具调用必须是 JSON 数组');
+  if (diceText && !agentCalls.some(call => call?.name === 'dice.roll')) agentCalls.push({ callId: 'dev-dice', name: 'dice.roll', arguments: { expr: diceText } });
+  const profile = buildRpgAgentProfile();
+  const executed = await executeRpgNativeToolCalls(agentCalls, profile, null, devtoolsAgentSnapshot(), {});
+  const agentTrace = executed.trace;
+  const toolErrors = agentTrace.filter(item => item?.result?.ok === false);
+  if (toolErrors.length) throw new Error(`Agent 工具测试失败：${toolErrors.map(item => `${item.name}：${item.result.error}`).join('；')}`);
+  const dice = agentTrace.filter(item => item?.name === 'dice.roll' && Array.isArray(item.result?.rolls)).flatMap(item => item.result.rolls);
+  const visibleNarrative = `${narrative}\n\n${devtoolsFeedback({ dice: [], patch, options, agentCalls, agentTrace, entities, memory })}`;
+  const diceMessages = dice.map(roll => {
+    const detail = roll.rolls.length > 1
+      ? `（${roll.rolls.join(' + ')}${roll.bonus ? (roll.bonus > 0 ? ` + ${roll.bonus}` : ` - ${Math.abs(roll.bonus)}`) : ''}）`
+      : (roll.bonus ? `（${roll.bonus > 0 ? '+' : ''}${roll.bonus}）` : '');
+    return { role: 'user', content: `🎲 工具掷骰 ${roll.expr} = ${roll.total} ${detail}`, meta: true };
+  });
+  const payload = {
+    commandId: 'dev-' + uid(),
+    expectedRevision: currentWorldSave.revision,
+    actionIntent: { raw: action, ...(dice.length ? { dice } : {}) },
+    patch,
+    turns: [{ role: 'user', content: action }, ...diceMessages, { role: 'assistant', content: visibleNarrative }],
+    options,
+    ...(Array.isArray(agentCalls) && agentCalls.length ? { agentCalls } : {}),
+    ...(Array.isArray(entities) && entities.length ? { createEntities: resolveDevtoolsTemplate(entities) } : {}),
+    ...(Array.isArray(memory) && memory.length ? { eventMemory: resolveDevtoolsTemplate(memory) } : {}),
+  };
+  const response = await fetch('/api/world-saves/' + encodeURIComponent(currentWorldSave.id), {
+    method: 'POST', headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: JSON.stringify(payload),
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data?.id) throw new Error(worldApiError(data, `开发者回合提交失败（HTTP ${response.status}）`));
+  hydrateWorldSave(data);
+  currentWorldSave = data;
+  currentWorldSaveId = data.id;
+  renderRPG(); renderSessions(); renderMessages(); renderWorldDetail(); renderDevtools();
+  devtoolsSetOutput({ ok: true, revision: data.revision, agentTrace, evidence: data.lastReceipt || data.lastTurn || null, dice: dice.length ? dice : undefined });
+}
+async function runDevtoolsSubmit() {
+  const button = $('devtools-submit');
+  if (button) button.disabled = true;
+  try { await submitDevtoolsScenario(); }
+  catch (error) { devtoolsSetOutput(`提交失败：${error.message}`); }
+  finally { renderDevtools(); }
+}
+
 async function testConnection() {
   const out = $('test-result');
   readSettingsForm();
@@ -6625,15 +6973,23 @@ async function llmImagePrompt(ig, story) {
             { role: 'system', content: instr },
             { role: 'user', content: story },
           ],
-          temperature: 0.8,
-          max_tokens: 300,
+          temperature: settings.temperature,
+          max_tokens: settings.maxTokens,
+          top_p: settings.topP,
+          frequency_penalty: settings.frequencyPenalty,
+          presence_penalty: settings.presencePenalty,
           stream: false,
         },
       }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.choices || !data.choices[0]) throw new Error('提示词生成失败（对话 API 未配置？）');
-    return data.choices[0].message.content.trim();
+    const choice = data.choices[0];
+    const content = choice.message && choice.message.content;
+    if (!content || choice.finish_reason === 'length') {
+      throw new Error('提示词生成被截断：请在设置中提高最大 Token，或关闭模型思维链。');
+    }
+    return content.trim();
   } finally {
     clearTimeout(timer);
   }
@@ -6951,7 +7307,7 @@ async function requestReply() {
         const originalEntities = processed.createEntities;
         const originalMemory = processed.eventMemory;
         setDebugTrace(targetScope, { status: '输出协议不合规，正在修复', output: String(reply || '') });
-        const repairedReply = await repairRpgOutput(payload, reply, optionRules, targetScope);
+        const repairedReply = await repairRpgOutput(payload, reply, optionRules, targetScope, toolTrace);
         processed = processAIOutput(repairedReply);
         if (!processed.patch && originalPatch) processed.patch = originalPatch;
         if (!processed.createEntities && originalEntities) processed.createEntities = originalEntities;
@@ -6969,9 +7325,11 @@ async function requestReply() {
     if (processed.options && processed.options.length) extra.options = processed.options;
     if (worldTurnPendingActive()) {
       const nativeToolRolls = toolTrace.filter(item => item.name === 'dice.roll' && Array.isArray(item.result?.rolls)).flatMap(item => item.result.rolls);
-      const toolRolls = [...nativeToolRolls, ...(nativeToolRolls.length ? [] : await executeRpgAgentCalls(processed.agentCalls))];
+      // 只有原生 Agent 在拿到规则门控后才会执行骰子；兼容层的 toolCalls
+      // 没有回传结果给模型，禁止事后随机掷骰，避免叙事与结果脱节。
+      const toolRolls = nativeToolRolls;
       for (const r of toolRolls) {
-        const detail = r.rolls.length > 1 ? `（${r.rolls.join(' + ')}${r.bonus ? (r.bonus >= 0 ? ' + ' + r.bonus : ' - ' + Math.abs(r.bonus)) : ''}）` : (r.bonus ? `（+${r.bonus}）` : '');
+        const detail = r.rolls.length > 1 ? `（${r.rolls.join(' + ')}${r.bonus ? (r.bonus >= 0 ? ' + ' + r.bonus : ' - ' + Math.abs(r.bonus)) : ''}）` : (r.bonus ? `（${r.bonus > 0 ? '+' : ''}${r.bonus}）` : '');
         worldTurnPending.messages.push({ id: uid(), role: 'user', content: `🎲 工具掷骰 ${r.expr} = ${r.total} ${detail}`, ts: Date.now(), meta: true });
       }
       if (toolRolls.length) worldTurnPending.actionIntent.dice = [...(worldTurnPending.actionIntent.dice || []), ...toolRolls];
@@ -7242,8 +7600,12 @@ async function aiGenerate(instruction, desc) {
           { role: 'system', content: instruction },
           { role: 'user', content: desc },
         ],
-        temperature: 0.7,
-        max_tokens: 900,
+        temperature: settings.temperature,
+        max_tokens: settings.maxTokens,
+        top_p: settings.topP,
+        frequency_penalty: settings.frequencyPenalty,
+        presence_penalty: settings.presencePenalty,
+        ...(settings.seed != null && settings.seed >= 0 ? { seed: settings.seed } : {}),
         stream: false,
       },
     }),
@@ -7252,7 +7614,12 @@ async function aiGenerate(instruction, desc) {
   if (!res.ok || !data.choices || !data.choices[0]) {
     throw new Error('生成失败：' + ((data.error && data.error.message) || ('HTTP ' + res.status)));
   }
-  return parseLLMJson(data.choices[0].message.content);
+  const choice = data.choices[0];
+  const content = choice.message && choice.message.content;
+  if (!content || choice.finish_reason === 'length') {
+    throw new Error('AI 输出被截断：请在设置中提高最大 Token，或关闭模型思维链。');
+  }
+  return parseLLMJson(content);
 }
 
 /* 容错解析 LLM 输出的 JSON（容忍 ```json 围栏 / 前后杂文） */
@@ -7938,6 +8305,7 @@ function bindEvents() {
   // 设置
   document.querySelectorAll('.js-settings').forEach(b => b.addEventListener('click', openSettings));
   $('btn-debug').addEventListener('click', () => $('debug-panel').open ? closeDebugTerminal() : openDebugTerminal());
+  $('btn-devtools')?.addEventListener('click', () => $('devtools-panel')?.open ? closeDevtools() : openDevtools());
   const debugTabs = [...document.querySelectorAll('[data-debug-tab]')];
   debugTabs.forEach((button, index) => {
     button.addEventListener('click', () => selectDebugTab(button.dataset.debugTab));
@@ -7959,6 +8327,12 @@ function bindEvents() {
   $('debug-memory-rebuild').addEventListener('click', rebuildDebugMemory);
   $('debug-panel').addEventListener('cancel', e => { e.preventDefault(); closeDebugTerminal(); });
   $('debug-panel').addEventListener('click', e => { if (e.target === e.currentTarget) closeDebugTerminal(); });
+  $('devtools-scenario')?.addEventListener('change', loadDevtoolsScenario);
+  $('devtools-submit')?.addEventListener('click', runDevtoolsSubmit);
+  $('devtools-copy-state')?.addEventListener('click', copyDevtoolsState);
+  $('devtools-close')?.addEventListener('click', closeDevtools);
+  $('devtools-panel')?.addEventListener('cancel', e => { e.preventDefault(); closeDevtools(); });
+  $('devtools-panel')?.addEventListener('click', e => { if (e.target === e.currentTarget) closeDevtools(); });
   // 模式切换：刷新快捷行动与 RPG 面板
   document.querySelectorAll('.js-mode-switch').forEach(button => button.addEventListener('click', switchMode));
   renderQuickActions();
@@ -7982,6 +8356,7 @@ function bindEvents() {
   $('world-import-dialog').addEventListener('click', e => { if (e.target === e.currentTarget) closeWorldPackageImport(); });
   $('world-export').addEventListener('click', exportCurrentWorldPackage);
   $('world-edit-draft').addEventListener('click', openWorldDraftEditor);
+  $('world-delete').addEventListener('click', event => deleteWorldCard(currentWorldId, event.currentTarget));
   $('world-draft-form').addEventListener('input', () => { worldDraftDirty = true; worldDraftPublishId = null; clearWorldDraftCheckReport(); });
   $('world-draft-map-regions').addEventListener('input', updateWorldDraftMapOutputs);
   $('world-draft-map-land').addEventListener('input', updateWorldDraftMapOutputs);
@@ -8294,6 +8669,7 @@ async function init() {
   renderCharacter();
   renderSessions();
   renderCharList();
+  renderDevtools();
   updateApiStatusFromSettings();
 }
 init();

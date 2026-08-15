@@ -27,6 +27,7 @@ const DATA_DIR = process.env.TAVERN_DATA_DIR
   : path.join(PUBLIC_DIR, 'data');
 const SAVES_DIR = path.join(DATA_DIR, 'saves');
 const WORLD_DRAFTS_PATH = path.join(DATA_DIR, 'world-drafts.json');
+const WORLD_DELETED_PATH = path.join(DATA_DIR, 'world-deleted.json');
 const WORLD_IMPORTS_DIR = path.join(DATA_DIR, 'world-imports');
 const RPG_MIGRATIONS_DIR = path.join(DATA_DIR, 'rpg-migrations');
 // --api-only：只暴露 /api/*（无网页），供公网纯 API 场景
@@ -52,11 +53,12 @@ function loadDefaults() {
       ui: (d.ui && typeof d.ui === 'object') ? d.ui : {},
       gen: (d.gen && typeof d.gen === 'object') ? d.gen : {},
       rpg: (d.rpg && typeof d.rpg === 'object') ? d.rpg : {},
+      devtools: (d.devtools && typeof d.devtools === 'object') ? d.devtools : { scenarios: [] },
       worlds: Array.isArray(d.worlds) ? d.worlds : [],
     };
   } catch (e) {
     console.warn('[data] 读取 _defaults.json 失败（用空结构兜底）:', e.message);
-    return { characters: [], presets: {}, lorebooks: { default: { name: '默认世界书', entries: [] } }, settings: {}, prefs: {}, format: {}, providers: [], ui: {}, worlds: [] };
+    return { characters: [], presets: {}, lorebooks: { default: { name: '默认世界书', entries: [] } }, settings: {}, prefs: {}, format: {}, providers: [], ui: {}, gen: {}, rpg: {}, devtools: { scenarios: [] }, worlds: [] };
   }
 }
 
@@ -69,6 +71,8 @@ async function ensureDataFiles() {
   try { await fs.promises.mkdir(RPG_MIGRATIONS_DIR, { recursive: true }); } catch {}
   try { await fs.promises.access(WORLD_DRAFTS_PATH); }
   catch { await fs.promises.writeFile(WORLD_DRAFTS_PATH, '[]\n', 'utf-8'); }
+  try { await fs.promises.access(WORLD_DELETED_PATH); }
+  catch { await fs.promises.writeFile(WORLD_DELETED_PATH, '[]\n', 'utf-8'); }
   for (const type of DATA_TYPES) {
     const fp = path.join(DATA_DIR, type + '.json');
     try { await fs.promises.access(fp); }
@@ -271,7 +275,19 @@ async function loadWorlds() {
     const key = `${world.id}:${world.version}`;
     if (!loadedKeys.has(key)) loaded.push(cloneJson(world));
   }
-  return loaded;
+  const deletedIds = await loadDeletedWorldIds();
+  return loaded.filter(world => !world || !deletedIds.has(world.id));
+}
+
+async function loadDeletedWorldIds() {
+  try {
+    const raw = await fs.promises.readFile(WORLD_DELETED_PATH, 'utf-8');
+    const ids = JSON.parse(raw);
+    return new Set(Array.isArray(ids) ? ids.filter(isSafeId) : []);
+  } catch (err) {
+    if (err.code === 'ENOENT') return new Set();
+    throw err;
+  }
 }
 
 function worldVersions(worlds, worldId) {
@@ -3124,6 +3140,41 @@ async function handleWorldsGet(req, res) {
   }
 }
 
+async function handleWorldDelete(req, res, worldId) {
+  if (!isSafeId(worldId)) return send(res, 400, JSON.stringify({ error: '无效的 worldId' }), 'application/json');
+  return withWorldsLock(async () => {
+    try {
+      const worlds = await loadWorlds();
+      const versions = worldVersions(worlds, worldId);
+      if (!versions.length) return send(res, 404, JSON.stringify({ error: '世界卡不存在' }), 'application/json');
+      const saves = await listWorldSaveFiles(worldId);
+      if (saves.length) {
+        return send(res, 409, JSON.stringify({
+          error: `该世界仍有 ${saves.length} 份存档，请先删除存档后再删除世界卡`,
+          worldId,
+          saveCount: saves.length,
+        }), 'application/json');
+      }
+      const worldsPath = path.join(DATA_DIR, 'worlds.json');
+      const stored = JSON.parse(await fs.promises.readFile(worldsPath, 'utf-8'));
+      if (!Array.isArray(stored)) throw new Error('worlds.json 必须是数组');
+      await writeJsonAtomic(worldsPath, stored.filter(world => world?.id !== worldId));
+
+      const deletedIds = await loadDeletedWorldIds();
+      deletedIds.add(worldId);
+      await writeJsonAtomic(WORLD_DELETED_PATH, [...deletedIds].sort());
+
+      const drafts = await loadWorldDrafts();
+      const nextDrafts = drafts.filter(draft => draft?.worldId !== worldId);
+      if (nextDrafts.length !== drafts.length) await writeJsonAtomic(WORLD_DRAFTS_PATH, nextDrafts);
+      send(res, 200, JSON.stringify({ ok: true, worldId, versions: versions.length, draftDeleted: nextDrafts.length !== drafts.length }), 'application/json; charset=utf-8');
+    } catch (err) {
+      console.error('[worlds] 删除失败:', err.message);
+      send(res, 500, JSON.stringify({ error: '世界卡删除失败: ' + err.message }), 'application/json');
+    }
+  });
+}
+
 async function handleWorldDraftsGet(req, res, worldId = '', single = false) {
   if (worldId && !isSafeId(worldId)) return send(res, 400, JSON.stringify({ error: '无效的 worldId' }), 'application/json');
   try {
@@ -3853,6 +3904,24 @@ async function handleWorldSaveGet(req, res, saveId) {
   }
 }
 
+async function handleWorldSaveDelete(req, res, saveId) {
+  const fp = savePath(saveId);
+  if (!fp) return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json');
+  return withWorldSaveLock(saveId, async () => {
+    try {
+      const raw = await fs.promises.readFile(fp, 'utf-8');
+      const save = JSON.parse(raw);
+      if (!save || save.id !== saveId) throw new Error('存档文件 ID 不一致');
+      await fs.promises.unlink(fp);
+      send(res, 200, JSON.stringify({ ok: true, saveId, worldId: save.worldId }), 'application/json; charset=utf-8');
+    } catch (err) {
+      if (err.code === 'ENOENT') return send(res, 404, JSON.stringify({ error: '存档不存在' }), 'application/json');
+      console.error('[world-saves] 删除失败:', err.message);
+      send(res, 500, JSON.stringify({ error: '存档删除失败: ' + err.message }), 'application/json');
+    }
+  });
+}
+
 function resolveWorldSaveUpgrade(worlds, save, targetVersion) {
   const sourceWorld = findWorldVersion(worlds, save.worldId, save.worldVersion);
   if (!sourceWorld) return { status: 409, error: '存档绑定的世界版本不存在' };
@@ -4502,7 +4571,7 @@ function validateWorldOpeningPlan(plan, world) {
     if (!plan.knowledge || typeof plan.knowledge !== 'object' || Array.isArray(plan.knowledge)) return 'plan.knowledge 无效';
     for (const key of ['worldTruth', 'characterKnowledge', 'playerVisible', 'hidden', 'rumors']) if (plan.knowledge[key] !== undefined && (!Array.isArray(plan.knowledge[key]) || plan.knowledge[key].length > 64 || plan.knowledge[key].some(item => typeof item !== 'string' || !item.trim() || item.length > 1000))) return `plan.knowledge.${key} 无效`;
   }
-  if (plan.initialHook !== undefined) {
+  if (plan.initialHook !== undefined && plan.initialHook !== null) {
     if (!plan.initialHook || typeof plan.initialHook !== 'object' || Array.isArray(plan.initialHook)) return 'plan.initialHook 无效';
     if (plan.initialHook.id !== undefined && !isSafeId(plan.initialHook.id)) return 'plan.initialHook.id 无效';
     for (const key of ['title', 'description']) if (plan.initialHook[key] !== undefined && !draftTextValid(plan.initialHook[key], 2000, key === 'title')) return `plan.initialHook.${key} 无效`;
@@ -5453,6 +5522,7 @@ async function handleWorldTurnPost(req, res, saveId, forcedAgentPhase = null) {
         ...cloneJson(turn),
         id: typeof turn.id === 'string' && turn.id.trim() ? turn.id.trim() : committedTurnId(saveId, revision, index),
         ...(index === 0 && payload.actionIntent ? { actionIntent: cloneJson(payload.actionIntent) } : {}),
+        ...(index === payload.turns.length - 1 && turn.role === 'assistant' && Array.isArray(payload.options) ? { options: cloneJson(payload.options) } : {}),
         commandId: payload.commandId,
         revision,
       }));
@@ -5832,10 +5902,11 @@ const server = http.createServer((req, res) => {
     return handleWorldNpcPromotion(req, res, worldId);
   }
   const worldCardMatch = url.pathname.match(/^\/api\/worlds\/([^/]+)\/?$/);
-  if (worldCardMatch && req.method === 'GET') {
+  if (worldCardMatch && (req.method === 'GET' || req.method === 'DELETE')) {
     let worldId;
     try { worldId = decodeURIComponent(worldCardMatch[1]); }
     catch { return send(res, 400, JSON.stringify({ error: '无效的 worldId' }), 'application/json'); }
+    if (req.method === 'DELETE') return handleWorldDelete(req, res, worldId);
     const rawVersion = url.searchParams.get('version');
     if (rawVersion !== null && (!/^\d+$/.test(rawVersion) || !Number.isSafeInteger(Number(rawVersion)))) {
       return send(res, 400, JSON.stringify({ error: '无效的 worldVersion' }), 'application/json');
@@ -5954,12 +6025,13 @@ const server = http.createServer((req, res) => {
     return handleWorldTurnPost(req, res, saveId, 'execute');
   }
   const worldSaveMatch = url.pathname.match(/^\/api\/world-saves\/([^/]+)\/?$/);
-  if (worldSaveMatch && (req.method === 'GET' || req.method === 'PUT' || req.method === 'POST')) {
+  if (worldSaveMatch && (req.method === 'GET' || req.method === 'PUT' || req.method === 'POST' || req.method === 'DELETE')) {
     let saveId;
     try { saveId = decodeURIComponent(worldSaveMatch[1]); }
     catch { return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json'); }
     if (req.method === 'PUT') return handleWorldSavePut(req, res, saveId);
     if (req.method === 'POST') return handleWorldTurnPost(req, res, saveId);
+    if (req.method === 'DELETE') return handleWorldSaveDelete(req, res, saveId);
     return handleWorldSaveGet(req, res, saveId);
   }
   // 数据读写：/api/data/:type

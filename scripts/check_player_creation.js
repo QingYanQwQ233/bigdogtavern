@@ -265,7 +265,7 @@ async function main() {
     assert.strictEqual(first.body.player.snapshot.name, '澪', 'first save remains isolated');
     const secondPlan = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(second.body.id)}/setup`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ commandId: 'setup-plan-2', expectedRevision: second.body.revision, plan: { locationId: 'wolf-tooth-inn', presentNpcIds: [], situation: '焰抵达旅店', hook: '极光在北方闪烁', knownFacts: [], boundaries: [], tone: '悬疑' } }),
+      body: JSON.stringify({ commandId: 'setup-plan-2', expectedRevision: second.body.revision, plan: { locationId: 'wolf-tooth-inn', presentNpcIds: [], situation: '焰抵达旅店', hook: '极光在北方闪烁', knownFacts: [], boundaries: [], tone: '悬疑', initialHook: null } }),
     });
     assert.strictEqual(secondPlan.response.status, 200);
     const secondOpening = await jsonRequest(base, `/api/world-saves/${encodeURIComponent(second.body.id)}/opening`, {

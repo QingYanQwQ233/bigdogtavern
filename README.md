@@ -41,9 +41,12 @@ _defaults.json
   └─ worlds.json            世界卡目录
 
 saves/<saveId>.json        RPG WorldSave，服务端按存档独立读写
+world-deleted.json         已删除世界卡 ID（防止默认模板重新出现）
 ```
 
 `localStorage` 只保存离线缓存和当前 ID，服务端 JSON 是权威源。`WorldCard@worldVersion` 保存稳定世界资料；`WorldSave@revision` 保存本局玩家、状态、事件、回合和记忆。世界卡或角色卡后续编辑不会静默覆盖已有存档。
+
+世界库中的存档可单独删除；删除世界卡前必须先删除该世界的全部存档，确认后会移除所有已发布版本和未发布草稿。默认世界通过 `world-deleted.json` 记录删除标记，刷新后不会被 `_defaults.json` 自动补回。
 
 ## 酒馆模式
 
@@ -110,10 +113,10 @@ AI 或叙事文本不能直接产生权威骰子结果。缺少客户端结果�
 
 RPG 支持声明式 OpenAI-compatible tools：
 
-- `dice.roll`：客户端执行并绑定本回合结果；
+- `dice.roll`：仅在同一回合先通过 `rules.check` 后由客户端执行，并绑定本回合结果；
 - `context.retrieve`：当前世界存档范围内的只读检索；
 - `state.patch`、`entity.create`、`memory.record`：候选操作；
-- `rules.check`：工具契约已预留，完整世界规则执行器仍在完善。
+- `rules.check`：本回合判定门控，不改写存档；没有真实不确定性时禁止继续掷骰。
 
 Agent 回合采用 `agent-execute → narrate` 两阶段提交。正式状态仍由 WorldSave 服务端校验，Agent 不能直接改写存档。
 
@@ -145,6 +148,10 @@ RPG 记忆不是一段模糊的 AI 摘要，而是几层结构化事实：
 - MEMORY：当前 RPG 存档的记忆诊断与重建入口。
 
 调试记录只保存在当前页面内存，不写入角色、会话或 RPG 存档。
+
+### RPG 开发者实验台
+
+启动页面时追加 `?dev=1`，顶栏会显示「🧪 开发者」。选择一个外置测试场景后直接点击「运行所选测试」即可；场景内部自动填充 `rules.check → dice.roll → tool 回传`、Typed Patch、实体候选和事件记忆，不需要填写 JSON。测试反馈会写入本次 RPG 叙事，选项会恢复为叙事栏下方的快捷按钮。没有完成开局规划的存档不会允许提交。它直接复用正式 `/api/world-saves/:id` 回合协议，不会创建第二套状态路径。
 
 ## 项目结构
 
@@ -183,7 +190,7 @@ docs/                          数据结构、世界卡与 Android 文档
 - 地图展示暂时关闭，地图生成调优暂缓；
 - 酒馆手动记忆仍是用户级共享；
 - RPG 记忆尚无向量检索、自动聚类和完整人工编辑器；
-- Agent `rules.check` 尚未连接完整规则执行器；
+- Agent 兼容模式不会在模型回复后补掷骰；需要把结果回传给模型时使用原生 Agent 工具模式；
 - 队伍管理和部分作者工作台仍需完善；
 - 服务端默认无鉴权和 SSRF 防护，只适合本地开发/演示；
 - Android 需要在真实设备上继续验收。

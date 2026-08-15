@@ -1578,19 +1578,21 @@ body[data-theme="vibrancy"] .dropdown { box-shadow: none; }
 .world-side { background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.08), var(--panel) 32%); }
 .world-kicker { margin: -2px 0 8px; color: var(--muted); font-size: 11.5px; line-height: 1.55; }
 .world-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   width: 100%;
-  padding: 11px 12px;
+  padding: 0;
   border: 1px solid transparent;
   border-radius: 10px;
   background: transparent;
   color: var(--muted);
-  cursor: pointer;
-  text-align: left;
-  font: inherit;
   transition: background-color 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
 }
+.world-item + .world-item { margin-top: 5px; }
 .world-item:hover { background: rgba(var(--accent-rgb), 0.08); border-color: var(--line); transform: translateX(2px); }
 .world-item.active { background: rgba(var(--accent-rgb), 0.14); border-color: rgba(var(--accent-rgb), 0.42); color: var(--text); }
+.world-item-main { min-width: 0; flex: 1; padding: 11px 12px; border: 0; border-radius: inherit; background: transparent; color: inherit; cursor: pointer; text-align: left; font: inherit; }
 .world-item-title { display: block; color: inherit; font-family: var(--font-display); letter-spacing: 0.5px; overflow-wrap: anywhere; }
 .world-item-meta { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; color: var(--muted); font-size: 10.5px; }
 .rpg-world-save { max-width: 180px; overflow: hidden; color: var(--accent); font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
@@ -1974,13 +1976,38 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
   backdrop-filter: blur(4px);
   animation: debug-backdrop-in 0.22s var(--motion-out);
 }
+.devtools-panel {
+  width: min(1180px, calc(100vw - 48px));
+  margin: auto;
+  max-width: none;
+  max-height: min(90vh, 900px);
+  padding: 0;
+  border: 1px solid rgba(var(--accent-rgb), .34);
+  border-radius: 14px;
+  background: var(--bg-0);
+  color: var(--text);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .58);
+  overflow: hidden;
+}
+.devtools-panel[open] { display: flex; flex-direction: column; animation: debug-panel-in .22s var(--motion-out); }
+.devtools-panel::backdrop { background: rgba(5, 4, 3, .72); backdrop-filter: blur(4px); }
+.devtools-head { flex: 0 0 auto; }
+.devtools-toolbar { display: flex; align-items: end; gap: 8px; padding: 12px; border-bottom: 1px solid var(--line); background: var(--bg-1); }
+.devtools-toolbar .field { display: flex; align-items: center; gap: 8px; flex: 1 1 280px; min-width: 0; margin: 0; }
+.devtools-toolbar .field > span { flex: none; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.devtools-toolbar .field select { flex: 1; width: auto; min-width: 0; color-scheme: dark; color: var(--text); background: var(--bg-0); }
+.devtools-toolbar .field select option { color: var(--text); background: var(--bg-0); }
+.devtools-toolbar button { min-height: 40px; white-space: nowrap; }
+.devtools-help { margin: 0; padding: 8px 12px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 11px; line-height: 1.5; }
+.devtools-output { flex: 0 0 150px; min-height: 100px; margin: 0; padding: 12px; overflow: auto; border-top: 1px solid var(--line); background: #101114; color: var(--muted); font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+.devtools-trigger[hidden] { display: none; }
 @keyframes debug-panel-in { from { opacity: 0; transform: scale(0.97); } }
 @keyframes debug-backdrop-in { from { opacity: 0; } }
 
 @media (prefers-reduced-motion: reduce) {
   .main, .char-mgr, .sidebar { transition-duration: 0.01ms; }
   .dropdown, .modal:not(.hidden), .modal:not(.hidden) .modal-box,
-  .debug-panel[open], .debug-panel::backdrop, .msg.typing .bubble::after {
+  .debug-panel[open], .debug-panel::backdrop, .devtools-panel[open], .devtools-panel::backdrop, .msg.typing .bubble::after {
     animation: none;
   }
   .chip:hover { transform: none; }
@@ -2105,10 +2132,12 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
   .cm-profile-row { grid-template-columns: 1fr auto; }
   .cm-profile-row > label, .cm-profile-label { grid-column: 1 / -1; }
   .sess-item { padding: 8px 10px; font-size: 13px; }
-  .debug-panel { width: 100%; height: 100%; border-radius: 0; }
+  .debug-panel, .devtools-panel { width: 100%; height: 100%; max-height: none; border-radius: 0; }
   .debug-body { overflow: hidden; }
   .debug-stream { min-height: 0; }
   .debug-tab { padding-inline: 9px; }
+  .devtools-toolbar { align-items: stretch; flex-wrap: wrap; }
+  .devtools-toolbar .field { flex-basis: 100%; }
   .msg .bubble { font-size: 14.5px; }
   .msg.narration .bubble { font-size: 14px; }
   .msg.rpg-narrative { padding-bottom: 24px; }

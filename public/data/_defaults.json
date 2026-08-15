@@ -72,7 +72,57 @@
     "emptyTitle": "欢迎",
     "emptyGuideWithChar": "当前角色：{name}（{role}）。开始你们的对话吧。",
     "emptyGuide": "开始你的故事吧。点左侧「角色」创建角色卡，或在上方「🏮」配置 API。",
+    "rpgEmptyTitle": "世界线已绑定",
+    "rpgEmptyGuide": "当前存档：{save}。RPG 叙事、状态与任务只读取这条世界线；完成开局规划后即可开始。",
     "noGreeting": "（当前角色未设置开场白 —— 可在「角色」卡填写 first_mes）"
+  },
+  "devtools": {
+    "title": "RPG 开发者实验台",
+    "scenarios": [
+      {
+        "id": "turn-smoke",
+        "label": "基础协议回合",
+        "description": "提交一个不改状态的完整回合，验证正文、选项与存档提交链。",
+        "action": "[开发者测试] 推进一回合，保持当前状态不变。",
+        "narrative": "开发者实验台已提交一个无状态变化的测试回合。",
+        "options": ["观察当前环境", "检查角色状态", "查看附近地点", "等待世界推进"],
+        "patch": { "updates": [] },
+        "agentCalls": []
+      },
+      {
+        "id": "dice-smoke",
+        "label": "客户端骰子",
+        "description": "模拟 Agent 先通过世界规则判定，再调用客户端骰子，最后把结果带入叙事。",
+        "action": "[开发者测试] 进行一次需要判定的行动。",
+        "dice": "1d20+2",
+        "narrative": "Agent 已收到客户端判定结果，并继续生成受结果影响的剧情。",
+        "options": ["接受结果", "重新观察", "改变策略", "暂缓行动"],
+        "patch": { "updates": [] },
+        "agentCalls": [{ "callId": "dev-check", "name": "rules.check", "arguments": { "ruleId": "{{checkRuleId}}" } }, { "callId": "dev-dice", "name": "dice.roll", "arguments": { "expr": "1d20+2" } }]
+      },
+      {
+        "id": "state-smoke",
+        "label": "状态与地点 Patch",
+        "description": "按当前世界卡的首个资源和下一个地点生成安全的 Typed Patch。",
+        "action": "[开发者测试] 进行一次状态与地点更新。",
+        "narrative": "开发者实验台提交了一个受世界卡约束的状态更新。",
+        "options": ["确认状态", "检查地点", "查看日志", "继续探索"],
+      "patch": { "updates": [{ "type": "player.resource.delta", "id": "{{firstResourceId}}", "delta": "{{resourceDelta}}" }, { "type": "location.set", "locationId": "{{nextLocationId}}" }] },
+        "agentCalls": [{ "callId": "dev-patch", "name": "state.patch", "arguments": { "updates": [] } }]
+      },
+      {
+        "id": "memory-smoke",
+        "label": "记忆与实体候选",
+        "description": "提交一条事件记忆与一个实体候选，验证服务端绑定与回合账本。",
+        "action": "[开发者测试] 记录一条测试事件并发现一个临时 NPC。",
+        "narrative": "潮声中出现了一个仅用于验证存档链路的临时记录。",
+        "options": ["查看记忆", "询问 NPC", "记录地点", "继续前进"],
+        "patch": { "updates": [] },
+        "agentCalls": [{ "callId": "dev-memory", "name": "memory.record", "arguments": { "summary": "开发者测试事件" } }, { "callId": "dev-entity", "name": "entity.create", "arguments": { "type": "npc", "name": "测试 NPC" } }],
+        "eventMemory": [{ "summary": "开发者实验台写入的测试事件。", "entityIds": [], "locationId": "{{locationId}}", "time": { "unit": "turn", "value": "{{timeValue}}" }, "visibility": "public" }],
+        "createEntities": [{ "kind": "npc", "tempId": "dev-npc", "name": "测试 NPC", "role": "开发者测试实体", "locationId": "{{locationId}}", "reason": "开发者实验台验证实体创建链路" }]
+      }
+    ]
   },
   "user": {
     "currentPreset": "default",
@@ -118,7 +168,8 @@
       "inventory": [],
       "quests": []
     },
-    "stateInstruction": "⚠️ 强制要求：每次回复必须以唯一一个 <tavern_state_update> JSON 更新块结尾。块内必须使用 protocol=\"tavern.rpg.turn\"、version=1、当前存档 revision；options 必须给出恰好 4 个玩家可执行的行动选项（即使状态无变化也必须给出）。格式：<tavern_state_update>{\"protocol\":\"tavern.rpg.turn\",\"version\":1,\"baseRevision\":当前 revision,\"updates\":[{\"type\":\"player.resource.delta\",\"id\":\"资源 ID\",\"delta\":数字}],\"options\":[\"行动选项1\",\"行动选项2\",\"行动选项3\",\"行动选项4\"],\"eventMemory\":[],\"createEntities\":[]}</tavern_state_update>。允许的 updates：player.resource.delta、player.attribute.delta、player.skill.delta、currency.delta、inventory.delta、location.set、effect.add、effect.remove、objective.status；只使用当前世界卡已声明的 ID，数值是增量，状态无变化时 updates=[]。inventory.delta 只能增减已声明物品，location.set 只能使用已登记地点，objective.status 只能更新已存在目标；不得提交任意路径、完整 state、冲突 HP 或服务端判定结果。叙事正文必须使用 Markdown，先发生的变化才可写入更新块；不要输出标签外的解释、隐藏推理或额外代码块。",
+    "stateInstruction": "⚠️ 强制要求：每次回复必须以唯一一个 <tavern_state_update> JSON 更新块结尾。块内必须使用 protocol=\"tavern.rpg.turn\"、version=1、当前存档 revision；options 必须给出恰好 4 个玩家可执行的行动选项（即使状态无变化也必须给出）。格式：<tavern_state_update>{\"protocol\":\"tavern.rpg.turn\",\"version\":1,\"baseRevision\":当前 revision,\"updates\":[{\"type\":\"player.resource.delta\",\"id\":\"资源 ID\",\"delta\":数字}],\"options\":[\"行动选项1\",\"行动选项2\",\"行动选项3\",\"行动选项4\"],\"eventMemory\":[],\"createEntities\":[]}</tavern_state_update>。允许的 updates：player.resource.delta、player.attribute.delta、player.skill.delta、currency.delta、inventory.delta、location.set、effect.add、effect.remove、objective.status；只使用当前世界卡已声明的 ID，数值是增量，状态无变化时 updates=[]。inventory.delta 只能增减已声明物品，location.set 只能使用已登记地点，objective.status 只能更新已存在目标；不得提交任意路径、完整 state、冲突 HP 或服务端判定结果。叙事正文必须使用 Markdown；行动选项只能写入 JSON 的 options 数组，不得在叙事正文中再次列出；先发生的变化才可写入更新块；不要输出标签外的解释、隐藏推理或额外代码块。",
+    "diceInstruction": "【判定与骰子门控】默认不掷骰。只有当玩家当前行动存在真实不确定性、失败会带来实际后果，并且当前世界卡/冲突规则明确需要判定时，才先调用 rules.check，再调用 dice.roll；不要因为叙事、NPC 台词、普通文本或行动选项中出现 d20/d6 就掷骰。玩家明确输入骰子表达式时可视为显式请求。骰子结果必须在最终叙事中明确说明，并让成功、失败或部分成功产生不同的后果；没有判定就不要调用 dice.roll。行动选项只放在唯一的 <tavern_state_update> JSON 的 options 数组中，禁止在 Markdown 叙事正文重复列出。",
     "eventMemoryInstruction": "长期事件记忆是可选的 AI 候选；只有本回合已经在叙事中发生、且值得未来回忆的事件才填写 eventMemory。格式：eventMemory:[{\"summary\":\"已发生事件的简短事实\",\"entityIds\":[\"当前世界/存档中的实体 ID\"],\"locationId\":\"当前世界已登记地点 ID 或 null\",\"time\":{\"unit\":\"时间单位\",\"value\":数字},\"visibility\":\"public|local|hidden\"}]。不要写未发生的计划、推测或其他存档事实；服务端会在正式提交后绑定来源回合、来源事件和 revision，AI 不能填写或伪造这些来源字段。没有值得长期记忆的事件时输出 eventMemory:[]。",
     "agent": {
       "protocol": "tavern.rpg.agent",
@@ -129,7 +180,7 @@
         "dice.roll": {
           "enabled": true,
           "execution": "client",
-          "description": "Roll a bounded dice expression on the client and return the submitted result.",
+          "description": "Only after rules.check approves a real uncertain action, roll a bounded dice expression on the client and return the result. Never call this for ordinary narration or option text.",
           "parameters": {
             "type": "object",
             "properties": { "expr": { "type": "string", "description": "Dice expression such as 1d20+3." } },
@@ -139,8 +190,8 @@
         },
         "rules.check": {
           "enabled": true,
-          "execution": "server",
-          "description": "Check a declared world rule without changing save state.",
+          "execution": "client",
+          "description": "Declare that the current player action needs a real world-rule check. This is a gate for one or more dice.roll calls and does not change save state.",
           "parameters": {
             "type": "object",
             "properties": { "ruleId": { "type": "string" }, "input": { "type": "object", "additionalProperties": true } },
@@ -206,7 +257,7 @@
     "apiKey": "",
     "model": "",
     "temperature": 0.9,
-    "maxTokens": 1024,
+    "maxTokens": 32000,
     "topP": 1,
     "frequencyPenalty": 0,
     "presencePenalty": 0,
@@ -911,7 +962,49 @@
       "time": { "unit": "cycle", "start": 1, "turnAdvance": 1 },
       "events": [{ "id": "unknown-pulse", "title": "未知脉冲", "description": "空间站收到一段不属于任何登记航线的信号。", "trigger": { "afterTurns": 2 }, "visibility": "public", "once": true, "consequences": ["所有终端短暂出现同一组坐标。"] }],
       "start": { "locationId": "ring-station", "openingMode": "static", "opening": "星环航站的人工重力刚刚恢复，所有终端同时亮起一组陌生坐标。", "playerTemplate": { "name": "未命名航员", "race": "人类", "role": "维修员", "profileFields": [] }, "initialState": { "stats": { "level": 1, "exp": 0, "expNext": 100, "hp": 10, "maxHp": 10, "mp": 1, "maxMp": 1, "gold": 120, "buffs": [] }, "inventory": [], "quests": [] } },
-      "lorebookIds": [], "rpgPresetName": "RPG 星环航站", "sessionSetup": { "title": "本局航站配置", "fields": [{ "id": "difficulty", "label": "故障压力", "type": "select", "options": [{ "value": "calm", "label": "平稳" }, { "value": "standard", "label": "标准" }, { "value": "critical", "label": "危急" }], "default": "standard" }, { "id": "allowNewEntities", "label": "允许 AI 发现新航站实体", "type": "boolean", "default": true }] }, "npcIds": [], "factionIds": [], "factions": [], "itemIds": [], "questTemplateIds": [], "locations": [{ "id": "ring-station", "name": "星环航站", "type": "station" }], "map": { "strategy": "worldCard", "baseMapId": null, "generation": { "seed": 22002, "size": 96, "regionCount": 8, "landRatio": 0.5, "mapgenSize": "small" } }, "ui": { "layout": "world-desk" }, "source": { "format": "native", "rawAssetRef": null }
-    }
+       "lorebookIds": [], "rpgPresetName": "RPG 星环航站", "sessionSetup": { "title": "本局航站配置", "fields": [{ "id": "difficulty", "label": "故障压力", "type": "select", "options": [{ "value": "calm", "label": "平稳" }, { "value": "standard", "label": "标准" }, { "value": "critical", "label": "危急" }], "default": "standard" }, { "id": "allowNewEntities", "label": "允许 AI 发现新航站实体", "type": "boolean", "default": true }] }, "npcIds": [], "factionIds": [], "factions": [], "itemIds": [], "questTemplateIds": [], "locations": [{ "id": "ring-station", "name": "星环航站", "type": "station" }], "map": { "strategy": "worldCard", "baseMapId": null, "generation": { "seed": 22002, "size": 96, "regionCount": 8, "landRatio": 0.5, "mapgenSize": "small" } }, "ui": { "layout": "world-desk" }, "source": { "format": "native", "rawAssetRef": null }
+     },
+     {
+       "schemaVersion": 1,
+       "id": "world-test-lab",
+       "version": 1,
+       "title": "潮汐试验场",
+       "summary": "用于验收 RPG 开局、配置驱动角色创建、地点/NPC/势力绑定、客户端骰子、事件、成长、记忆权限与存档地图隔离的完整测试世界卡。",
+       "coverImage": "",
+       "tags": ["测试", "沙盒", "多地点", "冲突", "成长"],
+       "setting": { "premise": "海潮会携带记忆回声，玩家在被遗忘的灯塔群岛上寻找失踪的测绘队。", "history": "三方势力争夺潮汐核心，旧王国灯塔会在特定时间唤醒。", "geography": "白潮港、雾林、断崖灯塔与潮汐遗迹可往返。", "culture": "港口居民依靠潮汐历法生活，测绘员拥有跨势力通行权。", "currentSituation": "红潮提前到来，测绘队最后联络来自断崖灯塔。" },
+       "rules": { "hard": ["玩家已知信息与世界真实信息分开保存。", "冲突判定由客户端骰子提供，AI 只叙述和提交结构化变化。", "地点、NPC、势力必须使用本卡稳定 ID。"], "soft": ["允许绕过初始目标自由探索。", "AI 可在规则许可时创建新事件，但不得改写硬事实。"] },
+       "playerCreation": {
+         "mode": "custom", "title": "建立潮汐旅者", "description": "可用预设快速开始，也可自由分配 18 点属性预算。", "pointBudget": { "label": "属性点", "total": 18, "min": 0, "mode": "pool", "cost": "above-min" }, "defaultPresetId": "balanced-scout",
+         "buildPresets": [{ "id": "balanced-scout", "label": "均衡测绘员", "description": "适合第一次测试全部系统。", "values": { "attributes": { "might": 5, "agility": 6, "insight": 6, "resolve": 5 }, "skills": { "survey": 3, "negotiate": 2, "survival": 3 }, "traits": ["tide-sense"] } }, { "id": "social-diplomat", "label": "港口调停者", "description": "优先测试关系、势力与社交冲突。", "values": { "attributes": { "might": 4, "agility": 5, "insight": 5, "resolve": 7 }, "skills": { "survey": 2, "negotiate": 5, "survival": 1 }, "traits": ["port-network"] } }],
+         "fields": [{ "id": "name", "label": "角色名", "type": "text", "required": true, "maxLength": 80 }, { "id": "gender", "label": "性别", "type": "select", "required": true, "options": [{ "value": "女", "label": "女" }, { "value": "男", "label": "男" }, { "value": "自定义", "label": "自定义" }] }, { "id": "age", "label": "年龄", "type": "number", "required": true, "min": 12, "max": 120, "default": 24, "step": 1 }, { "id": "origin", "label": "出身", "type": "select", "required": true, "options": [{ "value": "白潮港", "label": "白潮港" }, { "value": "雾林部族", "label": "雾林部族" }, { "value": "流浪测绘队", "label": "流浪测绘队" }] }, { "id": "identity", "label": "身份", "type": "textarea", "required": true, "maxLength": 1000 }, { "id": "appearance", "label": "外貌", "type": "textarea", "maxLength": 1600 }, { "id": "personality", "label": "性格", "type": "textarea", "maxLength": 1600 }, { "id": "customNotes", "label": "自定义补充", "type": "textarea", "maxLength": 3000 }],
+         "attributes": [{ "id": "might", "label": "力量", "min": 1, "max": 8, "default": 3, "step": 1 }, { "id": "agility", "label": "灵巧", "min": 1, "max": 8, "default": 3, "step": 1 }, { "id": "insight", "label": "洞察", "min": 1, "max": 8, "default": 3, "step": 1 }, { "id": "resolve", "label": "意志", "min": 1, "max": 8, "default": 3, "step": 1 }],
+         "skills": [{ "id": "survey", "label": "测绘", "description": "识别地形、路线与古代设施。", "min": 0, "max": 10, "default": 1, "step": 1 }, { "id": "negotiate", "label": "交涉", "description": "理解关系、谈判与势力诉求。", "min": 0, "max": 10, "default": 1, "step": 1 }, { "id": "survival", "label": "求生", "description": "在雾林、海岸与遗迹中维持行动。", "min": 0, "max": 10, "default": 1, "step": 1 }],
+         "resources": [{ "id": "hp", "label": "生命", "type": "number", "min": 1, "max": 100, "initial": 20 }, { "id": "focus", "label": "专注", "type": "number", "min": 0, "max": 30, "initial": 8 }, { "id": "shells", "label": "潮贝", "type": "number", "min": 0, "max": 10000, "initial": 60 }],
+         "derived": [{ "id": "travel-readiness", "label": "行旅准备", "formula": "attributes.agility + skills.survival", "description": "长途移动的基础准备度。" }, { "id": "social-leverage", "label": "交涉筹码", "formula": "attributes.resolve + skills.negotiate", "description": "公开谈判的基础筹码。" }],
+         "traits": [{ "id": "tide-sense", "label": "潮汐感知", "description": "能察觉潮汐核心的异常回声。" }, { "id": "port-network", "label": "港口人脉", "description": "在白潮港获得初始关系。" }, { "id": "old-wound", "label": "旧伤", "description": "生命上限降低，但可换取额外属性点。" }, { "id": "iron-body", "label": "坚韧体魄", "description": "测试互斥选择。" }],
+         "choiceBudget": { "label": "特质选择数", "total": 2, "min": 0 }, "choices": [{ "id": "tide-sense", "label": "潮汐感知", "kind": "trait", "cost": 1, "description": "读取潮汐回声。" }, { "id": "port-network", "label": "港口人脉", "kind": "trait", "cost": 1, "description": "获得港口初始关系。" }, { "id": "old-wound", "label": "旧伤", "kind": "flaw", "cost": 0, "excludes": ["iron-body"], "description": "测试缺陷。" }, { "id": "iron-body", "label": "坚韧体魄", "kind": "trait", "cost": 2, "excludes": ["old-wound"], "description": "测试互斥。" }],
+         "relations": [{ "npcId": "npc-mira", "min": -100, "max": 100, "default": 15 }, { "npcId": "npc-oren", "min": -100, "max": 100, "default": 0 }, { "npcId": "npc-sable", "min": -100, "max": 100, "default": -10 }],
+         "initialInventory": [{ "itemId": "tide-compass", "count": 1 }, { "itemId": "field-rations", "count": 2 }], "economy": { "inventory": { "enabled": true, "maxSlots": 12, "maxWeight": 24, "items": [{ "id": "tide-compass", "label": "潮汐罗盘", "weight": 0.6, "maxStack": 1 }, { "id": "field-rations", "label": "野外口粮", "weight": 0.5, "maxStack": 10 }, { "id": "lantern-oil", "label": "灯油", "weight": 0.4, "maxStack": 10 }] }, "equipment": { "enabled": true, "slots": [{ "id": "hand", "label": "手持" }, { "id": "body", "label": "身体" }] }, "currencies": [{ "id": "shells", "label": "潮贝", "min": 0, "max": 10000, "initial": 60 }] },
+         "growth": { "sources": [{ "id": "ruins", "label": "遗迹探索", "kind": "exploration", "description": "从旧王国设施中学习。" }, { "id": "alliances", "label": "势力关系", "kind": "relationship", "description": "通过势力互动成长。" }], "candidates": [{ "id": "survey-ruins", "label": "遗迹读图", "sourceId": "ruins", "bucket": "skills", "targetId": "survey", "delta": 1, "description": "解读古代地图后提升测绘。" }, { "id": "tide-awakening", "label": "潮声觉醒", "sourceId": "ruins", "bucket": "traits", "targetId": "tide-sense", "description": "确认潮汐感知。" }, { "id": "harbor-standing", "label": "港口声望", "sourceId": "alliances", "bucket": "factions", "targetId": "faction-harbor", "metric": "relation", "delta": 5, "description": "帮助港口后获得信任。" }, { "id": "new-calling", "label": "新的称谓", "sourceId": "alliances", "bucket": "identity", "targetId": "calling", "value": "潮汐见证者", "description": "势力承认你的新身份。" }] }
+       },
+       "turnContract": { "options": { "min": 0, "max": 4 }, "actionIntent": true },
+       "failure": { "defaultMode": "continue", "onZeroHp": "injured", "onConflictDefeat": "captured", "modes": [{ "id": "continue", "label": "继续", "description": "失败推进局面。" }, { "id": "injured", "label": "负伤", "description": "保留世界线并附加负伤状态。", "hpRatio": 0.25, "effect": "负伤" }, { "id": "captured", "label": "被扣留", "description": "被势力暂时控制，仍可脱身。", "effect": "被扣留" }, { "id": "resource-loss", "label": "资源损失", "description": "支付潮贝继续故事。", "resourceLoss": { "shells": 10 } }, { "id": "permadeath", "label": "永久死亡", "description": "世界线停止普通回合。", "terminal": true }] },
+       "ending": { "enabled": true, "allowPlayerEnd": true, "requireConfirm": true, "defaultEndingId": "player-choice", "endings": [{ "id": "player-choice", "kind": "player-choice", "label": "玩家主动结束", "description": "玩家确认后结束测试世界线。", "terminal": true }, { "id": "tide-core", "kind": "world", "label": "潮汐核心归位", "description": "完成主线后让群岛恢复稳定。", "terminal": true }] },
+       "conflicts": [
+         { "id": "reef-beast", "label": "礁兽袭击", "type": "combat", "description": "潮汐遗迹的守卫出现。", "maxRounds": 6, "phases": [{ "id": "approach", "label": "接近" }, { "id": "clash", "label": "交锋" }], "actions": [{ "id": "strike", "label": "正面反击", "description": "利用力量压制礁兽。", "check": { "roll": "1d20", "modifier": { "bucket": "attributes", "id": "might", "factor": 1 }, "target": 12, "damage": { "roll": "1d6", "modifier": { "bucket": "skills", "id": "survival", "factor": 1 } } } }, { "id": "evade", "label": "闪避", "description": "利用地形拉开距离。" }], "outcomes": [{ "id": "driven-off", "label": "击退", "consequences": ["礁兽退回浅滩。"] }, { "id": "retreat", "label": "撤退", "consequences": ["保住行动机会。"] }] },
+         { "id": "harbor-hearing", "label": "港口听证", "type": "social", "description": "港口议会要求说明测绘队失踪的责任。", "maxRounds": 4, "phases": [{ "id": "question", "label": "质询" }, { "id": "verdict", "label": "裁定" }], "actions": [{ "id": "appeal", "label": "陈述证据", "description": "用交涉争取信任。", "check": { "roll": "1d20", "modifier": { "bucket": "skills", "id": "negotiate", "factor": 1 }, "target": 11 } }, { "id": "reveal", "label": "公开线索", "description": "公开一条已确认线索。" }, { "id": "leave", "label": "离席", "description": "暂时放弃说服议会。" }], "outcomes": [{ "id": "trusted", "label": "获得信任", "consequences": ["开放港口档案室。"] }, { "id": "watched", "label": "受到监视", "consequences": ["行动受到关注。"] }] },
+         { "id": "mist-escape", "label": "雾林追踪", "type": "stealth", "description": "在雾林避开巡逻并追踪脚印。", "maxRounds": 5, "phases": [{ "id": "track", "label": "追踪" }, { "id": "hide", "label": "隐蔽" }], "actions": [{ "id": "track", "label": "追踪脚印", "description": "依靠测绘判断方向。", "check": { "roll": "1d20", "modifier": { "bucket": "skills", "id": "survey", "factor": 1 }, "target": 13 } }, { "id": "hide", "label": "隐蔽等待", "description": "让巡逻队先经过。" }], "outcomes": [{ "id": "found-path", "label": "找到路径", "consequences": ["发现通往灯塔的捷径。"] }, { "id": "lost", "label": "迷失", "consequences": ["回到雾林入口。"] }] }
+       ],
+       "time": { "unit": "潮汐时", "start": 6, "turnAdvance": 1 },
+       "events": [{ "id": "red-tide", "title": "红潮提前", "description": "海面泛起不合季节的红光，灯塔同时转向遗迹。", "trigger": { "at": 8 }, "visibility": "public", "once": true, "consequences": ["断崖灯塔开放隐藏入口。"] }, { "id": "missing-signal", "title": "测绘队回声", "description": "来自雾林的求救回声穿过潮雾。", "trigger": { "afterTurns": 2 }, "visibility": "local", "once": true, "consequences": ["获得一条前置线索。"] }, { "id": "harbor-alarm", "title": "港口封锁", "description": "回到白潮港时议会封锁码头。", "trigger": { "locationId": "white-tide-port" }, "visibility": "public", "once": true, "consequences": ["港口进入紧张状态。"] }],
+       "factions": [{ "id": "faction-harbor", "name": "白潮港议会", "description": "控制港口贸易与档案。", "goals": ["维持港口秩序", "找回测绘队"], "resources": [{ "id": "influence", "label": "议会影响", "min": 0, "max": 100, "initial": 55 }], "actions": [{ "id": "close-gates", "title": "封锁码头", "description": "红潮出现后限制船只出入。", "trigger": { "at": 8, "locationId": "white-tide-port" }, "changes": { "influence": 3 }, "consequences": ["港口进入戒严。"] }], "initialState": { "relation": 15, "influence": 55, "resources": { "influence": 55 } } }, { "id": "faction-mist-kin", "name": "雾林守望者", "description": "守护雾林旧路与口述记忆的部族。", "goals": ["阻止唤醒遗迹", "保护失踪者记录"], "resources": [{ "id": "trust", "label": "部族信任", "min": 0, "max": 100, "initial": 30 }], "actions": [{ "id": "move-scouts", "title": "调动巡守", "description": "发现遗迹异动后增加巡逻。", "trigger": { "afterTurns": 2, "locationId": "mistwood" }, "changes": { "trust": -2 }, "consequences": ["雾林巡逻变密。"] }], "initialState": { "relation": -10, "influence": 30, "resources": { "trust": 30 } } }],
+       "start": { "locationId": "white-tide-port", "openingMode": "ai", "opening": "红潮提前到来，白潮港的灯塔同时转向海面。", "playerTemplate": { "name": "未命名旅者", "race": "人类", "role": "测绘员", "profileFields": [] }, "initialState": { "stats": { "level": 1, "exp": 0, "expNext": 100, "hp": 20, "maxHp": 20, "mp": 8, "maxMp": 8, "gold": 60, "buffs": [] }, "inventory": [{ "name": "潮汐罗盘", "count": 1, "desc": "指向最近的潮汐回声。" }, { "name": "野外口粮", "count": 2 }], "quests": [{ "id": "find-survey-team", "title": "找到失踪测绘队", "desc": "确认测绘队最后的行踪。", "status": "active" }], "goals": [{ "id": "find-team", "title": "确认测绘队最后位置", "desc": "从白潮港出发确认最后联络地点。", "status": "active" }], "leads": [{ "id": "lighthouse-lead", "title": "断崖灯塔线索", "desc": "最后联络来自断崖灯塔。", "status": "active", "locationId": "cliff-lighthouse" }, { "id": "mistwood-lead", "title": "雾林旧路地图", "desc": "雾林守望者掌握旧路地图。", "status": "active", "locationId": "mistwood" }] } },
+       "lorebookIds": [], "rpgPresetName": "RPG 潮汐试验场", "sessionSetup": { "title": "本局规则配置", "fields": [{ "id": "difficulty", "label": "难度", "type": "select", "options": [{ "value": "story", "label": "故事" }, { "value": "standard", "label": "标准" }, { "value": "hard", "label": "困难" }], "default": "standard" }, { "id": "sandbox", "label": "Sandbox 强度", "type": "select", "options": [{ "value": "guided", "label": "引导" }, { "value": "open", "label": "开放" }, { "value": "chaos", "label": "高自由" }], "default": "open" }, { "id": "combatEnabled", "label": "启用冲突判定", "type": "boolean", "default": true }, { "id": "worldAdvance", "label": "世界主动推进", "type": "boolean", "default": true }, { "id": "allowNewEntities", "label": "允许 AI 创建新实体", "type": "boolean", "default": false }, { "id": "calendarNote", "label": "本局时间备注", "type": "textarea", "maxLength": 500, "default": "红潮前夜" }] },
+       "npcIds": ["npc-mira", "npc-oren", "npc-sable"], "npcs": [{ "id": "npc-mira", "name": "米拉·潮针", "role": "港口档案员", "description": "负责记录潮汐历与船只出入。", "persona": "谨慎务实，愿意帮助有证据的人。", "personality": "克制而敏锐", "appearance": "灰蓝短发，佩戴铜制潮针。", "speechStyle": "短句，常引用潮汐时间。", "publicFacts": ["认识失踪测绘队", "掌管港口档案室"], "publicGoals": ["找回测量记录"], "desires": ["恢复港口航运"], "fears": ["档案被篡改"], "goals": ["核对灯塔记录"], "activity": "在白潮港档案室工作", "locationId": "white-tide-port", "homeLocationId": "white-tide-port", "secrets": [{ "id": "mira-hidden-log", "content": "她藏起了一页显示测绘队主动进入遗迹的记录。" }] }, { "id": "npc-oren", "name": "奥伦·雾枝", "role": "雾林守望者", "description": "熟悉雾林旧路，拒绝相信港口的官方说法。", "persona": "沉默，先看行动再听承诺。", "personality": "戒备但并非敌对", "appearance": "带叶纹的深绿斗篷。", "speechStyle": "比喻多，避免直接说出旧路名称。", "publicFacts": ["来自雾林部族", "知道通往灯塔的旧路"], "publicGoals": ["阻止惊动遗迹"], "desires": ["保护口述记忆"], "fears": ["潮汐核心再次醒来"], "goals": ["确认玩家是否携带封锁令"], "activity": "在雾林入口巡守", "locationId": "mistwood", "homeLocationId": "mistwood", "secrets": [{ "id": "oren-knows", "content": "他知道失踪队中有人已经成为潮汐回声的一部分。" }] }, { "id": "npc-sable", "name": "萨布尔", "role": "遗迹拾荒者", "description": "在断崖灯塔附近活动的独行者。", "persona": "机敏贪财，却遵守交换规则。", "personality": "玩世不恭", "appearance": "黑色防潮斗篷，腰间挂着旧钥匙。", "speechStyle": "喜欢反问，讨厌完整回答。", "publicFacts": ["出售遗迹地图碎片", "最近在断崖灯塔出现"], "publicGoals": ["找到潮汐核心钥匙"], "desires": ["离开群岛"], "fears": ["被守望者发现真实身份"], "goals": ["用地图换取通行"], "activity": "在断崖灯塔外围徘徊", "locationId": "cliff-lighthouse", "homeLocationId": "cliff-lighthouse", "secrets": [{ "id": "sable-identity", "content": "萨布尔其实是失踪测绘队的前任领队。" }] }],
+       "factionIds": ["faction-harbor", "faction-mist-kin"], "itemIds": ["tide-compass", "field-rations", "lantern-oil"], "questTemplateIds": ["find-survey-team", "restore-lighthouse"], "locations": [{ "id": "white-tide-port", "name": "白潮港", "type": "port", "summary": "有档案室、议会厅与潮汐码头。", "tags": ["起点", "港口", "安全区"] }, { "id": "mistwood", "name": "雾林入口", "type": "forest", "summary": "雾林守望者巡逻的旧路入口。", "tags": ["森林", "巡逻"] }, { "id": "cliff-lighthouse", "name": "断崖灯塔", "type": "lighthouse", "summary": "失踪测绘队最后联络的位置。", "tags": ["灯塔", "线索"] }, { "id": "tide-ruins", "name": "潮汐遗迹", "type": "ruins", "summary": "旧王国潮汐核心所在。", "tags": ["遗迹", "危险"] }],
+       "map": { "strategy": "worldCard", "baseMapId": null, "data": { "size": 4, "seed": 41001, "engine": "sample", "regions": [{ "id": 0, "name": "港湾" }, { "id": 1, "name": "雾林" }, { "id": 2, "name": "断崖" }, { "id": 3, "name": "遗迹" }], "points": [{ "id": "white-tide-port", "regionId": 0, "label": "白潮港" }, { "id": "mistwood", "regionId": 1, "label": "雾林入口" }, { "id": "cliff-lighthouse", "regionId": 2, "label": "断崖灯塔" }, { "id": "tide-ruins", "regionId": 3, "label": "潮汐遗迹" }], "adjacency": [[0, 1], [1, 2], [2, 3]], "grid": [0, 0, 1, 1, 0, 1, 1, 2, 1, 1, 2, 2, 1, 2, 3, 3] }, "generation": { "seed": 41001, "size": 64, "regionCount": 4, "landRatio": 0.62, "mapgenSize": "tiny" } },
+       "ui": { "layout": "world-desk", "accent": "tide" }, "source": { "format": "native", "rawAssetRef": null }
+     }
   ]
 }

@@ -7,7 +7,7 @@
   <link rel="manifest" href="manifest.json" />
   <title>Tavern · AI RP 框架演示</title>
   <link rel="icon" type="image/png" href="favicon.png" />
-  <link rel="stylesheet" href="styles.css?v=20260812d" />
+  <link rel="stylesheet" href="styles.css?v=20260815a" />
 </head>
 <body data-theme="vibrancy" data-layout="classic">
   <canvas id="bg-fx" aria-hidden="true"></canvas>
@@ -19,7 +19,7 @@
       <div class="logo">
         <span class="logo-name">Tavern</span>
       </div>
-      <div class="logo-sub">AI ROLEPLAY · 框架占位</div>
+      <div class="logo-sub">AI ROLEPLAY</div>
       <nav id="nav">
         <div class="sidebar-mode-nav" data-mode-nav="tavern" aria-label="酒馆导航">
           <button class="nav-item active" data-view="chat"><span class="icon">❖</span><span class="label">对话</span></button>
@@ -62,6 +62,7 @@
         </div>
         <span id="rpg-world-save" class="rpg-world-save" hidden></span>
         <button class="ghost-btn" id="btn-debug" type="button" aria-controls="debug-panel" aria-expanded="false">⌘ 终端</button>
+        <button class="ghost-btn devtools-trigger" id="btn-devtools" type="button" aria-controls="devtools-panel" aria-expanded="false" hidden>🧪 开发者</button>
       </header>
 
       <div id="chat" class="chat" aria-live="polite"></div>
@@ -477,8 +478,8 @@
               <input id="s-temperature" type="range" min="0" max="2" step="0.1" value="0.9" />
             </div>
             <div class="field">
-              <label for="s-max-tokens">最大 Token</label>
-              <input id="s-max-tokens" type="number" min="64" max="8192" step="16" value="1024" />
+              <label for="s-max-tokens">最大 Token <span class="hint-inline">所有文本生成请求共用</span></label>
+              <input id="s-max-tokens" type="number" min="64" max="32768" step="16" value="32000" />
             </div>
           </div>
           <div class="field row2">
@@ -702,6 +703,7 @@
           <div class="world-hero-actions">
             <button class="ghost-btn small" id="world-export" type="button">⇩ 导出世界包</button>
             <button class="ghost-btn small" id="world-edit-draft" type="button">✎ 编辑草稿</button>
+            <button class="ghost-btn small danger" id="world-delete" type="button">删除世界卡</button>
           </div>
         </div>
         <div id="world-facts" class="world-facts"></div>
@@ -1122,12 +1124,41 @@
     </div>
   </dialog>
 
+  <dialog id="devtools-panel" class="devtools-panel" aria-labelledby="devtools-title">
+    <header class="debug-head devtools-head">
+      <div>
+        <strong id="devtools-title">RPG 开发者实验台</strong>
+        <span id="devtools-scope">仅在 ?dev=1 开启 · 当前没有世界存档</span>
+      </div>
+      <div class="debug-actions">
+        <button class="ghost-btn small" id="devtools-copy-state" type="button">复制状态</button>
+        <button class="ghost-btn small" id="devtools-close" type="button" aria-label="关闭开发者实验台">关闭</button>
+      </div>
+    </header>
+    <div class="devtools-toolbar">
+      <label class="field"><span>测试场景</span><select id="devtools-scenario"></select></label>
+      <button class="btn gold" id="devtools-submit" type="button">运行所选测试</button>
+    </div>
+    <p class="devtools-help">选择一个场景后点击「运行所选测试」即可。骰子、状态、实体和记忆测试都由预设自动填充；状态类测试会真实写入当前存档，建议使用测试世界。</p>
+    <div id="devtools-internal" hidden aria-hidden="true">
+      <input id="devtools-action" maxlength="10000" />
+      <input id="devtools-dice" maxlength="80" />
+      <textarea id="devtools-narrative" maxlength="100000"></textarea>
+      <textarea id="devtools-options" spellcheck="false"></textarea>
+      <textarea id="devtools-patch" spellcheck="false"></textarea>
+      <textarea id="devtools-agent-calls" spellcheck="false"></textarea>
+      <textarea id="devtools-entities" spellcheck="false"></textarea>
+      <textarea id="devtools-memory" spellcheck="false"></textarea>
+    </div>
+    <pre id="devtools-output" class="devtools-output" aria-live="polite">选择一个场景后点击「运行所选测试」。</pre>
+  </dialog>
+
 
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
   <script src="vendor/mapgen2.bundle.js"></script>
   <script src="mapgen.js?v=20260813e"></script>
-  <script src="app.js?v=20260813e"></script>
+  <script src="app.js?v=20260815n"></script>
   <script>
     // PWA：注册 service worker（仅 HTTPS / localhost 生效，套壳 APK 可用）
     if ('serviceWorker' in navigator) {

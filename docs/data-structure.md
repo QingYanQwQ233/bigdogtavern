@@ -12,6 +12,7 @@ public/data/
   presets.json     ← 提示词预设（对象，key=预设名）
   lorebooks.json   ← 世界书集合（对象，key=世界书 id）
   worlds.json      ← 世界卡运行时库（数组；来源为 _defaults.json.worlds）
+  world-deleted.json ← 已删除世界卡 ID（防止默认模板重新补回）
   settings.json    ← 全局连接设置（平铺对象）
 
   saves/<saveId>.json ← 世界存档（WorldSave；服务端按存档独立读写）
@@ -142,7 +143,7 @@ R6.4 的事实层级不复制一份“当前世界”：`WorldCard@worldVersion`
 
 R6.5 的上下文组装是请求级派生结果：NPC 按当前地点、队伍、任务 / 目标 / 线索、冲突参与者和已召回记忆筛选；地图只注入当前位置及相邻区域；事件、派系和长期记忆按当前地点与最近记录裁剪。所有作用域段共享 `prefs.worldContextBudget` 字符预算（默认 24000，范围 6000–60000），按当前状态、目标、记忆、NPC、事件到地图 / 派系的优先级保留；超预算只裁剪请求文本，不删除或改写 `WorldSave` 正式事实。
 
-正式回合 receipt 采用 `{ kind: 'turn', commandId, revision, turnIds, eventIds, agent, committedAt }`，开场等其他 receipt 不计入成功回合数。`agent.proposedTools` 只保存经过 Schema 校验的 AI 候选名称；`agent-execute` 阶段不写正式 receipt，`narrate` 阶段才把预览结果转为一次正式提交。正式 RPG 回合的骰子由客户端生成并写入 `actionIntent.dice`，服务端只校验表达式、面值和总和；`/api/dice` 保留为兼容/诊断接口，不再是世界回合的随机源。
+正式回合 receipt 采用 `{ kind: 'turn', commandId, revision, turnIds, eventIds, agent, committedAt }`，开场等其他 receipt 不计入成功回合数。`agent.proposedTools` 只保存经过 Schema 校验的 AI 候选名称；`agent-execute` 阶段不写正式 receipt，`narrate` 阶段才把预览结果转为一次正式提交。正式 RPG 回合的骰子由客户端生成并写入 `actionIntent.dice`，服务端只校验表达式、面值和总和；原生 Agent 还必须先调用 `rules.check` 才能调用 `dice.roll`，判定结果会回传给模型后再生成叙事；兼容模式不在模型回复后补掷骰。`/api/dice` 保留为兼容/诊断接口，不再是世界回合的随机源。
 
 `state.goals` 与 `state.leads` 是存档级目标 / 线索投影，使用稳定 `id`、`title`、`desc`、`status`，可选引用当前世界的 `actorId` / `locationId` 与 `deadline`；它们与旧 `quests` 并存，AI 只能通过本回合结构化控制块增量 upsert，服务端会校验 ID、状态和地点引用。
 
@@ -277,7 +278,7 @@ RPG 控制块使用 `protocol: 'tavern.rpg.turn'`、`version: 1`、`baseRevision
 {
   preset: '',               // 服务商 id（providers 的 key），⚠️ 与提示词预设无关
   baseUrl: '', apiKey: '', model: '',
-  temperature: 0.9, maxTokens: 1024, topP: 1,
+  temperature: 0.9, maxTokens: 32000, topP: 1, // 所有文本生成请求共用
   frequencyPenalty: 0, presencePenalty: 0, seed: -1,
   history: 20, stream: true,
   systemPrompt: '',         // 最后兜底（提示词栏不再直接编辑它；全局默认在 __global__）
@@ -319,6 +320,7 @@ RPG 控制块使用 `protocol: 'tavern.rpg.turn'`、`version: 1`、`baseRevision
 | `GET /api/worlds/<worldId>?version=<n>` | 读取指定世界卡版本；省略 `version` 时读取最新版本 |
 | `GET /api/worlds/<worldId>/versions` | 按版本号升序列出世界卡版本摘要 |
 | `GET /api/worlds/<worldId>/export?version=<n>` | 导出指定不可变版本的 `tavern_world_package` JSON；返回精确引用、资源清单、隐私剔除报告和内容哈希，不包含玩家存档或设置 |
+| `DELETE /api/worlds/<worldId>` | 删除世界卡的全部已发布版本和未发布草稿；若仍有存档则返回 `409`，默认世界通过 `world-deleted.json` 保持删除标记 |
 | `POST /api/world-imports` | 提交 `{ raw }` 以封存并预演一个世界包；通过时 201，未通过时 422，二者均不写入世界库 |
 | `GET /api/world-imports/<importId>` | 读取封存件元数据与兼容报告；不返回原文 |
 | `POST /api/world-imports/<importId>` | 确认导入已封存且仍通过哈希/引用校验的世界包；按导入命名空间创建新世界与专属引用；重复确认幂等 |
@@ -331,6 +333,7 @@ RPG 控制块使用 `protocol: 'tavern.rpg.turn'`、`version: 1`、`baseRevision
 | `POST /api/worlds/<worldId>/versions` | 显式把来源存档中的生成 NPC 收录进下一不可变世界版本；要求 `sourceSaveId`、`npcId`，可选 `expectedRevision` / `title` |
 | `GET /api/world-saves?worldId=<worldId>` | 列出指定世界的存档摘要 |
 | `POST /api/world-saves` | 按世界卡创建一个独立存档；可提交 `player: { fields, attributes, skills, resources, traits, relations }`，服务端按当前卡规则校验并分配 `saveId` |
+| `DELETE /api/world-saves/<saveId>` | 删除单个世界存档 JSON；不会删除世界卡或其他存档 |
 | `PUT /api/world-saves/<saveId>/setup` | 在 `planning` 状态下，以 `commandId + expectedRevision` 保存独立的开局规划草案；改动会清空尚未提交的候选 |
 | `POST /api/world-saves/<saveId>/opening-candidate` | 在 `planning` 状态下，以 `commandId + expectedRevision` 保存独立的 `OpeningCandidate`（叙事正文 + 4 个选项）；不写入正式开场 |
 | `POST /api/world-saves/<saveId>/opening` | 以 `commandId + expectedRevision` 幂等提交 AI 开场正文与 4 个选项；原子把 `setup.status` 切为 `active` 并更新当前存档的 `opening` / `openingOptions` |

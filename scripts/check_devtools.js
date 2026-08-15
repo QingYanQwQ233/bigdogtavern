@@ -1,0 +1,12 @@
+'use strict';
+const fs = require('fs');
+const defaults = JSON.parse(fs.readFileSync('public/data/_defaults.json', 'utf8'));
+const scenarios = defaults.devtools?.scenarios;
+if (!Array.isArray(scenarios) || scenarios.length < 4) throw new Error('devtools scenarios missing');
+const ids = new Set(scenarios.map(item => item.id));
+for (const id of ['turn-smoke', 'dice-smoke', 'state-smoke', 'memory-smoke']) if (!ids.has(id)) throw new Error(`missing scenario: ${id}`);
+const dice = scenarios.find(item => item.id === 'dice-smoke');
+if (dice.dice !== '1d20+2' || !dice.agentCalls?.some(call => call.name === 'rules.check' && call.arguments?.ruleId === '{{checkRuleId}}') || !dice.agentCalls?.some(call => call.name === 'dice.roll')) throw new Error('dice scenario invalid');
+const patch = scenarios.find(item => item.id === 'state-smoke')?.patch;
+if (patch?.updates?.[0]?.delta !== '{{resourceDelta}}') throw new Error('state scenario is not data-driven');
+console.log('devtools scenario check passed');
