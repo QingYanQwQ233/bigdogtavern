@@ -77,15 +77,20 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
     /* ---------- 工具 ---------- */
 
     private fun readBody(session: IHTTPSession): String {
-        // NanoHTTPD 标准方式：parseBody 把请求体解析到 files["postData"]。
-        // 直接读 session.inputStream 在 NanoHTTPD 下不可靠（body 可能读不到 → JSON 解析失败 → 500）。
-        return try {
-            val files = HashMap<String, String>()
+        // NanoHTTPD 对 POST 的原始数据放在 postData，对 PUT 则写入临时文件 content。
+        // 之前只读取 postData，导致 APK 的 PUT /setup 被当成空 JSON。
+        val files = HashMap<String, String>()
+        try {
             session.parseBody(files)
-            files["postData"] ?: ""
         } catch (e: Exception) {
-            ""
+            throw IllegalArgumentException("request body parse failed: ${e.message}", e)
         }
+        files["postData"]?.takeIf { it.isNotBlank() }?.let { return it }
+        files["content"]?.let { path ->
+            val content = File(path).readText(Charsets.UTF_8)
+            if (content.isNotBlank()) return content
+        }
+        throw IllegalArgumentException("request body is empty")
     }
 
     private fun openUpstream(baseUrl: String, path: String, apiKey: String, body: String?): HttpURLConnection {

@@ -13,4 +13,6 @@ assert.ok(source.includes('baseRevision'), 'Android must enforce Typed Patch bas
 assert.ok(source.includes('openingPlanError'), 'Android must validate opening plans');
 assert.ok(source.includes('openingCandidateError'), 'Android must validate opening candidates');
 assert.ok(source.includes('setupStatus'), 'Android summaries must expose setup status');
+assert.ok(source.includes('files["content"]'), 'Android PUT bodies must read NanoHTTPD temp content files');
+assert.ok(!source.includes('files["postData"] ?: ""'), 'Android must not silently convert missing bodies to empty JSON');
 console.log('android API contract check passed');
