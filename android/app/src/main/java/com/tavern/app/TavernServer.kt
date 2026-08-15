@@ -668,7 +668,7 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
             savesDir.listFiles()?.filter { it.extension == "json" }?.forEach { candidateFile ->
                 val existing = readObject(candidateFile)
                 val info = existing?.optJSONObject("reopenInfo")
-                if (info?.optString("sourceSaveId") == current.optString("id") && info.optString("commandId") == commandId) return json(Response.Status.OK, JSONObject().put("save", existing).put("idempotent", true))
+                if (info?.optString("sourceSaveId") == current.optString("id") && info?.optString("commandId") == commandId) return json(Response.Status.OK, JSONObject().put("save", existing).put("idempotent", true))
             }
             val state = current.optJSONObject("state") ?: return json(Response.Status.CONFLICT, JSONObject().put("error", "state missing"))
             val ended = state.optJSONObject("ending")?.optString("status") == "ended" || state.optJSONObject("failure")?.optString("status") == "terminal"
