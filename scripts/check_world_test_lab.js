@@ -62,7 +62,7 @@ async function main() {
     assert.ok(world.playerCreation.fields.some(field => field.id === 'customNotes'));
     assert.strictEqual(world.playerCreation.derived[1].formula, 'attributes.resolve + skills.negotiate');
     assert.strictEqual(world.map.data.grid.length, world.map.data.size ** 2);
-    assert.deepStrictEqual(Object.keys(defaults.rpg.agent.tools).sort(), ['context.retrieve', 'dice.roll', 'entity.create', 'memory.record', 'rules.check', 'state.patch'].sort());
+    assert.deepStrictEqual(Object.keys(defaults.rpg.agent.tools).sort(), ['context.retrieve', 'dice.roll', 'entity.create', 'memory.record', 'objective.upsert', 'rules.check', 'state.patch'].sort());
 
     const player = {
       fields: { name: '测试旅者', gender: '自定义', age: 24, origin: '白潮港', identity: '潮汐测绘员', appearance: '披着防潮斗篷', personality: '谨慎好奇', customNotes: '用于验证自定义字段。' },

@@ -7,7 +7,7 @@
   <link rel="manifest" href="manifest.json" />
   <title>Tavern · AI RP 框架演示</title>
   <link rel="icon" type="image/png" href="favicon.png" />
-  <link rel="stylesheet" href="styles.css?v=20260815a" />
+  <link rel="stylesheet" href="styles.css?v=20260816i" />
 </head>
 <body data-theme="vibrancy" data-layout="classic">
   <canvas id="bg-fx" aria-hidden="true"></canvas>
@@ -25,12 +25,14 @@
           <button class="nav-item active" data-view="chat"><span class="icon">❖</span><span class="label">对话</span></button>
           <button class="nav-item" data-view="chars"><span class="icon">🐾</span><span class="label">角色</span></button>
           <button class="nav-item" data-view="prompts"><span class="icon">✍</span><span class="label">提示词</span></button>
+          <button class="nav-item" data-view="regex"><span class="icon">⌁</span><span class="label">正则</span></button>
           <button class="nav-item" data-view="lore"><span class="icon">📖</span><span class="label">世界书</span></button>
           <button class="nav-item" data-view="memory"><span class="icon">🧠</span><span class="label">记忆</span></button>
         </div>
         <div class="sidebar-mode-nav" data-mode-nav="rpg" aria-label="RPG 导航">
           <button class="nav-item active" data-view="chat"><span class="icon">⚔</span><span class="label">工作台</span></button>
           <button class="nav-item" data-view="worlds"><span class="icon">🗺</span><span class="label">世界与存档</span></button>
+          <button class="nav-item" data-view="regex"><span class="icon">⌁</span><span class="label">正则</span></button>
         </div>
       </nav>
       <div class="sidebar-footer">
@@ -67,6 +69,15 @@
 
       <div id="chat" class="chat" aria-live="polite"></div>
 
+      <section id="rpg-extension-host" class="rpg-extension-host" hidden aria-label="世界卡扩展">
+        <div class="rpg-extension-head">
+          <span id="rpg-extension-title">世界扩展</span>
+          <span id="rpg-extension-status" class="rpg-extension-status" role="status" aria-live="polite"></span>
+          <button id="rpg-extension-reload" class="ghost-btn small" type="button">重载</button>
+        </div>
+        <div id="rpg-extension-frame" class="rpg-extension-frame"></div>
+      </section>
+
       <!-- ═══ RPG 模式功能区（默认隐藏，RPG 模式显示） ═══ -->
       <aside id="rpg-left" class="rpg-panel">
         <div class="rpg-panel-head">🧬 角色 <button class="ghost-btn small rpg-drawer-close" type="button" data-rpg-drawer-close>关闭</button></div>
@@ -84,6 +95,7 @@
         <div id="rpg-currencies" class="rpg-list"></div>
         <div class="rpg-panel-head" style="margin-top:10px">⚔️ 冲突</div>
         <div id="rpg-conflicts" class="rpg-list"></div>
+        <div id="rpg-custom-left" aria-live="polite"></div>
       </aside>
       <aside id="rpg-right" class="rpg-panel">
         <div class="rpg-panel-head">📜 任务 <button class="ghost-btn small rpg-drawer-close" type="button" data-rpg-drawer-close>关闭</button></div>
@@ -91,6 +103,8 @@
         <button class="ghost-btn" id="btn-rpg-quest" style="width:100%;margin-top:6px">＋ 添加任务</button>
         <div class="rpg-panel-head" style="margin-top:10px">🎯 目标</div>
         <div id="rpg-goals" class="rpg-list" role="list" aria-label="当前目标"></div>
+        <div class="rpg-panel-head" style="margin-top:10px">🪝 开局 Hook</div>
+        <div id="rpg-hooks" class="rpg-list" role="list" aria-label="当前开局 Hook"></div>
         <div class="rpg-panel-head" style="margin-top:10px">🧭 线索</div>
         <div id="rpg-leads" class="rpg-list" role="list" aria-label="当前线索"></div>
         <div class="rpg-panel-head" style="margin-top:10px">📰 世界事件</div>
@@ -116,6 +130,7 @@
           <div class="rpg-map-beauty" id="map-beauty" hidden><img id="map-beauty-img" alt="AI 美化后的世界地图（点击打开）" /></div>
           <p class="hint">点击地图打开地图窗口：重新生成 / AI 美化 / 查看大图 / 区域信息。</p>
         </div>
+        <div id="rpg-custom-right" aria-live="polite"></div>
       </aside>
       <div id="rpg-status" class="rpg-status">
         <div class="rpg-stat hp"><span>HP</span><div class="rpg-bar"><i id="rpg-hp-bar"></i></div><b id="rpg-hp-text">0/0</b></div>
@@ -130,7 +145,7 @@
         <button class="ghost-btn small" type="button" data-rpg-drawer="left" aria-controls="rpg-left">角色与背包</button>
         <button class="ghost-btn small" type="button" data-rpg-drawer="right" aria-controls="rpg-right">任务与世界状态</button>
       </div>
-      <div id="rpg-mobile-scrim" class="rpg-mobile-scrim" hidden></div>
+      <button id="rpg-mobile-scrim" class="rpg-mobile-scrim" type="button" aria-label="关闭 RPG 侧栏" hidden></button>
 
       <footer class="composer">
         <div class="quick-actions" id="quick-actions">
@@ -230,6 +245,13 @@
   <div id="prompt-mgr" class="char-mgr hidden">
     <div class="cm-side">
       <div class="cm-head">提示词预设</div>
+      <div class="pg-active-panel">
+        <div class="field">
+          <label for="pg-active">当前模式实际使用的预设</label>
+          <select id="pg-active"></select>
+          <p id="pg-active-note" class="hint">下拉框决定当前模式发送请求时实际使用的预设。</p>
+        </div>
+      </div>
       <div id="pg-list" class="cm-list"></div>
       <button class="btn gold small" id="pg-new" style="width:100%">＋ 新建预设</button>
       <div class="pg-side-actions">
@@ -238,16 +260,12 @@
       </div>
       <input id="pg-file" type="file" accept="application/json,.json" hidden />
       <button class="ghost-btn" id="pg-del" style="width:100%;margin-top:6px">删除当前预设</button>
-      <p class="hint" style="margin-top:10px">兼容 SillyTavern Chat Completion 预设的 prompts 与 prompt_order；扩展脚本和正则不会执行。</p>
+      <p class="hint" style="margin-top:10px">兼容 SillyTavern Chat Completion 预设的 prompts、prompt_order 与输出正则；扩展脚本不会执行。</p>
     </div>
     <div class="cm-edit">
       <div class="cm-edit-head">
         <span id="pg-edit-title">编辑预设 / 全局默认</span>
         <button class="ghost-btn back-action" data-back-chat>回到对话</button>
-      </div>
-      <div class="field">
-        <label for="pg-active">当前模式使用的预设</label>
-        <select id="pg-active"></select>
       </div>
       <div class="field row2">
         <div class="field"><label for="pg-mode">适用模式</label><select id="pg-mode"><option value="tavern">酒馆</option><option value="rpg">RPG</option><option value="both">两种模式</option></select></div>
@@ -278,6 +296,35 @@
         <button class="btn gold" id="pg-save">保存预设</button>
       </div>
       <p class="hint" style="margin-top:10px">运行时仍合并为唯一一条 system 消息；User / Assistant 条目按顺序进入上下文。未知宏会原样保留。</p>
+    </div>
+  </div>
+
+  <!-- ═══ 输出正则页 ═══ -->
+  <div id="regex-mgr" class="char-mgr hidden">
+    <div class="cm-side">
+      <div class="cm-head">输出正则</div>
+      <p class="hint" id="regex-mode-note">当前模式：酒馆</p>
+      <div id="regex-list" class="cm-list"></div>
+      <button class="btn gold small" id="regex-new" style="width:100%">＋ 新建自定义正则</button>
+      <p class="hint" style="margin-top:10px">当前预设携带的正则会自动识别并执行；自定义正则只作用于当前模式。</p>
+    </div>
+    <div class="cm-edit">
+      <div class="cm-edit-head">
+        <span id="regex-edit-title">输出正则</span>
+        <button class="ghost-btn back-action" data-back-chat>回到对话</button>
+      </div>
+      <div class="field"><label for="regex-name">名称</label><input id="regex-name" placeholder="例如：隐藏思维链标签" /></div>
+      <div class="field"><label for="regex-find">匹配表达式 <span class="hint-inline">支持 /表达式/gi 或普通正则</span></label><input id="regex-find" placeholder="例如：/<think>[\\s\\S]*?<\\/think>/g" /></div>
+      <div class="field"><label for="regex-replace">替换为</label><input id="regex-replace" placeholder="留空表示删除匹配内容" /></div>
+      <div class="field"><label for="regex-trim">额外移除片段 <span class="hint-inline">逗号分隔</span></label><input id="regex-trim" placeholder="例如：<analysis>, </analysis>" /></div>
+      <div class="field"><label class="check"><input id="regex-enabled" type="checkbox" checked /> 启用此正则</label></div>
+      <div class="wi-actions">
+        <button class="btn gold small" id="regex-save">保存正则</button>
+        <button class="ghost-btn" id="regex-copy">复制为自定义</button>
+        <button class="ghost-btn" id="regex-del">删除正则</button>
+        <button class="ghost-btn" id="regex-reset">＋ 新建</button>
+      </div>
+      <p id="regex-note" class="hint">预设正则只读；点击「复制为自定义」后可调整。</p>
     </div>
   </div>
 
@@ -374,12 +421,14 @@
           <button class="nav-item active" data-view="chat"><span class="icon">❖</span><span class="label">对话</span></button>
           <button class="nav-item" data-view="chars"><span class="icon">🐾</span><span class="label">角色</span></button>
           <button class="nav-item" data-view="prompts"><span class="icon">✍</span><span class="label">提示词</span></button>
+          <button class="nav-item" data-view="regex"><span class="icon">⌁</span><span class="label">正则</span></button>
           <button class="nav-item" data-view="lore"><span class="icon">📖</span><span class="label">世界书</span></button>
           <button class="nav-item" data-view="memory"><span class="icon">🧠</span><span class="label">记忆</span></button>
         </div>
         <div class="sidebar-mode-nav" data-mode-nav="rpg" aria-label="RPG 导航">
           <button class="nav-item active" data-view="chat"><span class="icon">⚔</span><span class="label">工作台</span></button>
           <button class="nav-item" data-view="worlds"><span class="icon">🗺</span><span class="label">世界与存档</span></button>
+          <button class="nav-item" data-view="regex"><span class="icon">⌁</span><span class="label">正则</span></button>
         </div>
         <button class="nav-item api-entry js-mode-switch" type="button"><span class="icon">🍺</span><span class="label mode-switch-label">模式：酒馆</span></button>
         <button class="nav-item api-entry js-settings"><span class="icon">🔮</span><span class="label">设置</span></button>
@@ -435,6 +484,7 @@
       <div class="settings-tabs">
         <button class="st-tab active" data-st="conn">连接</button>
         <button class="st-tab" data-st="format">格式</button>
+        <button class="st-tab" data-st="typo">排版</button>
         <button class="st-tab" data-st="image">文生图</button>
       </div>
 
@@ -559,7 +609,59 @@
               </select>
             </div>
           </div>
-          <p class="hint">特定输出格式控制（正则替换管线）将在后续版本加入。</p>
+          <div class="field format-display-option">
+            <label class="check"><input id="f-bubbles" type="checkbox" /> 将酒馆模式引号对白拆成气泡 <span class="hint-inline">默认关闭；关闭时整条回复按连续 Markdown 正文显示</span></label>
+            <p class="hint">开启后仅识别括号外的中文引号“对白”，括号内引用仍保留为正文。</p>
+          </div>
+          <p class="hint">输出正则请从侧栏「正则」进入；RP 与 RPG 分模式保存，预设携带的 SillyTavern 正则会自动识别。</p>
+        </div>
+
+        <!-- ── Tab 排版 ── -->
+        <div id="st-panel-typo" class="hidden">
+          <div class="field">
+            <label for="t-font">正文字体 <span class="hint-inline">作用于酒馆对话与 RPG 叙事正文</span></label>
+            <select id="t-font">
+              <option value="default">跟随界面（默认）</option>
+              <option value="sans">黑体 · 无衬线</option>
+              <option value="serif">宋体 · 衬线</option>
+              <option value="kai">楷体</option>
+              <option value="fangsong">仿宋</option>
+              <option value="mono">等宽</option>
+            </select>
+          </div>
+          <div class="field row2">
+            <div class="field">
+              <label for="t-font-size">字体大小 <span id="t-font-size-val" class="hint-inline">15px</span></label>
+              <input id="t-font-size" type="range" min="10" max="32" step="0.5" value="15" />
+            </div>
+            <div class="field">
+              <label for="t-line-height">行间距 <span id="t-line-height-val" class="hint-inline">1.8</span></label>
+              <input id="t-line-height" type="range" min="1" max="4" step="0.05" value="1.8" />
+            </div>
+          </div>
+          <div class="field row2">
+            <div class="field">
+              <label for="t-para-gap">段间距 <span id="t-para-gap-val" class="hint-inline">0.7em</span></label>
+              <input id="t-para-gap" type="range" min="0" max="4" step="0.1" value="0.7" />
+            </div>
+            <div class="field">
+              <label for="t-indent">段首缩进</label>
+              <select id="t-indent">
+                <option value="none">无缩进</option>
+                <option value="2em">空两格</option>
+                <option value="1em">空一格</option>
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <label for="t-side-pad">左右间距 <span id="t-side-pad-val" class="hint-inline">24px</span></label>
+            <input id="t-side-pad" type="range" min="0" max="320" step="2" value="24" />
+            <p class="hint">数值即两侧留白像素（1:1 线性）：0 = 贴满两侧（旧版全宽）；拉大逐渐收窄，约 240 起接近居中阅读列。</p>
+          </div>
+          <div class="modal-actions">
+            <button class="ghost-btn" id="btn-typo-reset">恢复默认排版</button>
+          </div>
+          <p class="hint">排版修改立即生效并自动保存；设置中的其他改动同样改完即存，不再依赖「保存」按钮。</p>
         </div>
 
         <!-- ── Tab 文生图（测试） ── -->
@@ -810,7 +912,7 @@
           </div>
           <div class="field">
             <label for="world-draft-rules">硬 / 软规则 <span class="hint-inline">JSON；硬规则优先，软规则供叙事参考</span></label>
-            <textarea id="world-draft-rules" name="worldDraftRules" rows="8" maxlength="70000" spellcheck="false" placeholder='{"hard":["魔法需要媒介"],"soft":["城镇居民重视契约"]}'></textarea>
+            <textarea id="world-draft-rules" name="worldDraftRules" rows="8" maxlength="70000" spellcheck="false" placeholder='{"hard":["魔法需要媒介"],"soft":["城镇居民重视契约"],"checks":[{"id":"notice","label":"观察","roll":"1d20","target":10}]}'></textarea>
           </div>
         </div>
         <div class="field row2">
@@ -822,6 +924,53 @@
             <label for="world-draft-lorebooks">绑定世界书 ID <span class="hint-inline">逗号分隔</span></label>
             <input id="world-draft-lorebooks" name="worldDraftLorebooks" maxlength="1000" placeholder="default, lore-aurora" spellcheck="false" />
           </div>
+        </div>
+        <div class="field">
+          <label for="world-draft-rpg-preset">RPG 提示词预设 <span class="hint-inline">本世界卡正式游玩时使用</span></label>
+          <select id="world-draft-rpg-preset" name="worldDraftRpgPreset"></select>
+          <p class="hint">留空使用当前 RPG 模式默认预设；选择后会随世界卡版本绑定，不会串到其他世界。</p>
+        </div>
+        <div class="field">
+          <label for="world-draft-agent">Agent 回合配置 <span class="hint-inline">可选 JSON；本世界卡独立覆盖</span></label>
+          <textarea id="world-draft-agent" name="worldDraftAgent" rows="8" maxlength="30000" spellcheck="false" placeholder='{"mode":"tool-candidate","maxSteps":2,"tools":{"rules.check":{"enabled":true},"dice.roll":{"enabled":true}}}'></textarea>
+          <p class="hint">留空继承全局 / RPG 预设；可配置 native 或兼容 tool-candidate 模式、最大步骤和工具开关。工具仍受系统白名单与存档校验约束。</p>
+        </div>
+        <div class="field">
+          <label for="world-draft-regexes">世界卡输出正则 <span class="hint-inline">可选 JSON；本世界卡独立绑定</span></label>
+          <textarea id="world-draft-regexes" name="worldDraftRegexes" rows="7" maxlength="50000" spellcheck="false" placeholder='[{"id":"hide-state","name":"隐藏状态块","findRegex":"/&lt;tavern_state_update&gt;[\\s\\S]*?&lt;\\/tavern_state_update&gt;/gi","replaceString":"","enabled":true}]'></textarea>
+          <p class="hint">按“世界卡 → RPG 预设 → RPG 模式自定义”顺序执行；留空不覆盖预设。只执行输出替换，不执行脚本、EJS 或 MVU。</p>
+        </div>
+        <div class="field">
+          <label for="world-draft-ui">RPG 界面配置 <span class="hint-inline">可选 JSON；声明式侧边栏</span></label>
+          <textarea id="world-draft-ui" name="worldDraftUi" rows="8" maxlength="180000" spellcheck="false" placeholder='{"layout":"world-desk","sidebar":{"panels":[{"id":"relations","title":"人物关系","icon":"💠","side":"right","source":"save.npcStates","layout":"cards","fields":[{"key":"locationId","label":"位置"},{"key":"relation.trust","label":"信任"}]}]},"extension":{"enabled":true,"title":"世界 HUD","html":"<button id=\"rest\">休息</button>","css":"button{padding:8px;border-radius:8px}","js":"document.querySelector(\"#rest\").onclick=()=>TavernExtension.action(\"rest\",{});","permissions":["read.public","read.save","write.runtime","tool.call"]}}'></textarea>
+          <p class="hint">sidebar 仍使用声明式数据源；如需自定义界面，可在同一 JSON 的 <code>extension</code> 中声明 HTML/CSS/JS/MVU 协议。扩展只在 sandbox iframe 内运行，权限默认只读。</p>
+          <details id="world-draft-extension-editor" class="world-extension-editor">
+            <summary>扩展可视化设置 <span class="hint-inline">高级 JSON 仍可直接编辑</span></summary>
+            <div class="world-extension-editor-body">
+              <label class="check"><input id="world-extension-enabled" type="checkbox" /> 启用世界扩展</label>
+              <div class="field row2">
+                <div class="field"><label for="world-extension-title">标题</label><input id="world-extension-title" maxlength="120" placeholder="世界 HUD" /></div>
+                <div class="field row2"><div class="field"><label for="world-extension-height">高度</label><input id="world-extension-height" type="number" min="180" max="800" step="1" value="360" /></div><div class="field"><label for="world-extension-timeout">超时(ms)</label><input id="world-extension-timeout" type="number" min="200" max="5000" step="100" value="1200" /></div></div>
+              </div>
+              <div class="world-extension-permissions" role="group" aria-label="扩展权限">
+                <span class="hint-inline">权限</span>
+                <label class="check"><input type="checkbox" value="read.public" data-world-extension-permission />读取世界公开资料</label>
+                <label class="check"><input type="checkbox" value="read.save" data-world-extension-permission />读取当前存档投影</label>
+                <label class="check"><input type="checkbox" value="write.runtime" data-world-extension-permission />写入 runtime</label>
+                <label class="check"><input type="checkbox" value="tool.call" data-world-extension-permission />调用声明式动作</label>
+              </div>
+              <label for="world-extension-html">HTML</label><textarea id="world-extension-html" rows="4" maxlength="60000" spellcheck="false" placeholder="<section>世界 HUD</section>"></textarea>
+              <label for="world-extension-css">CSS</label><textarea id="world-extension-css" rows="4" maxlength="60000" spellcheck="false" placeholder="section{padding:12px}"></textarea>
+              <label for="world-extension-js">JS（只在隔离 iframe 执行）</label><textarea id="world-extension-js" rows="5" maxlength="60000" spellcheck="false" placeholder="document.querySelector('button')?.addEventListener('click',()=>TavernExtension.action('rest',{}));"></textarea>
+              <label for="world-extension-mvu">MVU 协议配置 JSON（可选）</label><textarea id="world-extension-mvu" rows="3" maxlength="12000" spellcheck="false" placeholder='{"protocol":"mvu.compat","version":1}'></textarea>
+              <div class="world-extension-editor-actions"><button id="world-extension-load-json" class="ghost-btn small" type="button">从高级 JSON 载入扩展</button><span class="hint-inline">保存时可视化字段会写回 ui.extension；空白扩展不会写入。</span></div>
+            </div>
+          </details>
+        </div>
+        <div class="field">
+          <label for="world-draft-runtime">RPG GEN 3 运行态 <span class="hint-inline">可选 JSON；变量、集合、声明式动作</span></label>
+          <textarea id="world-draft-runtime" name="worldDraftRuntime" rows="10" maxlength="120000" spellcheck="false" placeholder='{"version":1,"variables":[{"id":"weather","label":"天气","scope":"world","type":"enum","options":["晴朗","降雨"],"initial":"晴朗"}],"collections":[{"id":"shop","label":"商城","scope":"save","initial":[{"id":"potion","name":"治疗药水","price":10}]}],"actions":[{"id":"restock","label":"补货","effects":[{"type":"collection.add","collectionId":"shop","value":{"id":"torch","name":"火把","price":3}}]}]}'></textarea>
+          <p class="hint">存档创建时会快照这份 Schema；AI 只能通过 <code>state.patch</code> 的 runtime 更新或声明式 action 修改，不能写任意路径。侧栏可读取 <code>runtime.variables.变量ID</code> / <code>runtime.collections.集合ID</code>。</p>
         </div>
         <div class="field">
           <label for="world-draft-player-creation">玩家创建规则 <span class="hint-inline">可视化编辑；字段由世界卡声明</span></label>
@@ -1157,8 +1306,8 @@
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
   <script src="vendor/mapgen2.bundle.js"></script>
-  <script src="mapgen.js?v=20260813e"></script>
-  <script src="app.js?v=20260815n"></script>
+  <script src="mapgen.js?v=20260816i"></script>
+  <script src="app.js?v=20260816i"></script>
   <script>
     // PWA：注册 service worker（仅 HTTPS / localhost 生效，套壳 APK 可用）
     if ('serviceWorker' in navigator) {

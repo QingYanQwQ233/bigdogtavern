@@ -222,8 +222,11 @@ async function main() {
         summary: '草稿简介',
         tags: ['日式西幻', '草稿'],
         lorebookIds: ['default'],
+        agent: { mode: 'tool-candidate', maxSteps: 2, tools: { 'rules.check': { enabled: true }, 'dice.roll': { enabled: true } } },
+        ui: { layout: 'world-desk', sidebar: { panels: [{ id: 'relations', title: '人物关系', side: 'right', source: 'save.npcStates', layout: 'cards', fields: [{ key: 'locationId', label: '位置' }] }, { id: 'hooks', title: '开放 Hook', side: 'left', source: 'save.state.activeHooks', layout: 'table', fields: [{ key: 'status', label: '状态' }] }] } },
+        regexes: [{ id: 'hide-state', name: '隐藏状态块', findRegex: '/<tavern_state_update>[\\s\\S]*?<\\/tavern_state_update>/gi', replaceString: '', enabled: true }],
         setting: { premise: '以契约维系的雨港边境。', history: '旧王国在三十年前分裂。', currentSituation: '港口正在封锁。' },
-        rules: { hard: ['魔法必须有媒介。'], soft: ['居民优先遵守公开契约。'] },
+        rules: { hard: ['魔法必须有媒介。'], soft: ['居民优先遵守公开契约。'], checks: [{ id: 'notice', label: '观察', roll: '1d20', target: 10 }] },
         mapGeneration: draftMapGeneration,
         factions: [{ id: 'north-guild', name: 'North Guild', resources: [{ id: 'funds', label: 'Funds', min: 0, max: 100, initial: 40 }] }],
         events: [{ id: 'rain-warning', title: '雨势加剧', description: '山路即将封闭。', trigger: { locationId: 'wolf-tooth-inn' }, visibility: 'public', once: true }],
@@ -236,6 +239,13 @@ async function main() {
     assert.deepStrictEqual(draftUpdate.body.world.tags, ['日式西幻', '草稿']);
     assert.strictEqual(draftUpdate.body.world.setting.premise, '以契约维系的雨港边境。');
     assert.deepStrictEqual(draftUpdate.body.world.rules.hard, ['魔法必须有媒介。']);
+    assert.strictEqual(draftUpdate.body.world.rules.checks[0].id, 'notice');
+    assert.strictEqual(draftUpdate.body.world.agent.mode, 'tool-candidate');
+    assert.strictEqual(draftUpdate.body.world.agent.maxSteps, 2);
+    assert.strictEqual(draftUpdate.body.world.ui.sidebar.panels[0].source, 'save.npcStates');
+    assert.strictEqual(draftUpdate.body.world.ui.sidebar.panels[1].source, 'save.state.activeHooks');
+    assert.strictEqual(draftUpdate.body.world.ui.sidebar.panels[1].layout, 'table');
+    assert.strictEqual(draftUpdate.body.world.regexes[0].id, 'hide-state');
     assert.deepStrictEqual(draftUpdate.body.world.locations, draftLocations);
     assert.deepStrictEqual(draftUpdate.body.world.npcs, draftNpcs);
     assert.deepStrictEqual(draftUpdate.body.world.npcIds, ['npc-lily']);
@@ -277,6 +287,24 @@ async function main() {
     assert.strictEqual(ruleDraftUpdate.body.world.failure.modes[0].id, 'test-failure');
     assert.strictEqual(ruleDraftUpdate.body.world.ending.endings[0].id, 'test-ending');
     assert.strictEqual(ruleDraftUpdate.body.world.playerCreation.growth.candidates[0].sourceId, 'training-test');
+    const invalidUiDraft = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedUpdatedAt: ruleDraftUpdate.body.updatedAt, baseVersion: world.version, title: ruleDraftUpdate.body.world.title, summary: ruleDraftUpdate.body.world.summary, tags: ruleDraftUpdate.body.world.tags, lorebookIds: ruleDraftUpdate.body.world.lorebookIds, ui: { sidebar: { panels: [{ id: 'unsafe', title: '脚本面板', source: 'save.secret' }] } }, locations: draftLocations, npcs: draftNpcs }),
+    });
+    assert.strictEqual(invalidUiDraft.response.status, 400, 'world UI only accepts allowlisted sources');
+    const invalidAgentDraft = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedUpdatedAt: ruleDraftUpdate.body.updatedAt, baseVersion: world.version, title: ruleDraftUpdate.body.world.title, summary: ruleDraftUpdate.body.world.summary, tags: ruleDraftUpdate.body.world.tags, lorebookIds: ruleDraftUpdate.body.world.lorebookIds, agent: { mode: 'native', maxSteps: 99 }, locations: draftLocations, npcs: draftNpcs }),
+    });
+    assert.strictEqual(invalidAgentDraft.response.status, 400, 'world Agent maxSteps is bounded');
+    const invalidRegexDraft = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedUpdatedAt: ruleDraftUpdate.body.updatedAt, baseVersion: world.version, title: ruleDraftUpdate.body.world.title, summary: ruleDraftUpdate.body.world.summary, tags: ruleDraftUpdate.body.world.tags, lorebookIds: ruleDraftUpdate.body.world.lorebookIds, regexes: [{ id: 'bad-regex', name: '坏规则', findRegex: '/[/' }], locations: draftLocations, npcs: draftNpcs }),
+    });
+    assert.strictEqual(invalidRegexDraft.response.status, 400, 'world output regex must be valid');
     const invalidDerivedDraft = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -380,6 +408,57 @@ async function main() {
     const otherList = await jsonRequest(base, '/api/world-saves?worldId=' + encodeURIComponent(secondWorld.id));
     assert.strictEqual(otherList.response.status, 200);
     assert.strictEqual(otherList.body.length, 1, 'world save lists stay isolated');
+
+    const renamed = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id) + '/rename', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: '第一份存档（重命名）' }),
+    });
+    assert.strictEqual(renamed.response.status, 200);
+    assert.strictEqual(renamed.body.name, '第一份存档（重命名）');
+    assert.strictEqual(renamed.body.revision, first.body.revision, 'rename does not mutate game revision');
+    const firstSavePath = path.join(tempDir, 'saves', first.body.id + '.json');
+    const firstSaveWithRuntimeData = JSON.parse(fs.readFileSync(firstSavePath, 'utf8'));
+    firstSaveWithRuntimeData.settings = { apiKey: 'save-settings-secret', theme: 'dark' };
+    const copyGeneratedNpcId = `save:${first.body.id}:npc:1`;
+    firstSaveWithRuntimeData.player.characterId = `pc-${first.body.id}`;
+    firstSaveWithRuntimeData.party = { memberIds: [`pc-${first.body.id}`, copyGeneratedNpcId], leaderId: `pc-${first.body.id}` };
+    firstSaveWithRuntimeData.npcStates[copyGeneratedNpcId] = { locationId: 'wolf-tooth-inn', relation: {}, knowledge: [], status: [] };
+    firstSaveWithRuntimeData.generatedEntities = { npcs: { [copyGeneratedNpcId]: { id: copyGeneratedNpcId, kind: 'npc', name: '副本旅人', commandId: 'old-command', revision: 0 } } };
+    firstSaveWithRuntimeData.turns = [{ id: 'old-turn', role: 'assistant', content: '已提交叙事' }];
+    firstSaveWithRuntimeData.receipts = [{ kind: 'turn', commandId: 'old-command', revision: 0, turnIds: ['old-turn'] }];
+    firstSaveWithRuntimeData.eventLedger = [{ id: 'old-ledger', kind: 'turn', commandId: 'old-command', sourceRevision: 0, revision: 0, locationId: 'wolf-tooth-inn', time: { unit: 'tick', value: 0 }, turnIds: ['old-turn'] }];
+    firstSaveWithRuntimeData.state.goals = [{ id: 'copy-goal', title: '副本隔离', desc: '', status: 'active' }];
+    fs.writeFileSync(firstSavePath, JSON.stringify(firstSaveWithRuntimeData));
+    const saveExport = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id) + '/export');
+    assert.strictEqual(saveExport.response.status, 200);
+    assert.match(saveExport.response.headers.get('content-disposition') || '', /\.tavern-save\.json/);
+    assert.strictEqual(saveExport.body.spec, 'tavern_world_save');
+    assert.strictEqual(saveExport.body.save.id, first.body.id);
+    assert.strictEqual(saveExport.body.save.name, '第一份存档（重命名）');
+    assert.ok(!JSON.stringify(saveExport.body).includes(second.body.id), 'save export excludes other saves');
+    assert.ok(!Object.hasOwn(saveExport.body, 'settings'), 'save export excludes runtime settings');
+    assert.ok(!JSON.stringify(saveExport.body).includes('save-settings-secret'), 'save export excludes runtime credentials');
+    const copied = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id) + '/copy', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ commandId: 'copy-storage-check', name: '第一份存档副本' }),
+    });
+    assert.strictEqual(copied.response.status, 201);
+    assert.notStrictEqual(copied.body.save.id, first.body.id);
+    assert.strictEqual(copied.body.save.name, '第一份存档副本');
+    assert.strictEqual(copied.body.save.copyInfo.sourceSaveId, first.body.id);
+    const copiedNpcId = Object.keys(copied.body.save.generatedEntities.npcs)[0];
+    assert.ok(copiedNpcId.startsWith(`save:${copied.body.save.id}:npc:`), 'generated entity owner is remapped');
+    assert.strictEqual(copied.body.save.player.characterId, `pc-${copied.body.save.id}`, 'player owner is remapped');
+    assert.ok(copied.body.save.party.memberIds.includes(copiedNpcId), 'party references follow remapped entity');
+    assert.notStrictEqual(copied.body.save.receipts[0].commandId, 'old-command', 'receipt command is remapped');
+    assert.notStrictEqual(copied.body.save.eventLedger[0].id, 'old-ledger', 'ledger owner is remapped');
+    const copiedAgain = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id) + '/copy', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ commandId: 'copy-storage-check', name: '第一份存档副本' }),
+    });
+    assert.strictEqual(copiedAgain.response.status, 200);
+    assert.strictEqual(copiedAgain.body.idempotent, true);
+    const sourceAfterCopy = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id));
+    assert.strictEqual(sourceAfterCopy.body.player.characterId, `pc-${first.body.id}`, 'source remains unchanged');
+    assert.ok(sourceAfterCopy.body.generatedEntities.npcs[copyGeneratedNpcId], 'source generated entity remains owned by source');
+    fs.writeFileSync(firstSavePath, JSON.stringify(renamed.body));
 
     const secondDraftCreated = await jsonRequest(base, '/api/world-drafts', {
       method: 'POST',
@@ -603,7 +682,7 @@ async function main() {
 
     const saved = await jsonRequest(base, '/api/world-saves/' + encodeURIComponent(first.body.id));
     assert.strictEqual(saved.response.status, 200);
-    assert.strictEqual(saved.body.name, '第一份存档');
+    assert.strictEqual(saved.body.name, '第一份存档（重命名）');
     assert.strictEqual(saved.body.worldId, world.id);
     const statePatch = JSON.parse(JSON.stringify(saved.body.state));
     statePatch.locationId = 'region-2';
@@ -854,7 +933,7 @@ async function main() {
     const restarted = server.address();
     const afterRestart = await jsonRequest(`http://127.0.0.1:${restarted.port}`, '/api/world-saves?worldId=' + encodeURIComponent(world.id));
     assert.strictEqual(afterRestart.response.status, 200);
-    assert.strictEqual(afterRestart.body.length, 4, 'saves survive server restart');
+    assert.strictEqual(afterRestart.body.length, 5, 'saves survive server restart');
     const draftAfterRestart = await jsonRequest(`http://127.0.0.1:${restarted.port}`, '/api/world-drafts/' + encodeURIComponent(world.id));
     assert.strictEqual(draftAfterRestart.response.status, 200);
     assert.strictEqual(draftAfterRestart.body.world.title, '极光大陆（草稿）', 'draft survives server restart');

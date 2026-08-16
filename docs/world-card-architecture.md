@@ -88,7 +88,7 @@
   title: '极光大陆',
   summary: '一句话世界简介',
   setting: { premise, history, geography, culture, technology, magic, society, economy, currentSituation },
-  rules: { hard: ['不可违反的世界约束'], soft: ['供叙事取舍的风格规则'] },
+  rules: { hard: ['不可违反的世界约束'], soft: ['供叙事取舍的风格规则'], checks: [{ id: 'notice', label: '观察', roll: '1d20', target: 10 }] },
   coverImage: '/images/world-aurora.png',
   tags: ['日式西幻', '福瑞', '冒险'],
 
@@ -99,6 +99,14 @@
   },
   lorebookIds: ['lore-aurora-core'],
   rpgPresetName: '极光大陆 · DM',
+  agent: { protocol: 'tavern.rpg.agent', mode: 'tool-candidate', maxSteps: 2, tools: {} },
+  regexes: [{ id: 'hide-state', name: '隐藏状态块', findRegex: '/<tavern_state_update>[\\s\\S]*?<\\/tavern_state_update>/gi', replaceString: '' }],
+  runtime: {
+    version: 1,
+    variables: [{ id: 'weather', label: '天气', scope: 'world', type: 'enum', options: ['晴朗', '降雨'], initial: '晴朗' }],
+    collections: [{ id: 'shop', label: '商城', scope: 'save', initial: [{ id: 'potion', name: '治疗药水', price: 10 }] }],
+    actions: [{ id: 'restock', label: '补货', effects: [{ type: 'collection.add', collectionId: 'shop', value: { id: 'torch', name: '火把', price: 3 } }] }],
+  },
   failure: {
     defaultMode: 'continue', onZeroHp: 'injured', onConflictDefeat: 'captured',
     modes: [{ id: 'injured', label: '重伤', hpRatio: 0.25, effect: '重伤' }, { id: 'permadeath', label: '永久死亡', terminal: true }],
@@ -117,7 +125,7 @@
     baseMapId: 'map-aurora-v1', // fixed 时读取的底图
     generation: { seed: 12345, size: 128, regionCount: 10, landRatio: 0.55, mapgenSize: 'small' }, // perSave 时的生成参数
   },
-  ui: { layout: 'world-desk' }, // 仅声明式布局，不含可执行 HTML/JS
+  ui: { layout: 'world-desk', sidebar: { panels: [] } }, // 仅声明式布局，不含可执行 HTML/JS
   source: { format: 'native', rawAssetRef: null },
 }
 ```
@@ -149,6 +157,12 @@
     ending: null, // 服务端结算：ended 后普通回合与成长均停止
     inventory: [],
     quests: [],
+    runtime: {
+      schemaVersion: 1,
+      schema: { version: 1, variables: [], collections: [], actions: [] }, // 创建存档时从 WorldCard.runtime 快照
+      variables: { weather: '晴朗' },
+      collections: { shop: [{ id: 'potion', name: '治疗药水', price: 10 }] },
+    },
     map: {
       strategy: 'fixed',
       baseMapId: 'map-aurora-v1',
@@ -179,7 +193,7 @@ WorldCard 的简介、地点、NPC 公共资料、派系定义、事件模板和
 
 ### 5.3 NPC 与临时角色
 
-- `WorldNPC`：世界卡引用的长期角色，保存身份、人格、语言、认知边界与静态资料。作用域 Prompt 只读取公开字段；`secrets: [{ id, content }]` 只有在当前存档 `npcStates[npcId].knowledge` 持有对应 ID 时才解锁。
+- `WorldNPC`：世界卡引用的长期角色，保存身份、人格、语言、认知边界与静态资料；`actions[]` 可声明带时间 / 地点 / 回合条件的一次性主动行动。作用域 Prompt 只读取公开字段；`secrets: [{ id, content }]` 只有在当前存档 `npcStates[npcId].knowledge` 持有对应 ID 时才解锁。
 - `npcStates[npcId]`：该 NPC 在此存档中的动态事实。好感、位置、已知线索、队伍状态都在这里；这些状态只对当前 `saveId` 有效。
 - AI 临时生成的路人进入 `WorldSave.generatedEntities.npcs`，只对该存档可见；只有用户执行“收录到世界”时才创建稳定 `npcId` 与世界定义资料。
 
@@ -212,6 +226,9 @@ DM 身份与玩家主权
 - `setting` 与 `rules` 是世界卡稳定设定的声明式 Prompt 投影：草稿编辑器只允许预定义世界观字段和 `hard/soft` 字符串数组；它们不写入 `WorldSave`，硬规则目前作为 AI 约束注入，结构化战斗 / 时间 / 失败 / 结局校验仍由各自正式字段负责。
 - RPG 预设由世界卡引用；存档只记录其版本，不能回退到酒馆角色卡的 `presetName`。
 - 导入的 ST 正则、EJS、MVU 和脚本保留在来源 sidecar，默认不执行；展示清理规则也不得写入 RPG 正式状态。
+- RPG GEN 3 的 `runtime` 是受限 JSON DSL：世界卡声明变量、集合和动作；创建存档时复制为 `state.runtime.schema`，值写入同一存档的 `variables/collections`。`state.patch` 只允许 `runtime.variable.set/delta`、`runtime.collection.add/remove`、`runtime.action.execute`，服务端按快照 Schema 校验，不执行任意表达式。
+- `WorldCard.ui.extension` 是可选的扩展容器：`html`、`css`、`js`、`mvu`、`permissions`、`maxHeight`、`timeoutMs`。世界草稿页提供这些字段的可视化编辑器，同时保留高级 `ui` JSON；扩展字段通过“从高级 JSON 载入扩展”显式同步，保存时合并回同一个 `ui.extension`，不复制第二份配置。前端使用无同源 `sandbox="allow-scripts"` iframe 和 CSP 隔离扩展；扩展不能读取主页面 DOM、网络或 API 密钥，只能通过带 nonce 的 `tavern.rpg.extension` 消息协议请求上下文、提交 runtime patch 或调用声明式 action。写入端点 `/api/world-saves/:id/runtime` 会在服务端再次检查 `write.runtime`，并执行 commandId 幂等、revision、Schema 和 runtime-only 校验。
+- 声明式侧栏可以读取 `runtime.variables.<id>` 与 `runtime.collections.<id>`；集合适合商城、图鉴、关系表等世界专属内容，旧存档不会跟随世界卡编辑自动串改。
 
 ## 7. 回合、状态与保存
 

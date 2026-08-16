@@ -36,6 +36,16 @@ body[data-theme="vibrancy"] {
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; }
+
+/* ─────────── 聊天正文排版（设置 → 排版，运行时由 JS 覆盖） ─────────── */
+:root {
+  --chat-font-size: 15px;      /* 正文字号 */
+  --chat-line-height: 1.8;     /* 行间距 */
+  --chat-para-gap: 0.7em;      /* 段间距（上下各半） */
+  --chat-indent: 0em;          /* 段首缩进（2em = 空两格） */
+  --chat-side-pad: 24px;       /* 聊天列左右间距 */
+}
+
 .hidden { display: none !important; }
 [hidden] { display: none !important; }
 
@@ -89,16 +99,18 @@ body {
 
 body[data-mode="rpg"] .main {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
   grid-template-columns: 210px minmax(0, 1fr) 210px;
   grid-template-areas:
     "top top top"
     "left stage right"
+    "left extension right"
     "status status status"
     "composer composer composer";
 }
 body[data-mode="rpg"] .chat-header { grid-area: top; }
 body[data-mode="rpg"] .chat { grid-area: stage; }
+body[data-mode="rpg"] #rpg-extension-host { grid-area: extension; }
 body[data-mode="rpg"] .composer { grid-area: composer; }
 body[data-mode="rpg"] #rpg-hdr-info { display: flex; }
 body[data-mode="rpg"] #rpg-left { display: flex; grid-area: left; }
@@ -136,6 +148,13 @@ body[data-mode="rpg"] #rpg-status { display: flex; grid-area: status; }
   border-bottom: 1px solid var(--line-soft);
 }
 .rpg-list { display: flex; flex-direction: column; gap: 6px; }
+.rpg-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.rpg-custom-table { overflow-x: auto; }
+.rpg-custom-table-grid { width: 100%; min-width: 240px; border-collapse: collapse; font-size: 11.5px; }
+.rpg-custom-table-grid th, .rpg-custom-table-grid td { padding: 6px 7px; border-bottom: 1px solid var(--line-soft); text-align: left; vertical-align: top; }
+.rpg-custom-table-grid thead th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+.rpg-custom-table-grid tbody th { color: var(--text); font-weight: 600; }
+.rpg-custom-table-grid td { color: var(--muted); overflow-wrap: anywhere; }
 .rpg-item {
   padding: 7px 9px;
   border: 1px solid var(--line);
@@ -183,6 +202,34 @@ body[data-mode="rpg"] #rpg-status { display: flex; grid-area: status; }
 .rpg-growth-actions .ghost-btn:disabled { opacity: 0.55; cursor: wait; }
 .rpg-experience-item { border-left: 2px solid var(--line); }
 .rpg-experience-item small { color: var(--muted); font-size: 10px; font-weight: 400; }
+
+.rpg-extension-host {
+  min-width: 0;
+  min-height: 0;
+  padding: 8px 14px 10px;
+  border-top: 1px solid var(--line);
+  background: var(--bg-0);
+}
+.rpg-extension-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  color: var(--accent);
+  font-size: 12px;
+  letter-spacing: .04em;
+}
+.rpg-extension-status { flex: 1; color: var(--muted); font-size: 11px; letter-spacing: 0; }
+.rpg-extension-frame {
+  min-height: 0;
+  max-height: 800px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.rpg-extension-frame iframe { display: block; width: 100%; height: 360px; border: 0; background: transparent; }
+.rpg-extension-host:focus-within { border-top-color: var(--accent); }
 
 /* RPG 状态条 */
 .rpg-status {
@@ -374,7 +421,7 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   min-height: 0; /* 关键：允许内部滚动而非撑开父容器 */
   overflow-y: auto;
   overflow-x: clip; /* 严格裁剪横向溢出，内容不可能画到侧栏 */
-  padding: 22px 24px;
+  padding: 22px var(--chat-side-pad);
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -616,8 +663,9 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere; /* 超长内容在气泡内换行，不溢出 */
-  line-height: 1.7;
-  font-size: 14.5px;
+  line-height: var(--chat-line-height);
+  font-size: var(--chat-font-size);
+  font-family: var(--chat-font, var(--font-body));
   position: relative;
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22);
   transition: background 0.4s ease, border-color 0.4s ease;
@@ -647,6 +695,42 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   white-space: normal;
 }
 .msg.narration .bubble.md { white-space: normal; }
+/* 酒馆连续正文：关闭对白气泡时，正文是阅读主体而不是灰色旁白提示。 */
+.msg.tavern-prose {
+  align-self: stretch;
+  width: 100%;
+  max-width: none;
+  padding: 0 clamp(2px, 4vw, 56px);
+}
+.msg.tavern-prose .nar-icon { display: none; }
+.msg.tavern-prose .bubble {
+  color: var(--text);
+  font-style: normal;
+  text-align: left;
+  padding: 8px 12px 18px;
+  /* 连续正文是阅读主体：覆盖 narration 的旁白小字号，接管排版设置 */
+  font-size: var(--chat-font-size);
+  line-height: var(--chat-line-height);
+}
+.msg.tavern-prose .bubble.md strong,
+.msg.tavern-prose .bubble.md mark {
+  color: var(--accent);
+  font-weight: 700;
+  text-shadow: 0 0 12px rgba(var(--accent-rgb), 0.22);
+}
+/* 桌面端酒馆模式不再叠加居中公式：左右间距 1:1 线性生效（0 = 贴满两侧的旧版全宽；想居中阅读列就拉大数值） */
+/* 显式开启对白气泡时，整段对白与重点词拥有更强的视觉层级。 */
+.msg.assistant .bubble.tavern-dialogue {
+  background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.14), var(--panel) 42%);
+  border-color: rgba(var(--accent-rgb), 0.42);
+  box-shadow: 0 5px 22px rgba(var(--accent-rgb), 0.12);
+}
+.msg.assistant .bubble.tavern-dialogue strong,
+.msg.assistant .bubble.tavern-dialogue mark {
+  color: var(--accent);
+  font-weight: 700;
+  text-shadow: 0 0 12px rgba(var(--accent-rgb), 0.28);
+}
 /* RPG 正文是连续叙事页，不按引号切成角色气泡。 */
 .msg.rpg-narrative {
   align-self: stretch;
@@ -657,8 +741,9 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
 }
 .rpg-prose {
   color: var(--text);
-  font-size: 15px;
-  line-height: 1.9;
+  font-size: var(--chat-font-size);
+  line-height: var(--chat-line-height);
+  font-family: var(--chat-font, var(--font-body));
   padding: 4px 40px 16px 8px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -671,6 +756,8 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   padding: 10px;
 }
 .rpg-narrative .msg-actions { right: 0; top: 4px; transform: none; }
+/* 连续正文占满整列：按钮收进消息内部右上角，避免小左右间距时被推出屏幕外（与 RPG 叙事一致） */
+.msg.tavern-prose .msg-actions { right: 0; top: 4px; transform: none; }
 /* 思维链独立行（旁白样式，非角色气泡） */
 .msg.cot-msg {
   align-self: center;
@@ -734,7 +821,7 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
 
 /* ── Markdown 渲染样式（消息容器启用 .md 时） ── */
 .msg :is(.bubble, .rpg-prose).md { white-space: normal; }
-:is(.bubble, .rpg-prose).md h1, :is(.bubble, .rpg-prose).md h2, :is(.bubble, .rpg-prose).md h3, :is(.bubble, .rpg-prose).md h4 {
+:is(.bubble, .rpg-prose).md h1, :is(.bubble, .rpg-prose).md h2, :is(.bubble, .rpg-prose).md h3, :is(.bubble, .rpg-prose).md h4, :is(.bubble, .rpg-prose).md h5, :is(.bubble, .rpg-prose).md h6 {
   font-family: var(--font-display);
   line-height: 1.4;
   margin: 10px 0 6px;
@@ -744,7 +831,10 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
 :is(.bubble, .rpg-prose).md h2 { font-size: 16px; }
 :is(.bubble, .rpg-prose).md h3 { font-size: 15px; }
 :is(.bubble, .rpg-prose).md h4 { font-size: 14px; }
-:is(.bubble, .rpg-prose).md p { margin: 5px 0; }
+:is(.bubble, .rpg-prose).md h5 { font-size: 13.5px; }
+:is(.bubble, .rpg-prose).md h6 { font-size: 13px; color: var(--muted); }
+/* 段落：间距与段首缩进由排版设置驱动；仅作用于正文直接子段落，不影响引用/列表/代码内的 p */
+:is(.bubble, .rpg-prose).md > p { margin: calc(var(--chat-para-gap) / 2) 0; text-indent: var(--chat-indent); }
 :is(.bubble, .rpg-prose).md ul, :is(.bubble, .rpg-prose).md ol { margin: 5px 0; padding-left: 20px; }
 :is(.bubble, .rpg-prose).md li { margin: 2px 0; }
 :is(.bubble, .rpg-prose).md code {
@@ -754,12 +844,25 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   font-family: Consolas, "Cascadia Mono", monospace;
   font-size: 12.5px;
 }
+:is(.bubble, .rpg-prose).md kbd {
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 1px 5px;
+  background: rgba(255, 255, 255, 0.06);
+  font: 11px/1.4 Consolas, "Cascadia Mono", monospace;
+}
+:is(.bubble, .rpg-prose).md mark { padding: 0 3px; border-radius: 3px; background: color-mix(in srgb, var(--accent) 28%, transparent); color: inherit; }
+:is(.bubble, .rpg-prose).md del { color: var(--muted); text-decoration-thickness: 1px; }
+:is(.bubble, .rpg-prose).md sup, :is(.bubble, .rpg-prose).md sub { line-height: 0; }
 :is(.bubble, .rpg-prose).md pre {
   background: rgba(0, 0, 0, 0.35);
   border: 1px solid var(--line-soft);
   border-radius: 8px;
   padding: 10px 12px;
   overflow-x: auto;
+  white-space: pre;
+  -webkit-overflow-scrolling: touch;
   margin: 7px 0;
 }
 :is(.bubble, .rpg-prose).md pre code { background: none; padding: 0; font-size: 12.5px; }
@@ -770,7 +873,7 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   color: var(--muted);
 }
 :is(.bubble, .rpg-prose).md a { color: var(--accent); text-decoration: underline; word-break: break-all; }
-:is(.bubble, .rpg-prose).md table { display: block; overflow-x: auto; border-collapse: collapse; margin: 7px 0; font-size: 13px; }
+:is(.bubble, .rpg-prose).md table { display: block; width: max-content; min-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 7px 0; font-size: 13px; }
 :is(.bubble, .rpg-prose).md th, :is(.bubble, .rpg-prose).md td { border: 1px solid var(--line); padding: 4px 10px; }
 :is(.bubble, .rpg-prose).md th { background: rgba(255, 255, 255, 0.04); }
 :is(.bubble, .rpg-prose).md hr { border: none; border-top: 1px solid var(--line); margin: 10px 0; }
@@ -1003,6 +1106,8 @@ textarea#input:focus {
   box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.07);
 }
 .field textarea { resize: vertical; }
+/* 滑动条：去掉 .field input 的左右内边距，滑轨铺满输入框两端 —— 拖到最前/最后即精确命中最小/最大值 */
+.field input[type="range"] { padding-left: 0; padding-right: 0; }
 .field.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
 /* 行内组合（输入 + 按钮） */
@@ -1186,18 +1291,19 @@ textarea#input:focus {
 
 /* ═══════════════════ RPG 世界工作区（新前端） ═══════════════════ */
 body[data-mode="rpg"] .main {
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
   grid-template-columns: minmax(238px, 270px) minmax(0, 1fr) minmax(270px, 320px);
   grid-template-areas:
     "top top top"
     "left stage right"
+    "left extension right"
     "status status status"
     "composer composer composer";
   background: var(--bg-0);
 }
 body[data-mode="rpg"] .chat {
   min-width: 0;
-  padding: clamp(20px, 3vw, 42px) clamp(16px, 4vw, 60px);
+  padding: clamp(20px, 3vw, 42px) var(--chat-side-pad);
   background:
     radial-gradient(circle at 50% 0%, rgba(var(--accent-rgb), .08), transparent 46%),
     linear-gradient(180deg, var(--bg-1), var(--bg-0));
@@ -1244,11 +1350,12 @@ body[data-mode="rpg"] .composer {
 
 @media (max-width: 960px) {
   body[data-mode="rpg"] .main {
-    grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+    grid-template-rows: auto minmax(0, 1fr) auto auto auto auto;
     grid-template-columns: 1fr;
     grid-template-areas:
       "top"
       "stage"
+      "extension"
       "status"
       "tools"
       "composer";
@@ -1312,7 +1419,12 @@ body[data-mode="rpg"] .composer {
     inset: 0;
     z-index: 71;
     display: block;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
     background: rgba(0, 0, 0, .54);
+    cursor: pointer;
   }
   body[data-mode="rpg"] .rpg-mobile-scrim[hidden] { display: none; }
   body[data-mode="rpg"] .rpg-status {
@@ -1677,6 +1789,15 @@ body[data-theme="vibrancy"] .dropdown { box-shadow: none; }
 }
 .world-draft-body select { color-scheme: dark; }
 .world-draft-body .field { margin-bottom: 14px; }
+.world-extension-editor { margin-top: 9px; border: 1px solid var(--line); border-radius: 10px; background: rgba(var(--bg-0-rgb), 0.28); }
+.world-extension-editor > summary { padding: 9px 11px; color: var(--text); font-size: 12px; cursor: pointer; }
+.world-extension-editor > summary::marker { color: var(--accent); }
+.world-extension-editor-body { display: grid; gap: 8px; padding: 0 11px 11px; }
+.world-extension-editor-body .field { margin-bottom: 4px; }
+.world-extension-editor-body textarea { min-height: 68px; resize: vertical; font: 11px/1.45 var(--font-mono); }
+.world-extension-permissions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px 11px; padding: 8px 0 2px; }
+.world-extension-permissions .check { color: var(--muted); font-size: 11px; }
+.world-extension-editor-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .world-draft-collection { margin: 18px 0 20px; padding-top: 16px; border-top: 1px solid var(--line); }
 .world-draft-collection-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .world-draft-collection-head h3 { margin: 0 0 3px; color: var(--text); font: 16px var(--font-display); letter-spacing: 0.8px; }
@@ -2085,7 +2206,7 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
 
 /* ── 手机（≤640px）细适配：单列化、缩边距、弹窗贴边 ── */
 @media (max-width: 640px) {
-  .chat { padding: 12px 10px; }
+  .chat { padding: 12px var(--chat-side-pad); }
   .msg { max-width: 92%; gap: 8px; }
   .msg.image-msg { max-width: 96%; }
   .chat-header { padding: 10px 12px; gap: 8px; }
@@ -2138,11 +2259,10 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
   .debug-tab { padding-inline: 9px; }
   .devtools-toolbar { align-items: stretch; flex-wrap: wrap; }
   .devtools-toolbar .field { flex-basis: 100%; }
-  .msg .bubble { font-size: 14.5px; }
-  .msg.narration .bubble { font-size: 14px; }
   .msg.rpg-narrative { padding-bottom: 24px; }
   .rpg-prose { font-size: 14.5px; padding-inline: 2px; }
   .rpg-narrative .msg-actions { top: auto; bottom: 0; }
+  .msg.tavern-prose .msg-actions { top: auto; bottom: -24px; }
   .regen-btn { font-size: 11.5px; padding: 3px 8px; }
   .lightbox img { max-width: 96vw; max-height: 94vh; }
   /* 移动端无 hover：消息操作按钮常显（气泡下方横排，不遮文字） */

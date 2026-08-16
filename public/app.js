@@ -19,6 +19,7 @@ const LS_PROFILES = 'rpg-airp:profiles';
 const LS_CHARS = 'rpg-airp:chars';
 const LS_CURRENT_CHAR = 'rpg-airp:current-char';
 const LS_SESSIONS = 'rpg-airp:sessions';
+const LS_SESSIONS_DELETED = 'rpg-airp:sessions-deleted';
 const LS_LORE = 'rpg-airp:lore';
 const LS_USER = 'rpg-airp:user';
 const LS_PRESETS = 'rpg-airp:prompt-presets';
@@ -93,6 +94,8 @@ let profiles = loadJSON(LS_PROFILES, {});
 let characters = loadJSON(LS_CHARS, []);
 let currentCharId = localStorage.getItem(LS_CURRENT_CHAR);
 let sessions = loadJSON(LS_SESSIONS, null);
+let sessionsDeleted = loadJSON(LS_SESSIONS_DELETED, []); // 已删会话 ID 墓碑，跨浏览器同步时防止复活
+if (!Array.isArray(sessionsDeleted)) sessionsDeleted = [];
 let currentSessionId = null;
 let lorebooks = null; // { id: { name, entries: [] } }
 let userData = loadJSON(LS_USER, null); // { currentPreset, presets: {...}, memories: [] }
@@ -144,6 +147,12 @@ let lbEditingId = null;
 let pgEditingName = null;
 let pgEditingPreset = null;
 let pgEditingPromptId = null;
+let regexEditingId = null;
+let regexEditingSource = 'custom';
+let rpgDrawerReturnFocus = null;
+const serverDataWriteQueues = new Map();
+const WORLD_EXTENSION_CHANNEL = 'tavern.rpg.extension';
+let worldExtensionState = { iframe: null, nonce: '', signature: '', ready: false, timer: null, pending: new Map(), nextRequestId: 0 };
 
 /* ─────────── 数据加载 / 保存（JSON 文件存储） ─────────── */
 function saveSettings() {
@@ -161,16 +170,26 @@ async function loadServerData(type) {
   }
 }
 async function saveServerData(type, data) {
-  try {
-    const resp = await fetch('/api/data/' + type, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json; charset=utf-8' },
-      body: JSON.stringify(data),
-    });
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-  } catch (e) {
-    console.error('[Tavern] 保存 ' + type + ' 失败:', e.message);
-  }
+  const previous = serverDataWriteQueues.get(type) || Promise.resolve();
+  const write = async () => {
+    try {
+      const resp = await fetch('/api/data/' + type, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        body: JSON.stringify(data),
+      });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    } catch (e) {
+      console.error('[Tavern] 保存 ' + type + ' 失败:', e.message);
+    }
+  };
+  // 首次写入立即发起；后续写入接在同一类型的前一个请求之后，避免旧快新慢覆盖。
+  const current = serverDataWriteQueues.has(type) ? previous.catch(() => {}).then(write) : write();
+  serverDataWriteQueues.set(type, current);
+  current.finally(() => {
+    if (serverDataWriteQueues.get(type) === current) serverDataWriteQueues.delete(type);
+  });
+  return current;
 }
 
 /* ─────────── 工具 ─────────── */
@@ -226,6 +245,7 @@ function hydrateWorldSave(data) {
   if (data.setup.candidate === undefined) data.setup.candidate = null;
   if (!Array.isArray(data.turns)) data.turns = [];
   if (data.state.ending === undefined) data.state.ending = null;
+  if (!Array.isArray(data.state.activeHooks)) data.state.activeHooks = [];
   if (data.worldLineSummary === undefined) data.worldLineSummary = null;
   if (data.reopenInfo === undefined) data.reopenInfo = null;
   if (data.state.goals === undefined && Array.isArray(data.state.quests) && data.state.quests.length) {
@@ -304,7 +324,12 @@ function resetWorldTurnPending(pending) {
   pending.createEntities = null;
   pending.eventMemory = null;
   pending.agentCalls = null;
+  pending.agentToolTrace = null;
   pending.patch = null;
+  pending.agentPhase = null;
+  pending.agentPhaseHistory = [];
+  pending.agentOrchestration = null;
+  pending.agentExecution = null;
   pending.state = cloneValue(pending.beforeState);
   if (currentWorldSave && pending.saveId === currentWorldSaveId) {
     currentWorldSave.state = cloneValue(pending.beforeState);
@@ -356,6 +381,13 @@ async function retryWorldTurn() {
   try { await requestReply(); }
   finally { worldTurnPreparing = false; }
 }
+async function resumeWorldAgentNarration() {
+  if (!worldTurnPendingActive() || !worldTurnPending.agentExecution || sending || worldTurnPreparing) return;
+  worldTurnPreparing = true;
+  try { await submitWorldTurn(worldTurnPending); }
+  catch (err) { failWorldTurnPending(err.message); }
+  finally { worldTurnPreparing = false; }
+}
 async function submitWorldTurn(pending) {
   const endpoint = '/api/world-saves/' + encodeURIComponent(pending.saveId);
   const headers = { 'Content-Type': 'application/json; charset=utf-8' };
@@ -381,9 +413,17 @@ async function submitWorldTurn(pending) {
         createEntities: pending.createEntities || undefined,
         eventMemory: pending.eventMemory || undefined,
         agentCalls: pending.agentCalls || undefined,
+        agentToolTrace: pending.agentToolTrace || undefined,
         actionIntent: pending.actionIntent,
+        turns: cloneValue(pending.messages),
+        options: pending.options || [],
       }, 'Agent 执行阶段失败');
       pending.agentExecution = data.execution || data.agentRuntime?.pending || null;
+      pending.agentPhase = pending.agentExecution?.phase || 'narrate';
+      pending.agentPhaseHistory = Array.isArray(pending.agentExecution?.phaseHistory)
+        ? cloneValue(pending.agentExecution.phaseHistory) : [];
+      pending.agentOrchestration = pending.agentExecution?.orchestration
+        ? cloneValue(pending.agentExecution.orchestration) : null;
     }
     setDebugTrace(activeConversationScope(), { status: 'Agent 叙事阶段' });
     data = await request(endpoint, {
@@ -403,6 +443,7 @@ async function submitWorldTurn(pending) {
       createEntities: pending.createEntities || undefined,
       eventMemory: pending.eventMemory || undefined,
       agentCalls: pending.agentCalls || undefined,
+      agentToolTrace: pending.agentToolTrace || undefined,
       actionIntent: pending.actionIntent,
       state: pending.state,
     }, '世界回合提交失败');
@@ -673,6 +714,7 @@ function worldDraftNpcTemplate(npc, index, locations) {
       <label class="field"><span>当前目标</span><input data-npc-goal-list value="${esc(Array.isArray(npc.goals) ? npc.goals.join(', ') : '')}" maxlength="1000" placeholder="逗号分隔" /></label>
       <label class="field"><span>日常活动</span><input data-npc-activity value="${esc(npc.activity || '')}" maxlength="2000" placeholder="不在场时正在做什么" /></label>
     </div>
+    <label class="field"><span>主动行动模板（JSON，可选）</span><textarea data-npc-actions rows="5" spellcheck="false" placeholder='[{"id":"patrol","title":"巡逻","description":"沿街巡逻。","trigger":{"afterTurns":2},"changes":{"statusAdd":["巡逻中"]}}]'>${esc(Array.isArray(npc.actions) && npc.actions.length ? JSON.stringify(npc.actions, null, 2) : '')}</textarea></label>
   </article>`;
 }
 function renderWorldDraftCollections(world) {
@@ -703,9 +745,12 @@ function renderWorldDraftCollections(world) {
 }
 function syncWorldDraftCollectionsFromForm() {
   if (!worldDraft) return;
-  const { locations, npcs } = collectWorldDraftCollections();
+  const collected = collectWorldDraftCollections();
+  if (collected.error) return collected;
+  const { locations, npcs } = collected;
   worldDraft.world.locations = locations;
   worldDraft.world.npcs = npcs;
+  return collected;
 }
 function worldDraftReferenceReport(kind, id) {
   if (!worldDraft || !id) return [];
@@ -1235,10 +1280,24 @@ function collectWorldDraftCollections() {
     summary: row.querySelector('[data-location-summary]')?.value || '',
     tags: splitWorldDraftList(row.querySelector('[data-location-tags]')?.value),
   }));
+  let error = null;
+  let focus = null;
   const npcs = [...document.querySelectorAll('#world-draft-npcs .world-draft-npc')].map(row => {
     const index = Number(row.dataset.index);
     const previous = worldDraft?.world?.npcs?.[index] || {};
     const personality = row.querySelector('[data-npc-personality]')?.value || '';
+    const actionsRaw = row.querySelector('[data-npc-actions]')?.value.trim() || '';
+    let actions = [];
+    if (actionsRaw) {
+      try {
+        actions = JSON.parse(actionsRaw);
+        if (!Array.isArray(actions)) throw new Error('必须是数组');
+      } catch (err) {
+        error ||= `NPC ${index + 1} 的主动行动模板不是有效 JSON：${err.message || '格式错误'}`;
+        focus ||= row.querySelector('[data-npc-actions]');
+        actions = Array.isArray(previous.actions) ? previous.actions : [];
+      }
+    }
     return {
       ...previous,
       id: row.querySelector('[data-npc-id]')?.value.trim() || '',
@@ -1254,10 +1313,69 @@ function collectWorldDraftCollections() {
       fears: splitWorldDraftList(row.querySelector('[data-npc-fears]')?.value),
       goals: splitWorldDraftList(row.querySelector('[data-npc-goal-list]')?.value),
       activity: row.querySelector('[data-npc-activity]')?.value.trim() || '',
+      actions,
       ...(Array.isArray(previous.secrets) ? { secrets: previous.secrets } : {}),
     };
   });
-  return { locations, npcs };
+  return { locations, npcs, error, focus };
+}
+function fillWorldDraftRpgPresetOptions(selected = '') {
+  const select = $('world-draft-rpg-preset');
+  if (!select) return;
+  select.innerHTML = '<option value="">当前 RPG 默认预设</option>';
+  for (const [name, preset] of Object.entries(promptPresets)) {
+    if (name === GLOBAL_PRESET_KEY) continue;
+    if (!['rpg', 'both'].includes(presetMode(name, preset))) continue;
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = name;
+    select.appendChild(option);
+  }
+  select.value = selected && promptPresets[selected] ? selected : '';
+}
+function fillWorldDraftExtensionEditor(extension = null) {
+  const value = extension && typeof extension === 'object' && !Array.isArray(extension) ? extension : {};
+  const enabled = $('world-extension-enabled');
+  if (!enabled) return;
+  enabled.checked = value.enabled === true;
+  $('world-extension-title').value = value.title || '';
+  $('world-extension-height').value = Number.isInteger(value.maxHeight) ? value.maxHeight : 360;
+  $('world-extension-timeout').value = Number.isInteger(value.timeoutMs) ? value.timeoutMs : 1200;
+  const permissions = new Set(Array.isArray(value.permissions) ? value.permissions : []);
+  document.querySelectorAll('[data-world-extension-permission]').forEach(input => { input.checked = permissions.has(input.value); });
+  $('world-extension-html').value = value.html || '';
+  $('world-extension-css').value = value.css || '';
+  $('world-extension-js').value = value.js || '';
+  $('world-extension-mvu').value = value.mvu ? JSON.stringify(value.mvu, null, 2) : '';
+}
+function collectWorldDraftExtension() {
+  const enabled = $('world-extension-enabled');
+  if (!enabled) return { ok: true, value: null };
+  const mvuText = $('world-extension-mvu').value.trim();
+  let mvu = null;
+  if (mvuText) {
+    try { mvu = JSON.parse(mvuText); }
+    catch { setWorldDraftStatus('ui.extension.mvu 不是有效 JSON。', 'error'); $('world-extension-mvu').focus(); return { ok: false }; }
+    if (!mvu || typeof mvu !== 'object' || Array.isArray(mvu)) {
+      setWorldDraftStatus('ui.extension.mvu 必须是 JSON 对象。', 'error'); $('world-extension-mvu').focus(); return { ok: false };
+    }
+  }
+  const title = $('world-extension-title').value.trim();
+  const html = $('world-extension-html').value;
+  const css = $('world-extension-css').value;
+  const js = $('world-extension-js').value;
+  const permissions = [...document.querySelectorAll('[data-world-extension-permission]:checked')].map(input => input.value);
+  const hasContent = enabled.checked || title || html.trim() || css.trim() || js.trim() || mvuText || permissions.length;
+  if (!hasContent) return { ok: true, value: null };
+  const maxHeight = Number($('world-extension-height').value);
+  const timeoutMs = Number($('world-extension-timeout').value);
+  if (!Number.isInteger(maxHeight) || maxHeight < 180 || maxHeight > 800) {
+    setWorldDraftStatus('扩展高度必须是 180-800 的整数。', 'error'); $('world-extension-height').focus(); return { ok: false };
+  }
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 200 || timeoutMs > 5000) {
+    setWorldDraftStatus('扩展超时必须是 200-5000 的整数。', 'error'); $('world-extension-timeout').focus(); return { ok: false };
+  }
+  return { ok: true, value: { enabled: enabled.checked, ...(title ? { title } : {}), ...(html ? { html } : {}), ...(css ? { css } : {}), ...(js ? { js } : {}), ...(mvu ? { mvu } : {}), permissions, maxHeight, timeoutMs } };
 }
 function fillWorldDraftForm(draft) {
   const world = draft?.world || {};
@@ -1268,6 +1386,12 @@ function fillWorldDraftForm(draft) {
   $('world-draft-rules').value = world.rules ? JSON.stringify(world.rules, null, 2) : '';
   $('world-draft-tags').value = Array.isArray(world.tags) ? world.tags.join(', ') : '';
   $('world-draft-lorebooks').value = Array.isArray(world.lorebookIds) ? world.lorebookIds.join(', ') : '';
+  fillWorldDraftRpgPresetOptions(world.rpgPresetName || '');
+  $('world-draft-agent').value = world.agent ? JSON.stringify(world.agent, null, 2) : '';
+  $('world-draft-ui').value = world.ui ? JSON.stringify(world.ui, null, 2) : '';
+  fillWorldDraftExtensionEditor(world.ui?.extension);
+  $('world-draft-regexes').value = world.regexes ? JSON.stringify(world.regexes, null, 2) : '';
+  $('world-draft-runtime').value = world.runtime ? JSON.stringify(world.runtime, null, 2) : '';
   renderWorldDraftPlayerCreation();
   $('world-draft-session-setup').value = world.sessionSetup ? JSON.stringify(world.sessionSetup, null, 2) : '';
   $('world-draft-turn-contract').value = world.turnContract ? JSON.stringify(world.turnContract, null, 2) : '';
@@ -1332,8 +1456,49 @@ async function saveWorldDraft() {
   }
   const tags = splitWorldDraftList($('world-draft-tags').value);
   const lorebookIds = splitWorldDraftList($('world-draft-lorebooks').value);
+  const rpgPresetName = $('world-draft-rpg-preset').value.trim();
+  let agent = null;
+  const agentText = $('world-draft-agent').value.trim();
+  if (agentText) {
+    try { agent = JSON.parse(agentText); }
+    catch { setWorldDraftStatus('Agent 配置不是有效 JSON。', 'error'); $('world-draft-agent').focus(); return false; }
+  }
+  let ui = null;
+  const uiText = $('world-draft-ui').value.trim();
+  if (uiText) {
+    try { ui = JSON.parse(uiText); }
+    catch { setWorldDraftStatus('RPG 界面配置不是有效 JSON。', 'error'); $('world-draft-ui').focus(); return false; }
+  }
+  const extensionResult = collectWorldDraftExtension();
+  if (!extensionResult.ok) return false;
+  if (extensionResult.value) {
+    if (!ui || typeof ui !== 'object' || Array.isArray(ui)) ui = {};
+    ui = { ...ui, extension: extensionResult.value };
+  } else if (ui && typeof ui === 'object' && !Array.isArray(ui) && Object.prototype.hasOwnProperty.call(ui, 'extension')) {
+    ui = { ...ui };
+    delete ui.extension;
+    if (!Object.keys(ui).length) ui = null;
+  }
+  let regexes = null;
+  const regexText = $('world-draft-regexes').value.trim();
+  if (regexText) {
+    try { regexes = JSON.parse(regexText); }
+    catch { setWorldDraftStatus('世界卡输出正则不是有效 JSON。', 'error'); $('world-draft-regexes').focus(); return false; }
+  }
+  let runtime = null;
+  const runtimeText = $('world-draft-runtime').value.trim();
+  if (runtimeText) {
+    try { runtime = JSON.parse(runtimeText); }
+    catch { setWorldDraftStatus('RPG GEN 3 运行态不是有效 JSON。', 'error'); $('world-draft-runtime').focus(); return false; }
+  }
   const mapGeneration = collectWorldDraftMapGeneration();
-  const { locations, npcs } = collectWorldDraftCollections();
+  const collections = collectWorldDraftCollections();
+  if (collections.error) {
+    setWorldDraftStatus(collections.error, 'error');
+    collections.focus?.focus();
+    return false;
+  }
+  const { locations, npcs } = collections;
   let playerCreation = null;
   const playerCreationRaw = $('world-draft-player-creation').value.trim();
   const playerCreationPreviewBeforeSync = worldDraftPlayerSchema();
@@ -1403,6 +1568,7 @@ async function saveWorldDraft() {
     events,
     factions,
     conflicts,
+    runtime,
   });
   if (duplicate) {
     setWorldDraftStatus(`${duplicate.label} ID「${duplicate.id}」重复，请先修改后再保存。`, 'error');
@@ -1423,7 +1589,7 @@ async function saveWorldDraft() {
     const res = await fetch('/api/world-drafts/' + encodeURIComponent(worldDraft.worldId), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
-      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds, mapGeneration, locations, npcs, setting, rules, playerCreation, sessionSetup, turnContract, failure, ending, time, events, factions, conflicts }),
+      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds, rpgPresetName, agent, ui, regexes, runtime, mapGeneration, locations, npcs, setting, rules, playerCreation, sessionSetup, turnContract, failure, ending, time, events, factions, conflicts }),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error(worldApiError(data, '世界草稿保存失败（HTTP ' + res.status + '）'));
@@ -1510,11 +1676,40 @@ async function openWorldSave(saveId, expectedToken = worldLoadToken) {
   currentWorldSave = data;
   currentWorldSaveId = data.id;
   currentWorldId = data.worldId;
+  restoreWorldAgentPending(data);
   localStorage.setItem(LS_CURRENT_WORLD, currentWorldId);
   localStorage.setItem(LS_CURRENT_WORLD_SAVE, currentWorldSaveId);
   renderWorldDetail();
   renderDebugTerminal();
   return currentWorldSave;
+}
+function restoreWorldAgentPending(save) {
+  const pending = save?.agentRuntime?.pending;
+  if (!pending || typeof pending !== 'object' || !Array.isArray(pending.turns) || !pending.turns.length) {
+    if (worldTurnPending?.saveId === save?.id) { worldTurnPending = null; worldTurnError = null; }
+    return false;
+  }
+  worldTurnPending = {
+    saveId: save.id,
+    commandId: pending.commandId,
+    expectedRevision: pending.baseRevision,
+    beforeState: cloneValue(save.state),
+    state: cloneValue(pending.state || save.state),
+    messages: cloneValue(pending.turns),
+    options: Array.isArray(pending.options) ? cloneValue(pending.options) : [],
+    createEntities: null,
+    eventMemory: Array.isArray(pending.eventMemory) ? cloneValue(pending.eventMemory) : null,
+    agentCalls: Array.isArray(pending.agentCalls) ? cloneValue(pending.agentCalls) : null,
+    agentToolTrace: Array.isArray(pending.agentToolTrace) ? cloneValue(pending.agentToolTrace) : null,
+    agentPhase: pending.phase || 'narrate',
+    agentPhaseHistory: Array.isArray(pending.phaseHistory) ? cloneValue(pending.phaseHistory) : [],
+    agentOrchestration: pending.orchestration ? cloneValue(pending.orchestration) : null,
+    actionIntent: pending.actionIntent ? cloneValue(pending.actionIntent) : null,
+    patch: null,
+    agentExecution: cloneValue(pending),
+  };
+  worldTurnError = null;
+  return true;
 }
 function setWorldPlayerStatus(message, kind = '') {
   const el = $('world-player-status');
@@ -2402,6 +2597,81 @@ async function deleteWorldSave(saveId, button) {
     if (button) { button.disabled = false; button.textContent = old || '删除'; }
   }
 }
+async function renameWorldSave(saveId, button) {
+  const saves = worldSavesByWorld.get(currentWorldId) || [];
+  const save = saves.find(item => item.id === saveId);
+  if (!save) return;
+  const name = window.prompt('存档名称', save.name || '');
+  if (name === null || !name.trim() || name.trim() === save.name) return;
+  const old = button?.textContent;
+  if (button) { button.disabled = true; button.textContent = '保存中…'; }
+  try {
+    const res = await fetch('/api/world-saves/' + encodeURIComponent(saveId) + '/rename', {
+      method: 'POST', headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: JSON.stringify({ name: name.trim() }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(worldApiError(data, '存档重命名失败（HTTP ' + res.status + '）'));
+    if (currentWorldSaveId === saveId) currentWorldSave = data;
+    await loadWorldSaves(save.worldId || currentWorldId);
+    renderWorldList(); renderWorldDetail();
+  } catch (err) {
+    showWorldError(err.message);
+  } finally {
+    if (button) { button.disabled = false; button.textContent = old || '重命名'; }
+  }
+}
+async function exportWorldSave(saveId, button) {
+  const old = button?.textContent;
+  if (button) { button.disabled = true; button.textContent = '导出中…'; }
+  try {
+    const res = await fetch('/api/world-saves/' + encodeURIComponent(saveId) + '/export');
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new Error(worldApiError(data, '存档导出失败（HTTP ' + res.status + '）'));
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${saveId}.tavern-save.json`;
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    const status = $('world-open-status');
+    if (status) status.textContent = '已导出脱敏存档包；不包含 API key、设置或其他存档。';
+  } catch (err) {
+    showWorldError(err.message);
+  } finally {
+    if (button) { button.disabled = false; button.textContent = old || '导出'; }
+  }
+}
+async function copyWorldSave(saveId, button) {
+  const saves = worldSavesByWorld.get(currentWorldId) || [];
+  const save = saves.find(item => item.id === saveId);
+  if (!save) return;
+  const suggested = `${save.name || '存档'} · 副本`;
+  const name = window.prompt('副本名称', suggested);
+  if (name === null || !name.trim()) return;
+  const old = button?.textContent;
+  if (button) { button.disabled = true; button.textContent = '复制中…'; }
+  try {
+    const res = await fetch('/api/world-saves/' + encodeURIComponent(saveId) + '/copy', {
+      method: 'POST', headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: JSON.stringify({ commandId: 'copy-' + uid(), name: name.trim() }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.save?.id) throw new Error(worldApiError(data, '存档复制失败（HTTP ' + res.status + '）'));
+    await loadWorldSaves(save.worldId || currentWorldId);
+    const opened = await openWorldSave(data.save.id);
+    renderWorldList(); renderWorldDetail();
+    const status = $('world-open-status');
+    if (status) status.textContent = `已创建「${data.save.name}」；它与源存档的状态、回合和账本独立。`;
+    if (opened?.setup?.status === 'planning') openWorldOpeningDialog(opened);
+    else enterWorldWorkspace();
+  } catch (err) {
+    showWorldError(err.message);
+  } finally {
+    if (button) { button.disabled = false; button.textContent = old || '复制'; }
+  }
+}
 async function deleteWorldCard(worldId, button) {
   const world = worldCardById(worldId);
   if (!world) return;
@@ -2470,12 +2740,24 @@ function renderWorldDetail() {
   const latestVersion = Number(world.version);
   list.innerHTML = saves.length ? saves.map(save => `<div class="world-save-card${save.id === currentWorldSaveId ? ' active' : ''}">
     <div class="world-save-main"><span class="world-save-name">${esc(save.name)} ${save.setupStatus === 'planning' ? '<em class="world-save-planning">待开局</em>' : ''}</span><span class="world-save-meta">世界 v${esc(save.worldVersion)} · ${esc(save.locationId || '未定位')} · revision ${esc(save.revision)} · ${esc(formatWorldDate(save.updatedAt))}</span></div>
-    <div class="world-save-actions">${Number(save.worldVersion) < latestVersion ? `<button class="ghost-btn small" type="button" data-upgrade-save="${esc(save.id)}">升级…</button>` : ''}<button class="ghost-btn small" type="button" data-open-save="${esc(save.id)}">${save.setupStatus === 'planning' ? '继续规划' : save.id === currentWorldSaveId ? '已打开' : '打开存档'}</button><button class="ghost-btn small danger" type="button" data-delete-save="${esc(save.id)}">删除</button></div>
+    <div class="world-save-actions">${Number(save.worldVersion) < latestVersion ? `<button class="ghost-btn small" type="button" data-upgrade-save="${esc(save.id)}">升级…</button>` : ''}<button class="ghost-btn small" type="button" data-open-save="${esc(save.id)}">${save.setupStatus === 'planning' ? '继续规划' : save.id === currentWorldSaveId ? '已打开' : '打开存档'}</button><button class="ghost-btn small" type="button" data-copy-save="${esc(save.id)}">复制</button><button class="ghost-btn small" type="button" data-rename-save="${esc(save.id)}">重命名</button><button class="ghost-btn small" type="button" data-export-save="${esc(save.id)}">导出</button><button class="ghost-btn small danger" type="button" data-delete-save="${esc(save.id)}">删除</button></div>
   </div>`).join('') : '<p class="hint">这个世界还没有存档，先创建一份吧。</p>';
   list.querySelectorAll('[data-upgrade-save]').forEach(btn => btn.addEventListener('click', () => openWorldSaveUpgrade(btn.dataset.upgradeSave, btn)));
   list.querySelectorAll('[data-delete-save]').forEach(btn => btn.addEventListener('click', event => {
     event.stopPropagation();
     deleteWorldSave(btn.dataset.deleteSave, btn);
+  }));
+  list.querySelectorAll('[data-rename-save]').forEach(btn => btn.addEventListener('click', event => {
+    event.stopPropagation();
+    renameWorldSave(btn.dataset.renameSave, btn);
+  }));
+  list.querySelectorAll('[data-export-save]').forEach(btn => btn.addEventListener('click', event => {
+    event.stopPropagation();
+    exportWorldSave(btn.dataset.exportSave, btn);
+  }));
+  list.querySelectorAll('[data-copy-save]').forEach(btn => btn.addEventListener('click', event => {
+    event.stopPropagation();
+    copyWorldSave(btn.dataset.copySave, btn);
   }));
   list.querySelectorAll('[data-open-save]').forEach(btn => btn.addEventListener('click', async () => {
     const token = worldLoadToken;
@@ -2609,6 +2891,8 @@ function worldRpgState() {
         quests: Array.isArray(state.quests) ? state.quests : [],
         goals: Array.isArray(state.goals) ? state.goals : [],
         leads: Array.isArray(state.leads) ? state.leads : [],
+        activeHooks: Array.isArray(state.activeHooks) ? state.activeHooks : [],
+        runtime: state.runtime && typeof state.runtime === 'object' ? state.runtime : null,
       }, writable: true, configurable: true,
     });
   }
@@ -2716,6 +3000,8 @@ function commitRpgState(rs) {
     state.quests = cloneValue(rs.quests || []);
     state.goals = cloneValue(rs.goals || []);
     state.leads = cloneValue(rs.leads || []);
+    state.activeHooks = cloneValue(rs.activeHooks || []);
+    if (rs.runtime && typeof rs.runtime === 'object') state.runtime = cloneValue(rs.runtime);
     if (state.player?.resources && typeof state.player.resources === 'object') {
       for (const key of ['hp', 'mp', 'gold']) if (Number.isFinite(state.player.resources[key])) state.player.resources[key] = rs[key];
     }
@@ -2923,6 +3209,339 @@ async function rebuildWorldLineSummary() {
 }
 
 /* 渲染 RPG 面板：顶栏（等级/金币/位置）、状态条（HP/MP/EXP）、背包、任务、角色摘要 */
+const RPG_UI_SOURCES = new Set([
+  'world.npcs', 'world.locations', 'save.npcStates', 'save.state.activeHooks', 'save.state.goals', 'save.state.leads',
+  'save.state.worldEvents', 'save.state.factionStates', 'save.state.player.attributes',
+  'save.state.player.skills', 'save.state.player.resources', 'save.state.player.traits',
+]);
+
+function isSupportedRpgUiSource(source) {
+  return RPG_UI_SOURCES.has(source) || /^runtime\.(variables|collections)\.[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(String(source || ''));
+}
+
+function readRpgUiField(value, path) {
+  return String(path || '').split('.').reduce((current, key) => {
+    if (!current || typeof current !== 'object') return undefined;
+    return current[key];
+  }, value);
+}
+
+function rpgUiValueText(value) {
+  if (value === undefined || value === null || value === '') return '—';
+  if (Array.isArray(value)) return value.map(item => rpgUiValueText(item)).join('、');
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function renderWorldSidebarPanels() {
+  const targets = { left: $('rpg-custom-left'), right: $('rpg-custom-right') };
+  Object.values(targets).forEach(target => { if (target) target.replaceChildren(); });
+  if (!worldModeActive() || !currentWorldSave) return;
+  const world = currentWorldCard() || {};
+  const save = currentWorldSave;
+  const sourceValues = {
+    'world.npcs': world.npcs,
+    'world.locations': world.locations,
+    'save.npcStates': save.npcStates,
+    'save.state.activeHooks': save.state?.activeHooks,
+    'save.state.goals': save.state?.goals,
+    'save.state.leads': save.state?.leads,
+    'save.state.worldEvents': save.state?.worldEvents,
+    'save.state.factionStates': save.state?.factionStates,
+    'save.state.player.attributes': save.state?.player?.attributes,
+    'save.state.player.skills': save.state?.player?.skills,
+    'save.state.player.resources': save.state?.player?.resources,
+    'save.state.player.traits': save.state?.player?.traits,
+  };
+  const runtime = save.state?.runtime;
+  for (const panel of Array.isArray(world.ui?.sidebar?.panels) ? world.ui.sidebar.panels : []) {
+    const match = /^runtime\.(variables|collections)\.([A-Za-z0-9][A-Za-z0-9_-]{0,63})$/.exec(String(panel?.source || ''));
+    if (!match) continue;
+    if (match[1] === 'variables' && currentWorldCard()?.runtime?.variables?.find(item => item.id === match[2])?.visible === false) continue;
+    sourceValues[panel.source] = match[1] === 'variables'
+      ? { value: runtime?.variables?.[match[2]] }
+      : (runtime?.collections?.[match[2]] || []);
+  }
+  const panels = Array.isArray(world.ui?.sidebar?.panels) ? world.ui.sidebar.panels : [];
+  for (const panel of panels) {
+    if (!panel || !isSupportedRpgUiSource(panel.source)) continue;
+    const target = targets[panel.side === 'left' ? 'left' : 'right'];
+    if (!target) continue;
+    const layout = ['cards', 'table'].includes(panel.layout) ? panel.layout : 'list';
+    const section = document.createElement('section');
+    section.className = `rpg-custom-panel rpg-custom-${layout}`;
+    const heading = document.createElement('div');
+    heading.className = 'rpg-panel-head';
+    heading.style.marginTop = '10px';
+    heading.textContent = `${panel.icon ? `${panel.icon} ` : ''}${panel.title}`;
+    section.appendChild(heading);
+    const list = document.createElement('div');
+    list.className = 'rpg-list';
+    const raw = sourceValues[panel.source];
+    const entries = Array.isArray(raw)
+      ? raw.map((value, index) => ({ key: value?.id || value?.name || String(index + 1), value }))
+      : raw && typeof raw === 'object' ? Object.entries(raw).map(([key, value]) => ({ key, value })) : [];
+    const configuredFields = Array.isArray(panel.fields) ? panel.fields.map(field => typeof field === 'string' ? { key: field, label: field } : field) : [];
+    const inferredFields = entries[0]?.value && typeof entries[0].value === 'object'
+      ? Object.keys(entries[0].value).filter(key => !['id', 'name', 'title'].includes(key)).slice(0, 6).map(key => ({ key, label: key }))
+      : [];
+    const fields = configuredFields.length ? configuredFields : inferredFields;
+    const valueForField = (entry, field) => rpgUiValueText(field.key === '$key' ? entry.key : readRpgUiField(entry.value, field.key));
+    if (!entries.length) {
+      const empty = document.createElement('p');
+      empty.className = 'hint';
+      empty.textContent = panel.emptyText || '暂无数据。';
+      list.appendChild(empty);
+    } else if (layout === 'table') {
+      const table = document.createElement('table');
+      table.className = 'rpg-custom-table-grid';
+      const headerRow = document.createElement('tr');
+      ['名称', ...fields.map(field => field.label || field.key)].forEach(label => {
+        const cell = document.createElement('th');
+        cell.textContent = String(label);
+        headerRow.appendChild(cell);
+      });
+      const thead = document.createElement('thead');
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      entries.slice(0, 64).forEach(entry => {
+        const row = document.createElement('tr');
+        const name = document.createElement('th');
+        name.scope = 'row';
+        name.textContent = String(entry.value?.name || entry.value?.title || entry.key);
+        row.appendChild(name);
+        fields.forEach(field => {
+          const cell = document.createElement('td');
+          cell.textContent = valueForField(entry, field);
+          row.appendChild(cell);
+        });
+        tbody.appendChild(row);
+      });
+      table.appendChild(tbody);
+      list.appendChild(table);
+    } else {
+      if (layout === 'cards') list.classList.add('rpg-card-grid');
+      entries.slice(0, 64).forEach(entry => {
+        const card = document.createElement('article');
+        card.className = 'rpg-item';
+        const title = document.createElement('div');
+        title.className = 'rpg-item-name';
+        title.textContent = String(entry.value?.name || entry.value?.title || entry.key);
+        card.appendChild(title);
+        fields.forEach(field => {
+          const line = document.createElement('div');
+          line.className = 'rpg-item-sub';
+          line.textContent = `${field.label || field.key}：${valueForField(entry, field)}`;
+          card.appendChild(line);
+        });
+        list.appendChild(card);
+      });
+    }
+    section.appendChild(list);
+    target.appendChild(section);
+  }
+}
+
+function worldExtensionPermissions(extension) {
+  return new Set(Array.isArray(extension?.permissions) ? extension.permissions : ['read.public', 'read.save']);
+}
+
+function worldExtensionContext() {
+  const world = currentWorldCard() || {};
+  const save = currentWorldSave;
+  const extension = world.ui?.extension || {};
+  const permissions = worldExtensionPermissions(extension);
+  const context = { version: 1, permissions: [...permissions], mvu: extension.mvu || null };
+  if (permissions.has('read.public')) {
+    context.world = {
+      id: world.id,
+      version: world.version,
+      title: world.title,
+      summary: world.summary,
+      tags: Array.isArray(world.tags) ? world.tags : [],
+      locations: Array.isArray(world.locations) ? world.locations.filter(Boolean).map(item => ({ id: item.id, name: item.name || item.label, description: item.description })) : [],
+      factions: Array.isArray(world.factions) ? world.factions.filter(Boolean).map(item => ({ id: item.id, name: item.name || item.label, description: item.description })) : [],
+      npcs: Array.isArray(world.npcs) ? world.npcs.filter(Boolean).map(item => ({ id: item.id, name: item.name || item.label, description: item.description })) : [],
+    };
+  }
+  if (permissions.has('read.save') && save) {
+    context.save = {
+      id: save.id,
+      name: save.name,
+      revision: save.revision,
+      worldVersion: save.worldVersion,
+      setupStatus: save.setup?.status || 'active',
+      state: {
+        locationId: save.state?.locationId || null,
+        time: save.state?.time || null,
+        runtime: save.state?.runtime || null,
+        goals: save.state?.goals || [],
+        leads: save.state?.leads || [],
+        worldEvents: (Array.isArray(save.state?.worldEvents) ? save.state.worldEvents : []).filter(item => item?.visibility !== 'hidden'),
+      },
+    };
+  }
+  return context;
+}
+
+function extensionBridgeSource(nonce) {
+  return `(() => {
+    const channel = ${JSON.stringify(WORLD_EXTENSION_CHANNEL)};
+    const nonce = ${JSON.stringify(nonce)};
+    const pending = new Map();
+    let sequence = 0;
+    const send = (type, payload = {}) => new Promise((resolve, reject) => {
+      const requestId = 'ext-' + (++sequence);
+      pending.set(requestId, { resolve, reject });
+      parent.postMessage({ channel, version: 1, nonce, type, requestId, ...payload }, '*');
+      setTimeout(() => { if (pending.delete(requestId)) reject(new Error('扩展请求超时')); }, 5000);
+    });
+    window.TavernExtension = {
+      requestContext: () => send('context.request'),
+      patch: updates => send('runtime.patch', { updates }),
+      action: (actionId, input) => send('tool.call', { actionId, input }),
+      mvu: message => send('mvu', { message }),
+    };
+    window.addEventListener('message', event => {
+      const data = event.data;
+      if (!data || data.channel !== channel || data.version !== 1 || data.nonce !== nonce) return;
+      if (data.type === 'context') window.dispatchEvent(new CustomEvent('tavern-context', { detail: data.context }));
+      if (data.type !== 'response' || !data.requestId) return;
+      const item = pending.get(data.requestId);
+      if (!item) return;
+      pending.delete(data.requestId);
+      data.ok ? item.resolve(data.result) : item.reject(new Error(data.error || '扩展请求失败'));
+    });
+    parent.postMessage({ channel, version: 1, nonce, type: 'ready' }, '*');
+  })();`;
+}
+
+function worldExtensionSrcdoc(extension, nonce) {
+  const html = String(extension?.html || '').replace(/<script\b[\s\S]*?<\/script\s*>/gi, '');
+  const css = String(extension?.css || '');
+  const js = String(extension?.js || '').replace(/<\/script/gi, '<\\/script');
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"><style>html,body{margin:0;min-height:100%;background:transparent;color:#f2f2f7;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif}button,input,textarea,select{font:inherit}button{cursor:pointer}${css}</style></head><body><main id="tavern-extension-root">${html}</main><script>${extensionBridgeSource(nonce)}\n${js}</script></body></html>`;
+}
+
+function postWorldExtensionContext() {
+  const iframe = worldExtensionState.iframe;
+  if (!iframe?.contentWindow) return;
+  iframe.contentWindow.postMessage({ channel: WORLD_EXTENSION_CHANNEL, version: 1, nonce: worldExtensionState.nonce, type: 'context', context: worldExtensionContext() }, '*');
+}
+
+function clearWorldExtension() {
+  if (worldExtensionState.timer) clearTimeout(worldExtensionState.timer);
+  for (const pending of worldExtensionState.pending.values()) pending.reject(new Error('扩展已卸载'));
+  worldExtensionState.pending.clear();
+  $('rpg-extension-frame')?.replaceChildren();
+  const host = $('rpg-extension-host');
+  if (host) host.hidden = true;
+  worldExtensionState = { iframe: null, nonce: '', signature: '', ready: false, timer: null, pending: new Map(), nextRequestId: 0 };
+}
+
+async function submitWorldExtensionUpdates(updates) {
+  if (!worldModeActive() || !currentWorldSave) throw new Error('当前没有打开的世界存档');
+  const extension = currentWorldCard()?.ui?.extension || {};
+  if (!worldExtensionPermissions(extension).has('write.runtime')) throw new Error('扩展没有 write.runtime 权限');
+  if (!Array.isArray(updates) || !updates.length || updates.length > 16) throw new Error('扩展更新数量无效');
+  const saveId = currentWorldSave.id;
+  const res = await fetch('/api/world-saves/' + encodeURIComponent(saveId) + '/runtime', {
+    method: 'POST', headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({ commandId: 'extension-' + uid(), expectedRevision: currentWorldSave.revision, updates }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(worldApiError(data, '扩展运行时提交失败（HTTP ' + res.status + '）'));
+  if (currentWorldSaveId === saveId) {
+    hydrateWorldSave(data);
+    currentWorldSave = data;
+    renderRPG();
+    renderMessages();
+  }
+  return { revision: data.revision };
+}
+
+function respondWorldExtension(event, requestId, ok, result, error) {
+  if (!requestId || !event.source) return;
+  event.source.postMessage({ channel: WORLD_EXTENSION_CHANNEL, version: 1, nonce: worldExtensionState.nonce, type: 'response', requestId, ok, result, ...(error ? { error } : {}) }, '*');
+}
+
+async function handleWorldExtensionMessage(event) {
+  const state = worldExtensionState;
+  if (!state.iframe || event.source !== state.iframe.contentWindow) return;
+  const data = event.data;
+  if (!data || data.channel !== WORLD_EXTENSION_CHANNEL || data.version !== 1 || data.nonce !== state.nonce) return;
+  if (data.type === 'ready') {
+    state.ready = true;
+    if (state.timer) clearTimeout(state.timer);
+    const status = $('rpg-extension-status');
+    if (status) status.textContent = '已连接';
+    postWorldExtensionContext();
+    return;
+  }
+  if (data.type === 'context.request') { postWorldExtensionContext(); respondWorldExtension(event, data.requestId, true, worldExtensionContext()); return; }
+  const extension = currentWorldCard()?.ui?.extension || {};
+  const permissions = worldExtensionPermissions(extension);
+  try {
+    if (data.type === 'runtime.patch' || data.type === 'mvu') {
+      if (!permissions.has('write.runtime')) throw new Error('扩展没有 write.runtime 权限');
+      const updates = data.type === 'runtime.patch' ? data.updates : (data.message?.updates || data.message?.patch?.updates);
+      const result = await submitWorldExtensionUpdates(updates);
+      respondWorldExtension(event, data.requestId, true, result);
+      return;
+    }
+    if (data.type === 'tool.call') {
+      if (!permissions.has('tool.call') || !permissions.has('write.runtime')) throw new Error('扩展没有 tool.call/write.runtime 权限');
+      const actionId = String(data.actionId || '');
+      if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(actionId)) throw new Error('扩展 actionId 无效');
+      const result = await submitWorldExtensionUpdates([{ type: 'runtime.action.execute', actionId, input: data.input }]);
+      respondWorldExtension(event, data.requestId, true, result);
+      return;
+    }
+    throw new Error('扩展消息类型不受支持');
+  } catch (error) {
+    respondWorldExtension(event, data.requestId, false, null, error.message);
+  }
+}
+
+function renderWorldExtension() {
+  const host = $('rpg-extension-host');
+  const frame = $('rpg-extension-frame');
+  if (!host || !frame || !worldModeActive()) { clearWorldExtension(); return; }
+  const extension = currentWorldCard()?.ui?.extension;
+  if (!extension || extension.enabled === false || (!extension.html && !extension.css && !extension.js)) { clearWorldExtension(); return; }
+  const signature = JSON.stringify([currentWorldId, currentWorldSave?.worldVersion, extension]);
+  host.hidden = false;
+  const title = $('rpg-extension-title');
+  if (title) title.textContent = extension.title || '世界扩展';
+  const iframe = worldExtensionState.iframe;
+  if (iframe && worldExtensionState.signature === signature) {
+    iframe.style.height = `${Number(extension.maxHeight) || 360}px`;
+    postWorldExtensionContext();
+    return;
+  }
+  clearWorldExtension();
+  host.hidden = false;
+  const next = document.createElement('iframe');
+  next.title = extension.title || '世界卡扩展';
+  next.setAttribute('sandbox', 'allow-scripts');
+  next.referrerPolicy = 'no-referrer';
+  next.style.height = `${Number(extension.maxHeight) || 360}px`;
+  const nonce = uid() + '-' + uid();
+  worldExtensionState = { iframe: next, nonce, signature, ready: false, timer: null, pending: new Map(), nextRequestId: 0 };
+  const status = $('rpg-extension-status');
+  if (status) status.textContent = '加载中…';
+  next.addEventListener('load', () => { if (worldExtensionState.iframe === next) postWorldExtensionContext(); });
+  frame.replaceChildren(next);
+  next.srcdoc = worldExtensionSrcdoc(extension, nonce);
+  worldExtensionState.timer = setTimeout(() => {
+    if (!worldExtensionState.ready && worldExtensionState.iframe === next) {
+      const statusEl = $('rpg-extension-status');
+      if (statusEl) statusEl.textContent = '扩展未响应（静态内容仍可用）';
+    }
+  }, Math.max(200, Math.min(5000, Number(extension.timeoutMs) || 1200)));
+}
+
 function renderRPG() {
   const rs = curRpgState();
   if (!rs) return;
@@ -3085,6 +3704,7 @@ function renderRPG() {
       : `<p class="hint">${empty}</p>`;
   };
   renderObjectives('rpg-goals', worldModeActive() ? currentWorldSave.state?.goals : rs.goals, '暂无目标。');
+  renderObjectives('rpg-hooks', worldModeActive() ? currentWorldSave.state?.activeHooks : [], '暂无开局 Hook。');
   renderObjectives('rpg-leads', worldModeActive() ? currentWorldSave.state?.leads : rs.leads, '暂无线索。');
   const addDeadlineLabels = (id, list) => {
     const el = $(id);
@@ -3170,6 +3790,8 @@ function renderRPG() {
       ? experiences.slice(-16).reverse().map(item => `<article class="rpg-item rpg-experience-item"><div class="rpg-item-name">${esc(item.title)} <small>${esc(item.sourceId || 'growth')}</small></div><div class="rpg-item-sub">${esc(item.summary)}</div></article>`).join('')
       : '<p class="hint">暂无人物经历</p>';
   }
+  renderWorldSidebarPanels();
+  renderWorldExtension();
   renderMap(); // 世界地图（数据层 + 美化图显示）
 }
 
@@ -3207,7 +3829,7 @@ function buildRpgAgentProfile() {
 
 /* Native OpenAI tool names are an allowlist, while their descriptions and
  * JSON Schemas remain data-driven through defaults / preset / world card. */
-const RPG_NATIVE_TOOL_NAMES = new Set(['dice.roll', 'rules.check', 'state.patch', 'entity.create', 'memory.record', 'context.retrieve']);
+const RPG_NATIVE_TOOL_NAMES = new Set(['dice.roll', 'rules.check', 'state.patch', 'objective.upsert', 'entity.create', 'memory.record', 'context.retrieve']);
 const RPG_NATIVE_TOOL_WIRE_NAMES = Object.fromEntries([...RPG_NATIVE_TOOL_NAMES].map(name => [name, name.replace(/[^a-zA-Z0-9_-]/g, '_')]));
 const RPG_NATIVE_TOOL_INTERNAL_NAMES = Object.fromEntries(Object.entries(RPG_NATIVE_TOOL_WIRE_NAMES).map(([internal, wire]) => [wire, internal]));
 function normalizeRpgAgentToolName(name) {
@@ -3215,7 +3837,7 @@ function normalizeRpgAgentToolName(name) {
   return RPG_NATIVE_TOOL_INTERNAL_NAMES[raw] || (RPG_NATIVE_TOOL_NAMES.has(raw) ? raw : raw);
 }
 function buildRpgNativeToolDefinitions(profile = buildRpgAgentProfile()) {
-  if (!profile || profile.mode === 'tool-candidate' || !profile.tools) return [];
+  if (!profile || !profile.tools) return [];
   return Object.entries(profile.tools)
     .filter(([name, config]) => RPG_NATIVE_TOOL_NAMES.has(name) && config && config.enabled !== false)
     .map(([name, config]) => {
@@ -3334,9 +3956,9 @@ function parseRpgOutput(reply) {
   };
 }
 
-/* AI 输出处理：酒馆保留原文；RPG 只剥离控制块，叙事 Markdown 不产生任何副作用。 */
+/* AI 输出处理：先解析 RPG 控制块，再对可见正文执行当前模式输出正则。 */
 function processAIOutput(reply) {
-  if (mode !== 'rpg') return { content: String(reply || '').trim(), options: null };
+  if (mode !== 'rpg') return { content: applyOutputRegex(reply), options: null };
   const parsed = parseRpgOutput(reply);
   if (parsed.errorCode) console.warn('[Tavern] RPG 状态块解析失败:', parsed.errorCode, parsed.errorMessage || '');
   const update = parsed.format === 'tagged' ? parsed.payload : applyRpgUpdate(parsed.payload ? JSON.stringify(parsed.payload) : null); // 新协议交给服务端原子提交，旧协议保留兼容适配器
@@ -3347,7 +3969,7 @@ function processAIOutput(reply) {
     patch = normalizeRpgPatch(patch);
   }
   return {
-    content: stripRpgNarrativeOptions(parsed.narrative),
+    content: applyOutputRegex(stripRpgNarrativeOptions(parsed.narrative)),
     options: Array.isArray(update?.options) ? update.options : null,
     createEntities: update?.createEntities || null,
     eventMemory: update?.eventMemory || null,
@@ -3600,36 +4222,81 @@ function rollWorldDice(text) {
 function renderBubble(content) {
   if (window.marked && window.DOMPurify) {
     try {
-      const raw = marked.parse(String(content), { breaks: true, gfm: true });
+      const raw = marked.parse(String(content), {
+        gfm: true,
+        breaks: true,
+        headerIds: false,
+        mangle: false,
+        smartypants: false,
+      });
       const div = document.createElement('div');
-      div.innerHTML = DOMPurify.sanitize(raw, { DATA_URI_TAGS: ['img'] });
+      div.innerHTML = DOMPurify.sanitize(raw, {
+        DATA_URI_TAGS: ['img'],
+        ADD_ATTR: ['target', 'rel'],
+        FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form'],
+      });
+      div.querySelectorAll('a').forEach(link => {
+        if (/^https?:\/\//i.test(link.getAttribute('href') || '')) {
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer nofollow';
+        }
+      });
       return { html: div.innerHTML, md: true };
     } catch { /* 解析失败则回退纯文本 */ }
   }
   return { html: esc(content), md: false };
 }
 
-/* 拆分旁白 / 对白（SillyTavern 语义：引号=对白、星号/括号动作=旁白、其余=叙述）
- * 状态机实现：支持嵌套引号（「他说“你好”」）、同族配对（“”「」『』" " ' '）、
- * 不成对引号整体回退为旁白；多段对白自然分段。 */
+/* 拆分旁白 / 对白：使用括号范围区分角色发言与叙述引用。
+ * “对白” 在括号外进入气泡；（旁白“引用”旁白）整体保留为旁白。 */
 function splitNarration(text) {
-  const OPEN = { '“': '”', '"': '"', '「': '」', '『': '』', '‘': '’', "'": "'" };
+  const OPEN = { '“': '”' };
+  const PAREN_OPEN = { '（': '）', '(': ')' };
   const segs = [];
   let cur = '';
   const stack = []; // 引号栈（期望的闭符）
+  let parenDepth = 0;
+  let inlineCode = false;
+  let fence = '';
   const flush = (type) => {
     if (cur.trim()) segs.push({ type, text: cur });
     cur = '';
   };
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
+    if (ch === '`' || ch === '~') {
+      let run = 1;
+      while (text[i + run] === ch) run++;
+      if (run >= 3 && !inlineCode) {
+        if (!fence) fence = ch.repeat(3);
+        else if (fence[0] === ch) fence = '';
+        cur += ch.repeat(run);
+        i += run - 1;
+        continue;
+      }
+      if (ch === '`' && !fence && run === 1) inlineCode = !inlineCode;
+      cur += ch.repeat(run);
+      i += run - 1;
+      continue;
+    }
+    // Markdown 代码跨度/围栏内的引号只是代码，不得触发 Tavern 对白拆分。
+    if (fence || inlineCode) {
+      cur += ch;
+      continue;
+    }
     if (stack.length) {
       // 引号内：继续累积，匹配到闭符出栈
       cur += ch;
       if (ch === stack[stack.length - 1]) stack.pop();
       if (!stack.length) flush('dialogue');
-    } else if (OPEN[ch] !== undefined) {
-      // 开引号：先落旁白，再入栈开始对白
+    } else if (PAREN_OPEN[ch] !== undefined) {
+      parenDepth++;
+      cur += ch;
+    } else if ((ch === '）' || ch === ')') && parenDepth > 0) {
+      parenDepth--;
+      cur += ch;
+    } else if (OPEN[ch] !== undefined && parenDepth === 0) {
+      // 引号只在括号外开启对白；括号内的同类引号属于旁白引用
       flush('narration');
       stack.push(OPEN[ch]);
       cur += ch;
@@ -3641,6 +4308,10 @@ function splitNarration(text) {
   if (stack.length) {
     if (segs.length && segs[segs.length - 1].type === 'narration') segs[segs.length - 1].text += cur;
     else if (cur.trim()) segs.push({ type: 'narration', text: cur });
+  } else if (cur.trim()) {
+    // 对白结束后的尾部正文仍属于旁白，不能丢失
+    if (segs.length && segs[segs.length - 1].type === 'narration') segs[segs.length - 1].text += cur;
+    else segs.push({ type: 'narration', text: cur });
   }
   if (!segs.length) segs.push({ type: 'narration', text });
   return segs;
@@ -3648,11 +4319,52 @@ function splitNarration(text) {
 
 /* ─────────── 会话管理 ─────────── */
 function saveSessions() {
+  const cur = curSession();
+  if (cur) cur.updatedAt = Date.now(); // 跨浏览器合并时按更新时间取新
   try {
     // 图片消息存的是本地相对路径（/images/xxx.png，很小），可以安全持久化
     saveJSON(LS_SESSIONS, sessions);
   } catch (e) {
     console.warn('[Tavern] 会话保存失败（可能超出本地存储配额）:', e.message);
+  }
+  saveJSON(LS_SESSIONS_DELETED, sessionsDeleted);
+  // server JSON 是权威源：与 characters / lorebooks 等一致的双写
+  saveServerData('sessions', { schemaVersion: 1, sessions: Array.isArray(sessions) ? sessions : [], deletedIds: sessionsDeleted });
+}
+
+/* 会话跨浏览器同步：server 未同步时推送本地（迁移）；已同步时按 ID 取并集、冲突取 updatedAt 新者，
+   双方删除墓碑都生效，合并结果推回 server，让另一台浏览器下次加载也能收敛。 */
+function syncSessionsFromServer(remote) {
+  const local = Array.isArray(sessions) ? sessions : [];
+  if (!remote || typeof remote !== 'object' || !Array.isArray(remote.sessions)) {
+    // server 无会话文件（新装 / 旧版本升级）或不可达：本地会话原样推送上去，完成首次迁移
+    if (local.length || sessionsDeleted.length) {
+      saveServerData('sessions', { schemaVersion: 1, sessions: local, deletedIds: sessionsDeleted });
+    }
+    return;
+  }
+  const remoteDeleted = Array.isArray(remote.deletedIds)
+    ? remote.deletedIds.filter(id => typeof id === 'string') : [];
+  const byId = new Map();
+  for (const s of local) {
+    if (!s || typeof s !== 'object' || !s.id || sessionsDeleted.includes(s.id) || remoteDeleted.includes(s.id)) continue;
+    byId.set(s.id, s);
+  }
+  for (const s of remote.sessions) {
+    if (!s || typeof s !== 'object' || !s.id || sessionsDeleted.includes(s.id) || remoteDeleted.includes(s.id)) continue;
+    const mine = byId.get(s.id);
+    if (!mine) { byId.set(s.id, s); continue; }
+    const lt = mine.updatedAt || mine.createdAt || 0;
+    const rt = s.updatedAt || s.createdAt || 0;
+    byId.set(s.id, rt > lt ? s : mine); // 同 ID 双端都改过：保留更新的一方
+  }
+  sessions = [...byId.values()].sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+  sessionsDeleted = [...new Set([...sessionsDeleted, ...remoteDeleted])];
+  saveJSON(LS_SESSIONS, sessions);
+  saveJSON(LS_SESSIONS_DELETED, sessionsDeleted);
+  // 与 server 完全一致时不再回写，避免每次启动都重写文件
+  if (JSON.stringify(sessions) !== JSON.stringify(remote.sessions) || JSON.stringify(sessionsDeleted) !== JSON.stringify(remoteDeleted)) {
+    saveServerData('sessions', { schemaVersion: 1, sessions, deletedIds: sessionsDeleted });
   }
 }
 
@@ -3754,6 +4466,7 @@ function switchSession(id) {
 function deleteSession(id) {
   if (!confirm('删除该会话？此操作不可撤销。')) return;
   sessions = sessions.filter(s => s.id !== id);
+  if (!sessionsDeleted.includes(id)) sessionsDeleted.push(id); // 墓碑：另一台浏览器合并时不再复活
   if (currentSessionId === id) currentSessionId = null;
   ensureSessions();
   if (!curSession() && currentCharId) return newSession(false);
@@ -3817,7 +4530,7 @@ function renameSession(id) {
   const s = sessions.find(x => x.id === id);
   if (!s) return;
   const name = prompt('重命名会话：', s.name);
-  if (name && name.trim()) { s.name = name.trim(); saveSessions(); renderSessions(); }
+  if (name && name.trim()) { s.name = name.trim(); s.updatedAt = Date.now(); saveSessions(); renderSessions(); }
 }
 
 /* ─────────── 角色管理 ─────────── */
@@ -4375,6 +5088,104 @@ function ensureEntryIds() {
   if (changed) saveLore(); // 持久化，避免刷新后 id 丢失
 }
 
+/* ─────────── 输出正则（预设 + 模式自定义） ─────────── */
+const OUTPUT_REGEX_FLAGS = 'dgimsuvy';
+
+function normalizeOutputRegexRule(source, index = 0, origin = 'custom') {
+  const raw = source && typeof source === 'object' ? source : {};
+  const trimStrings = Array.isArray(raw.trimStrings)
+    ? raw.trimStrings.filter(value => typeof value === 'string')
+    : (typeof raw.trimStrings === 'string' && raw.trimStrings ? [raw.trimStrings] : []);
+  return {
+    id: String(raw.id || `${origin}-regex-${index + 1}`),
+    name: String(raw.name || raw.title || raw.id || `输出正则 ${index + 1}`),
+    findRegex: String(raw.findRegex ?? raw.pattern ?? raw.find ?? ''),
+    flags: String(raw.flags || ''),
+    replaceString: String(raw.replaceString ?? raw.replacement ?? raw.replace ?? ''),
+    trimStrings,
+    enabled: raw.enabled !== false && raw.disabled !== true,
+    placement: Array.isArray(raw.placement) ? raw.placement.slice(0, 8) : raw.placement,
+    source: origin,
+  };
+}
+
+function normalizeOutputRegexRules(source, origin = 'custom') {
+  return (Array.isArray(source) ? source : []).map((rule, index) => normalizeOutputRegexRule(rule, index, origin));
+}
+
+function buildOutputRegex(rule) {
+  const raw = String(rule?.findRegex || '').trim();
+  if (!raw || raw.length > 2000) return null;
+  let pattern = raw;
+  let flags = String(rule?.flags || '');
+  const literal = raw.match(/^\/([\s\S]*)\/([a-z]*)$/i);
+  if (literal) {
+    pattern = literal[1];
+    flags = literal[2];
+  }
+  flags = [...new Set((flags + 'g').split('').filter(flag => OUTPUT_REGEX_FLAGS.includes(flag)))].join('');
+  try { return new RegExp(pattern, flags); }
+  catch { return null; }
+}
+
+function modeOutputRegexes(targetMode = mode) {
+  prefs.outputRegex = prefs.outputRegex && typeof prefs.outputRegex === 'object' ? prefs.outputRegex : {};
+  if (!Array.isArray(prefs.outputRegex[targetMode])) prefs.outputRegex[targetMode] = [];
+  return prefs.outputRegex[targetMode];
+}
+
+function activeOutputRegexRules(targetMode = mode) {
+  const preset = targetMode === mode ? resolvePromptPreset()?.preset : null;
+  const world = targetMode === 'rpg' && targetMode === mode && worldModeActive() ? currentWorldCard() : null;
+  return [
+    ...normalizeOutputRegexRules(world?.regexes, 'world'),
+    ...normalizeOutputRegexRules(preset?.regexes, 'preset'),
+    ...normalizeOutputRegexRules(modeOutputRegexes(targetMode), 'custom'),
+  ].filter(rule => {
+    if (!Array.isArray(rule.placement) || !rule.placement.length) return true;
+    return rule.placement.some(value => Number(value) === 2 || String(value).toUpperCase() === 'AI_RESPONSE');
+  });
+}
+
+function applyOutputRegexRule(output, rule, regex) {
+  const replacement = String(rule.replaceString || '');
+  if (!replacement.includes('{{match}}') && !rule.trimStrings.length) return output.replace(regex, replacement);
+  return output.replace(regex, (...args) => {
+    const match = String(args[0] || '');
+    const groups = typeof args.at(-1) === 'object' ? args.at(-1) : null;
+    const captures = args.slice(1, groups ? -3 : -2);
+    let trimmed = match;
+    for (const trim of rule.trimStrings) if (trim) trimmed = trimmed.split(trim).join('');
+    return replacement
+      .replace(/\{\{match\}\}/g, trimmed)
+      .replace(/\$(\d+)/g, (_, index) => captures[Number(index) - 1] ?? '');
+  });
+}
+
+function applyOutputRegex(text, targetMode = mode) {
+  let output = String(text || '');
+  for (const rule of activeOutputRegexRules(targetMode)) {
+    if (!rule.enabled) continue;
+    const regex = buildOutputRegex(rule);
+    if (!regex) continue;
+    output = applyOutputRegexRule(output, rule, regex);
+  }
+  return output.trim();
+}
+
+function serializeOutputRegexRule(rule) {
+  return {
+    id: rule.id,
+    name: rule.name,
+    findRegex: rule.findRegex,
+    ...(rule.flags ? { flags: rule.flags } : {}),
+    replaceString: rule.replaceString,
+    trimStrings: rule.trimStrings,
+    disabled: rule.enabled === false,
+    ...(rule.placement !== undefined ? { placement: rule.placement } : {}),
+  };
+}
+
 function presetMode(name, preset) {
   if (preset && ['tavern', 'rpg', 'both'].includes(preset.mode)) return preset.mode;
   if (name === GLOBAL_PRESET_KEY) return 'both';
@@ -4417,7 +5228,7 @@ function normalizePromptPreset(name, source) {
       promptOrder.splice(beforeHistory < 0 ? promptOrder.length : beforeHistory, 0, { identifier, enabled: identifier !== 'tavernRpg' || presetMode(name, src) !== 'tavern' });
       ids.add(identifier);
     }
-    return { ...src, version: PRESET_SCHEMA_VERSION, mode: presetMode(name, src), firstMes: String(src.firstMes || ''), prompts, promptOrder };
+    return { ...src, version: PRESET_SCHEMA_VERSION, mode: presetMode(name, src), firstMes: String(src.firstMes || ''), prompts, promptOrder, regexes: normalizeOutputRegexRules(src.regexes, 'preset') };
   }
 
   const prompts = PRESET_MARKERS.map(([id, label]) => makePresetMarker(
@@ -4433,7 +5244,7 @@ function normalizePromptPreset(name, source) {
     prompts.push({ identifier, name: String(module.name || identifier), role: 'system', content: String(module.content || ''), marker: false, position: 'relative', depth: 4, order: 100 });
     promptOrder.splice(formatIndex + i, 0, { identifier, enabled: module.enabled !== false });
   }
-  return { version: PRESET_SCHEMA_VERSION, mode: presetMode(name, src), firstMes: String(src.firstMes || ''), prompts, promptOrder, ...(src.agent && typeof src.agent === 'object' && !Array.isArray(src.agent) ? { agent: cloneValue(src.agent) } : {}) };
+  return { version: PRESET_SCHEMA_VERSION, mode: presetMode(name, src), firstMes: String(src.firstMes || ''), prompts, promptOrder, regexes: normalizeOutputRegexRules(src.regexes, 'preset'), ...(src.agent && typeof src.agent === 'object' && !Array.isArray(src.agent) ? { agent: cloneValue(src.agent) } : {}) };
 }
 
 function ensurePromptPresetsV2() {
@@ -4445,6 +5256,18 @@ function ensurePromptPresetsV2() {
     promptPresets[name] = normalized;
   }
   return changed;
+}
+
+// 仅替换未被用户改写的旧内置酒馆预设，避免已有运行时数据继续使用旧引号协议。
+function migrateBuiltInTavernPreset(defaults) {
+  const name = 'RP 基础（示例）';
+  const builtin = defaults?.presets?.[name];
+  const current = promptPresets[name];
+  if (!builtin || !current) return false;
+  const main = current.prompts?.find(p => p.identifier === 'main')?.content || current.systemPrompt || '';
+  if (!main.includes('角色的每一句话都必须使用中文引号 “ ” 包裹')) return false;
+  promptPresets[name] = cloneValue(builtin);
+  return true;
 }
 
 function activePresetNameForMode(targetMode = mode) {
@@ -4466,9 +5289,12 @@ function setActivePresetName(name) {
 
 function resolvePromptPreset() {
   const char = currentChar();
+  const world = currentWorldCard();
   const bound = mode === 'tavern' && char?.presetName && promptPresets[char.presetName]
     && ['tavern', 'both'].includes(presetMode(char.presetName, promptPresets[char.presetName])) ? char.presetName : '';
-  const name = bound || activePresetNameForMode(mode);
+  const worldBound = mode === 'rpg' && world?.rpgPresetName && promptPresets[world.rpgPresetName]
+    && ['rpg', 'both'].includes(presetMode(world.rpgPresetName, promptPresets[world.rpgPresetName])) ? world.rpgPresetName : '';
+  const name = bound || worldBound || activePresetNameForMode(mode);
   return { name, preset: promptPresets[name] || promptPresets[GLOBAL_PRESET_KEY] || normalizePromptPreset(GLOBAL_PRESET_KEY, {}) };
 }
 
@@ -4513,6 +5339,9 @@ function fillPGActive() {
   }
   if (cur && promptPresets[cur]) sel.value = cur;
   else sel.value = activePresetNameForMode(mode);
+  const active = sel.value || '全局默认';
+  const note = $('pg-active-note');
+  if (note) note.textContent = `当前${mode === 'rpg' ? 'RPG' : '酒馆'}模式实际使用：${active}。左侧列表用于编辑预设内容。`;
 }
 
 function selectPresetForEdit(name) {
@@ -4522,6 +5351,7 @@ function selectPresetForEdit(name) {
   $('pg-edit-title').textContent = pgEditingName === GLOBAL_PRESET_KEY ? '编辑全局默认' : '编辑预设：' + pgEditingName;
   $('pg-mode').value = pgEditingPreset.mode;
   $('pg-first-mes').value = pgEditingPreset.firstMes;
+  fillPGActive();
   renderPGPrompts();
   renderPGList();
 }
@@ -4721,9 +5551,10 @@ function convertSTPresetData(data) {
     'reasoning_effort', 'verbosity', 'assistant_prefill', 'continue_prefill', 'continue_postfix',
   ].filter(key => data[key] !== undefined).map(key => [key, data[key]]));
   const importedMode = ['tavern', 'rpg', 'both'].includes(data.tavern_meta?.mode) ? data.tavern_meta.mode : 'tavern';
+  const regexes = normalizeOutputRegexRules(data.extensions?.regex_scripts, 'preset');
   return {
-    preset: { version: PRESET_SCHEMA_VERSION, mode: importedMode, firstMes: String(data.tavern_meta?.firstMes || ''), prompts, promptOrder, modelParameters, source: { format: 'sillytavern-chat-completion', profile: profile.character_id, unusedPrompts: Math.max(0, prompts.length - promptOrder.length) } },
-    report: { prompts: prompts.length, ordered: promptOrder.length, regexes: data.extensions?.regex_scripts?.length || 0 },
+    preset: { version: PRESET_SCHEMA_VERSION, mode: importedMode, firstMes: String(data.tavern_meta?.firstMes || ''), prompts, promptOrder, regexes, modelParameters, source: { format: 'sillytavern-chat-completion', profile: profile.character_id, unusedPrompts: Math.max(0, prompts.length - promptOrder.length) } },
+    report: { prompts: prompts.length, ordered: promptOrder.length, regexes: regexes.length },
   };
 }
 
@@ -4747,13 +5578,144 @@ function exportPromptPreset() {
     injection_position: p.position === 'in_chat' ? 1 : 0,
     injection_depth: p.depth, injection_order: p.order,
   }));
-  const payload = { ...(pgEditingPreset.modelParameters || {}), prompts, prompt_order: [{ character_id: 100001, order: pgEditingPreset.promptOrder }], tavern_meta: { version: PRESET_SCHEMA_VERSION, mode: pgEditingPreset.mode, firstMes: pgEditingPreset.firstMes } };
+  const payload = { ...(pgEditingPreset.modelParameters || {}), prompts, prompt_order: [{ character_id: 100001, order: pgEditingPreset.promptOrder }], extensions: { regex_scripts: (pgEditingPreset.regexes || []).map(serializeOutputRegexRule) }, tavern_meta: { version: PRESET_SCHEMA_VERSION, mode: pgEditingPreset.mode, firstMes: pgEditingPreset.firstMes } };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = pgEditingName.replace(/[\\/:*?"<>|]/g, '_') + '.json';
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+/* ─────────── 输出正则管理 ─────────── */
+function activePresetOutputRegexes() {
+  return normalizeOutputRegexRules(resolvePromptPreset()?.preset?.regexes, 'preset');
+}
+
+function saveOutputRegexPrefs() {
+  saveJSON(LS_PREFS, prefs);
+}
+
+function selectedOutputRegex() {
+  if (!regexEditingId) return null;
+  const list = regexEditingSource === 'preset' ? activePresetOutputRegexes()
+    : regexEditingSource === 'world' ? normalizeOutputRegexRules(currentWorldCard()?.regexes, 'world')
+      : modeOutputRegexes();
+  return list.find(rule => rule.id === regexEditingId) || null;
+}
+
+function renderRegexEditor(rule = null, source = 'custom') {
+  const readOnly = source === 'preset' || source === 'world';
+  const label = source === 'preset' ? '预设正则' : source === 'world' ? '世界卡正则' : '自定义正则';
+  $('regex-edit-title').textContent = rule ? `${label}：${rule.name}` : '新建自定义正则';
+  $('regex-name').value = rule?.name || '';
+  $('regex-find').value = rule?.findRegex || '';
+  $('regex-replace').value = rule?.replaceString || '';
+  $('regex-trim').value = (rule?.trimStrings || []).join(', ');
+  $('regex-enabled').checked = rule ? rule.enabled !== false : true;
+  ['regex-name', 'regex-find', 'regex-replace', 'regex-trim', 'regex-enabled'].forEach(id => { $(id).disabled = readOnly; });
+  $('regex-save').disabled = readOnly;
+  $('regex-del').disabled = readOnly || !rule;
+  $('regex-copy').classList.toggle('hidden', !readOnly);
+  $('regex-note').textContent = readOnly
+    ? `这是当前${source === 'world' ? '世界卡' : '预设'}携带的正则，只读；复制后可作为当前模式的自定义正则调整。`
+    : '自定义正则只作用于当前模式，并会在世界卡 / 预设正则之后执行。';
+}
+
+function resetRegexEditor() {
+  regexEditingId = null;
+  regexEditingSource = 'custom';
+  renderRegexEditor();
+  renderRegexList();
+}
+
+function selectRegexForEdit(source, id) {
+  regexEditingSource = source;
+  regexEditingId = id;
+  renderRegexList();
+  renderRegexEditor(selectedOutputRegex(), source);
+}
+
+function renderRegexList() {
+  const list = $('regex-list');
+  if (!list) return;
+  const presetRules = activePresetOutputRegexes();
+  const worldRules = mode === 'rpg' && worldModeActive() ? normalizeOutputRegexRules(currentWorldCard()?.regexes, 'world') : [];
+  const customRules = normalizeOutputRegexRules(modeOutputRegexes(), 'custom');
+  const modeNote = $('regex-mode-note');
+  if (modeNote) modeNote.textContent = `当前模式：${mode === 'rpg' ? 'RPG' : '酒馆'} · 世界卡 ${worldRules.length} 条 · 预设 ${presetRules.length} 条 · 自定义 ${customRules.length} 条`;
+  list.innerHTML = '';
+  if (!presetRules.length && !worldRules.length && !customRules.length) {
+    list.innerHTML = '<div class="hint">当前没有输出正则。可新建一条，或导入带正则的 SillyTavern 预设。</div>';
+    return;
+  }
+  const appendGroup = (label, rules, source) => {
+    if (!rules.length) return;
+    const heading = document.createElement('div');
+    heading.className = 'hint regex-group-title';
+    heading.textContent = label;
+    list.appendChild(heading);
+    for (const rule of rules) {
+      const item = document.createElement('div');
+      item.className = 'cm-item' + (source === regexEditingSource && rule.id === regexEditingId ? ' active' : '') + (rule.enabled === false ? ' regex-off' : '');
+      item.innerHTML = `<span>${rule.enabled === false ? '🚫 ' : ''}${esc(rule.name)}</span><small>${source === 'preset' ? '预设' : source === 'world' ? '世界卡' : '当前模式'}</small>`;
+      item.addEventListener('click', () => selectRegexForEdit(source, rule.id));
+      list.appendChild(item);
+    }
+  };
+  appendGroup('当前世界卡自动携带', worldRules, 'world');
+  appendGroup('当前预设自动携带', presetRules, 'preset');
+  appendGroup(`${mode === 'rpg' ? 'RPG' : '酒馆'}模式自定义`, customRules, 'custom');
+}
+
+function saveRegexEditor() {
+  if (['preset', 'world'].includes(regexEditingSource)) return;
+  const name = $('regex-name').value.trim() || '未命名正则';
+  const findRegex = $('regex-find').value.trim();
+  const candidate = normalizeOutputRegexRule({
+    id: regexEditingId || uid(),
+    name,
+    findRegex,
+    replaceString: $('regex-replace').value,
+    trimStrings: $('regex-trim').value.split(',').map(value => value.trim()).filter(Boolean),
+    enabled: $('regex-enabled').checked,
+  }, 0, 'custom');
+  if (!buildOutputRegex(candidate)) {
+    alert('匹配表达式为空或不是有效正则。');
+    $('regex-find').focus();
+    return;
+  }
+  const rules = modeOutputRegexes();
+  const index = rules.findIndex(rule => rule.id === regexEditingId);
+  if (index >= 0) rules[index] = candidate;
+  else rules.push(candidate);
+  regexEditingId = candidate.id;
+  regexEditingSource = 'custom';
+  saveOutputRegexPrefs();
+  renderRegexList();
+  renderRegexEditor(candidate, 'custom');
+}
+
+function copyPresetRegexToCustom() {
+  const rule = selectedOutputRegex();
+  if (!rule || !['preset', 'world'].includes(regexEditingSource)) return;
+  const copy = normalizeOutputRegexRule({ ...rule, id: uid(), name: `${rule.name}（自定义）` }, 0, 'custom');
+  modeOutputRegexes().push(copy);
+  saveOutputRegexPrefs();
+  regexEditingId = copy.id;
+  regexEditingSource = 'custom';
+  renderRegexList();
+  renderRegexEditor(copy, 'custom');
+}
+
+function deleteRegexEditor() {
+  if (['preset', 'world'].includes(regexEditingSource) || !regexEditingId) return;
+  const rules = modeOutputRegexes();
+  const index = rules.findIndex(rule => rule.id === regexEditingId);
+  if (index < 0 || !confirm(`删除正则「${rules[index].name || regexEditingId}」？`)) return;
+  rules.splice(index, 1);
+  saveOutputRegexPrefs();
+  resetRegexEditor();
 }
 
 /* ─────────── 世界书（独立栏目，多本可绑定） ─────────── */
@@ -5165,6 +6127,8 @@ function buildWorldNpcPromptPart() {
     const visibleSecrets = worldNpcVisibleSecretText(npc, npcState);
     if (visibleSecrets.length) fields.push(`当前存档已解锁秘密（仅使用这些）：${visibleSecrets.join('；')}`);
     if (npcState.locationId) fields.push(`当前存档位置：${npcState.locationId}`);
+    if (npcState.lastActivity) fields.push(`最近活动：${npcState.lastActivity}`);
+    if (npcState.lastActionId) fields.push(`最近行动模板：${npcState.lastActionId}`);
     if (npcState.relation && Object.keys(npcState.relation).length) fields.push(`当前存档关系：${JSON.stringify(npcState.relation)}`);
     if (Array.isArray(npcState.knowledge) && npcState.knowledge.length) fields.push(`当前存档已知事实：${npcState.knowledge.join('；')}`);
     if (Array.isArray(npcState.status) && npcState.status.length) fields.push(`当前存档状态：${npcState.status.join('；')}`);
@@ -5190,6 +6154,7 @@ function buildWorldFactLayerPromptPart() {
   const rules = world?.rules && typeof world.rules === 'object' ? [
     Array.isArray(world.rules.hard) && world.rules.hard.length ? `硬规则：${world.rules.hard.join('；')}` : '',
     Array.isArray(world.rules.soft) && world.rules.soft.length ? `软规则：${world.rules.soft.join('；')}` : '',
+    Array.isArray(world.rules.checks) && world.rules.checks.length ? `可用判定：${world.rules.checks.map(check => typeof check === 'string' ? check : `${check.id}${check.label ? `（${check.label}）` : ''}${check.roll ? ` ${check.roll}` : ''}${check.target !== undefined ? ` vs ${check.target}` : ''}`).join('；')}` : '',
   ].filter(Boolean).join('\n') : '';
   return `【世界事实分层】
 稳定设定来源：WorldCard ${staticScope}。世界简介、登记地点、NPC 公共资料、派系定义、事件模板和规则属于稳定设定；不要因为某个存档的变化而改写它们。
@@ -5340,7 +6305,7 @@ function buildRpgPromptSections() {
   const enabledAgentTools = Object.entries(agentProfile.tools)
     .filter(([, config]) => config.enabled !== false)
     .map(([name, config]) => `${name}（${config.execution || 'server'}）`);
-  pushSection('agent.profile', `【Agent Runtime】protocol=${agentProfile.protocol} v${agentProfile.version}；mode=${agentProfile.mode}；maxSteps=${agentProfile.maxSteps}；可用工具=${enabledAgentTools.length ? enabledAgentTools.join('、') : '无'}。工具只能通过当前存档的服务端校验产生结果，不能跨 saveId 或直接写入未声明字段。`);
+  pushSection('agent.profile', `【Agent Runtime】protocol=${agentProfile.protocol} v${agentProfile.version}；mode=${agentProfile.mode}；maxSteps=${agentProfile.maxSteps}；可用工具=${enabledAgentTools.length ? enabledAgentTools.join('、') : '无'}。工具只能通过当前存档的服务端校验产生结果，不能跨 saveId 或直接写入未声明字段。多步骤行动先用 objective.upsert 提出可忽略的目标/线索计划，再提交实际状态候选；计划不是强制主线，玩家可以无视。`);
   if (rs) {
     if (worldModeActive()) pushSection('turn.commit-contract', `【结构化回合提交】当前 saveId=${currentWorldSave.id}，revision=${currentWorldSave.revision}。回复末尾的 <tavern_state_update> 必须原样使用 protocol=tavern.rpg.turn、version=1、baseRevision=${currentWorldSave.revision}；服务端会以此 revision 做原子提交。`);
     pushSection('save.rpg-state', '【RPG 状态】' + `等级 ${rs.level}（经验 ${rs.exp}/${rs.expNext}），HP ${rs.hp}/${rs.maxHp}，MP ${rs.mp}/${rs.maxMp}，金币 ${rs.gold}，当前位置：${rs.location}`
@@ -5360,8 +6325,20 @@ function buildRpgPromptSections() {
           equipment ? `装备位：${equipment}` : '',
         ].filter(Boolean).join('；') + '。只能使用世界卡声明的物品、装备位和货币，不能突破格数、堆叠或重量限制。');
       }
+      const runtime = currentWorldSave.state?.runtime;
+      if (runtime) {
+        pushSection('save.runtime', '【RPG GEN 3 运行态】\n' + JSON.stringify({
+          schema: runtime.schema,
+          variables: runtime.variables,
+          collections: runtime.collections,
+        }).slice(0, 50000) + '\n这是当前存档的独立 runtime 快照。只允许使用 Schema 声明的变量、集合和动作；状态更新必须使用 runtime.variable.set/delta、runtime.collection.add/remove 或 runtime.action.execute。');
+      }
     }
     pushSection('save.quests', '【任务】' + (rs.quests.length ? rs.quests.map(x => `${x.title}${x.status === 'done' ? '（已完成）' : ''}`).join('、') : '（无）'));
+    if (worldModeActive()) {
+      const hooks = Array.isArray(currentWorldSave.state?.activeHooks) ? currentWorldSave.state.activeHooks : [];
+      pushSection('save.active-hooks', '【开放 Hook】' + (hooks.length ? hooks.map(x => `${x.title || x.id}${x.status && !['active', 'open'].includes(x.status) ? `（${x.status}）` : ''}${x.optional ? '（可选）' : ''}`).join('、') : '（无）'));
+    }
     pushSection('save.goals', '【目标】' + (rs.goals?.length ? rs.goals.map(x => `${x.title}${x.status && x.status !== 'active' ? `（${x.status}）` : ''}`).join('、') : '（无）'));
     pushSection('save.leads', '【线索】' + (rs.leads?.length ? rs.leads.map(x => `${x.title}${x.status && x.status !== 'active' ? `（${x.status}）` : ''}`).join('、') : '（无）'));
     const deadlineObjectives = worldModeActive()
@@ -5400,8 +6377,8 @@ function buildRpgPromptSections() {
       pushSection('turn.options-contract', `【回合契约】行动选项数量 ${optionRules.min}-${optionRules.max}；自由文本输入始终可用。AI 不得替玩家补写未表达的核心意图、台词或不可逆行动。`);
       pushSection('turn.side-effects', '【副作用边界】Markdown 叙事、NPC 台词、行动选项和普通文本中的骰子表达式都只是文本，不会自动执行骰子或改写状态；只有协议中通过服务端校验的结构化更新才可产生状态变化。');
       pushSection('turn.tool-candidates', agentProfile.mode === 'native'
-        ? '【Agent 原生工具】本回合可按工具 Schema 调用已启用的 Agent 工具；工具调用会在当前请求内最多循环 maxSteps 次。dice.roll 由客户端生成并绑定到本回合 actionIntent，服务端只校验结果，不能自行掷骰；context.retrieve 只能读取当前存档作用域；state.patch、entity.create、memory.record 先形成候选，最终仍须通过服务端 Typed Patch、实体和记忆校验。最后必须返回叙事正文与唯一 <tavern_state_update>，并提供回合契约要求的行动选项。'
-        : '【Agent 工具候选（兼容层）】可选 toolCalls 只能使用 dice.roll、rules.check、state.patch、entity.create、memory.record。兼容层不会在模型回复后补掷 dice.roll，避免骰子结果无法回传给模型；要让判定结果影响叙事，必须使用原生 Agent 工具或玩家明确输入骰子。其余工具当前只作候选记录，不能替代 updates、createEntities 或 eventMemory，也不会直接获得执行权。所有正式状态变化仍必须通过服务端 Typed Patch 与规则结算。');
+        ? '【Agent 原生工具】本回合可按工具 Schema 调用已启用的 Agent 工具；工具调用会在当前请求内最多循环 maxSteps 次。dice.roll 由客户端生成并绑定到本回合 actionIntent，服务端只校验结果，不能自行掷骰；context.retrieve 只能读取当前存档作用域；state.patch、entity.create、memory.record 先形成候选，最终仍须通过服务端 Typed Patch、实体和记忆校验。RPG GEN 3 的变量、集合和声明式动作只能通过 state.patch 的 runtime.* 更新，不能写任意路径。目标 / 线索只能通过 objective.upsert(kind=goals|leads) 创建或更新，不能直接写入其他数组。最后必须返回叙事正文与唯一 <tavern_state_update>，并提供回合契约要求的行动选项。'
+        : '【Agent 工具候选（兼容层）】当前模型不支持原生 function calling 时，仍可在唯一 <tavern_state_update> JSON 的 toolCalls 数组中声明 dice.roll、rules.check、state.patch、objective.upsert、entity.create、memory.record、context.retrieve。客户端会执行只读 / 客户端工具，把结构化 tool_result 回传后再次请求你；收到 tool_result 后必须继续当前回合，最终再输出叙事与唯一状态块。只有 rules.check 通过后才允许 dice.roll；不得重复已经成功的骰子。state.patch 可提交 runtime.variable.set/delta、runtime.collection.add/remove、runtime.action.execute，但仍须通过服务端 Typed Patch 校验。');
       const npcPrompt = buildWorldNpcPromptPart();
       if (npcPrompt) pushSection('world.npcs', npcPrompt);
       const factionPrompt = buildWorldFactionPromptPart();
@@ -5582,7 +6559,7 @@ function buildPayload({ test = false } = {}) {
   if (sysParts.length) body.messages.push({ role: 'system', content: sysParts.join('\n\n') });
   body.messages.push(...history);
   const nativeTools = mode === 'rpg' ? buildRpgNativeToolDefinitions(agentProfile) : [];
-  if (nativeTools.length) {
+  if (nativeTools.length && agentProfile?.mode === 'native') {
     body.tools = nativeTools;
     body.tool_choice = 'auto';
   }
@@ -5705,11 +6682,11 @@ async function executeRpgNativeToolCalls(calls, profile, targetScope, snapshot =
   for (const call of Array.isArray(calls) ? calls : []) {
     const config = profile?.tools?.[call.name];
     if (!RPG_NATIVE_TOOL_NAMES.has(call.name) || !config || config.enabled === false) {
-      trace.push({ callId: call.callId, name: call.name, result: { ok: false, error: '工具未在当前 RPG 配置中启用' } });
+      trace.push({ callId: call.callId, name: call.name, phase: rpgAgentToolPhase(call.name), result: { ok: false, error: '工具未在当前 RPG 配置中启用' } });
       continue;
     }
     if (call.error || !call.arguments) {
-      trace.push({ callId: call.callId, name: call.name, result: { ok: false, error: call.error || '参数无效' } });
+      trace.push({ callId: call.callId, name: call.name, phase: rpgAgentToolPhase(call.name), result: { ok: false, error: call.error || '参数无效' } });
       continue;
     }
     let result;
@@ -5744,20 +6721,38 @@ async function executeRpgNativeToolCalls(calls, profile, targetScope, snapshot =
     } catch (error) {
       result = { ok: false, error: error.message };
     }
-    trace.push({ callId: call.callId, name: call.name, result });
+    trace.push({ callId: call.callId, name: call.name, phase: rpgAgentToolPhase(call.name), result });
   }
   if (targetScope && trace.length) setDebugTrace(targetScope, { agentToolTrace: trace });
   return { trace, accepted };
 }
 
+function rpgAgentToolPhase(name) {
+  if (name === 'context.retrieve') return 'observe';
+  if (name === 'rules.check' || name === 'dice.roll') return 'guard';
+  return 'decide';
+}
+function buildRpgAgentPhaseHistory(trace, currentPhase = null) {
+  const phases = [];
+  for (const item of Array.isArray(trace) ? trace : []) {
+    const phase = item?.phase || rpgAgentToolPhase(item?.name);
+    if (phase && !phases.includes(phase)) phases.push(phase);
+  }
+  if (currentPhase && !phases.includes(currentPhase)) phases.push(currentPhase);
+  return phases.map((phase, index) => ({ phase, status: 'completed', order: index + 1 }));
+}
 function nativeCandidatesToRpgData(calls, baseRevision) {
   const list = Array.isArray(calls) ? calls : [];
   const patchCalls = list.filter(call => call?.name === 'state.patch' && Array.isArray(call.arguments?.updates));
-  const patch = patchCalls.length ? normalizeRpgPatch({
+  const objectiveCalls = list.filter(call => call?.name === 'objective.upsert' && call.arguments?.kind && call.arguments?.id && call.arguments?.title);
+  const patch = patchCalls.length || objectiveCalls.length ? normalizeRpgPatch({
     protocol: 'tavern.rpg.turn',
     version: 1,
     baseRevision,
-    updates: patchCalls.flatMap(call => call.arguments.updates).slice(0, 32),
+    updates: [
+      ...patchCalls.flatMap(call => call.arguments.updates),
+      ...objectiveCalls.map(call => ({ type: 'objective.upsert', ...cloneValue(call.arguments) })),
+    ].slice(0, 32),
   }) : null;
   const createEntities = list.filter(call => call?.name === 'entity.create' && call.arguments?.name)
     .map(call => {
@@ -5772,6 +6767,9 @@ function nativeCandidatesToRpgData(calls, baseRevision) {
 async function requestRpgAgentReply(payload, targetScope) {
   const profile = payload.agentProfile;
   const nativeTools = Array.isArray(payload.nativeTools) ? payload.nativeTools : [];
+  if (profile && profile.mode !== 'native' && nativeTools.length) {
+    return requestRpgCompatReply(payload, targetScope);
+  }
   if (!profile || profile.mode !== 'native' || !nativeTools.length) {
     if (payload.body.stream) {
       const stream = await callAPIStream(payload);
@@ -5814,6 +6812,79 @@ async function requestRpgAgentReply(payload, targetScope) {
     }
   }
   throw new Error('Agent 未返回最终叙事');
+}
+
+function normalizeCompatToolCalls(calls, step = 0) {
+  return (Array.isArray(calls) ? calls : []).map((call, index) => {
+    const name = normalizeRpgAgentToolName(call?.name || call?.tool || '');
+    const args = call?.arguments && typeof call.arguments === 'object' && !Array.isArray(call.arguments) ? call.arguments : null;
+    let serialized = '';
+    try { serialized = args ? JSON.stringify(args) : ''; } catch { serialized = ''; }
+    const argsError = args && serialized.length <= 4000 ? null : '兼容 Agent 工具参数必须是 JSON 对象且不超过 4000 字符';
+    return {
+      callId: String(call?.callId || call?.id || `compat-${step + 1}-${index + 1}`),
+      name,
+      arguments: args,
+      rawArguments: serialized,
+      ...(argsError ? { error: argsError } : {}),
+    };
+  }).filter(call => call.name);
+}
+
+function buildCompatToolResultMessage(trace, step) {
+  const results = (Array.isArray(trace) ? trace : []).map(item => ({
+    callId: item.callId,
+    name: item.name,
+    result: item.result,
+  }));
+  return [
+    '【tavern.rpg.agent.tool_result】',
+    `step=${Number(step) || 1}`,
+    JSON.stringify(results),
+    '以上是本回合工具执行结果，不是新的玩家输入。请继续当前回合；如仍需工具，请只在唯一状态更新块的 toolCalls 数组中声明；否则直接输出最终叙事正文与唯一状态更新块。不得重复执行已经返回成功的骰子。',
+  ].join('\n');
+}
+
+/*
+ * 兼容不支持原生 function calling 的模型：用现有 toolCalls 控制块模拟
+ * assistant → tool → assistant 循环。工具仍走同一执行器，写入仍延迟到
+ * agent-execute / narrate，不在这里直接修改 WorldSave。
+ */
+async function requestRpgCompatReply(payload, targetScope) {
+  const profile = payload.agentProfile;
+  const messages = payload.body.messages.map(message => cloneValue(message));
+  const snapshot = worldModeActive() && currentWorldSave
+    ? { world: cloneValue(currentWorldCard()), save: cloneValue(currentWorldSave) }
+    : null;
+  const maxSteps = Math.max(1, Math.min(8, Number(profile?.maxSteps) || 1));
+  const accepted = [];
+  const toolTrace = [];
+  const diceGate = {};
+  let cot = '';
+  for (let step = 0; step <= maxSteps; step++) {
+    const request = { ...payload, body: { ...payload.body, messages } };
+    delete request.body.tools;
+    delete request.body.tool_choice;
+    let response;
+    if (request.body.stream) {
+      const stream = await callAPIStream(request);
+      response = { content: stream.content, cot: stream.cot, calls: normalizeCompatToolCalls(processAIOutput(stream.content).agentCalls, step) };
+    } else {
+      const data = await callAPI(request);
+      const message = data?.choices?.[0]?.message || {};
+      const content = message.content || '';
+      response = { content, cot: message.reasoning_content || '', calls: normalizeCompatToolCalls(processAIOutput(content).agentCalls, step) };
+    }
+    cot += response.cot || '';
+    if (!response.calls.length) return { reply: response.content, cot, nativeCalls: accepted, toolTrace };
+    if (step >= maxSteps) throw new Error(`兼容 Agent 工具调用超过 maxSteps=${maxSteps}`);
+    const executed = await executeRpgNativeToolCalls(response.calls, profile, targetScope, snapshot, diceGate);
+    accepted.push(...executed.accepted);
+    toolTrace.push(...executed.trace.map(item => ({ ...item, step: step + 1, mode: 'compat' })));
+    messages.push({ role: 'assistant', content: response.content || '' });
+    messages.push({ role: 'user', content: buildCompatToolResultMessage(executed.trace, step + 1) });
+  }
+  throw new Error('兼容 Agent 未返回最终叙事');
 }
 
 /*
@@ -5912,7 +6983,8 @@ function updateTypingContent(text) {
   typingRaf = requestAnimationFrame(() => {
     typingRaf = 0;
     const t = $('typing-msg');
-    const content = mode === 'rpg' ? splitRpgOutput(typingText).content : typingText;
+    const preview = mode === 'rpg' ? parseRpgOutput(typingText).narrative : typingText;
+    const content = applyOutputRegex(mode === 'rpg' ? stripRpgNarrativeOptions(preview) : preview);
     if (t) {
       const target = t.querySelector(mode === 'rpg' ? '.rpg-prose' : '.bubble');
       const rendered = renderBubble(content);
@@ -6024,6 +7096,84 @@ function profileDelete() {
 }
 
 /* ─────────── 设置面板 ─────────── */
+/* ─────────── 排版设置（设置 → 排版；改动即时生效并自动保存到 prefs） ─────────── */
+const TYPO_DEFAULTS = { font: 'default', fontSize: 15, lineHeight: 1.8, paraGap: 0.7, indent: 'none', sidePad: 24 };
+const TYPO_FONT_STACKS = {
+  default: 'var(--font-body)',
+  sans: '-apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans SC", Arial, sans-serif',
+  serif: 'Georgia, "Times New Roman", "Songti SC", "STSong", "SimSun", "Noto Serif SC", serif',
+  kai: '"Kaiti SC", "STKaiti", "KaiTi", "TW-Kai", "DFKai-SB", serif',
+  fangsong: '"Fangsong SC", "STFangsong", "FangSong", "FangSong_GB2312", serif',
+  mono: 'ui-monospace, "Cascadia Mono", Consolas, "JetBrains Mono", "Courier New", monospace',
+};
+function typographyFromPrefs() {
+  const saved = prefs && prefs.typography && typeof prefs.typography === 'object' ? prefs.typography : {};
+  const merged = { ...TYPO_DEFAULTS, ...saved };
+  for (const key of ['fontSize', 'lineHeight', 'paraGap', 'sidePad']) {
+    merged[key] = typoNum(merged[key], TYPO_DEFAULTS[key]); // Number(null)/Number('') 是 0，必须显式排除
+  }
+  if (!TYPO_FONT_STACKS[merged.font]) merged.font = 'default';
+  if (!['2em', '1em'].includes(merged.indent)) merged.indent = 'none';
+  return merged;
+}
+function typoNum(value, fallback) {
+  if (value === null || value === undefined || value === '') return fallback;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+function applyTypography(typo = typographyFromPrefs()) {
+  const style = document.documentElement.style;
+  const fontSize = typoNum(typo.fontSize, TYPO_DEFAULTS.fontSize);
+  const lineHeight = typoNum(typo.lineHeight, TYPO_DEFAULTS.lineHeight);
+  const paraGap = typoNum(typo.paraGap, TYPO_DEFAULTS.paraGap);
+  const sidePad = typoNum(typo.sidePad, TYPO_DEFAULTS.sidePad);
+  style.setProperty('--chat-font', TYPO_FONT_STACKS[typo.font] || TYPO_FONT_STACKS.default);
+  style.setProperty('--chat-font-size', fontSize + 'px');
+  style.setProperty('--chat-line-height', String(lineHeight));
+  style.setProperty('--chat-para-gap', paraGap + 'em');
+  style.setProperty('--chat-indent', typo.indent === '2em' || typo.indent === '1em' ? typo.indent : '0em');
+  style.setProperty('--chat-side-pad', sidePad + 'px');
+}
+function clampNum(value, min, max, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+}
+function updateTypographyLabels(typo = typographyFromPrefs()) {
+  const set = (id, text) => { const el = $(id); if (el) el.textContent = text; };
+  set('t-font-size-val', typo.fontSize + 'px');
+  set('t-line-height-val', String(typo.lineHeight));
+  set('t-para-gap-val', typo.paraGap + 'em');
+  set('t-side-pad-val', typo.sidePad + 'px');
+}
+function fillTypographyForm() {
+  const typo = typographyFromPrefs();
+  $('t-font').value = TYPO_FONT_STACKS[typo.font] ? typo.font : 'default';
+  $('t-font-size').value = typo.fontSize;
+  $('t-line-height').value = typo.lineHeight;
+  $('t-para-gap').value = typo.paraGap;
+  $('t-indent').value = typo.indent;
+  $('t-side-pad').value = typo.sidePad;
+  updateTypographyLabels(typo);
+}
+function readTypographyForm() {
+  prefs.typography = {
+    font: TYPO_FONT_STACKS[$('t-font').value] ? $('t-font').value : 'default',
+    fontSize: clampNum($('t-font-size').value, 10, 32, TYPO_DEFAULTS.fontSize),
+    lineHeight: clampNum($('t-line-height').value, 1, 4, TYPO_DEFAULTS.lineHeight),
+    paraGap: clampNum($('t-para-gap').value, 0, 4, TYPO_DEFAULTS.paraGap),
+    indent: ['2em', '1em'].includes($('t-indent').value) ? $('t-indent').value : 'none',
+    sidePad: clampNum($('t-side-pad').value, 0, 320, TYPO_DEFAULTS.sidePad),
+  };
+  updateTypographyLabels(prefs.typography);
+  applyTypography(prefs.typography);
+}
+function resetTypography() {
+  prefs.typography = { ...TYPO_DEFAULTS };
+  fillTypographyForm();
+  applyTypography(prefs.typography);
+  saveJSON(LS_PREFS, prefs);
+}
+
 function fillSettingsForm() {
   const s = settings;
   $('s-preset').value = s.preset || '';
@@ -6044,6 +7194,7 @@ function fillSettingsForm() {
   $('f-preset').value = prefs.formatPreset || '';
   $('f-custom').value = prefs.formatCustom || '';
   $('f-stop').value = prefs.stop || '';
+  $('f-bubbles').checked = !!prefs.tavernDialogueBubbles;
   $('s-cot').checked = !!prefs.cotEnabled;
   $('s-cot-effort').value = prefs.cotEffort || 'medium';
   // 文生图（测试）
@@ -6065,6 +7216,7 @@ function fillSettingsForm() {
   $('ig-ref-use').checked = !!ig.refUse;
   $('ig-ref-strength').value = ig.refStrength || 0.5;
   $('ig-prompt-instr').value = ig.promptInstruction || '';
+  fillTypographyForm();
 }
 
 function readSettingsForm() {
@@ -6078,11 +7230,13 @@ function readSettingsForm() {
   settings.frequencyPenalty = parseFloat($('s-freq-p').value) || 0;
   settings.presencePenalty = parseFloat($('s-pres-p').value) || 0;
   settings.seed = parseInt($('s-seed').value, 10);
+  if (!Number.isFinite(settings.seed)) settings.seed = -1; // 热保存下空输入不能落成 NaN
   settings.history = parseInt($('s-history').value, 10) || 20;
   settings.stream = $('s-stream').checked;
   prefs.formatPreset = $('f-preset').value;
   prefs.formatCustom = $('f-custom').value;
   prefs.stop = $('f-stop').value;
+  prefs.tavernDialogueBubbles = $('f-bubbles').checked;
   prefs.cotEnabled = $('s-cot').checked;
   prefs.cotEffort = $('s-cot-effort').value || 'medium';
   // 文生图（测试）
@@ -6104,6 +7258,7 @@ function readSettingsForm() {
   ig.refUse = $('ig-ref-use').checked;
   ig.refStrength = parseFloat($('ig-ref-strength').value) || 0.5;
   ig.promptInstruction = $('ig-prompt-instr').value;
+  readTypographyForm();
   saveSettings();
   saveJSON(LS_PREFS, prefs);
 }
@@ -6737,14 +7892,16 @@ function renderMessages() {
           if (sb) sb.addEventListener('click', () => saveEdit(m));
           if (cb) cb.addEventListener('click', () => cancelEdit(m));
         } else {
-          const { html, md } = renderBubble(m.content);
+          const { html, md } = renderBubble(m.outputRegexApplied ? m.content : applyOutputRegex(m.content));
           el.innerHTML = `<div class="rpg-prose${md ? ' md' : ''}">${html}</div>`;
           attachMsgActions(el, m, m._opening ? { copy: true } : { regen: true, edit: true, copy: true, del: true });
         }
         chat.appendChild(el);
         continue;
       }
-      const segs = splitNarration(m.content);
+      const tavernContent = m.outputRegexApplied ? m.content : applyOutputRegex(m.content);
+      const bubbleDialogue = !!prefs.tavernDialogueBubbles;
+      const segs = bubbleDialogue ? splitNarration(tavernContent) : [{ type: 'narration', text: tavernContent }];
       segs.forEach((seg, si) => {
         const el = document.createElement('div');
         let html;
@@ -6755,11 +7912,11 @@ function renderMessages() {
           const { html: h, md } = renderBubble(seg.type === 'dialogue' ? seg.text.slice(1, -1) : seg.text);
           html = h;
           if (seg.type === 'narration') {
-            el.className = 'msg narration';
+            el.className = `msg narration${bubbleDialogue ? '' : ' tavern-prose'}`;
             el.innerHTML = `<div class="nar-icon">✦</div><div class="bubble${md ? ' md' : ''}">${html}</div>`;
           } else {
             el.className = 'msg assistant';
-            el.innerHTML = `<div class="avatar">${PAW_SVG}</div><div class="bubble${md ? ' md' : ''}">${html}</div>`;
+            el.innerHTML = `<div class="avatar">${PAW_SVG}</div><div class="bubble tavern-dialogue${md ? ' md' : ''}">${html}</div>`;
           }
         }
         // 操作按钮只挂在第一段（整条消息共享操作）
@@ -7320,14 +8477,14 @@ async function requestReply() {
     if (!processed.createEntities && nativeCandidate.createEntities) processed.createEntities = nativeCandidate.createEntities;
     if (!processed.eventMemory && nativeCandidate.eventMemory) processed.eventMemory = nativeCandidate.eventMemory;
     const clean = processed.content;
-    const extra = {};
+    const extra = { outputRegexApplied: true };
     if (cot) extra.cot = cot;
     if (processed.options && processed.options.length) extra.options = processed.options;
     if (worldTurnPendingActive()) {
-      const nativeToolRolls = toolTrace.filter(item => item.name === 'dice.roll' && Array.isArray(item.result?.rolls)).flatMap(item => item.result.rolls);
-      // 只有原生 Agent 在拿到规则门控后才会执行骰子；兼容层的 toolCalls
-      // 没有回传结果给模型，禁止事后随机掷骰，避免叙事与结果脱节。
-      const toolRolls = nativeToolRolls;
+      const agentToolRolls = toolTrace.filter(item => item.name === 'dice.roll' && Array.isArray(item.result?.rolls)).flatMap(item => item.result.rolls);
+      // 原生与兼容 Agent 都只有在工具循环内完成客户端掷骰并回传结果后，
+      // 才把骰子记录写入待提交回合；这里不再对 toolCalls 事后补掷。
+      const toolRolls = agentToolRolls;
       for (const r of toolRolls) {
         const detail = r.rolls.length > 1 ? `（${r.rolls.join(' + ')}${r.bonus ? (r.bonus >= 0 ? ' + ' + r.bonus : ' - ' + Math.abs(r.bonus)) : ''}）` : (r.bonus ? `（${r.bonus > 0 ? '+' : ''}${r.bonus}）` : '');
         worldTurnPending.messages.push({ id: uid(), role: 'user', content: `🎲 工具掷骰 ${r.expr} = ${r.total} ${detail}`, ts: Date.now(), meta: true });
@@ -7347,8 +8504,21 @@ async function requestReply() {
         // it must never be sent as a state-changing server candidate.
         .filter(call => call?.name !== 'context.retrieve');
       worldTurnPending.agentCalls = calls.filter((call, index, list) => call?.callId && list.findIndex(item => item.callId === call.callId) === index);
+      worldTurnPending.agentToolTrace = toolTrace.filter(item => item?.callId && item?.name).map(item => ({
+        callId: item.callId,
+        name: item.name,
+        phase: item.phase || rpgAgentToolPhase(item.name),
+        result: item.result,
+        ...(item.step ? { step: item.step } : {}),
+        ...(item.mode ? { mode: item.mode } : {}),
+      }));
       worldTurnPending.patch = processed.patch;
       worldTurnPending.state = processed.patch ? worldTurnPending.beforeState : serializeWorldState(currentWorldSave);
+      if (worldTurnPending.patch) {
+        worldTurnPending.agentPhase = 'execute';
+        const history = buildRpgAgentPhaseHistory(worldTurnPending.agentToolTrace, 'execute');
+        worldTurnPending.agentPhaseHistory = [...history, { phase: 'narrate', status: 'pending', order: history.length + 1 }];
+      }
       await submitWorldTurn(worldTurnPending);
     } else {
       pushMessage('assistant', clean, extra);
@@ -7398,7 +8568,11 @@ async function sendMessage() {
           createEntities: null,
           eventMemory: null,
           agentCalls: null,
+          agentToolTrace: null,
           patch: null,
+          agentPhase: null,
+          agentPhaseHistory: [],
+          agentOrchestration: null,
           agentExecution: null,
       };
       renderMessages();
@@ -7457,10 +8631,14 @@ function buildWorldSetupPromptPart() {
   const gameText = sessionFields.map(field => `${field.label || field.id}=${game[field.id] ?? field.default ?? '未设置'}`).join('；');
   const plan = setup.plan && typeof setup.plan === 'object' ? setup.plan : null;
   const planText = plan ? JSON.stringify(plan) : '尚未提交开局规划';
+  const hooks = Array.isArray(save.state?.activeHooks) ? save.state.activeHooks.filter(hook => hook && hook.status !== 'done' && hook.status !== 'failed') : [];
+  const hookText = hooks.length ? hooks.map(hook => `${hook.title || hook.id}${hook.description ? `：${hook.description}` : ''}${hook.optional ? '（可选）' : ''}`).join('；') : '无';
   return `【本局游戏配置】
 本局绑定 WorldCard ${world.id || save.worldId}@v${world.version || save.worldVersion}；Worldbook=${Array.isArray(world.lorebookIds) && world.lorebookIds.length ? world.lorebookIds.join(',') : 'default'}；RPG Preset=${world.rpgPresetName || '当前默认预设'}。
 存档专属规则：${gameText || '世界卡未声明额外动态规则，遵循 WorldCard 已有 time / turnContract / failure / ending 规则。'}
-开局配置（只读事实来源）：${planText}`;
+开局配置（只读事实来源）：${planText}
+当前开放 Hook（可选叙事抓手，不是强制主线）：${hookText}
+Hook 状态只能通过唯一状态块的 objective.status(kind=hooks) 更新，不能凭正文宣称完成。`;
 }
 
 function buildWorldKnowledgePromptPart() {
@@ -7481,7 +8659,7 @@ function switchView(name) {
   closeNavDrawer(); // 手机抽屉：切换视图后自动收起
   renderDebugTerminal();
   syncModeNavigation(name);
-  ['char-mgr', 'prompt-mgr', 'lore-mgr', 'memory-mgr', 'world-mgr'].forEach(id => { const el = $(id); if (el) el.classList.add('hidden'); });
+  ['char-mgr', 'prompt-mgr', 'regex-mgr', 'lore-mgr', 'memory-mgr', 'world-mgr'].forEach(id => { const el = $(id); if (el) el.classList.add('hidden'); });
   if (name === 'worlds') { openWorldLibrary(false); return; }
   if (name === 'chat') {
     if (mode === 'rpg' && !worldModeActive()) openWorldLibrary(false);
@@ -7500,6 +8678,14 @@ function switchView(name) {
     const editingPreset = promptPresets[pgEditingName];
     if (!editingPreset || !['both', mode].includes(presetMode(pgEditingName, editingPreset))) selectPresetForEdit(activePresetNameForMode(mode) || GLOBAL_PRESET_KEY);
     else renderPGList();
+    return;
+  }
+  if (name === 'regex') {
+    $('regex-mgr').classList.remove('hidden');
+    renderRegexList();
+    const selected = selectedOutputRegex();
+    if (selected) renderRegexEditor(selected, regexEditingSource);
+    else resetRegexEditor();
     return;
   }
   if (name === 'lore') {
@@ -7556,7 +8742,7 @@ function applyMode(name) {
   renderSessions();
   renderMessages();
   if (mode === 'rpg') {
-    ['char-mgr', 'prompt-mgr', 'lore-mgr', 'memory-mgr'].forEach(id => $(id)?.classList.add('hidden'));
+    ['char-mgr', 'prompt-mgr', 'regex-mgr', 'lore-mgr', 'memory-mgr'].forEach(id => $(id)?.classList.add('hidden'));
     openWorldLibrary(true);
   }
   else { closeWorldLibrary(); renderCharacter(); }
@@ -8039,6 +9225,35 @@ function renderQuickActions() {
   const qa = $('quick-actions');
   if (!qa) return;
   qa.innerHTML = '';
+  if (worldTurnPendingActive() && worldTurnPending.agentExecution && !worldTurnErrorActive()) {
+    const box = document.createElement('div');
+    box.className = 'world-turn-error';
+    box.setAttribute('role', 'status');
+    box.setAttribute('aria-live', 'polite');
+    const text = document.createElement('span');
+    text.className = 'world-turn-error-text';
+    const phase = worldTurnPending.agentPhase || 'narrate';
+    const counts = worldTurnPending.agentOrchestration?.counts;
+    const planCount = Array.isArray(worldTurnPending.agentOrchestration?.plan) ? worldTurnPending.agentOrchestration.plan.length : 0;
+    const summary = counts ? `计划 ${planCount}，候选 ${Number(counts.candidates) || 0}，通过 ${Number(counts.passed) || 0}，拒绝 ${Number(counts.rejected) || 0}` : '暂无工具摘要';
+    text.textContent = `已恢复 Agent 回合：当前阶段 ${phase}；${summary}。正式状态尚未提交。`;
+    const actions = document.createElement('span');
+    actions.className = 'world-turn-error-actions';
+    const resume = document.createElement('button');
+    resume.type = 'button';
+    resume.className = 'btn gold small';
+    resume.textContent = '继续提交';
+    resume.addEventListener('click', resumeWorldAgentNarration);
+    const discard = document.createElement('button');
+    discard.type = 'button';
+    discard.className = 'ghost-btn small';
+    discard.textContent = '放弃本回合';
+    discard.addEventListener('click', discardWorldTurnPending);
+    actions.append(resume, discard);
+    box.append(text, actions);
+    qa.appendChild(box);
+    return;
+  }
   if (worldTurnErrorActive()) {
     const box = document.createElement('div');
     box.className = 'world-turn-error';
@@ -8046,7 +9261,8 @@ function renderQuickActions() {
     box.setAttribute('aria-live', 'polite');
     const text = document.createElement('span');
     text.className = 'world-turn-error-text';
-    text.textContent = `本回合未提交：${worldTurnError.message}`;
+    const phase = worldTurnPendingActive() && worldTurnPending.agentPhase ? `（Agent ${worldTurnPending.agentPhase} 阶段）` : '';
+    text.textContent = `本回合未提交${phase}：${worldTurnError.message}`;
     box.appendChild(text);
     const actions = document.createElement('span');
     actions.className = 'world-turn-error-actions';
@@ -8116,6 +9332,9 @@ function renderQuickActions() {
 function setRpgMobileDrawer(panel) {
   const current = document.body.dataset.rpgDrawer || '';
   const next = panel && current !== panel ? panel : '';
+  if (!current && next) {
+    rpgDrawerReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }
   if (next) document.body.dataset.rpgDrawer = next;
   else delete document.body.dataset.rpgDrawer;
   const scrim = $('rpg-mobile-scrim');
@@ -8123,10 +9342,22 @@ function setRpgMobileDrawer(panel) {
   document.querySelectorAll('[data-rpg-drawer]').forEach(button => {
     button.setAttribute('aria-expanded', button.dataset.rpgDrawer === next ? 'true' : 'false');
   });
+  if (next) {
+    requestAnimationFrame(() => document.querySelector(`#rpg-${next} [data-rpg-drawer-close]`)?.focus());
+  } else if (current && rpgDrawerReturnFocus instanceof HTMLElement && document.contains(rpgDrawerReturnFocus)) {
+    const restore = rpgDrawerReturnFocus;
+    rpgDrawerReturnFocus = null;
+    requestAnimationFrame(() => restore.focus());
+  }
 }
 
 /* ─────────── 事件绑定 ─────────── */
 function bindEvents() {
+  window.addEventListener('message', handleWorldExtensionMessage);
+  $('rpg-extension-reload')?.addEventListener('click', () => {
+    clearWorldExtension();
+    renderWorldExtension();
+  });
   // 发送
   $('btn-send').addEventListener('click', sendMessage);
   $('input').addEventListener('keydown', e => {
@@ -8271,7 +9502,7 @@ function bindEvents() {
     try {
       if (file.size > 5 * 1024 * 1024) throw new Error('文件超过 5 MB，拒绝导入');
       const report = importSTPreset(JSON.parse(await file.text()), file.name);
-      alert(`已导入「${report.name}」：素材 ${report.prompts} 条，当前顺序 ${report.ordered} 条。${report.regexes ? `检测到 ${report.regexes} 条扩展正则，已保留在原文件但不会执行。` : ''}`);
+      alert(`已导入「${report.name}」：素材 ${report.prompts} 条，当前顺序 ${report.ordered} 条。${report.regexes ? `已识别并启用 ${report.regexes} 条输出正则。` : ''}`);
     } catch (err) {
       alert('导入失败：' + err.message);
     } finally {
@@ -8282,6 +9513,12 @@ function bindEvents() {
     setActivePresetName($('pg-active').value || '');
     renderPGList();
   });
+  // 输出正则
+  $('regex-new').addEventListener('click', resetRegexEditor);
+  $('regex-reset').addEventListener('click', resetRegexEditor);
+  $('regex-save').addEventListener('click', saveRegexEditor);
+  $('regex-copy').addEventListener('click', copyPresetRegexToCustom);
+  $('regex-del').addEventListener('click', deleteRegexEditor);
   // 世界书页
   $('lb-new').addEventListener('click', lbNew);
   $('lb-del').addEventListener('click', lbDelete);
@@ -8358,6 +9595,17 @@ function bindEvents() {
   $('world-edit-draft').addEventListener('click', openWorldDraftEditor);
   $('world-delete').addEventListener('click', event => deleteWorldCard(currentWorldId, event.currentTarget));
   $('world-draft-form').addEventListener('input', () => { worldDraftDirty = true; worldDraftPublishId = null; clearWorldDraftCheckReport(); });
+  $('world-extension-load-json').addEventListener('click', () => {
+    const text = $('world-draft-ui').value.trim();
+    let ui = {};
+    if (text) {
+      try { ui = JSON.parse(text); }
+      catch { setWorldDraftStatus('RPG 界面配置不是有效 JSON，无法载入扩展。', 'error'); $('world-draft-ui').focus(); return; }
+    }
+    fillWorldDraftExtensionEditor(ui?.extension);
+    worldDraftDirty = true;
+    setWorldDraftStatus('已从高级 JSON 载入扩展字段，保存草稿后生效。', 'ok');
+  });
   $('world-draft-map-regions').addEventListener('input', updateWorldDraftMapOutputs);
   $('world-draft-map-land').addEventListener('input', updateWorldDraftMapOutputs);
   $('world-draft-map-random').addEventListener('click', randomizeWorldDraftMapSeed);
@@ -8507,11 +9755,32 @@ function bindEvents() {
   document.querySelectorAll('[data-rpg-drawer]').forEach(button => button.addEventListener('click', () => setRpgMobileDrawer(button.dataset.rpgDrawer)));
   document.querySelectorAll('[data-rpg-drawer-close]').forEach(button => button.addEventListener('click', () => setRpgMobileDrawer('')));
   $('rpg-mobile-scrim')?.addEventListener('click', () => setRpgMobileDrawer(''));
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && document.body.dataset.rpgDrawer) setRpgMobileDrawer('');
+  });
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.dataset.rpgDrawer) setRpgMobileDrawer(''); });
   document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closeSettings));
   $('btn-test-image').addEventListener('click', testImageGen);
   $('settings-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeSettings(); });
-  $('btn-save-settings').addEventListener('click', () => { readSettingsForm(); closeSettings(); });
+  // 热保存：排版控件拖动即时预览（防抖写盘）；任意设置 change 即读取并保存，不再依赖「保存」按钮
+  let typoSaveTimer = null;
+  $('settings-modal').addEventListener('input', e => {
+    if (!e.target.closest || !e.target.closest('#st-panel-typo')) return;
+    readTypographyForm();
+    clearTimeout(typoSaveTimer);
+    typoSaveTimer = setTimeout(() => saveJSON(LS_PREFS, prefs), 400);
+  });
+  $('settings-modal').addEventListener('change', e => {
+    if (e.target.closest && e.target.closest('#st-panel-typo')) {
+      clearTimeout(typoSaveTimer);
+      saveJSON(LS_PREFS, prefs);
+      return;
+    }
+    readSettingsForm();
+    renderMessages();
+  });
+  $('btn-typo-reset').addEventListener('click', resetTypography);
+  $('btn-save-settings').addEventListener('click', () => { readSettingsForm(); closeSettings(); renderMessages(); });
   $('btn-test').addEventListener('click', testConnection);
   $('btn-export').addEventListener('click', exportSettings);
   $('btn-import').addEventListener('click', importSettings);
@@ -8613,18 +9882,21 @@ async function init() {
   prefs = { ...(defaults.prefs || {}), ...prefs };
 
   // 从 server 加载 JSON 数据（失败回退本地缓存）
-  const [chars, presets, lore, s, u] = await Promise.all([
+  const [chars, presets, lore, s, u, srvSessions] = await Promise.all([
     loadServerData('characters'),
     loadServerData('presets'),
     loadServerData('lorebooks'),
     loadServerData('settings'),
     loadServerData('user'),
+    loadServerData('sessions'),
   ]);
   if (chars && Array.isArray(chars)) characters = chars;
   if (presets && typeof presets === 'object') promptPresets = presets;
   if (lore && typeof lore === 'object') lorebooks = lore;
   if (u && typeof u === 'object' && u.presets) userData = u;
   if (s && typeof s === 'object') settings = { ...DEFAULT_SETTINGS, ...s };
+  // 会话与 server 合并（首次迁移 / 跨浏览器取并集），必须在 ensureSessions 之前
+  syncSessionsFromServer(srvSessions);
 
   // 迁移：_defaults 新增的示例预设自动并入（不覆盖用户已修改的同名预设）
   if (defaults && defaults.presets && typeof defaults.presets === 'object') {
@@ -8651,7 +9923,8 @@ async function init() {
     localStorage.removeItem(LS_CURRENT_CHAR);
     saveChars();
   }
-  const presetsMigrated = ensurePromptPresetsV2();
+  let presetsMigrated = ensurePromptPresetsV2();
+  if (migrateBuiltInTavernPreset(defaults)) presetsMigrated = true;
   prefs.currentPresetByMode = { ...(prefs.currentPresetByMode || {}) };
   for (const targetMode of ['tavern', 'rpg']) {
     const hasSavedPreset = Object.prototype.hasOwnProperty.call(prefs.currentPresetByMode, targetMode);
@@ -8661,6 +9934,7 @@ async function init() {
   prefs.currentPreset = prefs.currentPresetByMode[mode] || '';
   saveJSON(LS_PREFS, prefs);
   if (presetsMigrated) savePresets();
+  applyTypography(); // 启动即恢复用户排版（覆盖 :root 默认变量）
   ensureSessions();
   applyTheme();
   applyMode(mode);

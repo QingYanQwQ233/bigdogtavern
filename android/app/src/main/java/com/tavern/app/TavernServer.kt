@@ -11,6 +11,7 @@ import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLDecoder
+import java.security.MessageDigest
 import java.util.HashMap
 
 /**
@@ -28,7 +29,7 @@ import java.util.HashMap
  *   POST /api/world-saves/:id/opening-candidate AI 开场候选保存
  *   POST /api/world-saves/:id/opening  AI 开场提交
  *   GET  /api/data/seed    返回 assets/data/_defaults.json（模板）
- *   GET/PUT /api/data/:type 读写 filesDir/data/（characters/presets/lorebooks/settings）
+ *   GET/PUT /api/data/:type 读写 filesDir/data/（characters/presets/lorebooks/settings/sessions）
  *   其他                    静态资源（assets 根；/images/ → filesDir/images）
  *
  * Android 端的完整世界规则校验仍由 Node server 维护；这里保持同源离线可用，
@@ -38,9 +39,10 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
 
     private val dataDir: File = File(ctx.filesDir, "data")
     private val imgDir: File = File(ctx.filesDir, "images")
-    private val dataTypes = setOf("characters", "presets", "lorebooks", "settings")
+    private val dataTypes = setOf("characters", "presets", "lorebooks", "settings", "sessions")
     private val worldsFile: File = File(dataDir, "worlds.json")
     private val worldDraftsFile: File = File(dataDir, "world-drafts.json")
+    private val worldImportsFile: File = File(dataDir, "world-imports.json")
     private val savesDir: File = File(dataDir, "saves")
 
     override fun serve(session: IHTTPSession): Response {
@@ -65,6 +67,9 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
                 session.method == Method.POST && uri == "/api/world-drafts" -> handleWorldDraftCreate(session)
                 uri.startsWith("/api/world-drafts/") && (session.method == Method.GET || session.method == Method.PUT) ->
                     handleWorldDraftItem(session, uri.removePrefix("/api/world-drafts/"))
+                session.method == Method.POST && uri == "/api/world-imports" -> handleWorldImportPreview(session)
+                uri.startsWith("/api/world-imports/") && (session.method == Method.GET || session.method == Method.POST) ->
+                    handleWorldImportItem(session, uri.removePrefix("/api/world-imports/"))
                 uri.startsWith("/api/data/") -> handleData(session, uri)
                 else -> serveStatic(uri)
             }
@@ -179,6 +184,8 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
     private fun queryValue(uri: String, key: String): String? = Uri.parse(uri).getQueryParameter(key)
 
     private fun nowId(prefix: String): String = "$prefix-${System.currentTimeMillis().toString(36)}-${(1000..9999).random()}"
+
+    private fun sha256Text(value: String): String = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
 
     private fun saveSummary(save: JSONObject): JSONObject = JSONObject().apply {
         put("id", save.optString("id"))
@@ -477,10 +484,315 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
         return null
     }
 
+    private fun exportSecretKey(key: String): Boolean {
+        val normalized = key.replace(Regex("[^A-Za-z0-9]"), "").lowercase()
+        return normalized.endsWith("apikey") || normalized.endsWith("token") || normalized.endsWith("clientsecret") ||
+            normalized.endsWith("secretkey") || normalized.endsWith("privatekey") || normalized == "cookie" || normalized == "setcookie"
+    }
+
+    private fun sanitizeExportValue(value: Any?, path: String, redacted: MutableList<String>): Any? {
+        if (value == null || value === JSONObject.NULL || value !is JSONObject && value !is org.json.JSONArray) return value
+        if (value is org.json.JSONArray) {
+            val result = org.json.JSONArray()
+            for (index in 0 until value.length()) result.put(sanitizeExportValue(value.opt(index), "$path[$index]", redacted))
+            return result
+        }
+        val objectValue = value as? JSONObject ?: return value
+        val result = JSONObject()
+        for (key in objectValue.keys()) {
+            val childPath = if (path.isBlank()) key else "$path.$key"
+            val child = objectValue.opt(key)
+            val lower = key.lowercase()
+            val portableAsset = lower in setOf("coverimage", "refimage", "imagepath", "rawassetref") && child is String && child.startsWith("/images/")
+            if (exportSecretKey(key) || (lower in setOf("settings", "providers", "user", "worldsaves") && path == "save") ||
+                (lower in setOf("coverimage", "refimage", "imagepath", "rawassetref") && !portableAsset)) {
+                redacted += childPath
+                continue
+            }
+            result.put(key, sanitizeExportValue(child, childPath, redacted))
+        }
+        return result
+    }
+
+    private fun handleWorldSaveRename(session: IHTTPSession, file: File): Response {
+        return try {
+            val current = readObject(file) ?: return json(Response.Status.NOT_FOUND, JSONObject().put("error", "save not found"))
+            val payload = JSONObject(readBody(session))
+            val name = payload.optString("name").trim()
+            if (name.isBlank() || name.length > 120) return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "存档名称不能为空且不能超过 120 个字符"))
+            val next = JSONObject(current.toString()).put("name", name).put("updatedAt", System.currentTimeMillis())
+            writeObject(file, next)
+            json(Response.Status.OK, next)
+        } catch (e: Exception) {
+            json(Response.Status.BAD_REQUEST, JSONObject().put("error", "invalid rename request: ${e.message}"))
+        }
+    }
+
+    private fun handleWorldSaveDelete(saveId: String, file: File): Response {
+        val current = readObject(file) ?: return json(Response.Status.NOT_FOUND, JSONObject().put("error", "save not found"))
+        if (!file.delete()) return json(Response.Status.INTERNAL_ERROR, JSONObject().put("error", "存档删除失败"))
+        return json(Response.Status.OK, JSONObject().put("ok", true).put("saveId", saveId).put("worldId", current.optString("worldId")))
+    }
+
+    private fun handleWorldSaveExport(saveId: String, file: File): Response {
+        val current = readObject(file) ?: return json(Response.Status.NOT_FOUND, JSONObject().put("error", "save not found"))
+        val redacted = mutableListOf<String>()
+        val safeSave = sanitizeExportValue(current, "save", redacted) as JSONObject
+        val redactedPaths = org.json.JSONArray()
+        redacted.distinct().sorted().forEach { redactedPaths.put(it) }
+        val payload = JSONObject().apply {
+            put("spec", "tavern_world_save")
+            put("specVersion", 1)
+            put("exportedAt", java.util.Date().toString())
+            put("manifest", JSONObject().apply {
+                put("saveId", current.optString("id"))
+                put("worldId", current.optString("worldId"))
+                put("worldVersion", current.optInt("worldVersion", 1))
+                put("title", current.optString("name", current.optString("id")))
+                put("privacy", JSONObject().put("excludes", org.json.JSONArray().put("apiKeys").put("settings").put("otherSaves")).put("redactedPaths", redactedPaths))
+            })
+            put("save", safeSave)
+        }
+        return newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", payload.toString(2)).also {
+            it.setGzipEncoding(false)
+            it.addHeader("Content-Disposition", "attachment; filename=\"$saveId.tavern-save.json\"")
+            it.addHeader("Cache-Control", "no-store")
+        }
+    }
+
+    private fun collectCopyReferences(value: Any?, path: String, commandMap: LinkedHashMap<String, String>, idMap: LinkedHashMap<String, String>, targetId: String) {
+        when (value) {
+            is org.json.JSONArray -> for (index in 0 until value.length()) collectCopyReferences(value.opt(index), "$path[$index]", commandMap, idMap, targetId)
+            is JSONObject -> for (key in value.keys()) {
+                val child = value.opt(key)
+                val childPath = if (path.isBlank()) key else "$path.$key"
+                if ((key == "commandId" || key == "openingCommandId") && child is String && safeCommandId(child) && !commandMap.containsKey(child)) commandMap[child] = "copy-$targetId-cmd-${commandMap.size + 1}"
+                if (key == "id" && child is String) {
+                    val bucket = when {
+                        childPath.contains(".turns[") -> "turn"
+                        childPath.contains(".eventMemory[") -> "memory"
+                        childPath.contains(".eventLedger[") -> "ledger"
+                        else -> null
+                    }
+                    if (bucket != null && !idMap.containsKey(child)) idMap[child] = "copy-$targetId-$bucket-${idMap.size + 1}"
+                }
+                collectCopyReferences(child, childPath, commandMap, idMap, targetId)
+            }
+        }
+    }
+
+    private fun remapCopyValue(value: Any?, sourceId: String, targetId: String, commandMap: Map<String, String>, idMap: Map<String, String>): Any? {
+        if (value == null || value === JSONObject.NULL) return value
+        if (value is org.json.JSONArray) {
+            val result = org.json.JSONArray()
+            for (index in 0 until value.length()) result.put(remapCopyValue(value.opt(index), sourceId, targetId, commandMap, idMap))
+            return result
+        }
+        if (value is JSONObject) {
+            val result = JSONObject()
+            for (key in value.keys()) result.put(key, remapCopyValue(value.opt(key), sourceId, targetId, commandMap, idMap))
+            return result
+        }
+        if (value is String) {
+            commandMap[value]?.let { return it }
+            idMap[value]?.let { return it }
+            if (value == "pc-$sourceId") return "pc-$targetId"
+            return value.replace("save:$sourceId:", "save:$targetId:")
+        }
+        return value
+    }
+
+    private fun handleWorldSaveCopy(session: IHTTPSession, saveId: String, file: File): Response {
+        return try {
+            val current = readObject(file) ?: return json(Response.Status.NOT_FOUND, JSONObject().put("error", "save not found"))
+            val payload = JSONObject(readBody(session))
+            val commandId = payload.optString("commandId")
+            if (!safeCommandId(commandId)) return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "invalid commandId"))
+            val requestedName = if (payload.has("name") && !payload.isNull("name")) payload.optString("name").trim() else ""
+            if (requestedName.length > 120) return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "name 不能超过 120 个字符"))
+            savesDir.mkdirs()
+            savesDir.listFiles()?.filter { it.extension == "json" }?.forEach { candidateFile ->
+                val existing = readObject(candidateFile)
+                val info = existing?.optJSONObject("copyInfo")
+                if (info?.optString("sourceSaveId") == saveId && info.optString("commandId") == commandId) return json(Response.Status.OK, JSONObject().put("save", existing).put("idempotent", true))
+            }
+            val nextId = nowId("copy")
+            val commandMap = linkedMapOf<String, String>()
+            val idMap = linkedMapOf<String, String>()
+            collectCopyReferences(current, "", commandMap, idMap, nextId)
+            val next = remapCopyValue(current, saveId, nextId, commandMap, idMap) as JSONObject
+            val now = System.currentTimeMillis()
+            next.put("id", nextId).put("name", if (requestedName.isBlank()) "${current.optString("name", "存档")} · 副本" else requestedName).put("createdAt", now).put("updatedAt", now)
+            next.put("agentRuntime", JSONObject().put("version", 1).put("status", "idle").put("pending", JSONObject.NULL))
+            next.put("memoryRebuild", JSONObject.NULL).put("reopenInfo", JSONObject.NULL)
+            next.put("copyInfo", JSONObject().put("sourceSaveId", saveId).put("sourceRevision", current.optInt("revision", 0)).put("commandId", commandId).put("copiedAt", now))
+            writeObject(File(savesDir, "$nextId.json"), next)
+            json(Response.Status.CREATED, JSONObject().put("save", next).put("idempotent", false))
+        } catch (e: Exception) {
+            json(Response.Status.BAD_REQUEST, JSONObject().put("error", "invalid copy request: ${e.message}"))
+        }
+    }
+
+    private fun upgradeEntityIds(world: JSONObject?, key: String): Set<String> {
+        val ids = linkedSetOf<String>()
+        val values = world?.optJSONArray(key) ?: org.json.JSONArray()
+        for (index in 0 until values.length()) {
+            val item = values.opt(index)
+            if (item is JSONObject) item.optString("id").takeIf { it.isNotBlank() }?.let { ids += it } else if (item is String && item.isNotBlank()) ids += item
+        }
+        return ids
+    }
+
+    private fun worldUpgradeReport(save: JSONObject, targetVersion: Int): JSONObject {
+        val sourceWorld = findWorld(save.optString("worldId"), save.optInt("worldVersion", 1))
+        val targetWorld = findWorld(save.optString("worldId"), targetVersion)
+        if (sourceWorld == null) return JSONObject().put("error", "存档绑定的世界版本不存在")
+        if (targetWorld == null) return JSONObject().put("error", "目标世界版本不存在")
+        if (targetVersion <= save.optInt("worldVersion", 1)) return JSONObject().put("error", "目标版本必须高于存档当前版本")
+        val changes = JSONObject()
+        for (key in listOf("locations", "npcs", "quests")) {
+            val source = upgradeEntityIds(sourceWorld, key); val target = upgradeEntityIds(targetWorld, key)
+            val added = org.json.JSONArray(); val removed = org.json.JSONArray()
+            for (id in target) if (!source.contains(id)) added.put(JSONObject().put("id", id).put("name", id))
+            for (id in source) if (!target.contains(id)) removed.put(JSONObject().put("id", id).put("name", id))
+            changes.put(key, JSONObject().put("added", added).put("removed", removed))
+        }
+        val hardErrors = org.json.JSONArray()
+        val locationId = save.optJSONObject("state")?.optString("locationId") ?: ""
+        if (locationId.isNotBlank() && !upgradeEntityIds(targetWorld, "locations").contains(locationId)) hardErrors.put(JSONObject().put("kind", "location").put("id", locationId).put("path", "state.locationId").put("message", "目标版本不存在当前地点"))
+        return JSONObject().put("saveId", save.optString("id")).put("worldId", save.optString("worldId")).put("fromVersion", save.optInt("worldVersion", 1)).put("targetVersion", targetVersion).put("targetTitle", targetWorld.optString("title", targetWorld.optString("id"))).put("canUpgrade", hardErrors.length() == 0).put("changes", changes).put("hardErrors", hardErrors)
+    }
+
+    private fun handleWorldSaveUpgradePreview(session: IHTTPSession, file: File): Response {
+        val save = readObject(file) ?: return json(Response.Status.NOT_FOUND, JSONObject().put("error", "save not found"))
+        val targetVersion = queryValue(session.uri, "targetVersion")?.toIntOrNull() ?: return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "targetVersion 无效"))
+        val report = worldUpgradeReport(save, targetVersion)
+        return if (report.has("error")) json(Response.Status.CONFLICT, report) else json(Response.Status.OK, report)
+    }
+
+    private fun handleWorldSaveUpgrade(session: IHTTPSession, file: File): Response {
+        return try {
+            val current = readObject(file) ?: return json(Response.Status.NOT_FOUND, JSONObject().put("error", "save not found"))
+            val payload = JSONObject(readBody(session)); val commandId = payload.optString("commandId"); val expected = payload.optInt("expectedRevision", -1); val targetVersion = payload.optInt("targetVersion", -1)
+            if (!safeCommandId(commandId) || expected < 0 || targetVersion < 1) return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "commandId、expectedRevision 或 targetVersion 无效"))
+            val history = current.optJSONArray("migrationHistory") ?: org.json.JSONArray()
+            for (index in 0 until history.length()) {
+                val entry = history.optJSONObject(index) ?: continue
+                if (entry.optString("commandId") == commandId) return json(Response.Status.OK, JSONObject().put("save", current).put("report", worldUpgradeReport(current, entry.optInt("toVersion", targetVersion))).put("idempotent", true))
+            }
+            if (expected != current.optInt("revision", 0)) return json(Response.Status.CONFLICT, JSONObject().put("error", "存档版本冲突，请重新预演").put("revision", current.optInt("revision", 0)))
+            val report = worldUpgradeReport(current, targetVersion)
+            if (report.has("error")) return json(Response.Status.CONFLICT, report)
+            if (!report.optBoolean("canUpgrade")) return json(Response.Status.CONFLICT, JSONObject().put("error", "存档包含目标版本缺失的引用").put("report", report))
+            val revision = expected + 1; val now = System.currentTimeMillis()
+            val migration = JSONObject().put("kind", "world-version-upgrade").put("commandId", commandId).put("fromVersion", current.optInt("worldVersion", 1)).put("toVersion", targetVersion).put("targetTitle", report.optString("targetTitle")).put("changes", report.optJSONObject("changes")).put("revision", revision).put("migratedAt", now)
+            history.put(migration)
+            val ledger = current.optJSONArray("eventLedger") ?: org.json.JSONArray()
+            ledger.put(JSONObject().put("id", "ledger-$revision").put("kind", "world-version-upgrade").put("commandId", commandId).put("sourceRevision", revision).put("locationId", current.optJSONObject("state")?.optString("locationId") ?: JSONObject.NULL).put("migrationId", commandId).put("createdAt", now))
+            val next = JSONObject(current.toString()).put("worldVersion", targetVersion).put("migrationHistory", history).put("eventLedger", ledger).put("revision", revision).put("updatedAt", now)
+            writeObject(file, next)
+            json(Response.Status.OK, JSONObject().put("save", next).put("report", report).put("idempotent", false))
+        } catch (e: Exception) { json(Response.Status.BAD_REQUEST, JSONObject().put("error", "invalid upgrade request: ${e.message}")) }
+    }
+
+    private fun handleWorldAgentExecute(session: IHTTPSession, file: File): Response {
+        return try {
+            val current = readObject(file) ?: return json(Response.Status.NOT_FOUND, JSONObject().put("error", "save not found"))
+            if (current.optJSONObject("setup")?.optString("status") == "planning") return json(Response.Status.CONFLICT, JSONObject().put("error", "请先完成开局规划"))
+            val payload = JSONObject(readBody(session))
+            val commandId = payload.optString("commandId")
+            val expected = payload.optInt("expectedRevision", -1)
+            if (!safeCommandId(commandId) || expected != current.optInt("revision", 0)) return json(Response.Status.CONFLICT, JSONObject().put("error", "revision conflict").put("revision", current.optInt("revision", 0)))
+            val existing = current.optJSONObject("agentRuntime")?.optJSONObject("pending")
+            if (existing != null) {
+                if (existing.optString("commandId") == commandId && existing.optInt("baseRevision", -1) == expected) {
+                    return json(Response.Status.OK, JSONObject(current.toString()).put("execution", JSONObject().apply {
+                        put("status", "awaiting-narration"); put("commandId", commandId); put("baseRevision", expected); put("state", existing.optJSONObject("state") ?: JSONObject()); put("outcome", existing.optJSONObject("outcome") ?: JSONObject())
+                    }))
+                }
+                return json(Response.Status.CONFLICT, JSONObject().put("error", "已有待叙事 Agent 执行结果，请先完成 narrate 阶段").put("commandId", existing.optString("commandId")))
+            }
+            val patch = payload.optJSONObject("patch") ?: return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "patch 必须是对象"))
+            if (patch.optString("protocol") != "tavern.rpg.turn" || patch.optInt("version", -1) != 1 || patch.optInt("baseRevision", -1) != expected) return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "patch 协议或 revision 无效"))
+            val nextState = JSONObject(current.optJSONObject("state")?.toString() ?: "{}")
+            applyMobilePatch(findWorld(current.optString("worldId"), current.optInt("worldVersion", 1)) ?: JSONObject(), nextState, patch)?.let { return json(Response.Status.BAD_REQUEST, JSONObject().put("error", it)) }
+            ensureSaveState(nextState)
+            val pending = JSONObject().apply {
+                put("version", 1); put("commandId", commandId); put("baseRevision", expected); put("previewRevision", expected + 1); put("state", nextState); put("outcome", JSONObject())
+                put("createEntities", payload.optJSONArray("createEntities") ?: org.json.JSONArray())
+                put("eventMemory", payload.optJSONArray("eventMemory") ?: org.json.JSONArray())
+                put("agentCalls", payload.optJSONArray("agentCalls") ?: org.json.JSONArray())
+                if (payload.has("actionIntent")) put("actionIntent", payload.optJSONObject("actionIntent") ?: JSONObject.NULL)
+            }
+            val next = JSONObject(current.toString()).put("agentRuntime", JSONObject().put("version", 1).put("status", "awaiting-narration").put("pending", pending)).put("updatedAt", System.currentTimeMillis())
+            writeObject(file, next)
+            json(Response.Status.OK, JSONObject(next.toString()).put("execution", JSONObject().apply {
+                put("status", "awaiting-narration"); put("commandId", commandId); put("baseRevision", expected); put("state", nextState); put("outcome", JSONObject())
+            }))
+        } catch (e: Exception) {
+            json(Response.Status.BAD_REQUEST, JSONObject().put("error", "invalid agent execution: ${e.message}"))
+        }
+    }
+
+    private fun handleWorldAgentCancel(session: IHTTPSession, file: File): Response {
+        return try {
+            val current = readObject(file) ?: return json(Response.Status.NOT_FOUND, JSONObject().put("error", "save not found"))
+            val payload = JSONObject(readBody(session))
+            val cancelCommandId = payload.optString("commandId")
+            if (!safeCommandId(cancelCommandId) || payload.optInt("expectedRevision", -1) != current.optInt("revision", 0)) return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "commandId 或 expectedRevision 无效"))
+            val pending = current.optJSONObject("agentRuntime")?.optJSONObject("pending")
+            if (pending == null) return json(Response.Status.OK, current)
+            if (pending.optString("commandId") != cancelCommandId) return json(Response.Status.CONFLICT, JSONObject().put("error", "待叙事 Agent 结果已变化").put("revision", current.optInt("revision", 0)))
+            val next = JSONObject(current.toString()).put("agentRuntime", JSONObject().put("version", 1).put("status", "idle").put("pending", JSONObject.NULL)).put("updatedAt", System.currentTimeMillis())
+            writeObject(file, next)
+            json(Response.Status.OK, next)
+        } catch (e: Exception) {
+            json(Response.Status.BAD_REQUEST, JSONObject().put("error", "invalid agent cancel: ${e.message}"))
+        }
+    }
+
+    private fun commitWorldAgentNarration(current: JSONObject, payload: JSONObject, file: File): Response {
+        val commandId = payload.optString("commandId")
+        if (safeCommandId(commandId) && hasCommand(current, commandId)) return json(Response.Status.OK, current)
+        val pending = current.optJSONObject("agentRuntime")?.optJSONObject("pending")
+            ?: return json(Response.Status.CONFLICT, JSONObject().put("error", "Agent 执行结果不存在或已过期").put("revision", current.optInt("revision", 0)))
+        val expected = payload.optInt("expectedRevision", -1)
+        if (!safeCommandId(commandId) || !safeCommandId(payload.optString("pendingCommandId")) || payload.optString("pendingCommandId") != pending.optString("commandId") || expected != current.optInt("revision", 0)) return json(Response.Status.CONFLICT, JSONObject().put("error", "Agent 执行结果不存在或已过期").put("revision", current.optInt("revision", 0)))
+        val turns = payload.optJSONArray("turns") ?: return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "narrate 阶段必须包含 turns"))
+        var hasAssistant = false
+        for (index in 0 until turns.length()) if (turns.optJSONObject(index)?.optString("role") == "assistant") hasAssistant = true
+        if (turns.length() > 32 || !hasAssistant) return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "narrate 阶段必须包含 assistant 消息"))
+        val nextState = JSONObject(pending.optJSONObject("state")?.toString() ?: "{}")
+        ensureSaveState(nextState)
+        val next = JSONObject(current.toString()).apply {
+            put("state", nextState)
+            put("turns", appendJsonArray(current.optJSONArray("turns"), turns))
+            put("openingOptions", payload.optJSONArray("options") ?: org.json.JSONArray())
+            put("revision", expected + 1)
+            put("updatedAt", System.currentTimeMillis())
+            put("agentRuntime", JSONObject().put("version", 1).put("status", "idle").put("pending", JSONObject.NULL))
+        }
+        val receipts = current.optJSONArray("receipts") ?: org.json.JSONArray()
+        receipts.put(JSONObject().apply { put("kind", "turn"); put("commandId", commandId); put("revision", expected + 1); put("agent", JSONObject().put("phase", "narrate").put("status", "committed").put("proposedTools", pending.optJSONArray("agentCalls") ?: org.json.JSONArray())) })
+        next.put("receipts", receipts)
+        val memories = appendJsonArray(current.optJSONArray("eventMemory"), pending.optJSONArray("eventMemory"))
+        next.put("eventMemory", memories)
+        writeObject(file, next)
+        return json(Response.Status.OK, next)
+    }
+
     @Synchronized
     private fun handleWorldSaveItem(session: IHTTPSession, rawSaveId: String): Response {
         val saveId = rawSaveId.substringBefore('/')
         val file = saveFile(saveId) ?: return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "invalid save id"))
+        if (rawSaveId.endsWith("/rename") && session.method == Method.POST) return handleWorldSaveRename(session, file)
+        if (rawSaveId.endsWith("/export") && session.method == Method.GET) return handleWorldSaveExport(saveId, file)
+        if (rawSaveId.endsWith("/copy") && session.method == Method.POST) return handleWorldSaveCopy(session, saveId, file)
+        if (rawSaveId.endsWith("/upgrade") && session.method == Method.GET) return handleWorldSaveUpgradePreview(session, file)
+        if (rawSaveId.endsWith("/upgrade") && session.method == Method.POST) return handleWorldSaveUpgrade(session, file)
+        if (rawSaveId.endsWith("/agent-execute") && session.method == Method.POST) return handleWorldAgentExecute(session, file)
+        if (rawSaveId.endsWith("/agent-cancel") && session.method == Method.POST) return handleWorldAgentCancel(session, file)
+        if (rawSaveId == saveId && session.method == Method.DELETE) return handleWorldSaveDelete(saveId, file)
         if (session.method == Method.GET && rawSaveId == saveId) {
             val save = readObject(file) ?: return json(Response.Status.NOT_FOUND, JSONObject().put("error", "save not found"))
             return json(Response.Status.OK, save)
@@ -501,6 +813,7 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
             val current = readObject(file) ?: return json(Response.Status.NOT_FOUND, JSONObject().put("error", "save not found"))
             if (current.optJSONObject("setup")?.optString("status") == "planning") return json(Response.Status.CONFLICT, JSONObject().put("error", "请先完成开局规划"))
             val payload = JSONObject(readBody(session))
+            if (session.method == Method.POST && payload.optString("agentPhase") == "narrate") return commitWorldAgentNarration(current, payload, file)
             val commandId = payload.optString("commandId")
             val expected = payload.optInt("expectedRevision", -1)
             if (session.method == Method.POST && !safeCommandId(commandId)) return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "invalid commandId"))
@@ -787,6 +1100,137 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
         }
     }
 
+    private fun importReport(pkg: JSONObject): JSONObject {
+        val errors = org.json.JSONArray()
+        val warnings = org.json.JSONArray()
+        val inert = org.json.JSONArray()
+        if (pkg.optString("spec") != "tavern_world_package") errors.put("不支持的世界包 spec")
+        if (pkg.optInt("specVersion", -1) != 1) errors.put("不支持的世界包版本")
+        val content = pkg.optJSONObject("content")
+        val world = content?.optJSONObject("world")
+        if (content == null || world == null || world.optString("id").isBlank()) errors.put("世界包缺少 content.world")
+        if (content?.optJSONArray("characters") == null) errors.put("世界包缺少 characters")
+        if (content?.optJSONObject("lorebooks") == null) errors.put("世界包缺少 lorebooks")
+        if (content?.optJSONObject("presets") == null) errors.put("世界包缺少 presets")
+        if (pkg.optJSONObject("manifest")?.optJSONObject("executableContent")?.optBoolean("scripts", false) == true) {
+            warnings.put("包声明含脚本；Android 仅封存，不会执行")
+            inert.put("manifest.executableContent.scripts")
+        }
+        return JSONObject().put("canImport", errors.length() == 0).put("errors", errors).put("warnings", warnings).put("inertPaths", inert)
+            .put("references", JSONObject().put("characters", content?.optJSONArray("characters")?.length() ?: 0).put("lorebooks", content?.optJSONObject("lorebooks")?.length() ?: 0).put("presets", content?.optJSONObject("presets")?.length() ?: 0))
+    }
+
+    private fun dataObject(type: String): JSONObject {
+        val file = File(dataDir, "$type.json")
+        if (!file.exists()) initFromDefaults(file, type)
+        return readObject(file) ?: JSONObject()
+    }
+
+    private fun remapImportArray(value: org.json.JSONArray?, idMap: Map<String, String>): org.json.JSONArray {
+        val result = org.json.JSONArray()
+        if (value == null) return result
+        for (index in 0 until value.length()) {
+            val id = value.optString(index)
+            result.put(idMap[id] ?: id)
+        }
+        return result
+    }
+
+    private fun commitWorldImport(record: JSONObject): JSONObject {
+        val importId = record.optString("id")
+        val raw = record.optString("raw")
+        if (sha256Text(raw) != record.optString("rawHash")) throw IllegalStateException("封存世界包哈希不一致")
+        val pkg = JSONObject(raw)
+        val report = importReport(pkg)
+        if (!report.optBoolean("canImport")) throw IllegalStateException("世界包未通过导入校验")
+        val content = pkg.getJSONObject("content")
+        val sourceWorld = content.getJSONObject("world")
+        val characterMap = linkedMapOf<String, String>()
+        val chars = content.getJSONArray("characters")
+        for (index in 0 until chars.length()) {
+            val source = chars.getJSONObject(index).optString("id")
+            characterMap[source] = "imp-${importId.takeLast(12)}-char-${index + 1}"
+        }
+        val loreMap = linkedMapOf<String, String>()
+        val lorebooks = content.getJSONObject("lorebooks")
+        var loreIndex = 0
+        for (key in lorebooks.keys()) { loreIndex++; loreMap[key] = "imp-${importId.takeLast(12)}-lore-$loreIndex" }
+        val presetMap = linkedMapOf<String, String>()
+        val presets = content.getJSONObject("presets")
+        for (key in presets.keys()) presetMap[key] = "导入 · ${importId.takeLast(8)} · $key"
+        val worldId = "imp-${importId.takeLast(12)}-world"
+        val world = JSONObject(sourceWorld.toString()).apply {
+            put("id", worldId); put("version", 1)
+            put("characterIds", remapImportArray(sourceWorld.optJSONArray("characterIds"), characterMap))
+            put("npcIds", remapImportArray(sourceWorld.optJSONArray("npcIds"), characterMap))
+            put("lorebookIds", remapImportArray(sourceWorld.optJSONArray("lorebookIds"), loreMap))
+            put("rpgPresetName", presetMap[sourceWorld.optString("rpgPresetName")] ?: sourceWorld.optString("rpgPresetName"))
+            if (sourceWorld.optJSONObject("start") != null) put("start", JSONObject(sourceWorld.getJSONObject("start").toString()).apply { if (has("playerTemplateId")) put("playerTemplateId", characterMap[optString("playerTemplateId")] ?: optString("playerTemplateId")) })
+            put("importInfo", JSONObject().put("importId", importId).put("sourceWorldId", sourceWorld.optString("id")).put("sourceWorldVersion", sourceWorld.optInt("version", 1)))
+        }
+        val characters = dataObject("characters")
+        for (index in 0 until chars.length()) {
+            val source = chars.getJSONObject(index)
+            val id = characterMap[source.optString("id")] ?: continue
+            if (characters.has(id)) throw IllegalStateException("导入角色 ID 冲突")
+            characters.put(id, JSONObject(source.toString()).apply { put("id", id); put("loreId", loreMap[optString("loreId")] ?: optString("loreId")); put("presetName", presetMap[optString("presetName")] ?: optString("presetName")); put("importInfo", JSONObject().put("importId", importId).put("sourceId", source.optString("id"))) })
+        }
+        val localLorebooks = dataObject("lorebooks")
+        for (key in lorebooks.keys()) {
+            val id = loreMap[key] ?: continue
+            if (localLorebooks.has(id)) throw IllegalStateException("导入世界书 ID 冲突")
+            val lore = JSONObject(lorebooks.getJSONObject(key).toString())
+            val entries = lore.optJSONArray("entries")
+            if (entries != null) for (index in 0 until entries.length()) {
+                val entry = entries.optJSONObject(index) ?: continue
+                val keys = entry.optString("keys")
+                if (keys.contains("/")) entry.put("enabled", false).put("importInfo", JSONObject().put("importId", importId).put("regexDisabledOnImport", true))
+            }
+            lore.put("importInfo", JSONObject().put("importId", importId).put("sourceId", key)); localLorebooks.put(id, lore)
+        }
+        val localPresets = dataObject("presets")
+        for (key in presets.keys()) {
+            val name = presetMap[key] ?: continue
+            if (localPresets.has(name)) throw IllegalStateException("导入预设名称冲突")
+            localPresets.put(name, JSONObject(presets.getJSONObject(key).toString()).put("importInfo", JSONObject().put("importId", importId).put("sourceName", key)))
+        }
+        val worlds = readArray(worldsFile, "worlds")
+        for (index in 0 until worlds.length()) if (worlds.optJSONObject(index)?.optString("id") == worldId) throw IllegalStateException("导入世界 ID 冲突")
+        worlds.put(world)
+        writeObject(File(dataDir, "characters.json"), characters); writeObject(File(dataDir, "lorebooks.json"), localLorebooks); writeObject(File(dataDir, "presets.json"), localPresets); writeArray(worldsFile, worlds)
+        return world
+    }
+
+    @Synchronized
+    private fun handleWorldImportPreview(session: IHTTPSession): Response {
+        return try {
+            val body = JSONObject(readBody(session)); val raw = body.optString("raw")
+            if (raw.isBlank() || raw.toByteArray(Charsets.UTF_8).size > 2 * 1024 * 1024) return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "世界包为空或超过 2 MiB 限制"))
+            val pkg = try { JSONObject(raw) } catch (_: Exception) { null }
+            val report = pkg?.let { importReport(it) } ?: JSONObject().put("canImport", false).put("errors", org.json.JSONArray().put("世界包不是有效 JSON")).put("warnings", org.json.JSONArray()).put("inertPaths", org.json.JSONArray())
+            val record = JSONObject().apply { put("id", nowId("imp")); put("status", "pending"); put("createdAt", System.currentTimeMillis()); put("rawHash", sha256Text(raw)); put("raw", raw); put("report", report) }
+            val records = readArray(worldImportsFile, "worldImports"); records.put(record); writeArray(worldImportsFile, records)
+            json(if (report.optBoolean("canImport")) Response.Status.CREATED else (Response.Status.lookup(422) ?: Response.Status.BAD_REQUEST), JSONObject(record.toString()).apply { remove("raw") })
+        } catch (e: Exception) { json(Response.Status.BAD_REQUEST, JSONObject().put("error", "invalid world package: ${e.message}")) }
+    }
+
+    @Synchronized
+    private fun handleWorldImportItem(session: IHTTPSession, importId: String): Response {
+        if (!importId.matches(Regex("[A-Za-z0-9_-]{1,120}"))) return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "invalid import id"))
+        return try {
+            val records = readArray(worldImportsFile, "worldImports")
+            var index = -1
+            for (i in 0 until records.length()) if (records.optJSONObject(i)?.optString("id") == importId) { index = i; break }
+            if (index < 0) return json(Response.Status.NOT_FOUND, JSONObject().put("error", "world import not found"))
+            val record = records.getJSONObject(index)
+            if (session.method == Method.GET) return json(Response.Status.OK, JSONObject(record.toString()).apply { remove("raw") })
+            if (record.optString("status") == "committed") return json(Response.Status.OK, JSONObject().put("import", JSONObject(record.toString()).apply { remove("raw") }).put("world", record.optJSONObject("importedWorld")).put("idempotent", true))
+            val world = commitWorldImport(record)
+            record.put("status", "committed").put("committedAt", System.currentTimeMillis()).put("importedWorld", worldSummary(world)); records.put(index, record); writeArray(worldImportsFile, records)
+            json(Response.Status.CREATED, JSONObject().put("import", JSONObject(record.toString()).apply { remove("raw") }).put("world", worldSummary(world)).put("idempotent", false))
+        } catch (e: Exception) { json(Response.Status.CONFLICT, JSONObject().put("error", "世界包导入失败: ${e.message}")) }
+    }
+
     private fun draftView(draft: JSONObject): JSONObject = JSONObject(draft.toString())
 
     @Synchronized
@@ -842,7 +1286,7 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
                 return json(Response.Status.CONFLICT, JSONObject().put("error", "world draft was updated"))
             }
             val world = JSONObject(current.optJSONObject("world")?.toString() ?: "{}")
-            val fields = arrayOf("title", "summary", "tags", "lorebookIds", "setting", "rules", "playerCreation", "turnContract", "failure", "ending", "time", "events", "factions", "conflicts", "locations", "npcs", "mapGeneration")
+            val fields = arrayOf("title", "summary", "tags", "lorebookIds", "rpgPresetName", "agent", "ui", "regexes", "setting", "rules", "playerCreation", "turnContract", "failure", "ending", "time", "events", "factions", "conflicts", "locations", "npcs", "mapGeneration")
             for (field in fields) if (payload.has(field)) world.put(field, payload.get(field))
             val next = JSONObject(current.toString()).apply {
                 put("world", world)

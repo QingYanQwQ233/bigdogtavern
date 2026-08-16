@@ -23,11 +23,20 @@
 
 - RPG Prompt 已按稳定 ID 组织为 Sections，并继续合并为唯一一条 system 消息；每次请求的 Section ID、来源和字符数只进入内存调试记录。
 - AI 叙事 Markdown、NPC 台词和行动选项中的 `d20` 等文本不会触发骰子；骰子仍只能由玩家明确输入或受控规则流程产生。
-- 回合协议支持受限的 `toolCalls` 候选（`dice.roll`、`rules.check`、`state.patch`、`entity.create`、`memory.record`）；RPG Agent Profile 现在可声明 OpenAI-compatible `tools` Schema，原生模式按 `maxSteps` 循环解析流式 `tool_calls`，并将状态 / 实体 / 记忆候选接入服务端 Agent 执行入口。`context.retrieve` 仅读取当前存档允许的知识作用域，不进入服务端提交。
+- 回合协议支持受限的 `toolCalls` 候选（`dice.roll`、`rules.check`、`state.patch`、`entity.create`、`memory.record`）；RPG Agent Profile 现在可声明 OpenAI-compatible `tools` Schema，原生模式按 `maxSteps` 循环解析流式 `tool_calls`，兼容模式从状态块读取 `toolCalls` 后执行同一工具并回传 `tavern.rpg.agent.tool_result`，两者都将状态 / 实体 / 记忆候选接入服务端 Agent 执行入口。`context.retrieve` 仅读取当前存档允许的知识作用域，不进入服务端提交。
 - 服务端在正式回合 receipt 中生成 `tavern.rpg.agent v1` 执行摘要，记录兼容状态提交、实体创建、事件记忆、规则结算和世界时间推进等工具类别及提交状态。
 - 执行摘要是存档级证据，不是第二份状态；`state`、`turns`、`eventLedger` 仍分别负责状态、原始回合和世界事件来源。
+- 世界卡草稿现在可以声明 Agent `mode/maxSteps/tools`，发布后随 `WorldCard@version` 固定；留空时继续继承 RPG 预设 / 全局默认。
+- 世界卡草稿现在也可声明 `regexes[]` 与声明式 `ui.sidebar.panels[]`；运行时按世界卡 → 预设 → 模式自定义应用正则，面板只读投影当前存档。
 
-当前已落地最小两阶段边界：`POST /api/world-saves/<saveId>/agent-execute` 在不增加正式 revision 的情况下结算并保存 `agentRuntime.pending`，前端对 Typed Patch 回合自动执行后再提交 `agentPhase:'narrate'`，此时才一次性写入 state、turns、receipt 与 eventLedger；待叙事结果带 baseRevision，过期或重复执行会被拒绝，用户放弃回合时可取消 pending。原生工具循环已支持有限的多步调用；完整 Observe / Decide / Guard 编排、跨回合恢复和独立规则执行器仍未实现。
+当前已落地最小两阶段边界：`POST /api/world-saves/<saveId>/agent-execute` 在不增加正式 revision 的情况下结算并保存 `agentRuntime.pending`，前端对 Typed Patch 回合自动执行后再提交 `agentPhase:'narrate'`，此时才一次性写入 state、turns、receipt 与 eventLedger；待叙事结果带 baseRevision，过期或重复执行会被拒绝，用户放弃回合时可取消 pending。pending 现在会受限保存待叙事 `turns/options`，并持久化 `phase/phaseHistory`；刷新后可恢复并显示当前阶段，继续提交或放弃。原生工具循环已支持有限的多步调用；完整 Observe / Decide / Guard 编排和独立规则执行器仍未实现。
+
+Agent Guard 当前提供最小证据闭环：客户端工具执行 trace 可随 execute 阶段提交，服务端按白名单、长度、JSON 结构、工具所属阶段和 `observe → decide → guard` 顺序校验；成功的 `dice.roll` 必须伴随同回合成功的 `rules.check`，否则回合停在提交前。trace 仍是不可信诊断证据，正式状态仍由 Typed Patch、冲突、骰子和存档 CAS 再次复核，receipt 会标记 `guard.status` 与每个工具的通过 / 拒绝结果。
+候选调用与 trace 还会按 `callId/name` 绑定；只读 `context.retrieve` 可作为观察证据而不进入状态候选，其余 trace 在存在候选列表时必须有对应声明。旧客户端仅提交候选而不提交 trace 时继续走原有 Typed Patch 校验。`agentRuntime.pending.orchestration` 保存摘要计数，供刷新恢复和调试显示。
+
+阶段编排已接入现有工具循环：`context.retrieve → observe`，状态 / 实体 / 记忆候选 → `decide`，`rules.check / dice.roll → guard`，服务端两阶段提交 → `execute → narrate`。客户端负责调用循环，服务端负责最终阶段顺序与骰子门控；仍不执行任意模型脚本，也不把客户端结果直接当作状态真相。
+
+多步骤行动的最小规划层复用 `objective.upsert`：Agent 可以先提出一个或多个目标/线索作为计划，再提交状态候选；计划进入 `orchestration.plan`，玩家可以忽略，不会被解释成强制主线。
 
 ### 状态标记
 
@@ -240,7 +249,7 @@ PlayerCommand
 
 **目标**：正文保持连续叙事，规则信息以可验证的独立 UI 展示，并且界面由卡的声明式定义驱动。
 
-**现状**：RPG 正文支持 Markdown，无酒馆气泡正则；有固定角色 / 背包 / 任务 / 地图 / HP / MP / EXP / 金币界面和独立调试窗口。
+**现状**：RPG 正文支持 Markdown，不生成酒馆气泡；输出正则支持世界卡、当前预设和 RPG 模式自定义三级绑定，并自动识别 SillyTavern `regex_scripts`；有固定角色 / 背包 / 任务 / 地图 / HP / MP / EXP / 金币界面和独立调试窗口，WorldCard 还可追加白名单数据源侧栏面板。
 
 **目标界面**：
 
@@ -257,7 +266,7 @@ PlayerCommand
 
 **目标**：让完整世界线可以安全创建、继续、失败、结束、导出和跨平台恢复。
 
-**现状**：Web 存档支持创建、打开、版本升级、导入导出、迁移、原子写入和恢复；删除 / 复制 / 分支 / 总结未做；Android 内嵌服务器仍只有旧数据 API。
+**现状**：Web 存档支持创建、打开、重命名、复制、删除、版本升级、脱敏导入导出、迁移、原子写入、恢复和世界线总结；分支仍未单独建模。Android 内嵌服务器仍待 Web 契约冻结后对齐。
 
 **细分能力**：
 
@@ -440,20 +449,20 @@ PlayerCommand
 
 ### R8. 存档操作、平台与发布验收
 
-**阶段结果**：Web 主链可发布，PWA / Android 语义对齐，用户数据可备份和恢复。
+**阶段结果**：Web 主链可发布，PWA 壳已随 Web 资源更新，用户数据可备份和恢复；Android 对齐与实机验证延后。
 
 | ID | 小任务 | 依赖 | 验收 |
 |---|---|---|---|
-| R8.1 | 增加存档重命名和导出 | R6 | 导出不含 API key、本机路径或其他存档数据 |
-| R8.2 | 增加存档复制并重新命名所有 owner / receipt | R8.1 | 复制后两条世界线完全独立 |
-| R8.3 | 增加显式删除与可恢复保护 | R8.1 | 精确显示目标世界 / 存档；取消不写入 |
+| R8.1 | 增加存档重命名和导出 | R6 | 已支持服务端重命名与脱敏 `tavern_world_save` 导出；不含 API key、本机路径或其他存档数据 |
+| R8.2 | 增加存档复制并重新命名所有 owner / receipt | R8.1 | 已支持独立副本；重映射存档自有玩家、临时实体、回合、账本和命令 ID，源存档不变 |
+| R8.3 | 增加显式删除与可恢复保护 | R8.1 | 已支持卡内删除；服务端精确校验目标，取消不写入 |
 | R8.4 | 定义 v1 / v2 卡和存档迁移、dry-run、备份和回退 | R7 | 失败不覆盖原件，重复执行幂等 |
-| R8.5 | 为完整玩家闭环补浏览器自动化 | R7.7 | 建角、开场、行动、判定、NPC、时间、重开全部通过 |
-| R8.6 | 做双世界 / 双存档 / Tavern 交叉隔离回归 | R8.5 | Prompt、状态、地图、图片、记忆和 UI 无串联 |
-| R8.7 | 对齐 Android 世界 / 存档 / 回合 / 导入 API | R8.4 | Android 不再回退到旧 `session.rpgState` 主链 |
+| R8.5 | 为完整玩家闭环补浏览器自动化 | R7.7 | ✅ 已实测建档、开局规划、确认开场、打开存档与复制存档 |
+| R8.6 | 做双世界 / 双存档 / Tavern 交叉隔离回归 | R8.5 | ✅ 已验证 RPG 开场与 Tavern 对话互不串联；源/副本状态独立 |
+| R8.7 | 对齐 Android 世界 / 存档 / 回合 / 导入 API | R8.4 | 🟡 已对齐存档基础操作、Typed Patch、开局、Agent 两阶段、世界包导入和版本升级；待 APK 编译与真机验证，Android 不再回退到旧 `session.rpgState` 主链 |
 | R8.8 | 构建并实机验证 PWA 与 Android | R8.7 | 断网壳、重启恢复、图片缺失和超时恢复可用 |
-| R8.9 | 完成安全复核 | R8.4 | 导入内容不执行脚本；路径、秘密、Prompt 注入和超大数据受控 |
-| R8.10 | 同步 README、数据结构、卡作者指南和迁移指南 | R8.9 | 文档只描述已实现行为和已验证平台 |
+| R8.9 | 完成安全复核 | R8.4 | ✅ 已复核导出脱敏、路径/秘密隔离、输入上限与导入不执行脚本 |
+| R8.10 | 同步 README、数据结构、卡作者指南和迁移指南 | R8.9 | ✅ README、数据结构、世界卡与测试实验台文档已同步 |
 
 ## 4. 实施顺序与阶段门
 

@@ -7,6 +7,8 @@ Tavern 是一个面向 AI 角色扮演的本地 Web 应用。它把普通的角�
 
 项目的核心不变量是：**数据按所有权分层绑定，不跨角色、跨会话、跨存档串数据；能结构化保存的状态不只依赖 AI 记忆。**
 
+![Tavern 宣传图](public/assets/tavern-promo-v1.png)
+
 ## 快速开始
 
 需要 Node.js 18+，运行时零 npm 依赖。
@@ -38,13 +40,14 @@ _defaults.json
   ├─ lorebooks.json        世界书
   ├─ settings.json         连接与运行设置
   ├─ user.json             玩家设定与酒馆手动记忆
+  ├─ sessions.json         酒馆会话库（含删除墓碑，首次保存时创建）
   └─ worlds.json            世界卡目录
 
 saves/<saveId>.json        RPG WorldSave，服务端按存档独立读写
 world-deleted.json         已删除世界卡 ID（防止默认模板重新出现）
 ```
 
-`localStorage` 只保存离线缓存和当前 ID，服务端 JSON 是权威源。`WorldCard@worldVersion` 保存稳定世界资料；`WorldSave@revision` 保存本局玩家、状态、事件、回合和记忆。世界卡或角色卡后续编辑不会静默覆盖已有存档。
+`localStorage` 只保存离线缓存和当前 ID，服务端 JSON 是权威源。酒馆会话同样走服务端：启动时与服务端 `sessions.json` 按 ID 取并集合并（冲突保留更新时间新者），删除的会话以墓碑记录，不会在其他浏览器复活，因此更换浏览器聊天记录不丢失。`WorldCard@worldVersion` 保存稳定世界资料；`WorldSave@revision` 保存本局玩家、状态、事件、回合和记忆。世界卡或角色卡后续编辑不会静默覆盖已有存档。
 
 世界库中的存档可单独删除；删除世界卡前必须先删除该世界的全部存档，确认后会移除所有已发布版本和未发布草稿。默认世界通过 `world-deleted.json` 记录删除标记，刷新后不会被 `_defaults.json` 自动补回。
 
@@ -56,10 +59,12 @@ world-deleted.json         已删除世界卡 ID（防止默认模板重新出�
 - 三步 AI 写卡：一句话定角色 → JSON Schema 动态填表 → 生成完整结构化角色卡；
 - 动态角色字段、可自定义栏目和运行时保存，不把世界观字段写死在前端；
 - SillyTavern 风格提示词预设：System、历史前/后指令、In-Chat、Relative、宏、排序和导入导出；
+- 独立「正则」设置：RP / RPG 分模式保存自定义输出正则，并自动识别预设携带的 `extensions.regex_scripts`；
 - 多本世界书：触发词、正则、常驻、扫描深度、整词匹配和角色绑定；
 - 玩家设定、手动记忆、消息编辑/删除/复制/重生成；
-- 旁白/对白拆分状态机；
-- AI 消息 Markdown 渲染与安全清洗；
+- 可选旁白/对白拆分：默认整条回复作为连续正文，按需在「设置 → 格式」开启对白气泡；
+- 「设置 → 排版」热调整聊天正文：字体、字号、行间距、段间距、段首缩进（空两格）与左右间距，拖动即时预览、自动保存；
+- AI 消息完整 GFM Markdown 渲染与安全清洗：标题、列表/任务列表、表格、引用、代码块、行内代码、链接、图片、删除线、键盘标记和分隔线；
 - 文生图消息（OpenAI 兼容或 Stable Diffusion），图片保存后可持久化。
 
 酒馆记忆目前是用户级手动记忆，保存在 `user.json`，尚未完全绑定到单一角色和单一会话。
@@ -120,6 +125,19 @@ RPG 支持声明式 OpenAI-compatible tools：
 
 Agent 回合采用 `agent-execute → narrate` 两阶段提交。正式状态仍由 WorldSave 服务端校验，Agent 不能直接改写存档。
 
+不支持原生 function calling 的模型可使用兼容 Agent 模式：模型在唯一状态块的 `toolCalls` 中声明工具，客户端执行受控工具后以 `tavern.rpg.agent.tool_result` 回传，并在 `maxSteps` 内继续请求模型；原生与兼容模式共用工具白名单、客户端骰子和存档提交链。
+
+Agent 模式、最大步骤数和工具开关可在世界卡编辑器中按卡配置；留空时继承 RPG 预设 / 全局默认。
+
+世界卡还可以通过声明式 `ui.sidebar.panels[]` 增加关系、事件、资源等侧栏投影；数据源使用白名单路径，动态内容始终读取当前存档。
+RPG GEN 3 增加受限 `runtime` DSL：世界卡可声明变量、集合（例如商城）和动作；创建存档时快照到 `state.runtime`，AI 只能通过 Typed Patch 的 `runtime.*` 更新，侧栏可读取 `runtime.variables.<id>` / `runtime.collections.<id>`。
+GEN 3.1 支持世界卡 `ui.extension`：HTML/CSS/JS 在 `sandbox="allow-scripts"` 的隔离 iframe 中运行，CSP 禁止网络、表单、嵌套 frame 和主页面访问；通过 `TavernExtension.requestContext()`、`patch()`、`action()` 和 `mvu()` 走白名单消息协议。世界草稿页提供扩展字段可视化编辑器，也保留高级 JSON 入口；点击“从高级 JSON 载入扩展”后再保存即可合并两种视图。写入统一提交 `/api/world-saves/:id/runtime`，前后端都强制检查 `write.runtime`，仍受存档 revision、runtime Schema 和 Typed Patch 校验，不执行主页面脚本。Agent 两阶段回合的 pending 还会保存受限的待叙事消息和选项，页面刷新后可继续提交或放弃，正式状态仍只在 narrate 阶段写入。
+Agent 回合还会保存受限的工具 Guard trace，并在 receipt 中记录每个工具的通过 / 拒绝结果；服务端会校验工具阶段顺序（`observe → decide → guard`），成功的 `dice.roll` 必须先有同回合通过的 `rules.check`。trace 只用于诊断，不能绕过服务端 Typed Patch、规则和 CAS 校验。
+Agent 执行摘要还会绑定候选 `agentCalls` 与 trace 的 `callId/name`，并保存候选、观察、通过、拒绝计数；只读 `context.retrieve` 不进入状态候选。
+多步骤行动可把 `objective.upsert` 作为可忽略的计划步骤；计划会随 orchestration 摘要进入 pending/receipt，不会自动变成强制主线。
+工具 trace 同时标注 `observe / decide / guard`，两阶段提交标注 `execute / narrate`；待叙事 pending 还会保存 `phase/phaseHistory`，刷新后可显示并恢复当前阶段，便于在终端追踪 Agent 回合阶段。
+世界卡也可绑定自己的 `regexes[]`，在该世界的 RPG 预设和模式自定义规则之前执行；正则仅做输出替换，不执行脚本。
+
 ## RPG 记忆与上下文
 
 RPG 记忆不是一段模糊的 AI 摘要，而是几层结构化事实：
@@ -152,6 +170,7 @@ RPG 记忆不是一段模糊的 AI 摘要，而是几层结构化事实：
 ### RPG 开发者实验台
 
 启动页面时追加 `?dev=1`，顶栏会显示「🧪 开发者」。选择一个外置测试场景后直接点击「运行所选测试」即可；场景内部自动填充 `rules.check → dice.roll → tool 回传`、Typed Patch、实体候选和事件记忆，不需要填写 JSON。测试反馈会写入本次 RPG 叙事，选项会恢复为叙事栏下方的快捷按钮。没有完成开局规划的存档不会允许提交。它直接复用正式 `/api/world-saves/:id` 回合协议，不会创建第二套状态路径。
+GEN 3 服务端闭环可用 `node scripts/check_rpg_gen3.js` 快速验收；扩展沙箱和 runtime action 可用 `node scripts/check_rpg_extension.js` 验收。
 
 ## 项目结构
 
@@ -184,6 +203,19 @@ docs/                          数据结构、世界卡与 Android 文档
 - 文生图、PWA、Android 套壳与本地调试终端；
 - 世界卡草稿、版本发布、导入导出和旧 RPG 会话迁移。
 
+### 本版本可直接验收的闭环
+
+```text
+世界卡 / 世界书 / RPG 预设
+  → 开局规划与角色建角
+  → WorldSave 初始化
+  → Agent 工具回合（规则检查 / 客户端骰子 / 状态候选）
+  → 服务端校验与两阶段提交
+  → 叙事、选项、侧栏和记忆同步
+```
+
+本版本重点补齐了 RPG 的可玩基础设施：世界卡可以携带自己的规则、正则、侧栏投影、GEN 3 runtime 变量/集合/动作和受限 UI 扩展；Agent 的工具阶段、候选绑定、计划摘要、pending 恢复和回执诊断均进入同一套存档协议。酒馆与 RPG 仍使用各自的角色/世界/会话/存档边界，删除和刷新不会把数据重新串回默认模板。
+
 ### 当前限制
 
 - 世界观与角色内容仍有占位，需要实际世界卡填充；
@@ -194,6 +226,19 @@ docs/                          数据结构、世界卡与 Android 文档
 - 队伍管理和部分作者工作台仍需完善；
 - 服务端默认无鉴权和 SSRF 防护，只适合本地开发/演示；
 - Android 需要在真实设备上继续验收。
+
+### 未来规划（未完成内容）
+
+按优先级排列，以下内容目前只保留扩展点，不应视为已经实现：
+
+1. **内容与开局**：补充可玩的示例世界卡、角色模板和开局方案；增加队伍/多玩家角色管理与更轻量的预设式建档。
+2. **叙事与记忆**：完善 RPG 记忆人工编辑、自动聚类/向量检索、NPC 独立知识和跨事件回溯；继续收紧“世界真相 / 玩家已知 / 谣言”的注入边界。
+3. **Agent 与规则**：增加更多可配置工具（任务、商店、制作、战斗等）的 schema 校验、失败重试和可视化 trace；原生 function calling 与兼容模式继续保持同一协议。
+4. **世界卡工作台**：把侧栏、runtime、扩展和正则做成更完整的可视化编辑器，并提供版本差异、回滚和迁移提示。
+5. **地图与表现**：重新设计固定地图的展示与地点导航；随机地图仍关闭，直到世界卡数据、区域绑定和存档隔离都能稳定验收。
+6. **安全与发布**：补充本地鉴权、SSRF/资源白名单、扩展沙箱审计和错误脱敏；完成 Android 真机回归后再恢复 APK Action 发布。
+
+这些规划不会改变当前的核心约束：数据由 WorldCard / Preset / WorldSave 分层拥有，AI 只能提交候选，服务端才是状态权威源。
 
 详细数据结构见 [docs/data-structure.md](docs/data-structure.md)，产品路线见 [docs/rpg-card-product-roadmap.md](docs/rpg-card-product-roadmap.md)。
 

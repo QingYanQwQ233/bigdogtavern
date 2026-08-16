@@ -33,7 +33,7 @@ const RPG_MIGRATIONS_DIR = path.join(DATA_DIR, 'rpg-migrations');
 // --api-only：只暴露 /api/*（无网页），供公网纯 API 场景
 const API_ONLY = process.argv.includes('--api-only');
 
-const DATA_TYPES = ['characters', 'presets', 'lorebooks', 'settings', 'user', 'worlds'];
+const DATA_TYPES = ['characters', 'presets', 'lorebooks', 'settings', 'user', 'worlds', 'sessions'];
 const DEFAULTS_PATH = path.join(DATA_DIR, '_defaults.json');
 
 /* 默认模板：从 public/data/_defaults.json 读取（唯一数据源，代码不写死内容） */
@@ -74,6 +74,8 @@ async function ensureDataFiles() {
   try { await fs.promises.access(WORLD_DELETED_PATH); }
   catch { await fs.promises.writeFile(WORLD_DELETED_PATH, '[]\n', 'utf-8'); }
   for (const type of DATA_TYPES) {
+    // sessions.json 不预建：文件缺失 = 从未同步，客户端据此把 localStorage 会话推送上来（GET 返回 404）
+    if (type === 'sessions') continue;
     const fp = path.join(DATA_DIR, type + '.json');
     try { await fs.promises.access(fp); }
     catch {
@@ -256,7 +258,7 @@ async function loadWorlds() {
     const fallback = defaultByKey.get(`${world.id}:${world.version}`) || defaultById.get(world.id);
     if (!fallback) return world;
     const next = { ...world };
-    for (const key of ['playerCreation', 'turnContract', 'failure', 'ending', 'time', 'events', 'factions', 'conflicts', 'sessionSetup']) {
+    for (const key of ['playerCreation', 'turnContract', 'failure', 'ending', 'time', 'events', 'factions', 'conflicts', 'sessionSetup', 'runtime']) {
       const source = fallback?.[key] !== undefined ? fallback : defaultById.get(world.id);
       if ((next[key] === undefined || next[key] === null) && source?.[key] !== undefined) next[key] = cloneJson(source[key]);
     }
@@ -304,6 +306,181 @@ function findWorldVersion(worlds, worldId, version) {
   return worlds.find(world => world && world.id === worldId && Number(world.version) === Number(version)) || null;
 }
 
+/* RPG GEN 3 runtime is a bounded JSON DSL.  It stores data, never executable code. */
+const RUNTIME_SCOPES = new Set(['world', 'save', 'player', 'entity', 'session']);
+const RUNTIME_TYPES = new Set(['string', 'number', 'boolean', 'enum', 'list', 'map', 'json']);
+const RUNTIME_EFFECT_TYPES = new Set(['variable.set', 'variable.delta', 'collection.add', 'collection.remove']);
+
+function runtimeJsonSize(value) {
+  try { return JSON.stringify(value).length; } catch { return Infinity; }
+}
+
+function runtimeValueValid(value, definition, label) {
+  const type = definition?.type;
+  if (type === 'string') return typeof value === 'string' && value.length <= 4000 ? null : `${label} 必须是不超过 4000 字符的字符串`;
+  if (type === 'number') return validBoundedNumber(value, definition?.min ?? -1000000000, definition?.max ?? 1000000000) ? null : `${label} 数值无效`;
+  if (type === 'boolean') return typeof value === 'boolean' ? null : `${label} 必须是布尔值`;
+  if (type === 'enum') return typeof value === 'string' && Array.isArray(definition?.options) && definition.options.includes(value) ? null : `${label} 必须是 options 中的值`;
+  if (type === 'list') return Array.isArray(value) && value.length <= 256 && runtimeJsonSize(value) <= 12000 ? null : `${label} 必须是最多 256 项且不超过 12000 字节的数组`;
+  if (type === 'map') return value && typeof value === 'object' && !Array.isArray(value) && runtimeJsonSize(value) <= 12000 ? null : `${label} 必须是不超过 12000 字节的对象`;
+  if (type === 'json') return runtimeJsonSize(value) <= 12000 ? null : `${label} JSON 不能超过 12000 字节`;
+  return `${label} 类型无效`;
+}
+
+function runtimeDefinitions(runtime) {
+  return {
+    variables: new Map((Array.isArray(runtime?.variables) ? runtime.variables : []).map(item => [item.id, item])),
+    collections: new Map((Array.isArray(runtime?.collections) ? runtime.collections : []).map(item => [item.id, item])),
+    actions: new Map((Array.isArray(runtime?.actions) ? runtime.actions : []).map(item => [item.id, item])),
+  };
+}
+
+function validateWorldRuntime(value) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'runtime 必须是对象';
+  if (Object.keys(value).some(key => !['version', 'variables', 'collections', 'actions'].includes(key))) return 'runtime 含有未声明字段';
+  if (value.version !== undefined && (!Number.isInteger(value.version) || value.version < 1 || value.version > 10)) return 'runtime.version 无效';
+  for (const key of ['variables', 'collections', 'actions']) {
+    if (value[key] !== undefined && (!Array.isArray(value[key]) || value[key].length > 128)) return `runtime.${key} 必须是最多 128 项的数组`;
+  }
+  const ids = { variables: new Set(), collections: new Set(), actions: new Set() };
+  for (const [index, item] of (Array.isArray(value.variables) ? value.variables : []).entries()) {
+    const id = typeof item?.id === 'string' ? item.id.trim() : '';
+    if (!isSafeId(id) || ids.variables.has(id)) return `runtime.variables[${index}].id 无效或重复`;
+    if (Object.keys(item).some(key => !['id', 'label', 'scope', 'type', 'initial', 'min', 'max', 'options', 'visible'].includes(key))) return `runtime.variables.${id} 含有未声明字段`;
+    if (typeof item.label !== 'string' || !item.label.trim() || item.label.length > 120) return `runtime.variables.${id}.label 无效`;
+    if (item.scope !== undefined && !RUNTIME_SCOPES.has(item.scope)) return `runtime.variables.${id}.scope 无效`;
+    if (!RUNTIME_TYPES.has(item.type)) return `runtime.variables.${id}.type 无效`;
+    if (item.min !== undefined && !validBoundedNumber(item.min, -1000000000, 1000000000)) return `runtime.variables.${id}.min 无效`;
+    if (item.max !== undefined && !validBoundedNumber(item.max, -1000000000, 1000000000)) return `runtime.variables.${id}.max 无效`;
+    if (item.type === 'number' && item.min !== undefined && item.max !== undefined && item.min > item.max) return `runtime.variables.${id}.min 不能大于 max`;
+    if (item.type === 'enum' && (!Array.isArray(item.options) || item.options.length < 1 || item.options.length > 64 || item.options.some(option => typeof option !== 'string' || option.length > 200))) return `runtime.variables.${id}.options 无效`;
+    if (item.visible !== undefined && typeof item.visible !== 'boolean') return `runtime.variables.${id}.visible 无效`;
+    if (item.initial !== undefined) {
+      const initialInvalid = runtimeValueValid(item.initial, item, `runtime.variables.${id}.initial`);
+      if (initialInvalid) return initialInvalid;
+    }
+    ids.variables.add(id);
+  }
+  for (const [index, item] of (Array.isArray(value.collections) ? value.collections : []).entries()) {
+    const id = typeof item?.id === 'string' ? item.id.trim() : '';
+    if (!isSafeId(id) || ids.collections.has(id)) return `runtime.collections[${index}].id 无效或重复`;
+    if (Object.keys(item).some(key => !['id', 'label', 'scope', 'entrySchema', 'initial'].includes(key))) return `runtime.collections.${id} 含有未声明字段`;
+    if (typeof item.label !== 'string' || !item.label.trim() || item.label.length > 120) return `runtime.collections.${id}.label 无效`;
+    if (item.scope !== undefined && !RUNTIME_SCOPES.has(item.scope)) return `runtime.collections.${id}.scope 无效`;
+    if (item.entrySchema !== undefined && (!item.entrySchema || typeof item.entrySchema !== 'object' || Array.isArray(item.entrySchema) || runtimeJsonSize(item.entrySchema) > 8000)) return `runtime.collections.${id}.entrySchema 无效`;
+    if (item.initial !== undefined && (!Array.isArray(item.initial) || item.initial.length > 256 || runtimeJsonSize(item.initial) > 30000 || item.initial.some(entry => !entry || typeof entry !== 'object' || Array.isArray(entry) || !isSafeId(String(entry.id || ''))))) return `runtime.collections.${id}.initial 必须是带安全 id 的对象数组`;
+    ids.collections.add(id);
+  }
+  const definitions = runtimeDefinitions(value);
+  for (const [index, item] of (Array.isArray(value.actions) ? value.actions : []).entries()) {
+    const id = typeof item?.id === 'string' ? item.id.trim() : '';
+    if (!isSafeId(id) || ids.actions.has(id)) return `runtime.actions[${index}].id 无效或重复`;
+    if (Object.keys(item).some(key => !['id', 'label', 'description', 'inputs', 'effects'].includes(key))) return `runtime.actions.${id} 含有未声明字段`;
+    if (typeof item.label !== 'string' || !item.label.trim() || item.label.length > 120) return `runtime.actions.${id}.label 无效`;
+    if (item.description !== undefined && (typeof item.description !== 'string' || item.description.length > 2000)) return `runtime.actions.${id}.description 无效`;
+    if (item.inputs !== undefined && (!Array.isArray(item.inputs) || item.inputs.length > 16)) return `runtime.actions.${id}.inputs 无效`;
+    for (const input of Array.isArray(item.inputs) ? item.inputs : []) {
+      if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['id', 'label', 'type', 'required', 'default', 'options', 'min', 'max'].includes(key)) || !isSafeId(String(input.id || '')) || typeof input.label !== 'string' || !RUNTIME_TYPES.has(input.type || 'string')) return `runtime.actions.${id}.inputs 无效`;
+      if (input.options !== undefined && (!Array.isArray(input.options) || input.options.length > 64)) return `runtime.actions.${id}.inputs.options 无效`;
+    }
+    if (!Array.isArray(item.effects) || item.effects.length < 1 || item.effects.length > 16) return `runtime.actions.${id}.effects 无效`;
+    for (const effect of item.effects) {
+      if (!effect || typeof effect !== 'object' || Array.isArray(effect) || !RUNTIME_EFFECT_TYPES.has(effect.type)) return `runtime.actions.${id}.effects 含有不受支持的操作`;
+      const effectKeys = effect.type === 'variable.set' ? ['type', 'variableId', 'value']
+        : effect.type === 'variable.delta' ? ['type', 'variableId', 'delta']
+          : effect.type === 'collection.add' ? ['type', 'collectionId', 'value'] : ['type', 'collectionId', 'entryId'];
+      if (Object.keys(effect).some(key => !effectKeys.includes(key))) return `runtime.actions.${id}.effects 含有未声明字段`;
+      const targetId = effect.variableId || effect.collectionId;
+      if (!isSafeId(String(targetId || ''))) return `runtime.actions.${id}.effects 目标无效`;
+      if (effect.type.startsWith('variable.') && !definitions.variables.has(String(effect.variableId))) return `runtime.actions.${id} 引用了未声明变量`;
+      if (effect.type.startsWith('collection.') && !definitions.collections.has(String(effect.collectionId))) return `runtime.actions.${id} 引用了未声明集合`;
+      if (effect.type === 'variable.delta' && !validBoundedNumber(effect.delta, -1000000000, 1000000000)) return `runtime.actions.${id}.effects.delta 无效`;
+      if (effect.type === 'variable.set' && effect.value === undefined) return `runtime.actions.${id}.effects.value 不能为空`;
+      if (effect.type === 'collection.add' && (!effect.value || typeof effect.value !== 'object' || Array.isArray(effect.value) || !isSafeId(String(effect.value.id || '')))) return `runtime.actions.${id}.effects.value 必须是带安全 id 的对象`;
+      if (effect.type === 'collection.remove' && !isSafeId(String(effect.entryId || ''))) return `runtime.actions.${id}.effects.entryId 无效`;
+    }
+    ids.actions.add(id);
+  }
+  return null;
+}
+
+function materializeWorldRuntimeState(runtime) {
+  const schema = runtime && typeof runtime === 'object' && !Array.isArray(runtime) ? cloneJson(runtime) : { version: 1, variables: [], collections: [], actions: [] };
+  const initialValue = item => item.initial !== undefined
+    ? item.initial
+    : item.type === 'boolean' ? false
+        : item.type === 'number' ? 0
+          : item.type === 'enum' ? (item.options?.[0] || '')
+          : item.type === 'list' ? []
+          : item.type === 'map' ? {} : '';
+  return {
+    schemaVersion: Number(schema.version || 1),
+    schema,
+    variables: Object.fromEntries((Array.isArray(schema.variables) ? schema.variables : []).map(item => [item.id, cloneJson(initialValue(item))])),
+    collections: Object.fromEntries((Array.isArray(schema.collections) ? schema.collections : []).map(item => [item.id, cloneJson(Array.isArray(item.initial) ? item.initial : [])])),
+  };
+}
+
+function migrateWorldRuntimeState(previous, runtime) {
+  const next = materializeWorldRuntimeState(runtime);
+  if (!previous || typeof previous !== 'object') return next;
+  const oldDefs = runtimeDefinitions(previous.schema);
+  const newDefs = runtimeDefinitions(next.schema);
+  for (const [id, definition] of newDefs.variables) {
+    const oldDefinition = oldDefs.variables.get(id);
+    if (oldDefinition?.type === definition.type && previous.variables?.[id] !== undefined) {
+      const invalid = runtimeValueValid(previous.variables[id], definition, `state.runtime.variables.${id}`);
+      if (!invalid) next.variables[id] = cloneJson(previous.variables[id]);
+    }
+  }
+  for (const id of newDefs.collections.keys()) {
+    if (Array.isArray(previous.collections?.[id])) next.collections[id] = cloneJson(previous.collections[id]).slice(0, 256);
+  }
+  return next;
+}
+
+function validateRuntimeState(value) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'state.runtime 必须是对象';
+  if (Object.keys(value).some(key => !['schemaVersion', 'schema', 'variables', 'collections'].includes(key))) return 'state.runtime 含有未声明字段';
+  const schemaInvalid = validateWorldRuntime(value.schema);
+  if (schemaInvalid) return `state.runtime.schema：${schemaInvalid}`;
+  if (!value.variables || typeof value.variables !== 'object' || Array.isArray(value.variables) || runtimeJsonSize(value.variables) > 30000) return 'state.runtime.variables 无效';
+  if (!value.collections || typeof value.collections !== 'object' || Array.isArray(value.collections) || runtimeJsonSize(value.collections) > 50000) return 'state.runtime.collections 无效';
+  const definitions = runtimeDefinitions(value.schema);
+  if (Object.keys(value.variables).some(id => !definitions.variables.has(id))) return 'state.runtime.variables 含有未声明变量';
+  for (const [id, definition] of definitions.variables) {
+    if (value.variables[id] === undefined) continue;
+    const invalid = runtimeValueValid(value.variables[id], definition, `state.runtime.variables.${id}`);
+    if (invalid) return invalid;
+  }
+  if (Object.keys(value.collections).some(id => !definitions.collections.has(id))) return 'state.runtime.collections 含有未声明集合';
+  for (const [id, entries] of Object.entries(value.collections)) {
+    if (!Array.isArray(entries) || entries.length > 256 || entries.some(entry => !entry || typeof entry !== 'object' || Array.isArray(entry) || !isSafeId(String(entry.id || '')))) return `state.runtime.collections.${id} 无效`;
+  }
+  return null;
+}
+
+function runtimeBindingInvalid(world, currentState, nextState) {
+  if (!world?.runtime) return nextState?.runtime ? '当前世界未声明 runtime' : null;
+  if (!nextState?.runtime) return 'state.runtime 不能省略';
+  const expectedSchema = currentState?.runtime?.schema || world.runtime;
+  return canonicalJson(nextState.runtime.schema) === canonicalJson(expectedSchema) ? null : 'state.runtime.schema 必须与当前世界卡快照一致';
+}
+
+function validateRuntimeUiBindings(ui, runtime) {
+  const panels = Array.isArray(ui?.sidebar?.panels) ? ui.sidebar.panels : [];
+  const definitions = runtimeDefinitions(runtime);
+  for (const panel of panels) {
+    const match = /^runtime\.(variables|collections)\.([A-Za-z0-9][A-Za-z0-9_-]{0,63})$/.exec(String(panel?.source || ''));
+    if (!match) continue;
+    if (!definitions[match[1]].has(match[2])) return `ui.sidebar.panels.${panel.id}.source 未声明 ${match[1].slice(0, -1)} ${match[2]}`;
+    if (match[1] === 'variables' && definitions.variables.get(match[2])?.visible === false) return `ui.sidebar.panels.${panel.id}.source 不能展示隐藏变量 ${match[2]}`;
+  }
+  return null;
+}
+
 async function loadWorldDrafts() {
   const raw = await fs.promises.readFile(WORLD_DRAFTS_PATH, 'utf-8');
   const drafts = JSON.parse(raw);
@@ -319,6 +496,17 @@ function worldDraftFieldsValid(payload, requireRevision = false) {
   if (typeof payload.summary !== 'string' || payload.summary.length > 4000) return 'summary 不能超过 4000 个字符';
   if (!Array.isArray(payload.tags) || payload.tags.length > 64 || payload.tags.some(value => typeof value !== 'string' || !value.trim() || value.length > 120)) return 'tags 必须是最多 64 项的非空字符串数组';
   if (!Array.isArray(payload.lorebookIds) || payload.lorebookIds.length > 64 || payload.lorebookIds.some(value => typeof value !== 'string' || !isSafeId(value.trim()))) return 'lorebookIds 包含无效 ID';
+  if (payload.rpgPresetName !== undefined && (typeof payload.rpgPresetName !== 'string' || payload.rpgPresetName.length > 200)) return 'rpgPresetName 无效';
+  const agentInvalid = validateWorldAgentProfile(payload.agent);
+  if (agentInvalid) return agentInvalid;
+  const runtimeInvalid = validateWorldRuntime(payload.runtime);
+  if (runtimeInvalid) return runtimeInvalid;
+  const uiInvalid = validateWorldUi(payload.ui);
+  if (uiInvalid) return uiInvalid;
+  const runtimeUiInvalid = validateRuntimeUiBindings(payload.ui, payload.runtime);
+  if (runtimeUiInvalid) return runtimeUiInvalid;
+  const regexInvalid = validateWorldOutputRegexes(payload.regexes);
+  if (regexInvalid) return regexInvalid;
   const mapInvalid = validateWorldDraftMapGeneration(payload.mapGeneration);
   if (mapInvalid) return mapInvalid;
   const settingInvalid = validateWorldSetting(payload.setting);
@@ -369,7 +557,26 @@ function validateWorldAuthorRules(value) {
       return `rules.${bucket} 必须是最多 64 项的不超过 2000 个字符的非空字符串数组`;
     }
   }
-  return Object.keys(value).some(key => !['hard', 'soft'].includes(key)) ? 'rules 只允许 hard / soft 字段' : null;
+  if (value.checks !== undefined) {
+    if (!Array.isArray(value.checks) || value.checks.length > 128) return 'rules.checks 必须是最多 128 项的数组';
+    const ids = new Set();
+    for (const check of value.checks) {
+      if (typeof check === 'string') {
+        if (!isSafeId(check) || ids.has(check)) return 'rules.checks 含有重复或无效 ID';
+        ids.add(check);
+        continue;
+      }
+      if (!check || typeof check !== 'object' || Array.isArray(check)) return 'rules.checks 含有无效条目';
+      if (Object.keys(check).some(key => !['id', 'label', 'description', 'roll', 'target', 'modifier'].includes(key))) return 'rules.checks 含有未声明字段';
+      const id = typeof check.id === 'string' ? check.id.trim() : '';
+      if (!isSafeId(id) || ids.has(id)) return 'rules.checks 含有重复或无效 ID';
+      if (typeof check.label !== 'string' || !check.label.trim() || check.label.length > 200) return `rules.checks.${id}.label 无效`;
+      for (const key of ['description', 'roll']) if (check[key] !== undefined && (typeof check[key] !== 'string' || check[key].length > 1000)) return `rules.checks.${id}.${key} 无效`;
+      for (const key of ['target', 'modifier']) if (check[key] !== undefined && !validBoundedNumber(Number(check[key]), -1000000000, 1000000000)) return `rules.checks.${id}.${key} 无效`;
+      ids.add(id);
+    }
+  }
+  return Object.keys(value).some(key => !['hard', 'soft', 'checks'].includes(key)) ? 'rules 只允许 hard / soft / checks 字段' : null;
 }
 
 function validBoundedNumber(value, min, max, integer = false) {
@@ -975,6 +1182,117 @@ function validatePlayerPresetId(world, presetId) {
   if (!isSafeId(String(presetId))) return 'playerPresetId 无效';
   const presets = playerCreationSchema(world)?.buildPresets;
   if (!Array.isArray(presets) || !presets.some(preset => preset?.id === String(presetId))) return 'playerPresetId 不属于当前世界卡';
+  return null;
+}
+
+const WORLD_AGENT_TOOL_NAMES = new Set(['dice.roll', 'rules.check', 'state.patch', 'objective.upsert', 'entity.create', 'memory.record', 'context.retrieve']);
+function validateWorldAgentProfile(value) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'agent 必须是对象';
+  if (Object.keys(value).some(key => !['protocol', 'version', 'mode', 'maxSteps', 'tools'].includes(key))) return 'agent 含有未声明字段';
+  if (value.protocol !== undefined && (typeof value.protocol !== 'string' || value.protocol.length > 120)) return 'agent.protocol 无效';
+  if (value.version !== undefined && (!Number.isInteger(value.version) || value.version < 1 || value.version > 10)) return 'agent.version 无效';
+  if (value.mode !== undefined && !['native', 'tool-candidate', 'compat'].includes(value.mode)) return 'agent.mode 无效';
+  if (value.maxSteps !== undefined && (!Number.isInteger(value.maxSteps) || value.maxSteps < 1 || value.maxSteps > 8)) return 'agent.maxSteps 必须是 1-8 的整数';
+  if (value.tools === undefined) return null;
+  if (!value.tools || typeof value.tools !== 'object' || Array.isArray(value.tools) || Object.keys(value.tools).length > 16) return 'agent.tools 无效';
+  for (const [name, config] of Object.entries(value.tools)) {
+    if (!WORLD_AGENT_TOOL_NAMES.has(name)) return `agent.tools.${name} 不受支持`;
+    if (!config || typeof config !== 'object' || Array.isArray(config) || Object.hasOwn(config, 'handler')) return `agent.tools.${name} 无效`;
+    if (config.enabled !== undefined && typeof config.enabled !== 'boolean') return `agent.tools.${name}.enabled 无效`;
+    if (config.execution !== undefined && !['client', 'server', 'client-readonly'].includes(config.execution)) return `agent.tools.${name}.execution 无效`;
+    if (config.description !== undefined && (typeof config.description !== 'string' || config.description.length > 1000)) return `agent.tools.${name}.description 无效`;
+    if (config.parameters !== undefined) {
+      let serialized = '';
+      try { serialized = JSON.stringify(config.parameters); } catch { serialized = ''; }
+      if (!config.parameters || typeof config.parameters !== 'object' || Array.isArray(config.parameters) || serialized.length > 12000) return `agent.tools.${name}.parameters 无效`;
+      if (serialized.includes('"handler"')) return `agent.tools.${name}.parameters 不得包含 handler`;
+    }
+  }
+  return null;
+}
+
+const WORLD_UI_SOURCES = new Set([
+  'world.npcs', 'world.locations', 'save.npcStates', 'save.state.activeHooks', 'save.state.goals', 'save.state.leads',
+  'save.state.worldEvents', 'save.state.factionStates', 'save.state.player.attributes',
+  'save.state.player.skills', 'save.state.player.resources', 'save.state.player.traits',
+]);
+const WORLD_EXTENSION_PERMISSIONS = new Set(['read.public', 'read.save', 'write.runtime', 'tool.call']);
+function validateWorldExtension(value) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'ui.extension 必须是对象';
+  const allowed = new Set(['enabled', 'title', 'html', 'css', 'js', 'mvu', 'permissions', 'maxHeight', 'timeoutMs']);
+  if (Object.keys(value).some(key => !allowed.has(key))) return 'ui.extension 含有未声明字段';
+  if (value.enabled !== undefined && typeof value.enabled !== 'boolean') return 'ui.extension.enabled 无效';
+  for (const key of ['title', 'html', 'css', 'js']) {
+    if (value[key] !== undefined && (typeof value[key] !== 'string' || value[key].length > (key === 'title' ? 120 : 60000))) return `ui.extension.${key} 无效`;
+  }
+  const source = `${value.html || ''}\n${value.css || ''}\n${value.js || ''}`;
+  if (/javascript\s*:/i.test(source)) return 'ui.extension 不允许 javascript: URL';
+  if (value.mvu !== undefined && (!value.mvu || typeof value.mvu !== 'object' || Array.isArray(value.mvu) || runtimeJsonSize(value.mvu) > 12000)) return 'ui.extension.mvu 无效';
+  if (value.permissions !== undefined && (!Array.isArray(value.permissions) || value.permissions.length > 8 || value.permissions.some(item => !WORLD_EXTENSION_PERMISSIONS.has(item)))) return 'ui.extension.permissions 无效';
+  if (value.maxHeight !== undefined && (!Number.isInteger(value.maxHeight) || value.maxHeight < 180 || value.maxHeight > 800)) return 'ui.extension.maxHeight 必须是 180-800 的整数';
+  if (value.timeoutMs !== undefined && (!Number.isInteger(value.timeoutMs) || value.timeoutMs < 200 || value.timeoutMs > 5000)) return 'ui.extension.timeoutMs 必须是 200-5000 的整数';
+  return null;
+}
+function validateWorldUi(value) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'ui 必须是对象';
+  if (Object.keys(value).some(key => !['layout', 'sidebar', 'extension'].includes(key))) return 'ui 含有未声明字段';
+  if (value.layout !== undefined && (typeof value.layout !== 'string' || value.layout.length > 80)) return 'ui.layout 无效';
+  const extensionInvalid = validateWorldExtension(value.extension);
+  if (extensionInvalid) return extensionInvalid;
+  const sidebar = value.sidebar;
+  if (sidebar === undefined || sidebar === null) return null;
+  if (!sidebar || typeof sidebar !== 'object' || Array.isArray(sidebar) || Object.keys(sidebar).some(key => key !== 'panels')) return 'ui.sidebar 无效';
+  if (!Array.isArray(sidebar.panels) || sidebar.panels.length > 24) return 'ui.sidebar.panels 无效';
+  const ids = new Set();
+  for (const panel of sidebar.panels) {
+    const id = typeof panel?.id === 'string' ? panel.id.trim() : '';
+    if (!isSafeId(id) || ids.has(id)) return 'ui.sidebar.panels 含有重复或无效 ID';
+    if (typeof panel.title !== 'string' || !panel.title.trim() || panel.title.length > 120) return `ui.sidebar.panels.${id}.title 无效`;
+    if (panel.icon !== undefined && (typeof panel.icon !== 'string' || panel.icon.length > 12)) return `ui.sidebar.panels.${id}.icon 无效`;
+    if (panel.side !== undefined && !['left', 'right'].includes(panel.side)) return `ui.sidebar.panels.${id}.side 无效`;
+    if (panel.layout !== undefined && !['list', 'cards', 'table'].includes(panel.layout)) return `ui.sidebar.panels.${id}.layout 无效`;
+    if (!WORLD_UI_SOURCES.has(panel.source) && !/^runtime\.(variables|collections)\.[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(String(panel.source || ''))) return `ui.sidebar.panels.${id}.source 不受支持`;
+    if (panel.emptyText !== undefined && (typeof panel.emptyText !== 'string' || panel.emptyText.length > 240)) return `ui.sidebar.panels.${id}.emptyText 无效`;
+    if (panel.fields !== undefined) {
+      if (!Array.isArray(panel.fields) || panel.fields.length > 24) return `ui.sidebar.panels.${id}.fields 无效`;
+      for (const field of panel.fields) {
+        const key = typeof field === 'string' ? field : field?.key;
+        const label = typeof field === 'string' ? field : field?.label;
+        if (typeof key !== 'string' || !/^[A-Za-z0-9_.-]{1,64}$/.test(key) || (label !== undefined && (typeof label !== 'string' || label.length > 80))) return `ui.sidebar.panels.${id}.fields 无效`;
+      }
+    }
+    ids.add(id);
+  }
+  return null;
+}
+
+const WORLD_OUTPUT_REGEX_FLAGS = new Set('dgimsuvy'.split(''));
+function validateWorldOutputRegexes(value) {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value) || value.length > 64) return 'regexes 必须是最多 64 项的数组';
+  const ids = new Set();
+  for (const rule of value) {
+    if (!rule || typeof rule !== 'object' || Array.isArray(rule)) return 'regexes 含有无效条目';
+    const id = typeof rule.id === 'string' ? rule.id.trim() : '';
+    if (!isSafeId(id) || ids.has(id)) return 'regexes 含有重复或无效 ID';
+    if (typeof rule.name !== 'string' || !rule.name.trim() || rule.name.length > 200) return `regexes.${id}.name 无效`;
+    if (typeof rule.findRegex !== 'string' || !rule.findRegex.trim() || rule.findRegex.length > 2000) return `regexes.${id}.findRegex 无效`;
+    const literal = rule.findRegex.match(/^\/([\s\S]*)\/([a-z]*)$/i);
+    const pattern = literal ? literal[1] : rule.findRegex;
+    const flags = literal ? literal[2] : String(rule.flags || '');
+    if ([...flags].some(flag => !WORLD_OUTPUT_REGEX_FLAGS.has(flag)) || new Set(flags).size !== flags.length) return `regexes.${id}.flags 无效`;
+    try { new RegExp(pattern, [...new Set((flags + 'g').split(''))].join('')); }
+    catch { return `regexes.${id}.findRegex 不是有效正则`; }
+    if (rule.flags !== undefined && (typeof rule.flags !== 'string' || rule.flags.length > 16)) return `regexes.${id}.flags 无效`;
+    if (rule.replaceString !== undefined && (typeof rule.replaceString !== 'string' || rule.replaceString.length > 4000)) return `regexes.${id}.replaceString 无效`;
+    if (rule.trimStrings !== undefined && (!Array.isArray(rule.trimStrings) || rule.trimStrings.length > 32 || rule.trimStrings.some(item => typeof item !== 'string' || item.length > 200))) return `regexes.${id}.trimStrings 无效`;
+    if (rule.enabled !== undefined && typeof rule.enabled !== 'boolean') return `regexes.${id}.enabled 无效`;
+    if (rule.placement !== undefined && (!Array.isArray(rule.placement) || rule.placement.length > 8 || rule.placement.some(item => !['string', 'number'].includes(typeof item)))) return `regexes.${id}.placement 无效`;
+    ids.add(id);
+  }
   return null;
 }
 
@@ -1587,7 +1905,7 @@ function validateEventLedger(value) {
   if (value === undefined || value === null) return null;
   if (!Array.isArray(value) || value.length > EVENT_LEDGER_MAX) return `eventLedger 最多 ${EVENT_LEDGER_MAX} 项`;
   const ids = new Set();
-  const kinds = new Set(['opening', 'opening-candidate', 'setup', 'setup-plan', 'turn', 'growth', 'ending', 'world-version-upgrade', 'migration']);
+  const kinds = new Set(['opening', 'opening-candidate', 'setup', 'setup-plan', 'turn', 'growth', 'ending', 'world-version-upgrade', 'migration', 'runtime-extension']);
   for (const entry of value) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return 'eventLedger 含有无效记录';
     const id = typeof entry?.id === 'string' ? entry.id.trim() : '';
@@ -1598,7 +1916,7 @@ function validateEventLedger(value) {
     if (entry.revision !== undefined && (!Number.isInteger(entry.revision) || entry.revision !== entry.sourceRevision)) return `eventLedger.${id}.revision 无效`;
     if (entry.locationId !== undefined && entry.locationId !== null && !isSafeId(entry.locationId)) return `eventLedger.${id}.locationId 无效`;
     if (entry.time !== undefined && entry.time !== null && (!entry.time || typeof entry.time !== 'object' || Array.isArray(entry.time) || typeof entry.time.unit !== 'string' || !Number.isFinite(entry.time.value))) return `eventLedger.${id}.time 无效`;
-    for (const key of ['turnIds', 'worldEventIds', 'factionActionIds', 'deadlineIds']) {
+    for (const key of ['turnIds', 'worldEventIds', 'npcActionIds', 'factionActionIds', 'deadlineIds']) {
       if (entry[key] !== undefined && (!Array.isArray(entry[key]) || entry[key].length > 64 || entry[key].some(item => typeof item !== 'string' || item.length > 160))) return `eventLedger.${id}.${key} 无效`;
     }
     for (const key of ['growthApplicationId', 'migrationId', 'endingId']) {
@@ -1849,6 +2167,7 @@ function worldLineSummarySource(save) {
     factionStates: state.factionStates && typeof state.factionStates === 'object' && !Array.isArray(state.factionStates) ? state.factionStates : {},
     goals: Array.isArray(state.goals) ? state.goals : [],
     leads: Array.isArray(state.leads) ? state.leads : [],
+    activeHooks: Array.isArray(state.activeHooks) ? state.activeHooks : [],
     failure: state.failure || null,
     ending: state.ending || null,
     locationId: state.locationId ?? null,
@@ -1878,6 +2197,7 @@ function buildWorldLineSummary(save, world) {
       time: event.time ? cloneJson(event.time) : null,
       factionId: event.factionId || null,
       factionName: factionNames.get(event.factionId) || null,
+      npcId: event.npcId || null,
       revision: Number.isInteger(event.revision) ? event.revision : null,
     }));
   const visibleEventIds = new Set(events.map(event => event.eventId));
@@ -1935,10 +2255,10 @@ function buildWorldLineSummary(save, world) {
       growthApplicationId: entry.growthApplicationId || null,
       endingId: entry.endingId || null,
     })),
-    openObjectives: [...(Array.isArray(state.goals) ? state.goals : []), ...(Array.isArray(state.leads) ? state.leads : [])]
+    openObjectives: [...(Array.isArray(state.activeHooks) ? state.activeHooks : []), ...(Array.isArray(state.goals) ? state.goals : []), ...(Array.isArray(state.leads) ? state.leads : [])]
       .filter(item => item && item.status === 'active')
       .slice(0, WORLD_SUMMARY_EVENT_MAX)
-      .map(item => ({ id: item.id, title: item.title, description: item.desc || '', kind: state.goals?.includes(item) ? 'goal' : 'lead' })),
+      .map(item => ({ id: item.id, title: item.title, description: item.desc || item.description || '', kind: state.activeHooks?.includes(item) ? 'hook' : state.goals?.includes(item) ? 'goal' : 'lead' })),
   };
 }
 
@@ -2184,7 +2504,7 @@ function appendEventLedger(save, entry) {
     time: entry.time ? cloneJson(entry.time) : null,
     createdAt: entry.createdAt || Date.now(),
   };
-  for (const key of ['turnIds', 'worldEventIds', 'factionActionIds', 'deadlineIds', 'growthApplicationId', 'migrationId', 'endingId']) {
+  for (const key of ['turnIds', 'worldEventIds', 'npcActionIds', 'factionActionIds', 'deadlineIds', 'growthApplicationId', 'migrationId', 'endingId']) {
     if (entry[key] !== undefined) record[key] = cloneJson(entry[key]);
   }
   const invalid = validateEventLedger([record]);
@@ -2220,6 +2540,59 @@ function settleWorldEvents(world, current, nextState, commandId, revision) {
     });
   }
   return { events: [...existing, ...triggered].slice(-256), eventIds: triggered.map(event => event.eventId) };
+}
+
+function settleWorldNpcActions(world, current, nextState, npcStates, commandId, revision) {
+  const existing = Array.isArray(current?.state?.worldEvents) ? cloneJson(current.state.worldEvents) : [];
+  const eventIds = new Set(existing.map(event => event?.eventId).filter(Boolean));
+  const actionIds = [];
+  const time = nextState?.time;
+  const locationId = nextState?.locationId ?? null;
+  const turnNumber = committedTurnCount(current) + 1;
+  const triggered = [];
+  for (const npc of Array.isArray(world?.npcs) ? world.npcs : []) {
+    const state = npcStates?.[npc.id];
+    if (!state) continue;
+    for (const action of Array.isArray(npc.actions) ? npc.actions : []) {
+      const trigger = action.trigger || {};
+      if (trigger.at !== undefined && (!time || Number(time.value) < Number(trigger.at))) continue;
+      if (trigger.afterTurns !== undefined && turnNumber < Number(trigger.afterTurns)) continue;
+      if (trigger.locationId !== undefined && trigger.locationId !== state.locationId && trigger.locationId !== locationId) continue;
+      const eventId = `npc-${npc.id}-${action.id}`;
+      if (eventIds.has(eventId)) continue;
+      const changes = action.changes || {};
+      if (changes.locationId !== undefined) state.locationId = changes.locationId;
+      if (!Array.isArray(state.status)) state.status = [];
+      if (Array.isArray(changes.statusAdd)) state.status = [...new Set([...state.status, ...changes.statusAdd])].slice(-64);
+      if (Array.isArray(changes.statusRemove)) state.status = state.status.filter(value => !changes.statusRemove.includes(value));
+      if (!Array.isArray(state.knowledge)) state.knowledge = [];
+      if (Array.isArray(changes.knowledgeAdd)) state.knowledge = [...new Set([...state.knowledge, ...changes.knowledgeAdd])].slice(-128);
+      if (changes.relationDelta !== undefined) {
+        state.relation = state.relation && typeof state.relation === 'object' && !Array.isArray(state.relation) ? state.relation : {};
+        state.relation.player = Math.max(-100, Math.min(100, Number(state.relation.player || 0) + Number(changes.relationDelta)));
+      }
+      if (changes.activity !== undefined) state.lastActivity = String(changes.activity).trim();
+      state.lastActionId = action.id;
+      state.lastActionRevision = revision;
+      const event = {
+        eventId,
+        title: String(action.title || `${npc.name || npc.id} 行动`).trim(),
+        description: String(action.description || '').trim(),
+        consequences: [],
+        visibility: ['public', 'local', 'hidden'].includes(action.visibility) ? action.visibility : 'public',
+        locationId: changes.locationId ?? trigger.locationId ?? state.locationId ?? locationId,
+        npcId: npc.id,
+        actionId: action.id,
+        commandId,
+        revision,
+        time: time ? cloneJson(time) : null,
+      };
+      triggered.push(event);
+      eventIds.add(eventId);
+      actionIds.push(`${npc.id}:${action.id}`);
+    }
+  }
+  return { events: [...existing, ...triggered].slice(-256), eventIds: actionIds };
 }
 
 function settleWorldFactionActions(world, current, nextState, commandId, revision) {
@@ -2471,6 +2844,35 @@ function draftStringListValid(value, maxItems, maxLength) {
     && value.every(item => typeof item === 'string' && item.trim() && item.trim().length <= maxLength);
 }
 
+function validateNpcActionList(npcId, value, locationIds) {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value) || value.length > 64) return `NPC ${npcId} actions are invalid`;
+  const ids = new Set();
+  for (const action of value) {
+    const id = typeof action?.id === 'string' ? action.id.trim() : '';
+    if (!isSafeId(id) || ids.has(id) || !draftTextValid(action.title, 200, true) || !draftTextValid(action.description ?? '', 4000)) return `NPC ${npcId} actions contain an invalid item`;
+    const trigger = action.trigger;
+    if (!trigger || typeof trigger !== 'object' || Array.isArray(trigger)) return `NPC ${npcId} action ${id} trigger is invalid`;
+    const hasAt = trigger.at !== undefined;
+    const hasAfterTurns = trigger.afterTurns !== undefined;
+    const hasLocation = trigger.locationId !== undefined;
+    if (!hasAt && !hasAfterTurns && !hasLocation) return `NPC ${npcId} action ${id} trigger needs a condition`;
+    if (hasAt && !validBoundedNumber(trigger.at, 0, 1000000000)) return `NPC ${npcId} action ${id} trigger.at is invalid`;
+    if (hasAfterTurns && (!Number.isInteger(trigger.afterTurns) || trigger.afterTurns < 1 || trigger.afterTurns > 1000000)) return `NPC ${npcId} action ${id} trigger.afterTurns is invalid`;
+    if (hasLocation && (!isSafeId(trigger.locationId) || !locationIds.has(trigger.locationId))) return `NPC ${npcId} action ${id} trigger.locationId is invalid`;
+    if (action.visibility !== undefined && !['public', 'local', 'hidden'].includes(action.visibility)) return `NPC ${npcId} action ${id} visibility is invalid`;
+    if (action.once !== undefined && action.once !== true) return `NPC ${npcId} action ${id} once must be true`;
+    const changes = action.changes === undefined ? {} : action.changes;
+    if (!changes || typeof changes !== 'object' || Array.isArray(changes) || Object.keys(changes).some(key => !['locationId', 'statusAdd', 'statusRemove', 'relationDelta', 'knowledgeAdd', 'activity'].includes(key))) return `NPC ${npcId} action ${id} changes is invalid`;
+    if (changes.locationId !== undefined && (!isSafeId(changes.locationId) || !locationIds.has(changes.locationId))) return `NPC ${npcId} action ${id} changes.locationId is invalid`;
+    for (const key of ['statusAdd', 'statusRemove', 'knowledgeAdd']) if (changes[key] !== undefined && !draftStringListValid(changes[key], 16, 240)) return `NPC ${npcId} action ${id} changes.${key} is invalid`;
+    if (changes.relationDelta !== undefined && !validBoundedNumber(changes.relationDelta, -100, 100)) return `NPC ${npcId} action ${id} changes.relationDelta is invalid`;
+    if (changes.activity !== undefined && !draftTextValid(changes.activity, 2000)) return `NPC ${npcId} action ${id} changes.activity is invalid`;
+    ids.add(id);
+  }
+  return null;
+}
+
 function validateWorldDraftCollections(payload, sourceWorld) {
   const hasLocations = payload.locations !== undefined;
   const hasNpcs = payload.npcs !== undefined;
@@ -2514,6 +2916,8 @@ function validateWorldDraftCollections(payload, sourceWorld) {
     }
     if (npc.locationId !== undefined && npc.locationId !== null && (!isSafeId(npc.locationId) || !locationIds.has(npc.locationId))) return 'NPC locationId must point to a registered location';
     if (npc.homeLocationId !== undefined && npc.homeLocationId !== null && (!isSafeId(npc.homeLocationId) || !locationIds.has(npc.homeLocationId))) return 'NPC homeLocationId must point to a registered location';
+    const actionsInvalid = validateNpcActionList(id, npc.actions, locationIds);
+    if (actionsInvalid) return actionsInvalid;
     npcIds.add(id);
   }
   return null;
@@ -2537,6 +2941,7 @@ function normalizeDraftNpc(npc) {
   if (npc.homeLocationId !== undefined) next.homeLocationId = npc.homeLocationId === null ? null : npc.homeLocationId.trim();
   for (const key of ['publicFacts', 'publicGoals', 'desires', 'fears', 'goals']) if (Array.isArray(npc[key])) next[key] = normalizeDraftList(npc[key], 64, 1000);
   if (typeof npc.activity === 'string') next.activity = npc.activity.trim();
+  if (Array.isArray(npc.actions)) next.actions = cloneJson(npc.actions);
   if (Array.isArray(npc.secrets)) next.secrets = npc.secrets.map(secret => ({ id: secret.id.trim(), content: secret.content.trim() }));
   return next;
 }
@@ -2547,6 +2952,15 @@ function applyWorldDraftFields(world, payload) {
   next.summary = payload.summary;
   next.tags = [...new Set(payload.tags.map(value => value.trim()))];
   next.lorebookIds = [...new Set(payload.lorebookIds.map(value => value.trim()))];
+  if (payload.rpgPresetName !== undefined) {
+    const presetName = payload.rpgPresetName.trim();
+    if (presetName) next.rpgPresetName = presetName;
+    else delete next.rpgPresetName;
+  }
+  if (payload.agent !== undefined) next.agent = payload.agent === null ? null : cloneJson(payload.agent);
+  if (payload.ui !== undefined) next.ui = payload.ui === null ? null : cloneJson(payload.ui);
+  if (payload.regexes !== undefined) next.regexes = payload.regexes === null ? null : cloneJson(payload.regexes);
+  if (payload.runtime !== undefined) next.runtime = payload.runtime === null ? null : cloneJson(payload.runtime);
   if (payload.setting !== undefined) next.setting = payload.setting === null ? null : cloneJson(payload.setting);
   if (payload.rules !== undefined) next.rules = payload.rules === null ? null : cloneJson(payload.rules);
   if (payload.playerCreation !== undefined) next.playerCreation = cloneJson(payload.playerCreation);
@@ -2643,6 +3057,11 @@ function worldDraftPublicationReport(draft) {
     summary: world.summary,
     tags: world.tags,
     lorebookIds: world.lorebookIds,
+    rpgPresetName: world.rpgPresetName || '',
+    ...(world.agent !== undefined ? { agent: world.agent } : {}),
+    ...(world.ui !== undefined ? { ui: world.ui } : {}),
+    ...(world.regexes !== undefined ? { regexes: world.regexes } : {}),
+    ...(world.runtime !== undefined ? { runtime: world.runtime } : {}),
     ...(world.setting !== undefined ? { setting: world.setting } : {}),
     ...(world.rules !== undefined ? { rules: world.rules } : {}),
     ...(world.playerCreation !== undefined ? { playerCreation: world.playerCreation } : {}),
@@ -2664,6 +3083,7 @@ function worldDraftPublicationReport(draft) {
   add('references', 'world-draft-factions', validateWorldFactions(payload.factions, world));
   add('references', 'world-draft-conflicts', validateWorldConflictModifierBindings(world));
   add('references', 'world-draft-failure', validateWorldFailureResourceBindings(world));
+  add('references', 'world-draft-runtime', validateRuntimeUiBindings(world.ui, world.runtime));
 
   const start = world.start && typeof world.start === 'object' && !Array.isArray(world.start) ? world.start : {};
   const initial = start.initialState && typeof start.initialState === 'object' && !Array.isArray(start.initialState) ? start.initialState : {};
@@ -2677,6 +3097,7 @@ function worldDraftPublicationReport(draft) {
     goals: initial.goals === undefined ? [] : initial.goals,
     leads: initial.leads === undefined ? [] : initial.leads,
     worldEvents: [],
+    ...(world.runtime ? { runtime: materializeWorldRuntimeState(world.runtime) } : {}),
     ...(initial.player !== undefined ? { player: initial.player } : {}),
     ...(initial.conflicts !== undefined ? { conflicts: initial.conflicts } : {}),
     ...(initial.growthCandidates !== undefined ? { growthCandidates: initial.growthCandidates } : {}),
@@ -2918,6 +3339,29 @@ function reopenedSaveId(saveId, commandId) {
   return 'reopen-' + crypto.createHash('sha256').update(`${saveId}\0${commandId}`).digest('hex').slice(0, 32);
 }
 
+function copiedSaveId(saveId, commandId) {
+  return 'copy-' + crypto.createHash('sha256').update(`${saveId}\0${commandId}`).digest('hex').slice(0, 32);
+}
+
+function remapCopiedSaveValue(value, idMap, commandMap) {
+  if (Array.isArray(value)) return value.map(item => remapCopiedSaveValue(item, idMap, commandMap));
+  if (typeof value === 'string') return commandMap.get(value) || idMap.get(value) || value;
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, child]) => [
+    idMap.get(key) || commandMap.get(key) || key,
+    remapCopiedSaveValue(child, idMap, commandMap),
+  ]));
+}
+
+function collectCopiedCommandIds(value, result) {
+  if (Array.isArray(value)) return value.forEach(item => collectCopiedCommandIds(item, result));
+  if (!value || typeof value !== 'object') return;
+  for (const [key, child] of Object.entries(value)) {
+    if (key === 'commandId' && typeof child === 'string' && COMMAND_ID_RE.test(child)) result.add(child);
+    collectCopiedCommandIds(child, result);
+  }
+}
+
 function migratedSaveId(migrationId) {
   return 'migrated-' + migrationId;
 }
@@ -3083,6 +3527,7 @@ async function handleRpgMigrationCommit(req, res, migrationId) {
       const redactedPaths = [];
       const player = sanitizeWorldPackageValue({ name: rawCharacter.name || '未命名冒险者', race: rawCharacter.race || '待定', role: rawCharacter.role || '旅人', ...rawCharacter }, 'player', redactedPaths);
       const state = legacyState(envelope, world, report);
+      if (world.runtime) state.runtime = materializeWorldRuntimeState(world.runtime);
       if (playerGrowthSchema(world) && state.growthCandidates === undefined) state.growthCandidates = [];
       const save = {
         schemaVersion: 1, id: saveId, name: String(envelope.name || session.name || '迁移的旧 RPG 会话').trim().slice(0, 120) || '迁移的旧 RPG 会话',
@@ -3557,6 +4002,16 @@ function worldPackageImportReport(pkg) {
     if (rulesInvalid) errors.push(rulesInvalid);
     const playerCreationInvalid = validatePlayerCreationSchema(world.playerCreation, world);
     if (playerCreationInvalid) errors.push(playerCreationInvalid);
+    const agentInvalid = validateWorldAgentProfile(world.agent);
+    if (agentInvalid) errors.push(agentInvalid);
+    const runtimeInvalid = validateWorldRuntime(world.runtime);
+    if (runtimeInvalid) errors.push(runtimeInvalid);
+    const uiInvalid = validateWorldUi(world.ui);
+    if (uiInvalid) errors.push(uiInvalid);
+    const runtimeUiInvalid = validateRuntimeUiBindings(world.ui, world.runtime);
+    if (runtimeUiInvalid) errors.push(runtimeUiInvalid);
+    const regexInvalid = validateWorldOutputRegexes(world.regexes);
+    if (regexInvalid) errors.push(regexInvalid);
     const sessionSetupInvalid = validateSessionSetupSchema(world.sessionSetup);
     if (sessionSetupInvalid) errors.push(sessionSetupInvalid);
     const turnContractInvalid = validateTurnContract(world.turnContract);
@@ -3904,6 +4359,145 @@ async function handleWorldSaveGet(req, res, saveId) {
   }
 }
 
+async function handleWorldSaveRename(req, res, saveId) {
+  const fp = savePath(saveId);
+  if (!fp) return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json');
+  let payload;
+  try { payload = await readJsonBody(req, 16 * 1024); }
+  catch (err) {
+    const status = err.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400;
+    return send(res, status, JSON.stringify({ error: err.message }), 'application/json');
+  }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload) || typeof payload.name !== 'string') {
+    return send(res, 400, JSON.stringify({ error: '存档名称必须是字符串' }), 'application/json');
+  }
+  const name = payload.name.trim();
+  if (!name || name.length > 120) return send(res, 400, JSON.stringify({ error: '存档名称不能为空且不能超过 120 个字符' }), 'application/json');
+  return withWorldSaveLock(saveId, async () => {
+    try {
+      const save = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
+      if (!save || save.id !== saveId) throw new Error('存档文件 ID 不一致');
+      const next = { ...save, name, updatedAt: Date.now() };
+      await writeJsonAtomic(fp, next);
+      send(res, 200, JSON.stringify(next), 'application/json; charset=utf-8');
+    } catch (err) {
+      if (err.code === 'ENOENT') return send(res, 404, JSON.stringify({ error: '存档不存在' }), 'application/json');
+      console.error('[world-saves] 重命名失败:', err.message);
+      send(res, 500, JSON.stringify({ error: '存档重命名失败: ' + err.message }), 'application/json');
+    }
+  });
+}
+
+async function handleWorldSaveExport(req, res, saveId) {
+  const fp = savePath(saveId);
+  if (!fp) return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json');
+  try {
+    const save = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
+    if (!save || save.id !== saveId) throw new Error('存档文件 ID 不一致');
+    const redactedPaths = [];
+    const exportSource = cloneJson(save);
+    for (const key of ['settings', 'providers', 'user', 'worldSaves']) {
+      if (Object.hasOwn(exportSource, key)) {
+        redactedPaths.push(`save.${key}`);
+        delete exportSource[key];
+      }
+    }
+    const exportedSave = sanitizeWorldPackageValue(exportSource, 'save', redactedPaths);
+    const payload = {
+      spec: 'tavern_world_save',
+      specVersion: 1,
+      exportedAt: new Date().toISOString(),
+      manifest: {
+        saveId: save.id,
+        worldId: save.worldId,
+        worldVersion: Number(save.worldVersion || 1),
+        title: String(save.name || save.id),
+        privacy: { excludes: ['apiKeys', 'settings', 'otherSaves'], redactedPaths: [...new Set(redactedPaths)].sort() },
+      },
+      save: exportedSave,
+    };
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${save.id}.tavern-save.json"`,
+      'Cache-Control': 'no-store',
+    });
+    res.end(JSON.stringify(payload, null, 2));
+  } catch (err) {
+    if (err.code === 'ENOENT') return send(res, 404, JSON.stringify({ error: '存档不存在' }), 'application/json');
+    console.error('[world-saves] 导出失败:', err.message);
+    send(res, 500, JSON.stringify({ error: '存档导出失败: ' + err.message }), 'application/json');
+  }
+}
+
+async function handleWorldSaveCopy(req, res, saveId) {
+  const sourcePath = savePath(saveId);
+  if (!sourcePath) return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json');
+  let payload;
+  try { payload = await readJsonBody(req, 32 * 1024); }
+  catch (err) { return send(res, err.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400, JSON.stringify({ error: err.message }), 'application/json'); }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return send(res, 400, JSON.stringify({ error: '请求必须是 JSON 对象' }), 'application/json');
+  if (typeof payload.commandId !== 'string' || !COMMAND_ID_RE.test(payload.commandId)) return send(res, 400, JSON.stringify({ error: 'commandId 无效' }), 'application/json');
+  if (payload.name !== undefined && (typeof payload.name !== 'string' || payload.name.trim().length > 120)) return send(res, 400, JSON.stringify({ error: 'name 必须是不超过 120 个字符的字符串' }), 'application/json');
+  return withWorldSaveLock(saveId, async () => {
+    try {
+      const current = JSON.parse(await fs.promises.readFile(sourcePath, 'utf-8'));
+      if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
+      const nextId = copiedSaveId(saveId, payload.commandId);
+      const nextPath = savePath(nextId);
+      const existing = await fs.promises.readFile(nextPath, 'utf-8').then(JSON.parse).catch(err => {
+        if (err.code === 'ENOENT') return null;
+        throw err;
+      });
+      if (existing) {
+        if (existing.copyInfo?.sourceSaveId !== saveId || existing.copyInfo?.commandId !== payload.commandId) return send(res, 409, JSON.stringify({ error: '复制命令 ID 已被占用' }), 'application/json');
+        return send(res, 200, JSON.stringify({ save: existing, idempotent: true }), 'application/json; charset=utf-8');
+      }
+      const idMap = new Map();
+      const playerId = current.player?.characterId;
+      if (typeof playerId === 'string' && playerId.startsWith(`pc-${saveId}`)) idMap.set(playerId, `pc-${nextId}`);
+      const generatedEntities = current.generatedEntities && typeof current.generatedEntities === 'object' ? current.generatedEntities : {};
+      for (const bucket of Object.values(generatedEntities)) {
+        if (!bucket || typeof bucket !== 'object' || Array.isArray(bucket)) continue;
+        for (const id of Object.keys(bucket)) if (id.startsWith(`save:${saveId}:`)) idMap.set(id, id.replace(`save:${saveId}:`, `save:${nextId}:`));
+      }
+      const turns = Array.isArray(current.turns) ? current.turns : [];
+      turns.forEach((turn, index) => { if (typeof turn?.id === 'string' && turn.id) idMap.set(turn.id, `copy-${nextId}-turn-${index + 1}`); });
+      const memories = Array.isArray(current.eventMemory) ? current.eventMemory : [];
+      memories.forEach((memory, index) => { if (typeof memory?.id === 'string' && memory.id) idMap.set(memory.id, `copy-${nextId}-memory-${index + 1}`); });
+      const commands = new Set();
+      collectCopiedCommandIds(current.receipts, commands);
+      collectCopiedCommandIds(current.eventLedger, commands);
+      collectCopiedCommandIds(current.state?.worldEvents, commands);
+      collectCopiedCommandIds(current.generatedEntities, commands);
+      collectCopiedCommandIds(current.setup, commands);
+      collectCopiedCommandIds(current.worldLineSummary, commands);
+      if (typeof current.openingCommandId === 'string' && COMMAND_ID_RE.test(current.openingCommandId)) commands.add(current.openingCommandId);
+      const commandMap = new Map([...commands].map((id, index) => [id, `copy-${nextId}-cmd-${index + 1}`]));
+      const ledger = Array.isArray(current.eventLedger) ? current.eventLedger : [];
+      ledger.forEach(entry => {
+        if (typeof entry?.id === 'string' && Number.isInteger(entry.sourceRevision)) idMap.set(entry.id, ledgerEventId(nextId, entry.sourceRevision));
+      });
+      const next = remapCopiedSaveValue(cloneJson(current), idMap, commandMap);
+      const now = Date.now();
+      next.id = nextId;
+      next.name = payload.name?.trim() || `${current.name || '存档'} · 副本`;
+      next.createdAt = now;
+      next.updatedAt = now;
+      next.agentRuntime = { version: 1, status: 'idle', pending: null };
+      next.memoryRebuild = null;
+      next.reopenInfo = null;
+      next.copyInfo = { sourceSaveId: saveId, sourceRevision: current.revision, commandId: payload.commandId, copiedAt: now };
+      await fs.promises.mkdir(SAVES_DIR, { recursive: true });
+      await writeJsonAtomic(nextPath, next);
+      send(res, 201, JSON.stringify({ save: next, idempotent: false }), 'application/json; charset=utf-8');
+    } catch (err) {
+      if (err.code === 'ENOENT') return send(res, 404, JSON.stringify({ error: '存档不存在' }), 'application/json');
+      console.error('[world-saves] 复制失败:', err.message);
+      send(res, 500, JSON.stringify({ error: '存档复制失败: ' + err.message }), 'application/json');
+    }
+  });
+}
+
 async function handleWorldSaveDelete(req, res, saveId) {
   const fp = savePath(saveId);
   if (!fp) return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json');
@@ -4012,6 +4606,7 @@ async function handleWorldSaveUpgrade(req, res, saveId) {
       }
       const revision = current.revision + 1;
       const migratedAt = Date.now();
+      const targetRuntime = resolved.targetWorld.runtime ? migrateWorldRuntimeState(current.state?.runtime, resolved.targetWorld.runtime) : null;
       const migration = {
         kind: 'world-version-upgrade',
         commandId: payload.commandId,
@@ -4028,12 +4623,13 @@ async function handleWorldSaveUpgrade(req, res, saveId) {
         ...current,
         worldVersion: payload.targetVersion,
         npcStates,
-        state: { ...current.state, factionStates, ...(targetConflictState !== undefined ? { conflicts: cloneJson(targetConflictState) } : {}), ...(targetGrowthCandidates !== undefined ? { growthCandidates: cloneJson(targetGrowthCandidates) } : {}), ...(targetGrowthApplications !== undefined ? { growthApplications: cloneJson(targetGrowthApplications) } : {}), ...(targetExperiences !== undefined ? { experiences: cloneJson(targetExperiences) } : {}) },
+        state: { ...current.state, factionStates, ...(targetRuntime ? { runtime: targetRuntime } : {}), ...(targetConflictState !== undefined ? { conflicts: cloneJson(targetConflictState) } : {}), ...(targetGrowthCandidates !== undefined ? { growthCandidates: cloneJson(targetGrowthCandidates) } : {}), ...(targetGrowthApplications !== undefined ? { growthApplications: cloneJson(targetGrowthApplications) } : {}), ...(targetExperiences !== undefined ? { experiences: cloneJson(targetExperiences) } : {}) },
         migrationHistory: [...history, migration],
         eventLedger: appendEventLedger(current, { kind: 'world-version-upgrade', commandId: payload.commandId, sourceRevision: revision, locationId: current.state?.locationId ?? null, time: current.state?.time ?? null, migrationId: payload.commandId }),
         revision,
         updatedAt: migratedAt,
       };
+      if (!resolved.targetWorld.runtime) delete next.state.runtime;
       await writeJsonAtomic(fp, next);
       send(res, 200, JSON.stringify({ save: next, report: resolved.report, idempotent: false }), 'application/json; charset=utf-8');
     } catch (err) {
@@ -4235,6 +4831,8 @@ async function handleWorldSaveCreate(req, res) {
     const invalidObjectives = validateWorldObjectiveList(initial[key], label, world);
     if (invalidObjectives) return send(res, 400, JSON.stringify({ error: invalidObjectives }), 'application/json');
   }
+  const initialHooksInvalid = validateActiveHookList(initial.activeHooks, 'start.initialState.activeHooks');
+  if (initialHooksInvalid) return send(res, 400, JSON.stringify({ error: initialHooksInvalid }), 'application/json');
   const conflictStates = initial.conflicts === undefined ? {} : cloneJson(initial.conflicts);
   const conflictStateInvalid = validateConflictStates(world, conflictStates);
   if (conflictStateInvalid) return send(res, 400, JSON.stringify({ error: conflictStateInvalid }), 'application/json');
@@ -4252,6 +4850,9 @@ async function handleWorldSaveCreate(req, res) {
   const playerResult = validatePlayerCreationInput(world, payload.player);
   if (playerResult.error) return send(res, 400, JSON.stringify({ error: playerResult.error }), 'application/json');
   const player = playerResult.snapshot;
+  const runtimeInvalid = validateWorldRuntime(world.runtime);
+  if (runtimeInvalid) return send(res, 400, JSON.stringify({ error: runtimeInvalid }), 'application/json');
+  const runtimeState = world.runtime ? materializeWorldRuntimeState(world.runtime) : null;
   const playerId = String(start.playerTemplateId || ('pc-' + id));
   const playerState = playerResult.statePlayer || (initial.player && typeof initial.player === 'object' ? cloneJson(initial.player) : null);
   const economyState = materializePlayerEconomyState(world, initial, playerState);
@@ -4307,6 +4908,8 @@ async function handleWorldSaveCreate(req, res) {
       ...(playerGrowthSchema(world) || initial.growthApplications !== undefined ? { growthApplications } : {}),
       ...(playerGrowthSchema(world) || initial.experiences !== undefined ? { experiences } : {}),
       worldEvents: [],
+      activeHooks: Array.isArray(initial.activeHooks) ? cloneJson(initial.activeHooks) : [],
+      ...(runtimeState ? { runtime: runtimeState } : {}),
       goals: Array.isArray(initial.goals) ? cloneJson(initial.goals) : [],
       leads: Array.isArray(initial.leads) ? cloneJson(initial.leads) : [],
       inventory: Array.isArray(initial.inventory) ? cloneJson(initial.inventory) : [],
@@ -4361,6 +4964,8 @@ function validateWorldSavePatch(payload) {
   if (payload.opening !== undefined && typeof payload.opening !== 'string') return 'opening 必须是字符串';
   const state = payload.state;
   if (!Array.isArray(state.inventory) || !Array.isArray(state.quests)) return 'state.inventory/state.quests 必须是数组';
+  const runtimeInvalid = validateRuntimeState(state.runtime);
+  if (runtimeInvalid) return runtimeInvalid;
   if (state.locationId !== null && state.locationId !== undefined && (typeof state.locationId !== 'string' || state.locationId.length > 240)) return 'state.locationId 必须是 240 字符以内的字符串或 null';
   if (state.inventory.length > 256 || state.quests.length > 256) return '背包或任务最多各保存 256 项';
   if (state.stats !== undefined) {
@@ -4395,6 +5000,8 @@ function validateWorldSavePatch(payload) {
   if (state.experiences !== undefined && (!Array.isArray(state.experiences) || state.experiences.length > 256)) return 'state.experiences 无效';
   const worldEventsInvalid = validateWorldEventLog(state.worldEvents);
   if (worldEventsInvalid) return worldEventsInvalid;
+  const activeHooksInvalid = validateActiveHookList(state.activeHooks);
+  if (activeHooksInvalid) return activeHooksInvalid;
   for (const [key, label] of [['goals', 'state.goals'], ['leads', 'state.leads']]) {
     const invalidObjectives = validateWorldObjectiveList(state[key], label);
     if (invalidObjectives) return invalidObjectives;
@@ -4580,6 +5187,21 @@ function validateWorldOpeningPlan(plan, world) {
   return null;
 }
 
+function validateActiveHookList(value, label = 'state.activeHooks') {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value) || value.length > 128) return `${label} 最多 128 项`;
+  const ids = new Set();
+  for (const hook of value) {
+    const id = typeof hook?.id === 'string' ? hook.id.trim() : '';
+    if (!isSafeId(id) || ids.has(id) || !draftTextValid(hook.title, 240, true) || !draftTextValid(hook.description ?? hook.desc ?? '', 4000)) return `${label} 含有重复或无效条目`;
+    if (hook.status !== undefined && !['active', 'open', 'done', 'failed', 'paused'].includes(hook.status)) return `${label}.${id}.status 无效`;
+    if (hook.optional !== undefined && typeof hook.optional !== 'boolean') return `${label}.${id}.optional 无效`;
+    if (hook.source !== undefined && (typeof hook.source !== 'string' || hook.source.length > 120)) return `${label}.${id}.source 无效`;
+    ids.add(id);
+  }
+  return null;
+}
+
 const SESSION_SETUP_FIELD_TYPES = new Set(['text', 'textarea', 'select', 'number', 'boolean']);
 
 function validateSessionSetupSchema(schema) {
@@ -4757,7 +5379,7 @@ function initializeWorldStateFromOpeningPlan(current, world, plan) {
     hidden: Array.isArray(knowledge.hidden) ? knowledge.hidden : facts.filter(fact => fact.scope === 'hidden').map(fact => fact.content),
     rumors: Array.isArray(knowledge.rumors) ? knowledge.rumors : facts.filter(fact => fact.scope === 'rumor').map(fact => fact.content),
   };
-  state.activeHooks = plan?.initialHook?.title ? [{ id: plan.initialHook.id || 'initial-hook', title: plan.initialHook.title, description: plan.initialHook.description || '', optional: plan.initialHook.optional !== false, status: 'open', source: 'opening' }] : [];
+  state.activeHooks = plan?.initialHook?.title ? [{ id: plan.initialHook.id || 'initial-hook', title: plan.initialHook.title, description: plan.initialHook.description || '', optional: plan.initialHook.optional !== false, status: 'active', source: 'opening' }] : [];
   return { state, npcStates };
 }
 
@@ -5011,6 +5633,9 @@ async function handleWorldSavePut(req, res, saveId) {
       const current = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
       if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
       const world = findWorldVersion(await loadWorlds(), current.worldId, current.worldVersion);
+      if (world?.runtime) runtimeStateEnsure(payload.state, world);
+      const runtimeBindingError = runtimeBindingInvalid(world, current.state, payload.state);
+      if (runtimeBindingError) return send(res, 400, JSON.stringify({ error: runtimeBindingError }), 'application/json');
       if (!failureStateMatches(current.state, payload.state)) return send(res, 400, JSON.stringify({ error: 'state.failure 由服务端失败结算，客户端不能直接修改' }), 'application/json');
       if (!endingStateMatches(current.state, payload.state)) return send(res, 400, JSON.stringify({ error: 'state.ending 由服务端结局结算，客户端不能直接修改' }), 'application/json');
       if (current.state?.ending?.status === 'ended') return send(res, 409, JSON.stringify({ error: '当前世界线已经结束，不能继续修改存档' }), 'application/json');
@@ -5020,6 +5645,8 @@ async function handleWorldSavePut(req, res, saveId) {
         const invalidObjectives = validateWorldObjectiveList(payload.state[key], label, world);
         if (invalidObjectives) return send(res, 400, JSON.stringify({ error: invalidObjectives }), 'application/json');
       }
+      const activeHooksInvalid = validateActiveHookList(payload.state.activeHooks);
+      if (activeHooksInvalid) return send(res, 400, JSON.stringify({ error: activeHooksInvalid }), 'application/json');
       if (current.state?.factionStates && payload.state.factionStates === undefined) return send(res, 400, JSON.stringify({ error: 'state.factionStates 不能省略' }), 'application/json');
       const factionStatePayload = payload.state.factionStates === undefined && worldFactionDefinitions(world).length
         ? materializeFactionStates(world, current.state?.factionStates)
@@ -5074,17 +5701,91 @@ async function handleWorldSavePut(req, res, saveId) {
   });
 }
 
+async function handleWorldRuntimePost(req, res, saveId) {
+  const fp = savePath(saveId);
+  if (!fp) return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json');
+  let payload;
+  try { payload = await readJsonBody(req, 128 * 1024); }
+  catch (err) { return send(res, err.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400, JSON.stringify({ error: err.message }), 'application/json'); }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)
+    || Object.keys(payload).some(key => !['commandId', 'expectedRevision', 'updates'].includes(key))
+    || typeof payload.commandId !== 'string' || !COMMAND_ID_RE.test(payload.commandId)
+    || !Number.isSafeInteger(payload.expectedRevision) || payload.expectedRevision < 0
+    || !Array.isArray(payload.updates) || payload.updates.length < 1 || payload.updates.length > 16) {
+    return send(res, 400, JSON.stringify({ error: 'commandId、expectedRevision 或 updates 无效' }), 'application/json');
+  }
+  const patch = { protocol: RPG_PATCH_PROTOCOL, version: RPG_PATCH_VERSION, baseRevision: payload.expectedRevision, updates: payload.updates };
+  const invalidPatch = validateRpgPatch(patch);
+  if (invalidPatch) return send(res, 400, JSON.stringify({ error: invalidPatch }), 'application/json');
+  if (patch.updates.some(update => !String(update.type || '').startsWith('runtime.'))) return send(res, 400, JSON.stringify({ error: '扩展只允许 runtime.* 更新' }), 'application/json');
+  return withWorldSaveLock(saveId, async () => {
+    try {
+      const current = JSON.parse(await fs.promises.readFile(fp, 'utf-8'));
+      if (!current || current.id !== saveId) throw new Error('存档文件 ID 不一致');
+      if (committedCommand(current, payload.commandId)) return send(res, 200, JSON.stringify(current), 'application/json; charset=utf-8');
+      if (current.setup?.status === 'planning') return send(res, 409, JSON.stringify({ error: '请先完成开局规划，再使用世界扩展' }), 'application/json');
+      if (current.state?.ending?.status === 'ended' || current.state?.failure?.status === 'terminal') return send(res, 409, JSON.stringify({ error: '当前世界线已结束，不能使用世界扩展' }), 'application/json');
+      if (current.revision !== payload.expectedRevision) return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
+      const world = findWorldVersion(await loadWorlds(), current.worldId, current.worldVersion);
+      const extension = world?.ui?.extension;
+      if (!extension || extension.enabled === false || !Array.isArray(extension.permissions) || !extension.permissions.includes('write.runtime')) {
+        return send(res, 403, JSON.stringify({ error: '当前世界扩展未声明 write.runtime 权限' }), 'application/json');
+      }
+      const patched = applyRpgPatch(world, current.state, patch);
+      if (patched.error) return send(res, 400, JSON.stringify({ error: patched.error }), 'application/json');
+      const runtimeBindingError = runtimeBindingInvalid(world, current.state, patched.state);
+      if (runtimeBindingError) return send(res, 400, JSON.stringify({ error: runtimeBindingError }), 'application/json');
+      const runtimeInvalid = validateRuntimeState(patched.state.runtime);
+      if (runtimeInvalid) return send(res, 400, JSON.stringify({ error: runtimeInvalid }), 'application/json');
+      const revision = current.revision + 1;
+      const next = {
+        ...current,
+        state: patched.state,
+        receipts: [...(Array.isArray(current.receipts) ? current.receipts : []), {
+          commandId: payload.commandId,
+          kind: 'runtime-extension',
+          revision,
+          patch: { protocol: patch.protocol, version: patch.version, updateCount: patch.updates.length },
+          committedAt: Date.now(),
+        }].slice(-200),
+        eventLedger: appendEventLedger(current, {
+          kind: 'runtime-extension',
+          commandId: payload.commandId,
+          sourceRevision: revision,
+          locationId: patched.state.locationId ?? null,
+          time: patched.state.time ?? null,
+        }),
+        revision,
+        updatedAt: Date.now(),
+      };
+      await writeJsonAtomic(fp, next);
+      send(res, 200, JSON.stringify(next), 'application/json; charset=utf-8');
+    } catch (err) {
+      if (err.code === 'ENOENT') return send(res, 404, JSON.stringify({ error: '存档不存在' }), 'application/json');
+      console.error('[world-saves] 扩展运行时提交失败:', err.message);
+      send(res, 500, JSON.stringify({ error: '扩展运行时提交失败: ' + err.message }), 'application/json');
+    }
+  });
+}
+
 const RPG_PATCH_PROTOCOL = 'tavern.rpg.turn';
 const RPG_PATCH_VERSION = 1;
 const RPG_PATCH_MAX_UPDATES = 32;
 const RPG_PATCH_TYPES = new Set([
   'player.resource.delta', 'player.attribute.delta', 'player.skill.delta',
   'currency.delta', 'inventory.delta', 'location.set', 'effect.add', 'effect.remove',
-  'objective.status',
+  'objective.status', 'objective.upsert', 'runtime.variable.set', 'runtime.variable.delta',
+  'runtime.collection.add', 'runtime.collection.remove', 'runtime.action.execute',
 ]);
-const RPG_AGENT_TOOL_NAMES = new Set(['dice.roll', 'rules.check', 'state.patch', 'entity.create', 'memory.record']);
+const RPG_AGENT_TOOL_NAMES = new Set(['dice.roll', 'rules.check', 'state.patch', 'objective.upsert', 'entity.create', 'memory.record']);
 const RPG_AGENT_CALL_ID_RE = /^[A-Za-z0-9_-]{1,80}$/;
 const RPG_AGENT_CALL_MAX = 16;
+const AGENT_PHASE_ORDER = Object.freeze({ observe: 0, decide: 1, guard: 2 });
+function agentToolExpectedPhase(name) {
+  if (name === 'context.retrieve') return 'observe';
+  if (name === 'rules.check' || name === 'dice.roll') return 'guard';
+  return 'decide';
+}
 
 function normalizeRpgPatch(patch) {
   if (!patch || typeof patch !== 'object' || !Array.isArray(patch.updates)) return patch;
@@ -5113,16 +5814,38 @@ function validateRpgPatch(patch) {
     const allowedKeys = update.type === 'inventory.delta' ? ['type', 'itemId', 'delta', 'name', 'desc', 'weight']
       : update.type === 'location.set' ? ['type', 'locationId']
         : update.type === 'effect.add' || update.type === 'effect.remove' ? ['type', 'value']
-          : update.type === 'objective.status' ? ['type', 'kind', 'id', 'status'] : ['type', 'id', 'delta'];
+          : update.type === 'objective.upsert' ? ['type', 'kind', 'id', 'title', 'desc', 'status', 'actorId', 'locationId', 'deadline', 'tags']
+          : update.type === 'objective.status' ? ['type', 'kind', 'id', 'status']
+            : update.type === 'runtime.variable.set' ? ['type', 'id', 'value']
+              : update.type === 'runtime.variable.delta' ? ['type', 'id', 'delta']
+                : update.type === 'runtime.collection.add' ? ['type', 'collectionId', 'value']
+                  : update.type === 'runtime.collection.remove' ? ['type', 'collectionId', 'entryId']
+                    : update.type === 'runtime.action.execute' ? ['type', 'actionId', 'input'] : ['type', 'id', 'delta'];
     if (Object.keys(update).some(key => !allowedKeys.includes(key))) return `patch.${update.type} 含有未声明字段`;
-    if (update.type.endsWith('.delta')) {
+    if (update.type === 'runtime.variable.set') {
+      if (!isSafeId(String(update.id || '')) || update.value === undefined || runtimeJsonSize(update.value) > 12000) return 'patch.runtime.variable.set 的 id/value 无效';
+    } else if (update.type === 'runtime.variable.delta') {
+      if (!isSafeId(String(update.id || '')) || !validBoundedNumber(update.delta, -1000000000, 1000000000)) return 'patch.runtime.variable.delta 的 id/delta 无效';
+    } else if (update.type === 'runtime.collection.add') {
+      if (!isSafeId(String(update.collectionId || '')) || !update.value || typeof update.value !== 'object' || Array.isArray(update.value) || !isSafeId(String(update.value.id || '')) || runtimeJsonSize(update.value) > 4000) return 'patch.runtime.collection.add 参数无效';
+    } else if (update.type === 'runtime.collection.remove') {
+      if (!isSafeId(String(update.collectionId || '')) || !isSafeId(String(update.entryId || ''))) return 'patch.runtime.collection.remove 参数无效';
+    } else if (update.type === 'runtime.action.execute') {
+      if (!isSafeId(String(update.actionId || '')) || (update.input !== undefined && (!update.input || typeof update.input !== 'object' || Array.isArray(update.input) || runtimeJsonSize(update.input) > 4000))) return 'patch.runtime.action.execute 参数无效';
+    } else if (update.type.endsWith('.delta')) {
       if (!isSafeId(String(update.id ?? update.itemId ?? '')) || !validBoundedNumber(update.delta, -1000000000, 1000000000)) return `patch.${update.type} 的 id/delta 无效`;
     } else if (update.type === 'location.set') {
       if (!isSafeId(String(update.locationId ?? ''))) return 'patch.location.set.locationId 无效';
     } else if (update.type === 'effect.add' || update.type === 'effect.remove') {
       if (typeof update.value !== 'string' || !update.value.trim() || update.value.length > 240) return `patch.${update.type}.value 无效`;
     } else if (update.type === 'objective.status') {
-      if (!isSafeId(String(update.id ?? '')) || !['goals', 'leads', 'quests'].includes(update.kind) || !['active', 'done', 'failed', 'paused'].includes(update.status)) return 'patch.objective.status 参数无效';
+      if (!isSafeId(String(update.id ?? '')) || !['goals', 'leads', 'quests', 'hooks'].includes(update.kind) || !['active', 'done', 'failed', 'paused'].includes(update.status)) return 'patch.objective.status 参数无效';
+    } else if (update.type === 'objective.upsert') {
+      if (!isSafeId(String(update.id ?? '')) || !['goals', 'leads'].includes(update.kind) || !draftTextValid(update.title, 240, true) || !draftTextValid(update.desc ?? '', 4000)) return 'patch.objective.upsert 参数无效';
+      if (update.status !== undefined && !['active', 'done', 'failed', 'paused'].includes(update.status)) return 'patch.objective.upsert.status 无效';
+      for (const key of ['actorId', 'locationId']) if (update[key] !== undefined && update[key] !== null && !isSafeId(update[key])) return `patch.objective.upsert.${key} 无效`;
+      if (update.deadline !== undefined && (!update.deadline || typeof update.deadline !== 'object' || Array.isArray(update.deadline) || typeof update.deadline.unit !== 'string' || !update.deadline.unit.trim() || update.deadline.unit.length > 40 || !Number.isFinite(update.deadline.value) || update.deadline.value < 0 || update.deadline.value > 1000000000)) return 'patch.objective.upsert.deadline 无效';
+      if (update.tags !== undefined && !draftStringListValid(update.tags, 32, 120)) return 'patch.objective.upsert.tags 无效';
     }
     if (update.type === 'inventory.delta') {
       if (!Number.isInteger(update.delta) || update.delta === 0) return 'patch.inventory.delta 必须是非零整数';
@@ -5134,6 +5857,15 @@ function validateRpgPatch(patch) {
   return null;
 }
 
+function buildAgentPhaseSequence(payload) {
+  const trace = Array.isArray(payload?.agentToolTrace) ? payload.agentToolTrace : [];
+  const phases = [];
+  const add = phase => { if (phase && !phases.includes(phase)) phases.push(phase); };
+  trace.forEach(item => add(item.phase || agentToolExpectedPhase(item.name)));
+  if (payload?.agentPhase === 'execute') add('execute');
+  if (payload?.agentPhase === 'narrate') { add('execute'); add('narrate'); }
+  return phases;
+}
 function buildAgentTurnEvidence(payload, outcome = {}) {
   const commandId = String(payload?.commandId || 'turn');
   const tools = [];
@@ -5145,13 +5877,23 @@ function buildAgentTurnEvidence(payload, outcome = {}) {
   if (Array.isArray(payload?.createEntities) && payload.createEntities.length) addTool('entity.create', 'committed', { count: payload.createEntities.length });
   if (Array.isArray(payload?.eventMemory) && payload.eventMemory.length) addTool('memory.record', 'committed', { count: payload.eventMemory.length });
   if (outcome.combatChecks?.length || outcome.conflictChecks?.length) addTool('rules.resolve', 'committed', { combatChecks: outcome.combatChecks?.length || 0, conflictChecks: outcome.conflictChecks?.length || 0 });
+  if (outcome.npcActionIds?.length) addTool('world.npc_actions', 'committed', { count: outcome.npcActionIds.length });
   addTool('world.advance', 'committed');
+  const trace = Array.isArray(payload?.agentToolTrace) ? payload.agentToolTrace : [];
+  const phaseSequence = buildAgentPhaseSequence(payload);
   return {
     protocol: 'tavern.rpg.agent',
     version: 1,
     mode: payload?.agentPhase ? `agent-${payload.agentPhase}` : (payload?.patch ? 'compatibility-v1' : 'legacy-state'),
     phase: payload?.agentPhase || 'commit',
+    phaseSequence,
+    phaseHistory: phaseSequence.map((phase, index) => ({ phase, status: 'completed', order: index + 1 })),
+    orchestration: buildAgentOrchestration(payload),
     proposedTools: Array.isArray(payload?.agentCalls) ? payload.agentCalls.map(call => ({ callId: call.callId, name: call.name, status: 'observed' })) : [],
+    guard: {
+      status: trace.length ? (trace.every(item => item.result?.ok === true) ? 'passed' : 'rejected') : 'not-run',
+      checks: trace.map(item => ({ callId: item.callId, name: item.name, phase: item.phase || null, status: item.result?.ok === true ? 'passed' : 'rejected', ...(item.result?.error ? { error: String(item.result.error).slice(0, 240) } : {}) })),
+    },
     steps: [{ id: `${commandId}:step-1`, status: 'committed', toolCalls: tools }],
   };
 }
@@ -5186,29 +5928,197 @@ function validateAgentExecutionPayload(payload) {
   if (invalidEventMemory) return invalidEventMemory;
   const invalidAgentCalls = validateRpgAgentCalls(payload.agentCalls);
   if (invalidAgentCalls) return invalidAgentCalls;
+  const invalidAgentTrace = validateRpgAgentToolTrace(payload.agentToolTrace);
+  if (invalidAgentTrace) return invalidAgentTrace;
+  const invalidAgentPhase = validateAgentPhaseContract(payload.agentToolTrace);
+  if (invalidAgentPhase) return invalidAgentPhase;
+  const invalidAgentBinding = validateAgentCandidateBinding(payload.agentToolTrace, payload.agentCalls);
+  if (invalidAgentBinding) return invalidAgentBinding;
+  if (payload.turns !== undefined) {
+    const invalidTurns = validateAgentNarrationTurns(payload.turns);
+    if (invalidTurns) return invalidTurns;
+  }
+  if (payload.options !== undefined) {
+    const invalidOptions = validateAgentNarrationOptions(payload.options);
+    if (invalidOptions) return invalidOptions;
+  }
   const invalidActionIntent = validateActionIntent(payload.actionIntent);
   if (invalidActionIntent) return invalidActionIntent;
   return null;
 }
 
+function validateAgentNarrationTurns(turns) {
+  if (!Array.isArray(turns) || turns.length > 32 || !turns.some(turn => turn?.role === 'assistant')) return 'Agent 待叙事 turns 必须包含 assistant 消息';
+  for (const turn of turns) {
+    if (!turn || typeof turn !== 'object' || !['user', 'assistant', 'system'].includes(turn.role)) return 'Agent 待叙事消息 role 无效';
+    if (typeof turn.content !== 'string' || turn.content.length > 100000) return 'Agent 待叙事消息 content 无效';
+  }
+  return null;
+}
+function validateRpgAgentToolTrace(trace) {
+  if (trace === undefined || trace === null) return null;
+  if (!Array.isArray(trace) || trace.length > RPG_AGENT_CALL_MAX) return `agentToolTrace 必须是最多 ${RPG_AGENT_CALL_MAX} 项的数组`;
+  const ids = new Set();
+  for (const item of trace) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return 'agentToolTrace 项必须是对象';
+    if (Object.keys(item).some(key => !['callId', 'name', 'phase', 'result', 'step', 'mode'].includes(key))) return 'agentToolTrace 含有未声明字段';
+    if (typeof item.callId !== 'string' || !RPG_AGENT_CALL_ID_RE.test(item.callId) || ids.has(item.callId)) return 'agentToolTrace.callId 无效或重复';
+    if (typeof item.name !== 'string' || !WORLD_AGENT_TOOL_NAMES.has(item.name)) return 'agentToolTrace.name 不受支持';
+    if (item.phase !== undefined && !['observe', 'decide', 'guard'].includes(item.phase)) return 'agentToolTrace.phase 无效';
+    if (!item.result || typeof item.result !== 'object' || Array.isArray(item.result)) return 'agentToolTrace.result 无效';
+    let serialized;
+    try { serialized = JSON.stringify(item.result); } catch { return 'agentToolTrace.result 不是可序列化 JSON'; }
+    if (serialized.length > 12000) return 'agentToolTrace.result 过大';
+    if (item.step !== undefined && (!Number.isInteger(item.step) || item.step < 1 || item.step > 8)) return 'agentToolTrace.step 无效';
+    if (item.mode !== undefined && !['native', 'compat'].includes(item.mode)) return 'agentToolTrace.mode 无效';
+    ids.add(item.callId);
+  }
+  return null;
+}
+function validateAgentPhaseContract(trace) {
+  if (trace === undefined || trace === null) return null;
+  let lastOrder = -1;
+  let guardApproved = false;
+  for (const item of trace) {
+    const expected = agentToolExpectedPhase(item.name);
+    const phase = item.phase || expected;
+    if (phase !== expected) return `agentToolTrace.${item.name} 必须位于 ${expected} 阶段`;
+    const order = AGENT_PHASE_ORDER[phase];
+    if (order < lastOrder) return 'agentToolTrace 阶段顺序必须是 observe → decide → guard';
+    lastOrder = order;
+    if (item.name === 'rules.check' && item.result?.ok === true) guardApproved = true;
+    if (item.name === 'dice.roll' && item.result?.ok === true && !guardApproved) return '成功的 dice.roll 必须先通过 rules.check';
+  }
+  return null;
+}
+function validateAgentCandidateBinding(trace, calls) {
+  if (!Array.isArray(trace) || !Array.isArray(calls) || !calls.length) return null;
+  const candidates = new Map(calls.map(call => [call.callId, call]));
+  for (const item of trace) {
+    if (item.name === 'context.retrieve') continue;
+    const candidate = candidates.get(item.callId);
+    if (!candidate) return `agentToolTrace.${item.callId} 未在 agentCalls 中声明`;
+    if (candidate.name !== item.name) return `agentToolTrace.${item.callId} 工具名与 agentCalls 不一致`;
+  }
+  return null;
+}
+function buildAgentOrchestration(payload) {
+  const calls = Array.isArray(payload?.agentCalls) ? payload.agentCalls : [];
+  const trace = Array.isArray(payload?.agentToolTrace) ? payload.agentToolTrace : [];
+  const results = trace.map(item => ({
+    callId: item.callId,
+    name: item.name,
+    phase: item.phase || agentToolExpectedPhase(item.name),
+    status: item.result?.ok === true ? 'passed' : 'rejected',
+  }));
+  const resultById = new Map(results.map(result => [result.callId, result]));
+  const candidates = calls.map(call => ({ callId: call.callId, name: call.name, phase: agentToolExpectedPhase(call.name), status: resultById.get(call.callId)?.status || 'proposed' }));
+  const plan = calls.filter(call => call.name === 'objective.upsert').map(call => ({
+    callId: call.callId,
+    kind: call.arguments?.kind || null,
+    id: call.arguments?.id || null,
+    title: String(call.arguments?.title || '').slice(0, 240),
+    desc: String(call.arguments?.desc || '').slice(0, 4000),
+    status: resultById.get(call.callId)?.status || 'proposed',
+  }));
+  return {
+    version: 1,
+    phaseSequence: buildAgentPhaseSequence(payload),
+    plan,
+    candidates,
+    results,
+    counts: {
+      candidates: candidates.length,
+      observed: results.filter(item => item.name === 'context.retrieve').length,
+      passed: results.filter(item => item.status === 'passed').length,
+      rejected: results.filter(item => item.status === 'rejected').length,
+    },
+  };
+}
+function validateAgentNarrationOptions(options) {
+  if (!Array.isArray(options) || options.length > 32 || options.some(option => typeof option !== 'string' || !option.trim())) return 'Agent 待叙事 options 必须是非空字符串数组';
+  if (new Set(options.map(option => option.trim())).size !== options.length) return 'Agent 待叙事 options 不能重复';
+  return null;
+}
 function validateAgentNarrationPayload(payload) {
   if (payload?.patch !== undefined) return 'narrate 阶段不能提交 patch';
   if (typeof payload?.commandId !== 'string' || !COMMAND_ID_RE.test(payload.commandId)) return 'commandId 无效';
   if (!Number.isSafeInteger(payload?.expectedRevision) || payload.expectedRevision < 0) return 'expectedRevision 无效';
   if (typeof payload?.pendingCommandId !== 'string' || !COMMAND_ID_RE.test(payload.pendingCommandId)) return 'pendingCommandId 无效';
-  if (!Array.isArray(payload.turns) || payload.turns.length > 32 || !payload.turns.some(turn => turn?.role === 'assistant')) return 'narrate 阶段必须包含 assistant 消息';
-  for (const turn of payload.turns) {
-    if (!turn || typeof turn !== 'object' || !['user', 'assistant', 'system'].includes(turn.role)) return '回合消息 role 无效';
-    if (typeof turn.content !== 'string' || turn.content.length > 100000) return '回合消息 content 无效';
-  }
+  const invalidTurns = validateAgentNarrationTurns(payload.turns);
+  if (invalidTurns) return invalidTurns.replace(/^Agent 待叙事 /, 'narrate ');
   const options = payload.options == null ? [] : payload.options;
-  if (!Array.isArray(options) || options.length > 32 || options.some(o => typeof o !== 'string' || !o.trim())) return 'options 必须是非空字符串数组';
-  if (new Set(options.map(o => o.trim())).size !== options.length) return 'options 不能重复';
-  return null;
+  const invalidOptions = validateAgentNarrationOptions(options);
+  return invalidOptions ? invalidOptions.replace(/^Agent 待叙事 /, '') : null;
+}
+
+function runtimeStateEnsure(state, world) {
+  if (!state.runtime && world?.runtime) state.runtime = materializeWorldRuntimeState(world.runtime);
+  return state.runtime;
+}
+
+function applyRuntimeUpdate(state, world, update) {
+  const runtime = runtimeStateEnsure(state, world);
+  if (!runtime) return `patch.${update.type} 当前世界未声明 runtime`;
+  const schema = runtime.schema || world?.runtime;
+  const definitions = runtimeDefinitions(schema);
+  if (update.type === 'runtime.action.execute') {
+    const action = definitions.actions.get(update.actionId);
+    if (!action) return `patch.runtime.action.execute 未声明动作 ${update.actionId}`;
+    const input = update.input && typeof update.input === 'object' && !Array.isArray(update.input) ? update.input : {};
+    const inputs = Array.isArray(action.inputs) ? action.inputs : [];
+    for (const field of inputs) {
+      if (field.required && input[field.id] === undefined && field.default === undefined) return `patch.runtime.action.execute 缺少输入 ${field.id}`;
+      if (input[field.id] !== undefined && field.type && field.type !== 'json') {
+        const invalid = runtimeValueValid(input[field.id], { type: field.type, options: field.options, min: field.min, max: field.max }, `action.${action.id}.input.${field.id}`);
+        if (invalid) return invalid;
+      }
+    }
+    if (Object.keys(input).some(key => !inputs.some(field => field.id === key))) return `patch.runtime.action.execute 输入含有未声明字段`;
+    for (const effect of action.effects) {
+      const error = applyRuntimeUpdate(state, world, effect.type === 'variable.set'
+        ? { type: 'runtime.variable.set', id: effect.variableId, value: cloneJson(effect.value) }
+        : effect.type === 'variable.delta'
+          ? { type: 'runtime.variable.delta', id: effect.variableId, delta: effect.delta }
+          : effect.type === 'collection.add'
+            ? { type: 'runtime.collection.add', collectionId: effect.collectionId, value: cloneJson(effect.value) }
+            : { type: 'runtime.collection.remove', collectionId: effect.collectionId, entryId: effect.entryId });
+      if (error) return error;
+    }
+    return null;
+  }
+  if (update.type === 'runtime.variable.set' || update.type === 'runtime.variable.delta') {
+    const definition = definitions.variables.get(update.id);
+    if (!definition) return `patch.${update.type} 引用了未声明变量 ${update.id}`;
+    const current = runtime.variables?.[update.id] ?? definition.initial;
+    const next = update.type === 'runtime.variable.delta' ? Number(current || 0) + update.delta : update.value;
+    if (update.type === 'runtime.variable.delta' && definition.type !== 'number') return `patch.${update.type}.${update.id} 只有 number 变量允许 delta`;
+    const invalid = runtimeValueValid(next, definition, `patch.${update.type}.${update.id}`);
+    if (invalid) return invalid;
+    runtime.variables = { ...(runtime.variables || {}), [update.id]: cloneJson(next) };
+    return null;
+  }
+  if (update.type === 'runtime.collection.add' || update.type === 'runtime.collection.remove') {
+    const definition = definitions.collections.get(update.collectionId);
+    if (!definition) return `patch.${update.type} 引用了未声明集合 ${update.collectionId}`;
+    const list = Array.isArray(runtime.collections?.[update.collectionId]) ? [...runtime.collections[update.collectionId]] : [];
+    if (update.type === 'runtime.collection.add') {
+      const index = list.findIndex(entry => String(entry?.id || '') === update.value.id);
+      if (index >= 0) list[index] = cloneJson(update.value); else if (list.length >= 256) return `patch.${update.type}.${update.collectionId} 超出 256 项上限`; else list.push(cloneJson(update.value));
+    } else {
+      const index = list.findIndex(entry => String(entry?.id || '') === update.entryId);
+      if (index < 0) return `patch.${update.type}.${update.collectionId} 找不到 ${update.entryId}`;
+      list.splice(index, 1);
+    }
+    runtime.collections = { ...(runtime.collections || {}), [update.collectionId]: list };
+    return null;
+  }
+  return `patch.${update.type} 不受支持`;
 }
 
 function applyRpgPatch(world, currentState, patch) {
   const state = cloneJson(currentState || {});
+  runtimeStateEnsure(state, world);
   const economy = playerEconomySchema(world) || {};
   const definitions = {
     attributes: new Map((Array.isArray(playerCreationSchema(world)?.attributes) ? playerCreationSchema(world).attributes : []).map(item => [item.id, item])),
@@ -5276,11 +6186,24 @@ function applyRpgPatch(world, currentState, patch) {
       state.player.effects = type === 'effect.add' ? [...new Set([...effects, update.value.trim()])] : effects.filter(value => value !== update.value.trim());
       if (state.stats?.buffs && Array.isArray(state.stats.buffs)) state.stats.buffs = type === 'effect.add' ? [...new Set([...state.stats.buffs, update.value.trim()])] : state.stats.buffs.filter(value => value !== update.value.trim());
     } else if (type === 'objective.status') {
-      const list = Array.isArray(state[update.kind]) ? state[update.kind] : [];
+      const stateKey = update.kind === 'hooks' ? 'activeHooks' : update.kind;
+      const list = Array.isArray(state[stateKey]) ? state[stateKey] : [];
       const item = list.find(entry => entry?.id === update.id);
       if (!item) error = `patch.objective.status 找不到 ${update.kind}.${update.id}`;
       else item.status = update.status;
+      state[stateKey] = list;
+    } else if (type === 'objective.upsert') {
+      const list = Array.isArray(state[update.kind]) ? state[update.kind] : [];
+      const existing = list.find(entry => entry?.id === update.id);
+      const next = existing || { id: update.id, title: update.title, desc: '' };
+      next.title = update.title;
+      if (update.desc !== undefined) next.desc = update.desc;
+      if (update.status !== undefined) next.status = update.status;
+      for (const key of ['actorId', 'locationId', 'deadline', 'tags']) if (update[key] !== undefined) next[key] = cloneJson(update[key]);
+      if (!existing) list.push(next);
       state[update.kind] = list;
+    } else if (type.startsWith('runtime.')) {
+      error = applyRuntimeUpdate(state, world, update);
     }
     if (error) return { error };
   }
@@ -5314,6 +6237,12 @@ function validateWorldTurn(payload, optionRules = { min: 4, max: 4 }, flags = {}
   if (invalidEventMemory) return invalidEventMemory;
   const invalidAgentCalls = validateRpgAgentCalls(payload.agentCalls);
   if (invalidAgentCalls) return invalidAgentCalls;
+  const invalidAgentTrace = validateRpgAgentToolTrace(payload.agentToolTrace);
+  if (invalidAgentTrace) return invalidAgentTrace;
+  const invalidAgentPhase = validateAgentPhaseContract(payload.agentToolTrace);
+  if (invalidAgentPhase) return invalidAgentPhase;
+  const invalidAgentBinding = validateAgentCandidateBinding(payload.agentToolTrace, payload.agentCalls);
+  if (invalidAgentBinding) return invalidAgentBinding;
   const invalidActionIntent = validateActionIntent(payload.actionIntent);
   if (invalidActionIntent) return invalidActionIntent;
   return null;
@@ -5337,6 +6266,8 @@ async function handleWorldTurnPost(req, res, saveId, forcedAgentPhase = null) {
       ? validateAgentNarrationPayload(payload)
       : validateWorldTurn(payload, { min: 0, max: 4 });
   if (invalid) return send(res, 400, JSON.stringify({ error: invalid }), 'application/json');
+  const invalidAgentTrace = validateRpgAgentToolTrace(payload.agentToolTrace);
+  if (invalidAgentTrace) return send(res, 400, JSON.stringify({ error: invalidAgentTrace }), 'application/json');
   if (agentPhase !== 'narrate') {
     const invalidNpcStates = validateNpcStates(payload.npcStates);
     if (invalidNpcStates) return send(res, 400, JSON.stringify({ error: invalidNpcStates }), 'application/json');
@@ -5350,7 +6281,7 @@ async function handleWorldTurnPost(req, res, saveId, forcedAgentPhase = null) {
         ? current.agentRuntime.pending
         : null;
       if (agentPhase === 'execute' && pending) {
-        if (pending.commandId === payload.commandId && pending.baseRevision === current.revision) return send(res, 200, JSON.stringify({ ...current, execution: { status: 'awaiting-narration', commandId: pending.commandId, baseRevision: pending.baseRevision, state: pending.state, outcome: pending.outcome } }), 'application/json; charset=utf-8');
+        if (pending.commandId === payload.commandId && pending.baseRevision === current.revision) return send(res, 200, JSON.stringify({ ...current, execution: { status: 'awaiting-narration', commandId: pending.commandId, baseRevision: pending.baseRevision, phase: pending.phase || 'narrate', phaseHistory: pending.phaseHistory || [], orchestration: pending.orchestration || null, state: pending.state, outcome: pending.outcome } }), 'application/json; charset=utf-8');
         return send(res, 409, JSON.stringify({ error: '已有待叙事 Agent 执行结果，请先完成 narrate 阶段', commandId: pending.commandId }), 'application/json');
       }
       if (agentPhase === 'narrate' && committedCommand(current, payload.commandId)) return send(res, 200, JSON.stringify(current), 'application/json; charset=utf-8');
@@ -5362,11 +6293,17 @@ async function handleWorldTurnPost(req, res, saveId, forcedAgentPhase = null) {
         payload.npcStates = cloneJson(pending.npcStates || current.npcStates || {});
         payload.actionIntent = pending.actionIntent ? cloneJson(pending.actionIntent) : undefined;
         payload.agentCalls = pending.agentCalls ? cloneJson(pending.agentCalls) : undefined;
+        payload.agentToolTrace = pending.agentToolTrace ? cloneJson(pending.agentToolTrace) : undefined;
         payload.eventMemory = pending.eventMemory ? cloneJson(pending.eventMemory) : undefined;
         payload.createEntities = undefined;
       }
       const world = findWorldVersion(await loadWorlds(), current.worldId, current.worldVersion);
       if (committedCommand(current, payload.commandId)) return send(res, 200, JSON.stringify(current), 'application/json; charset=utf-8');
+      if (payload.patch === undefined) {
+        if (world?.runtime) runtimeStateEnsure(payload.state, world);
+        const runtimeBindingError = runtimeBindingInvalid(world, current.state, payload.state);
+        if (runtimeBindingError) return send(res, 400, JSON.stringify({ error: runtimeBindingError }), 'application/json');
+      }
       if (payload.patch !== undefined) {
         if (payload.patch.baseRevision !== current.revision) return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
         const patched = applyRpgPatch(world, current.state, payload.patch);
@@ -5377,9 +6314,13 @@ async function handleWorldTurnPost(req, res, saveId, forcedAgentPhase = null) {
         if (payload.createEntities === undefined && payload.patch.createEntities !== undefined) payload.createEntities = payload.patch.createEntities;
         if (payload.eventMemory === undefined && payload.patch.eventMemory !== undefined) payload.eventMemory = payload.patch.eventMemory;
       }
+      const runtimeBindingError = runtimeBindingInvalid(world, current.state, payload.state);
+      if (runtimeBindingError) return send(res, 400, JSON.stringify({ error: runtimeBindingError }), 'application/json');
       const optionRules = worldTurnOptionRules(world);
       const contractInvalid = validateWorldTurn(payload, optionRules, { skipNarrative: agentPhase === 'execute' });
       if (contractInvalid) return send(res, 400, JSON.stringify({ error: contractInvalid }), 'application/json');
+      const runtimeStateInvalid = validateRuntimeState(payload.state?.runtime);
+      if (runtimeStateInvalid) return send(res, 400, JSON.stringify({ error: runtimeStateInvalid }), 'application/json');
       const eventMemoryInvalid = validateEventMemoryCandidates(payload.eventMemory, world);
       if (eventMemoryInvalid) return send(res, 400, JSON.stringify({ error: eventMemoryInvalid }), 'application/json');
       const invalidLocation = validateWorldLocationIds(world, payload.state, payload.npcStates, payload.createEntities);
@@ -5388,6 +6329,8 @@ async function handleWorldTurnPost(req, res, saveId, forcedAgentPhase = null) {
         const invalidObjectives = validateWorldObjectiveList(payload.state[key], label, world);
         if (invalidObjectives) return send(res, 400, JSON.stringify({ error: invalidObjectives }), 'application/json');
       }
+      const activeHooksInvalid = validateActiveHookList(payload.state.activeHooks);
+      if (activeHooksInvalid) return send(res, 400, JSON.stringify({ error: activeHooksInvalid }), 'application/json');
       if (current.state?.factionStates && payload.state.factionStates === undefined) return send(res, 400, JSON.stringify({ error: 'state.factionStates 不能省略' }), 'application/json');
       const factionStatePayload = payload.state.factionStates === undefined && worldFactionDefinitions(world).length
         ? materializeFactionStates(world, current.state?.factionStates)
@@ -5451,6 +6394,7 @@ async function handleWorldTurnPost(req, res, saveId, forcedAgentPhase = null) {
       let nonCombatResult;
       let deadlineIds;
       let settledEvents;
+      let settledNpcActions;
       let settledFactionActions;
       let conflictTransitions;
       let failureResult;
@@ -5463,6 +6407,7 @@ async function handleWorldTurnPost(req, res, saveId, forcedAgentPhase = null) {
         deadlineIds = cloneJson(outcome.deadlineIds || []);
         settledEvents = { events: [], eventIds: cloneJson(outcome.eventIds || []) };
         settledFactionActions = { events: [], eventIds: cloneJson(outcome.factionActionIds || []) };
+        settledNpcActions = { events: [], eventIds: cloneJson(outcome.npcActionIds || []) };
         conflictTransitions = cloneJson(outcome.conflictTransitions || []);
         failureResult = { state: settledState, record: outcome.failure || null };
       } else {
@@ -5476,7 +6421,8 @@ async function handleWorldTurnPost(req, res, saveId, forcedAgentPhase = null) {
         nextState.time = advanceWorldTime(current.state?.time, world);
         deadlineIds = settleWorldDeadlines(nextState);
         settledEvents = settleWorldEvents(world, current, nextState, payload.commandId, revision);
-        settledFactionActions = settleWorldFactionActions(world, { ...current, state: { ...current.state, worldEvents: settledEvents.events } }, nextState, payload.commandId, revision);
+        settledNpcActions = settleWorldNpcActions(world, { ...current, state: { ...current.state, worldEvents: settledEvents.events } }, nextState, payload.npcStates === undefined ? (current.npcStates || {}) : payload.npcStates, payload.commandId, revision);
+        settledFactionActions = settleWorldFactionActions(world, { ...current, state: { ...current.state, worldEvents: settledNpcActions.events } }, nextState, payload.commandId, revision);
         nextState.worldEvents = settledFactionActions.events;
         conflictTransitions = conflictTransitionRecords(current.state?.conflicts, nextState.conflicts, payload.commandId, revision);
         failureResult = resolveWorldFailure(world, current.state, nextState, revision);
@@ -5488,6 +6434,7 @@ async function handleWorldTurnPost(req, res, saveId, forcedAgentPhase = null) {
           ? materializeGeneratedEntities(current, payload.createEntities, saveId, payload.commandId, revision)
           : (current.generatedEntities || {}));
       if (agentPhase === 'execute') {
+        const executionPhaseSequence = buildAgentPhaseSequence(payload);
         const executionPending = {
           version: 1,
           commandId: payload.commandId,
@@ -5498,9 +6445,16 @@ async function handleWorldTurnPost(req, res, saveId, forcedAgentPhase = null) {
           generatedEntities: cloneJson(materializedGeneratedEntities),
           actionIntent: payload.actionIntent ? cloneJson(payload.actionIntent) : null,
           agentCalls: payload.agentCalls ? cloneJson(payload.agentCalls) : [],
+          agentToolTrace: payload.agentToolTrace ? cloneJson(payload.agentToolTrace) : [],
           eventMemory: payload.eventMemory ? cloneJson(payload.eventMemory) : [],
+          turns: payload.turns ? cloneJson(payload.turns) : [],
+          options: payload.options ? cloneJson(payload.options) : [],
+          phase: 'narrate',
+          phaseHistory: [...executionPhaseSequence.map((phase, index) => ({ phase, status: 'completed', order: index + 1 })), { phase: 'narrate', status: 'pending', order: executionPhaseSequence.length + 1 }],
+          orchestration: buildAgentOrchestration(payload),
           outcome: {
             eventIds: settledEvents.eventIds,
+            npcActionIds: settledNpcActions.eventIds,
             factionActionIds: settledFactionActions.eventIds,
             deadlineIds,
             conflictTransitions,
@@ -5516,7 +6470,7 @@ async function handleWorldTurnPost(req, res, saveId, forcedAgentPhase = null) {
           updatedAt: Date.now(),
         };
         await writeJsonAtomic(fp, next);
-        return send(res, 200, JSON.stringify({ ...next, execution: { status: 'awaiting-narration', commandId: payload.commandId, baseRevision: current.revision, state: executionPending.state, outcome: executionPending.outcome } }), 'application/json; charset=utf-8');
+        return send(res, 200, JSON.stringify({ ...next, execution: { status: 'awaiting-narration', commandId: payload.commandId, baseRevision: current.revision, phase: executionPending.phase, phaseHistory: executionPending.phaseHistory, orchestration: executionPending.orchestration, state: executionPending.state, outcome: executionPending.outcome } }), 'application/json; charset=utf-8');
       }
       const committedTurns = payload.turns.map((turn, index) => ({
         ...cloneJson(turn),
@@ -5539,6 +6493,7 @@ async function handleWorldTurnPost(req, res, saveId, forcedAgentPhase = null) {
           turnIds: committedTurns.map(turn => turn.id).filter(Boolean),
           ...(payload.patch ? { patch: { protocol: payload.patch.protocol, version: payload.patch.version, updateCount: payload.patch.updates.length } } : {}),
           eventIds: settledEvents.eventIds,
+          npcActionIds: settledNpcActions.eventIds,
           factionActionIds: settledFactionActions.eventIds,
           conflictTransitions,
           ...(failureResult.record ? { failure: failureResult.record } : {}),
@@ -5556,6 +6511,7 @@ async function handleWorldTurnPost(req, res, saveId, forcedAgentPhase = null) {
           time: settledState.time ?? null,
           turnIds: committedTurns.map(turn => turn.id).filter(Boolean),
           worldEventIds: settledEvents.eventIds,
+          npcActionIds: settledNpcActions.eventIds,
           factionActionIds: settledFactionActions.eventIds,
           deadlineIds,
         }),
@@ -5563,7 +6519,7 @@ async function handleWorldTurnPost(req, res, saveId, forcedAgentPhase = null) {
           world,
           revision,
           turns: committedTurns,
-          eventIds: [...settledEvents.eventIds, ...settledFactionActions.eventIds, ...deadlineIds],
+          eventIds: [...settledEvents.eventIds, ...settledNpcActions.eventIds, ...settledFactionActions.eventIds, ...deadlineIds],
           time: settledState.time,
           locationId: settledState.locationId ?? null,
         }),
@@ -5615,6 +6571,7 @@ async function handleDataGet(req, res, type) {
     const data = await fs.promises.readFile(fp, 'utf-8');
     send(res, 200, data, 'application/json; charset=utf-8');
   } catch (err) {
+    if (err.code === 'ENOENT') return send(res, 404, JSON.stringify({ error: '尚未同步' }), 'application/json');
     console.error('[data] 读取失败:', type, err.message);
     send(res, 500, JSON.stringify({ error: '读取失败: ' + err.message }), 'application/json');
   }
@@ -5626,10 +6583,15 @@ async function handleDataPut(req, res, type) {
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
   const raw = Buffer.concat(chunks).toString('utf-8');
+  let parsed;
   try {
-    JSON.parse(raw); // 校验是合法 JSON
+    parsed = JSON.parse(raw); // 校验是合法 JSON
   } catch {
     return send(res, 400, JSON.stringify({ error: '无效的 JSON' }), 'application/json');
+  }
+  // 会话包固定为 { schemaVersion, sessions[], deletedIds[] }：deletedIds 是删除墓碑，防止旧缓存把已删会话合并回来
+  if (type === 'sessions' && (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !Array.isArray(parsed.sessions) || !Array.isArray(parsed.deletedIds))) {
+    return send(res, 400, JSON.stringify({ error: '会话包必须是 { schemaVersion, sessions: [], deletedIds: [] }' }), 'application/json');
   }
   const fp = path.join(DATA_DIR, type + '.json');
   try {
@@ -5918,6 +6880,27 @@ const server = http.createServer((req, res) => {
     if (req.method === 'GET') return handleWorldSavesList(req, res, url.searchParams.get('worldId') || '');
     if (req.method === 'POST') return handleWorldSaveCreate(req, res);
   }
+  const worldSaveExportMatch = url.pathname.match(/^\/api\/world-saves\/([^/]+)\/export\/?$/);
+  if (worldSaveExportMatch && req.method === 'GET') {
+    let saveId;
+    try { saveId = decodeURIComponent(worldSaveExportMatch[1]); }
+    catch { return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json'); }
+    return handleWorldSaveExport(req, res, saveId);
+  }
+  const worldSaveRenameMatch = url.pathname.match(/^\/api\/world-saves\/([^/]+)\/rename\/?$/);
+  if (worldSaveRenameMatch && req.method === 'POST') {
+    let saveId;
+    try { saveId = decodeURIComponent(worldSaveRenameMatch[1]); }
+    catch { return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json'); }
+    return handleWorldSaveRename(req, res, saveId);
+  }
+  const worldSaveCopyMatch = url.pathname.match(/^\/api\/world-saves\/([^/]+)\/copy\/?$/);
+  if (worldSaveCopyMatch && req.method === 'POST') {
+    let saveId;
+    try { saveId = decodeURIComponent(worldSaveCopyMatch[1]); }
+    catch { return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json'); }
+    return handleWorldSaveCopy(req, res, saveId);
+  }
   const worldSaveMemoryRebuildMatch = url.pathname.match(/^\/api\/world-saves\/([^/]+)\/memory\/rebuild\/?$/);
   if (worldSaveMemoryRebuildMatch && req.method === 'POST') {
     let saveId;
@@ -6023,6 +7006,13 @@ const server = http.createServer((req, res) => {
     try { saveId = decodeURIComponent(worldSaveAgentExecuteMatch[1]); }
     catch { return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json'); }
     return handleWorldTurnPost(req, res, saveId, 'execute');
+  }
+  const worldSaveRuntimeMatch = url.pathname.match(/^\/api\/world-saves\/([^/]+)\/runtime\/?$/);
+  if (worldSaveRuntimeMatch && req.method === 'POST') {
+    let saveId;
+    try { saveId = decodeURIComponent(worldSaveRuntimeMatch[1]); }
+    catch { return send(res, 400, JSON.stringify({ error: '无效的 saveId' }), 'application/json'); }
+    return handleWorldRuntimePost(req, res, saveId);
   }
   const worldSaveMatch = url.pathname.match(/^\/api\/world-saves\/([^/]+)\/?$/);
   if (worldSaveMatch && (req.method === 'GET' || req.method === 'PUT' || req.method === 'POST' || req.method === 'DELETE')) {

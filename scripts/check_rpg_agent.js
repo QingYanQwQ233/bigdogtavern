@@ -14,7 +14,7 @@ assert.strictEqual(agent.tools['dice.roll'].execution, 'client');
 assert.strictEqual(agent.tools['rules.check'].execution, 'client');
 assert.ok(defaults.ui.rpgEmptyGuide && defaults.ui.rpgEmptyGuide.includes('{save}'), 'RPG empty state must be world-scoped');
 const names = Object.keys(agent.tools);
-assert.deepStrictEqual(names.sort(), ['context.retrieve', 'dice.roll', 'entity.create', 'memory.record', 'rules.check', 'state.patch'].sort());
+assert.deepStrictEqual(names.sort(), ['context.retrieve', 'dice.roll', 'entity.create', 'memory.record', 'objective.upsert', 'rules.check', 'state.patch'].sort());
 for (const [name, config] of Object.entries(agent.tools)) {
   assert.strictEqual(config.enabled, true, `${name} disabled unexpectedly`);
   assert.ok(config.parameters && config.parameters.type === 'object', `${name} needs an object schema`);
@@ -36,6 +36,12 @@ for (const marker of [
   '本回合已完成客户端判定',
   'maxSteps',
   'ui.rpgEmptyGuide',
+  'function restoreWorldAgentPending',
+  'resumeWorldAgentNarration',
+  '已恢复 Agent 回合：当前阶段',
+  'function rpgAgentToolPhase',
+  'function buildRpgAgentPhaseHistory',
+  'agentOrchestration',
 ]) assert.ok(app.includes(marker), `missing Agent marker: ${marker}`);
 
 console.log('rpg native agent contract check passed');

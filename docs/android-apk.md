@@ -13,11 +13,14 @@ APK 结构：
                             ├ /api/image-save 图片落盘 filesDir/images/
                             ├ /api/models     模型列表
                             ├ /api/worlds/*    世界卡详情
-                            ├ /api/world-saves 世界存档创建/列表/读取/Typed Patch 回合
+                            ├ /api/world-saves 世界存档创建/列表/读取/重命名/复制/删除/脱敏导出/Typed Patch 回合
                             ├ /api/world-saves/:id/setup|opening-candidate|opening 开局规划与候选确认
+                            ├ /api/world-saves/:id/agent-execute|agent-cancel + narrate Agent 两阶段回合
+                            ├ /api/world-saves/:id/upgrade 世界版本升级预演与确认
                             ├ /api/world-saves/:id/growth|end|reopen 成长、结局、世界线重开
                             ├ /api/world-saves/:id/summary|memory 总结与记忆诊断/重建
                             ├ /api/world-drafts 世界草稿（基础读写）
+                            ├ /api/world-imports 世界包预览、封存与确认导入（正则默认禁用）
                             ├ /api/data/*     数据读写 filesDir/data/（首次从 _defaults.json 初始化）
                             └ 静态资源         assets 根；/images/* 读 filesDir/images/
   MainActivity.kt       ← 启动服务 + WebView 加载 http://127.0.0.1:3000/
@@ -45,4 +48,4 @@ APK 结构：
 
 - 内嵌服务监听 127.0.0.1，理论上同机其他 App 可访问（本地单机演示可接受；如需加固可在 server 加 token）
 - 构建产物为 debug APK（签名可直接安装；上架需自己配 release 签名）
-- Android 内嵌服务已覆盖世界卡、WorldSave 创建/读取、待开局 `setup.game / plan / candidate / opening`、revision 幂等与核心 Typed Patch；完整世界规则结算仍以 Node `server.js` 为基准，APK 端应在真机上验证冲突/成长/结局等高级入口。
+- Android 内嵌服务已覆盖世界卡、WorldSave 创建/读取/重命名/复制/删除/脱敏导出、待开局 `setup.game / plan / candidate / opening`、版本升级预演/确认、revision 幂等、Agent 两阶段回合与核心 Typed Patch；完整世界规则结算仍以 Node `server.js` 为基准，APK 端应在真机上验证冲突/成长/结局等高级入口。
