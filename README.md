@@ -7,8 +7,6 @@ Tavern 是一个面向 AI 角色扮演的本地 Web 应用。它把普通的角�
 
 项目的核心不变量是：**数据按所有权分层绑定，不跨角色、跨会话、跨存档串数据；能结构化保存的状态不只依赖 AI 记忆。**
 
-![Tavern 宣传图](public/assets/tavern-promo-text-v2.png)
-
 ## 快速开始
 
 需要 Node.js 18+，运行时零 npm 依赖。
