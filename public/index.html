@@ -983,7 +983,7 @@
         <div class="field">
           <label for="world-draft-ui">RPG 界面配置 <span class="hint-inline">可选 JSON；声明式侧边栏</span></label>
           <textarea id="world-draft-ui" name="worldDraftUi" rows="8" maxlength="180000" spellcheck="false" placeholder='{"layout":"world-desk","sidebar":{"panels":[{"id":"relations","title":"人物关系","icon":"💠","side":"right","source":"save.npcStates","layout":"cards","fields":[{"key":"locationId","label":"位置"},{"key":"relation.trust","label":"信任"}]}]},"extension":{"enabled":true,"title":"世界 HUD","html":"<button id=\"rest\">休息</button>","css":"button{padding:8px;border-radius:8px}","js":"document.querySelector(\"#rest\").onclick=()=>TavernExtension.action(\"rest\",{});","permissions":["read.public","read.save","write.runtime","tool.call"]}}'></textarea>
-          <p class="hint">sidebar 仍使用声明式数据源；如需自定义界面，可在同一 JSON 的 <code>extension</code> 中声明 HTML/CSS/JS/MVU 协议。扩展只在 sandbox iframe 内运行，权限默认只读。</p>
+          <p class="hint">sidebar 仍使用声明式数据源；如需自定义界面，可在同一 JSON 的 <code>extension</code> 中声明 HTML/CSS/JS/MVU 协议。首次检测到 EJS、MVU 或扩展脚本时会询问是否启用；确认后也只在 sandbox iframe 内运行，权限默认只读。</p>
           <details id="world-draft-extension-editor" class="world-extension-editor">
             <summary>扩展可视化设置 <span class="hint-inline">高级 JSON 仍可直接编辑</span></summary>
             <div class="world-extension-editor-body">

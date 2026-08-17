@@ -156,6 +156,7 @@ let rpgDrawerReturnFocus = null;
 const serverDataWriteQueues = new Map();
 const WORLD_EXTENSION_CHANNEL = 'tavern.rpg.extension';
 let worldExtensionState = { iframe: null, nonce: '', signature: '', ready: false, timer: null, pending: new Map(), nextRequestId: 0 };
+const worldExtensionDeniedApprovals = new Set();
 
 /* ─────────── 数据加载 / 保存（JSON 文件存储） ─────────── */
 function saveSettings() {
@@ -3475,6 +3476,48 @@ function worldExtensionPermissions(extension) {
   return new Set(Array.isArray(extension?.permissions) ? extension.permissions : ['read.public', 'read.save']);
 }
 
+function executableContentKinds(value, key = '') {
+  const kinds = new Set();
+  const visit = (node, pathKey = '') => {
+    if (typeof node === 'string') {
+      if (/<%[\s\S]*?%>/.test(node)) kinds.add('EJS');
+      if (/^(?:js|javascript|script|scripts|code)$/i.test(pathKey) && !/regex/i.test(pathKey)) kinds.add('扩展脚本');
+      return;
+    }
+    if (Array.isArray(node)) { node.forEach(item => visit(item, pathKey)); return; }
+    if (!node || typeof node !== 'object') return;
+    for (const [childKey, child] of Object.entries(node)) {
+      if (/mvu/i.test(childKey)) kinds.add('MVU');
+      visit(child, childKey);
+    }
+  };
+  visit(value, key);
+  return [...kinds];
+}
+
+function worldExtensionApprovalKey(extension) {
+  return `${currentWorldId || 'world'}@${currentWorldSave?.worldVersion ?? currentWorldCard()?.version ?? 0}:${lorebookHash(JSON.stringify({ html: extension?.html || '', css: extension?.css || '', js: extension?.js || '', mvu: extension?.mvu || null }))}`;
+}
+
+function approveWorldExtensionCode(extension) {
+  const kinds = executableContentKinds(extension);
+  if (!kinds.length) return true;
+  const key = worldExtensionApprovalKey(extension);
+  const approvals = prefs.extensionApprovals && typeof prefs.extensionApprovals === 'object' ? prefs.extensionApprovals : {};
+  if (approvals[key] === true) return true;
+  if (worldExtensionDeniedApprovals.has(key)) return false;
+  const approved = typeof window !== 'undefined' && typeof window.confirm === 'function'
+    ? window.confirm(`当前世界卡包含 ${kinds.join('、')}。\n确认后仅在隔离 sandbox iframe 中启用世界扩展；不会执行主页面脚本，角色卡/预设里的 EJS 也不会被解释。\n是否启用？`)
+    : false;
+  if (approved) {
+    prefs.extensionApprovals = { ...approvals, [key]: true };
+    saveJSON(LS_PREFS, prefs);
+  } else {
+    worldExtensionDeniedApprovals.add(key);
+  }
+  return approved;
+}
+
 function worldExtensionContext() {
   const world = currentWorldCard() || {};
   const save = currentWorldSave;
@@ -3802,7 +3845,16 @@ function renderWorldExtension() {
   const frame = $('rpg-extension-frame');
   if (!host || !frame || !worldModeActive()) { clearWorldExtension(); return; }
   const extension = currentWorldCard()?.ui?.extension;
-  if (!extension || extension.enabled === false || (!extension.html && !extension.css && !extension.js)) { clearWorldExtension(); return; }
+  if (!extension || extension.enabled === false || (!extension.html && !extension.css && !extension.js && extension.mvu == null)) { clearWorldExtension(); return; }
+  if (!approveWorldExtensionCode(extension)) {
+    clearWorldExtension();
+    host.hidden = false;
+    const title = $('rpg-extension-title');
+    const status = $('rpg-extension-status');
+    if (title) title.textContent = extension.title || '世界扩展';
+    if (status) status.textContent = '脚本已阻止；刷新或修改扩展内容后可重新授权。';
+    return;
+  }
   const signature = JSON.stringify([currentWorldId, currentWorldSave?.worldVersion, extension]);
   host.hidden = false;
   const title = $('rpg-extension-title');
