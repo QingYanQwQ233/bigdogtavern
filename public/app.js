@@ -428,6 +428,11 @@ async function submitWorldTurn(pending) {
         ? cloneValue(pending.agentExecution.phaseHistory) : [];
       pending.agentOrchestration = pending.agentExecution?.orchestration
         ? cloneValue(pending.agentExecution.orchestration) : null;
+      postWorldExtensionEvent('agent.execute', {
+        commandId: pending.commandId,
+        phase: pending.agentExecution?.phase || 'narrate',
+        revision: Number.isSafeInteger(data.revision) ? data.revision : pending.expectedRevision,
+      });
     }
     setDebugTrace(activeConversationScope(), { status: 'Agent 叙事阶段' });
     data = await request(endpoint, {
@@ -459,6 +464,7 @@ async function submitWorldTurn(pending) {
   hydrateWorldSave(data);
   currentWorldSave = data;
   currentWorldSaveId = data.id;
+  postWorldExtensionEvent('turn.commit', { commandId: pending.commandId, revision: data.revision });
   worldTurnPending = null;
   worldTurnError = null;
   worldTurnEpoch++;
@@ -3626,11 +3632,28 @@ function worldExtensionContext() {
   return context;
 }
 
+const WORLD_EXTENSION_EVENT_NAMES = new Set(['turn.start', 'agent.execute', 'agent.complete', 'turn.commit', 'turn.error']);
+function postWorldExtensionEvent(name, payload = {}) {
+  const iframe = worldExtensionState.iframe;
+  if (!iframe?.contentWindow || !worldModeActive()) return;
+  const extension = currentWorldCard()?.ui?.extension || {};
+  if (!worldExtensionPermissions(extension).has('read.save') || !WORLD_EXTENSION_EVENT_NAMES.has(name)) return;
+  iframe.contentWindow.postMessage({
+    channel: WORLD_EXTENSION_CHANNEL,
+    version: 1,
+    nonce: worldExtensionState.nonce,
+    type: 'event',
+    event: name,
+    payload: { ...payload },
+  }, '*');
+}
+
 function extensionBridgeSource(nonce) {
   return `(() => {
     const channel = ${JSON.stringify(WORLD_EXTENSION_CHANNEL)};
     const nonce = ${JSON.stringify(nonce)};
     const pending = new Map();
+    const listeners = new Map();
     let sequence = 0;
     const chooseFromElement = (element, text) => {
       const value = String(text || '').trim();
@@ -3758,6 +3781,18 @@ function extensionBridgeSource(nonce) {
     });
     window.TavernExtension = {
       requestContext: () => send('context.request'),
+      on: (name, listener) => {
+        const key = String(name || '').trim();
+        if (!/^[a-z][a-z0-9._-]{0,63}$/.test(key) || typeof listener !== 'function') return () => {};
+        const bucket = listeners.get(key) || new Set();
+        bucket.add(listener);
+        listeners.set(key, bucket);
+        return () => {
+          bucket.delete(listener);
+          if (!bucket.size) listeners.delete(key);
+        };
+      },
+      off: (name, listener) => listeners.get(String(name || '').trim())?.delete(listener),
       patch: updates => send('runtime.patch', { updates }),
       action: (actionId, input) => send('tool.call', { actionId, input }),
       choose: (text, options = {}) => send('turn.choose', {
@@ -3774,6 +3809,15 @@ function extensionBridgeSource(nonce) {
       if (data.type === 'context') {
         renderContextSlots(data.context);
         window.dispatchEvent(new CustomEvent('tavern-context', { detail: data.context }));
+      }
+      if (data.type === 'event') {
+        const eventName = String(data.event || '').trim();
+        const detail = data.payload && typeof data.payload === 'object' ? data.payload : {};
+        (listeners.get(eventName) || []).forEach(listener => {
+          try { listener(detail); } catch (error) { setTimeout(() => { throw error; }, 0); }
+        });
+        window.dispatchEvent(new CustomEvent('tavern-event', { detail: { name: eventName, payload: detail } }));
+        return;
       }
       if (data.type !== 'response' || !data.requestId) return;
       const item = pending.get(data.requestId);
@@ -9654,6 +9698,16 @@ async function requestReply() {
       cot = r.cot;
       nativeCalls = r.nativeCalls || [];
       toolTrace = r.toolTrace || [];
+      postWorldExtensionEvent('agent.complete', {
+        commandId: worldTurnPending?.commandId || null,
+        revision: currentWorldSave?.revision ?? null,
+        calls: toolTrace.filter(item => item?.callId && item?.name).map(item => ({
+          callId: item.callId,
+          name: item.name,
+          phase: item.phase || rpgAgentToolPhase(item.name),
+          status: item.result?.ok === true ? 'passed' : 'rejected',
+        })),
+      });
     } else if (payload.body.stream) {
       const r = await callAPIStream(payload);
       reply = r.content;
@@ -9789,6 +9843,7 @@ async function requestReply() {
     }
   } catch (err) {
     console.error('[Tavern] ✗ 请求失败', err.message);
+    if (worldModeActive()) postWorldExtensionEvent('turn.error', { commandId: worldTurnPending?.commandId || null, message: String(err.message || '请求失败').slice(0, 240) });
     removeTyping();
     const keptWorldTurn = failWorldTurnPending(err.message);
     setDebugTrace(targetScope, { status: '失败', output: `ERROR\n${err.message}`, rawOutput: `ERROR\n${err.message}`, outputTag: '未生成结构化标签。', reasoning: '' });
@@ -9842,6 +9897,7 @@ async function submitWorldActionText(text, { throwOnError = false } = {}) {
       agentOrchestration: null,
       agentExecution: null,
     };
+    postWorldExtensionEvent('turn.start', { commandId: worldTurnPending.commandId, revision: worldTurnPending.expectedRevision });
     renderMessages();
     const rolls = await rollWorldDice(value);
     for (const r of rolls) {

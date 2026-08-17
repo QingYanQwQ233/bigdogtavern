@@ -155,6 +155,7 @@ UI 不直接写 `WorldSave`。卡内控件应通过稳定绑定描述数据源�
 - `ui.extension` 继续作为完整自定义界面的 sandbox 入口；
 - `data-tavern-narrative`、`data-tavern-options`、`data-tavern-input` 等标记继续有效；
 - `data-tavern-bind="save.state.player.resources.hp"` 将白名单投影写入 `textContent`，`data-tavern-show="turn.canChoose"` 控制显示；路径只允许有限层级的对象键，绑定不会执行表达式或写入主页面。
+- 扩展脚本可用 `TavernExtension.on(name, handler)` 监听 `turn.start`、`agent.execute`、`agent.complete`、`turn.commit`、`turn.error`；事件只发送脱敏的回合号、版本、工具状态或错误摘要，不携带工具结果与隐藏世界数据。
 - 新插槽缺失时回退到当前宿主 RPG 布局；扩展加载失败时不能让存档无法打开。
 
 ## 5. 状态与绑定契约
