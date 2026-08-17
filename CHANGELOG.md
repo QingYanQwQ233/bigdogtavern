@@ -1,5 +1,13 @@
 # 更新日志
 
+## 2026-08-17 · World App Contract W0–W6
+
+### 新增与兼容
+
+- 冻结世界卡 / 世界存档 / UI 插槽 / runtime / Agent 的分层契约，并为世界包写入能力清单与版本号。
+- 世界卡扩展支持白名单 `data-tavern-bind` / `data-tavern-show` 状态绑定，以及 `TavernExtension.on/off()` 的脱敏 Agent 生命周期事件。
+- 读取 SillyTavern 世界书时兼容 `entries` 数组 / 对象与 `worldInfo`、`world_info`、`data` 包装，不改写原始 JSON；补充 Character Card V3 / PNG / 预设 / 正则回归断言。
+
 ## 2026-08-17 · RPG 输出协议稳健性修复
 
 ### 修复
