@@ -304,6 +304,8 @@ assert.ok(rpgDefault.modules.some(x => x.id === 'rpgAdjudication' && x.enabled))
 assert.ok(rpgDefault.modules.some(x => x.id === 'rpgContinuity' && x.enabled));
 assert.deepStrictEqual(defaultData.prefs.currentPresetByMode, { tavern: 'RP 基础（示例）', rpg: 'RPG 叙事引擎（示例）' });
 assert.match(defaultData.rpg.stateInstruction, /恰好 4 个/);
+assert.match(defaultData.rpg.stateInstruction, /runtime\.action\.execute 只能是/);
+assert.match(defaultData.rpg.stateInstruction, /禁止出现 result、args、value/);
 assert.match(defaultData.rpg.eventMemoryInstruction, /eventMemory/);
 assert.strictEqual(defaultData.prefs.worldContextBudget, 24000);
 const exampleState = JSON.parse(defaultData.rpg.exampleTurn.assistant.match(/<tavern_state_update>\n([\s\S]*?)\n<\/tavern_state_update>/)[1]);

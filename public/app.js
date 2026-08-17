@@ -4090,7 +4090,7 @@ function renderRPG() {
 
 /* 应用 AI 输出的 ```rpg``` JSON 状态变更；返回本轮行动选项 */
 /* RPG 任务定义兜底（仅当「RPG 叙事引擎」预设被删除时使用；正常内容在预设 JSON 里可编辑） */
-const RPG_TASK_FALLBACK = '你是这个幻想世界的地下城主（DM）与世界化身，始终以“你”称呼玩家。直接呈现场景、事件与 NPC，不以作者或助手自称。根据当前状态公平裁定行动；状态变化必须先在叙事中发生，再写入回复末尾唯一一个 <tavern_state_update> JSON 更新块。更新块必须使用 protocol=tavern.rpg.turn、version=1、当前 revision，并只提交允许的 typed updates；options 必须遵守当前世界卡回合契约（0-4 条），具体、可执行且不重复；自由输入始终可用。';
+const RPG_TASK_FALLBACK = '你是这个幻想世界的地下城主（DM）与世界化身，始终以“你”称呼玩家。直接呈现场景、事件与 NPC，不以作者或助手自称。根据当前状态公平裁定行动；状态变化必须先在叙事中发生，再写入回复末尾唯一一个 <tavern_state_update> JSON 更新块。更新块必须使用 protocol=tavern.rpg.turn、version=1、当前 revision，并只提交允许的 typed updates；每个 update 只能使用协议声明的字段，runtime.action.execute 只能是 {type,actionId,input}，不能附加 result、args、value、execute 等字段；options 必须遵守当前世界卡回合契约（0-4 条），具体、可执行且不重复；自由输入始终可用。';
 
 function worldOptionRules() {
   const options = currentWorldCard()?.turnContract?.options;
@@ -4352,6 +4352,40 @@ function normalizeRpgPatch(patch) {
         : { type: 'location.set', locationId: String(locationId).trim() };
     }),
   };
+}
+
+const RPG_PATCH_UPDATE_KEYS = Object.freeze({
+  'player.resource.delta': ['type', 'id', 'delta'],
+  'player.attribute.delta': ['type', 'id', 'delta'],
+  'player.skill.delta': ['type', 'id', 'delta'],
+  'currency.delta': ['type', 'id', 'delta'],
+  'inventory.delta': ['type', 'itemId', 'delta', 'name', 'desc', 'weight'],
+  'location.set': ['type', 'locationId'],
+  'effect.add': ['type', 'value'],
+  'effect.remove': ['type', 'value'],
+  'objective.status': ['type', 'kind', 'id', 'status'],
+  'objective.upsert': ['type', 'kind', 'id', 'title', 'desc', 'status', 'actorId', 'locationId', 'deadline', 'tags'],
+  'runtime.variable.set': ['type', 'id', 'value'],
+  'runtime.variable.delta': ['type', 'id', 'delta'],
+  'runtime.collection.add': ['type', 'collectionId', 'value'],
+  'runtime.collection.remove': ['type', 'collectionId', 'entryId'],
+  'runtime.action.execute': ['type', 'actionId', 'input'],
+});
+
+/* 提交前拦截最常见的“格式漂移”，避免等服务端拒绝后才让玩家重试。 */
+function validateRpgPatchShape(patch) {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return 'patch 必须是对象';
+  const allowedPatchKeys = ['protocol', 'version', 'baseRevision', 'updates', 'options', 'createEntities', 'eventMemory'];
+  const extraPatchKey = Object.keys(patch).find(key => !allowedPatchKeys.includes(key));
+  if (extraPatchKey) return `patch 含有未声明字段 ${extraPatchKey}`;
+  if (!Array.isArray(patch.updates)) return 'patch.updates 必须是数组';
+  for (const update of patch.updates) {
+    const allowedKeys = RPG_PATCH_UPDATE_KEYS[update?.type];
+    if (!allowedKeys) return 'patch.updates 含有不受支持的操作';
+    const extraKey = Object.keys(update).find(key => !allowedKeys.includes(key));
+    if (extraKey) return `patch.${update.type} 含有未声明字段 ${extraKey}`;
+  }
+  return null;
 }
 
 function applyRpgUpdate(payload) {
@@ -7851,14 +7885,14 @@ async function requestRpgCompatReply(payload, targetScope) {
  * 仍复用原 system（含世界书 / 状态 / 输出守则），不在前端臆造 options，
  * 也不把修复结果直接写入存档；最终仍走同一套服务端 Typed Patch 校验。
  */
-async function repairRpgOutput(payload, reply, optionRules, targetScope, toolTrace = []) {
+async function repairRpgOutput(payload, reply, optionRules, targetScope, toolTrace = [], validationError = '') {
   const body = {
     ...payload.body,
     stream: false,
     messages: [
       ...(Array.isArray(payload.body?.messages) ? payload.body.messages.map(cloneValue) : []),
       { role: 'assistant', content: String(reply || '') },
-      { role: 'user', content: `上一条回复未通过 RPG 输出协议校验：必须在末尾输出唯一 <tavern_state_update> JSON 标签，且 options 必须恰好 ${optionRules.min} 个。请保留已经发生的叙事，不要新增未发生的状态变化，只修复并完整重发合规的叙事正文与控制块。不要解释修复过程，不要输出额外代码块。` },
+      { role: 'user', content: `上一条回复未通过 RPG 输出协议校验：必须在末尾输出唯一 <tavern_state_update> JSON 标签，且 options 必须有 ${optionRules.min}-${optionRules.max} 个。${validationError ? `具体结构错误：${validationError}。` : ''}请保留已经发生的叙事，不要新增未发生的状态变化，只修复并完整重发合规的叙事正文与控制块。每个 updates 对象只能包含协议声明的字段；runtime.action.execute 只能写 type、actionId 和可选的 input，input 也只能包含动作 Schema 声明的字段，禁止写 result、args、value、execute、target 或其他解释字段。不要解释修复过程，不要输出额外代码块。` },
     ],
   };
   delete body.tools;
@@ -9474,13 +9508,14 @@ async function requestReply() {
         || Number(processed.patch.version) !== 1
         || Number(processed.patch.baseRevision) !== Number(currentWorldSave?.revision)
       );
-      const outputContractInvalid = !!processed.protocol?.errorCode || patchContractInvalid || options.length < optionRules.min || options.length > optionRules.max;
+      const patchShapeError = processed.patch ? validateRpgPatchShape(processed.patch) : '';
+      const outputContractInvalid = !!processed.protocol?.errorCode || patchContractInvalid || !!patchShapeError || options.length < optionRules.min || options.length > optionRules.max;
       if (outputContractInvalid) {
         const originalPatch = processed.patch;
         const originalEntities = processed.createEntities;
         const originalMemory = processed.eventMemory;
         setDebugTrace(targetScope, { status: '输出协议不合规，正在修复', output: String(reply || '') });
-        const repairedReply = await repairRpgOutput(payload, reply, optionRules, targetScope, toolTrace);
+        const repairedReply = await repairRpgOutput(payload, reply, optionRules, targetScope, toolTrace, patchShapeError);
         processed = processAIOutput(repairedReply);
         if (!processed.patch && originalPatch) processed.patch = originalPatch;
         if (!processed.createEntities && originalEntities) processed.createEntities = originalEntities;

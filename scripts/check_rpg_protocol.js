@@ -88,6 +88,19 @@ assert.strictEqual(Object.hasOwn(toolCandidate.patch, 'toolCalls'), false);
 const locationPatch = vm.runInContext(`processAIOutput(${JSON.stringify('<tavern_state_update>' + JSON.stringify({ protocol: 'tavern.rpg.turn', version: 1, baseRevision: 7, updates: [{ type: 'location.set', location: { id: 'wolf-tooth-inn' }, name: '多余显示名' }], options: [] }) + '</tavern_state_update>')})`, context);
 assert.deepStrictEqual(JSON.parse(JSON.stringify(locationPatch.patch.updates)), [{ type: 'location.set', locationId: 'wolf-tooth-inn' }]);
 
+const malformedActionPatch = vm.runInContext(`validateRpgPatchShape(${JSON.stringify({
+  protocol: 'tavern.rpg.turn', version: 1, baseRevision: 7, updates: [
+    { type: 'runtime.action.execute', actionId: 'restock', input: {}, result: { ok: true } },
+  ], options: [],
+})})`, context);
+assert.match(malformedActionPatch, /patch\.runtime\.action\.execute 含有未声明字段 result/);
+const validActionPatch = vm.runInContext(`validateRpgPatchShape(${JSON.stringify({
+  protocol: 'tavern.rpg.turn', version: 1, baseRevision: 7, updates: [
+    { type: 'runtime.action.execute', actionId: 'restock', input: { count: 1 } },
+  ], options: [],
+})})`, context);
+assert.strictEqual(validActionPatch, null);
+
 context.fetch = () => { throw new Error('world dice must not call /api/dice'); };
 const localDice = vm.runInContext("rollWorldDice('1d6')", context);
 assert.strictEqual(localDice.length, 1);
