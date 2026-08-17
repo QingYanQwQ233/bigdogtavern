@@ -23,6 +23,10 @@
 - 通过 Playwright 验证 RP HTML、`{{user}}` 宏和桌面/手机编辑框尺寸。
 - 推送 `main` 后由 `.github/workflows/android-apk.yml` 自动复制前端资源并构建 Debug APK；真实设备安装与功能回归仍需人工验收。
 
+### 发布
+
+- 移除宣传图及 README 图片引用；纯净源码包随 `v0.1.49` Release 发布。
+
 ## 2026-08-15 · WorldSave / Agent Runtime 版本
 
 ### 新增

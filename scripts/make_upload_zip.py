@@ -3,8 +3,15 @@ import zipfile, os
 
 SRC = 'A:/test-rpg-airp'
 OUT = 'A:/test-rpg-airp/tavern-upload.zip'
-EXCLUDE_DIRS = {'.git', '.reasonix', 'node_modules', '__pycache__', '.gradle', 'build', '.idea', 'images'}
-EXCLUDE_FILES = {'tavern-upload.zip', 'cloudflared.exe', 'make_icons.py'}
+EXCLUDE_DIRS = {
+    '.git', '.reasonix', 'node_modules', '__pycache__', '.gradle', 'build', '.idea', 'images',
+    '.playwright', '.playwright-cli', 'test-results', 'tmp',
+}
+EXCLUDE_FILES = {
+    'tavern-upload.zip', 'cloudflared.exe', 'make_icons.py',
+    # Release 包不携带 Android 签名私钥；仓库内的构建仍可继续使用它。
+    'android/app/tavern.p12',
+}
 
 count = 0
 with zipfile.ZipFile(OUT, 'w', zipfile.ZIP_DEFLATED) as z:
@@ -13,7 +20,7 @@ with zipfile.ZipFile(OUT, 'w', zipfile.ZIP_DEFLATED) as z:
         for f in files:
             p = os.path.join(root, f)
             rel = os.path.relpath(p, SRC).replace('\\', '/')
-            if rel in EXCLUDE_FILES:
+            if rel in EXCLUDE_FILES or f.lower().endswith('.zip'):
                 continue
             # public/data 只留 _defaults.json（运行时文件含 API key，绝不上传）
             if rel.startswith('public/data/') and f != '_defaults.json':
