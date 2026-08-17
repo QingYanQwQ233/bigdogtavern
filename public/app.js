@@ -5816,6 +5816,13 @@ function normalizeImportedLorebook(raw, fallbackName = '') {
   return { name: name || '导入世界书', entries: normalized };
 }
 
+// SillyTavern 旧导出可能把世界书包在 worldInfo/world_info/data 下；读取时即时映射，避免启动迁移改写原件。
+function lorebookEntriesForPrompt(book) {
+  if (book && typeof book === 'object' && Array.isArray(book.entries)) return book.entries;
+  try { return normalizeImportedLorebook(book, book?.name || book?.title || '').entries; }
+  catch { return []; }
+}
+
 function registerCharacterBookLorebook(char) {
   const book = characterBookValue(char?.characterBook);
   const entries = book?.entries;
@@ -7029,10 +7036,11 @@ function buildWorldInfo() {
       : ['default'])
     : (prefs.activeLoreId ? [prefs.activeLoreId] : []);
   for (const loreId of [...new Set(worldLoreIds)]) {
-    if (lorebooks && lorebooks[loreId] && Array.isArray(lorebooks[loreId].entries)) sources.push(...lorebooks[loreId].entries);
+    const entries = lorebooks && lorebooks[loreId] ? lorebookEntriesForPrompt(lorebooks[loreId]) : [];
+    if (entries.length) sources.push(...entries);
   }
   if (!worldModeActive() && char && char.loreId && lorebooks && lorebooks[char.loreId] && char.loreId !== prefs.activeLoreId) {
-    sources.push(...lorebooks[char.loreId].entries);
+    sources.push(...lorebookEntriesForPrompt(lorebooks[char.loreId]));
   }
   // V3 character_book 属于角色卡本身，只对绑定该角色的对话生效，不能并入全局世界书。
   const characterBook = characterBookForChar(char);

@@ -106,6 +106,15 @@ assert.strictEqual(context.lorebookImportResult.stBook.entries[0].keys, '青石�
 assert.strictEqual(context.lorebookImportResult.stBook.entries[0].title, '地点');
 assert.strictEqual(context.lorebookImportResult.stBook.entries[0].order, 12);
 vm.runInContext(`
+  mode = 'tavern'; currentWorldSave = null; currentWorldSaveId = null;
+  characters = [{ id: 'nested-book-card', name: '嵌套世界书卡', loreId: 'nested-st' }]; currentCharId = 'nested-book-card';
+  sessions = [{ id: 'nested-book-session', charId: currentCharId, kind: 'tavern', messages: [{ role: 'user', content: '嵌套触发词' }] }]; currentSessionId = 'nested-book-session';
+  lorebooks = { default: { name: '默认', entries: [] }, 'nested-st': { worldInfo: { entries: { '0': { key: ['嵌套触发词'], content: '嵌套 ST 世界书' } } } } };
+  prefs = { activeLoreId: 'default', wiScanDepth: 20, wiWholeWord: false };
+  globalThis.nestedStPrompt = buildWorldInfo();
+`, context);
+assert.deepStrictEqual(JSON.parse(JSON.stringify(context.nestedStPrompt)), ['嵌套 ST 世界书']);
+vm.runInContext(`
   globalThis.extendedStBook = normalizeImportedLorebook({ entries: {
     '0': { key: ['雾港'], keysecondary: ['钟声'], content: '高级条目', extensions: {
       depth: 2, position: 1, probability: 50, group: '港口', group_weight: 30, scan_depth: 3,
