@@ -3362,6 +3362,40 @@ function rpgUiValueText(value) {
   return String(value);
 }
 
+const WORLD_UI_SLOT_TARGETS = {
+  topbar: () => [document.querySelector('.chat-header')].filter(Boolean),
+  'sidebar.left': () => [$('rpg-left')].filter(Boolean),
+  narrative: () => [$('chat')].filter(Boolean),
+  options: () => [$('quick-actions')].filter(Boolean),
+  input: () => [document.querySelector('.composer')].filter(Boolean),
+  'sidebar.right': () => [$('rpg-right')].filter(Boolean),
+  status: () => [$('rpg-status')].filter(Boolean),
+  overlay: () => [$('world-ui-overlay')].filter(Boolean),
+};
+
+function applyWorldUiSlots() {
+  const targets = Object.fromEntries(Object.entries(WORLD_UI_SLOT_TARGETS).map(([slot, resolve]) => [slot, resolve()]));
+  for (const [slot, elements] of Object.entries(targets)) {
+    for (const element of elements) {
+      element.hidden = slot === 'overlay';
+      element.removeAttribute('aria-label');
+    }
+  }
+  if (!worldModeActive()) return;
+  const slots = currentWorldCard()?.ui?.slots;
+  if (!slots || typeof slots !== 'object' || Array.isArray(slots)) return;
+  for (const [slot, config] of Object.entries(slots)) {
+    const elements = targets[slot];
+    if (!elements) continue;
+    const visible = config && typeof config === 'object' && !Array.isArray(config) ? config.visible !== false : true;
+    const label = config && typeof config === 'object' && !Array.isArray(config) ? String(config.label || '').trim() : '';
+    for (const element of elements) {
+      element.hidden = !visible;
+      if (visible && label) element.setAttribute('aria-label', label);
+    }
+  }
+}
+
 function renderWorldSidebarPanels() {
   const targets = { left: $('rpg-custom-left'), right: $('rpg-custom-right') };
   Object.values(targets).forEach(target => { if (target) target.replaceChildren(); });
@@ -3888,6 +3922,7 @@ function renderWorldExtension() {
 }
 
 function renderRPG() {
+  applyWorldUiSlots();
   const rs = curRpgState();
   if (!rs) return;
   const sendButton = $('btn-send');
@@ -9010,6 +9045,7 @@ function renderMessages() {
   const chat = $('chat');
   renderDebugTerminal();
   if (mode !== 'rpg') clearWorldExtension();
+  applyWorldUiSlots();
   chat.innerHTML = '';
   if (mode === 'rpg') renderRPG(); // RPG 模式联动状态面板
   const msgs = curMessages();

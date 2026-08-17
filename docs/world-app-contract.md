@@ -147,6 +147,8 @@ UI 不直接写 `WorldSave`。卡内控件应通过稳定绑定描述数据源�
 }
 ```
 
+宿主首版支持通过 `ui.slots` 控制固定插槽的显示与无障碍标签：`topbar`、`sidebar.left`、`narrative`、`options`、`input`、`sidebar.right`、`status`、`overlay`。未声明的插槽保持宿主默认；声明 `visible:false` 可让卡内扩展独立接管对应区域，避免出现两套输入框或选项栏。
+
 旧配置兼容：
 
 - `ui.sidebar.panels` 继续由宿主声明式渲染；

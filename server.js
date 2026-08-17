@@ -184,6 +184,7 @@ function worldAppCapabilities(world) {
   return {
     ui: {
       layout: typeof ui.layout === 'string' && ui.layout ? ui.layout : 'host',
+      slots: Object.keys(ui.slots && typeof ui.slots === 'object' && !Array.isArray(ui.slots) ? ui.slots : {}).filter(slot => WORLD_UI_SLOTS.has(slot)),
       sidebar: Array.isArray(ui.sidebar?.panels) && ui.sidebar.panels.length > 0,
       extension: ui.extension?.enabled === true,
       entryGate: ui.entryGate?.enabled === true,
@@ -1267,6 +1268,7 @@ const WORLD_UI_SOURCES = new Set([
   'save.state.worldEvents', 'save.state.factionStates', 'save.state.player.attributes',
   'save.state.player.skills', 'save.state.player.resources', 'save.state.player.traits',
 ]);
+const WORLD_UI_SLOTS = new Set(['topbar', 'sidebar.left', 'narrative', 'options', 'input', 'sidebar.right', 'status', 'overlay']);
 const WORLD_EXTENSION_PERMISSIONS = new Set(['read.public', 'read.save', 'write.runtime', 'tool.call']);
 function validateWorldExtension(value) {
   if (value === undefined || value === null) return null;
@@ -1299,11 +1301,25 @@ function validateWorldEntryGate(value) {
   if (value.fullscreen !== undefined && typeof value.fullscreen !== 'boolean') return 'ui.entryGate.fullscreen 无效';
   return null;
 }
+function validateWorldUiSlots(value) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'ui.slots 必须是对象';
+  if (Object.keys(value).some(slot => !WORLD_UI_SLOTS.has(slot))) return 'ui.slots 含有未声明插槽';
+  for (const [slot, config] of Object.entries(value)) {
+    if (!config || typeof config !== 'object' || Array.isArray(config)) return `ui.slots.${slot} 必须是对象`;
+    if (Object.keys(config).some(key => !['visible', 'label'].includes(key))) return `ui.slots.${slot} 含有未声明字段`;
+    if (config.visible !== undefined && typeof config.visible !== 'boolean') return `ui.slots.${slot}.visible 无效`;
+    if (config.label !== undefined && (typeof config.label !== 'string' || config.label.length > 120)) return `ui.slots.${slot}.label 无效`;
+  }
+  return null;
+}
 function validateWorldUi(value) {
   if (value === undefined || value === null) return null;
   if (!value || typeof value !== 'object' || Array.isArray(value)) return 'ui 必须是对象';
-  if (Object.keys(value).some(key => !['layout', 'sidebar', 'extension', 'entryGate'].includes(key))) return 'ui 含有未声明字段';
+  if (Object.keys(value).some(key => !['layout', 'slots', 'sidebar', 'extension', 'entryGate'].includes(key))) return 'ui 含有未声明字段';
   if (value.layout !== undefined && (typeof value.layout !== 'string' || value.layout.length > 80)) return 'ui.layout 无效';
+  const slotsInvalid = validateWorldUiSlots(value.slots);
+  if (slotsInvalid) return slotsInvalid;
   const extensionInvalid = validateWorldExtension(value.extension);
   if (extensionInvalid) return extensionInvalid;
   const entryGateInvalid = validateWorldEntryGate(value.entryGate);

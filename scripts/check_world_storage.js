@@ -20,6 +20,11 @@ defaults.worlds[0].locations.push({ id: 'region-2', name: 'Region Two', type: 'r
 defaults.worlds[0].characterIds = ['char-export'];
 defaults.worlds[0].coverImage = 'https://example.invalid/aurora-cover.png';
 defaults.worlds[0].source = { ...(defaults.worlds[0].source || {}), rawAssetRef: 'https://cdn.invalid/world.png?token=secret-url-token' };
+defaults.worlds[0].ui = { ...(defaults.worlds[0].ui || {}), slots: {
+  narrative: { visible: true },
+  options: { visible: false },
+  input: { visible: false, label: '卡内输入' },
+} };
 defaults.characters = [{
   id: 'char-export', name: 'Export Character', loreId: 'default', presetName: 'RPG 叙事引擎（示例）',
   refImage: 'C:\\private\\character.png', openai_api_key: 'character-export-secret', hf_token: 'custom-token-secret',
@@ -92,8 +97,10 @@ async function main() {
     assert.strictEqual(worldExport.body.specVersion, 1);
     assert.strictEqual(worldExport.body.manifest.appContractVersion, 1);
     assert.strictEqual(worldExport.body.manifest.capabilities.ui.layout, 'world-desk');
+    assert.deepStrictEqual(worldExport.body.manifest.capabilities.ui.slots, ['narrative', 'options', 'input']);
     assert.strictEqual(worldExport.body.manifest.capabilities.references.preset, true);
     assert.strictEqual(worldExport.body.content.world.id, world.id);
+    assert.strictEqual(worldExport.body.content.world.ui.slots.input.visible, false);
     assert.deepStrictEqual(worldExport.body.content.characters.map(character => character.id), ['char-export']);
     assert.deepStrictEqual(Object.keys(worldExport.body.content.lorebooks), ['default']);
     assert.deepStrictEqual(Object.keys(worldExport.body.content.presets), ['RPG 叙事引擎（示例）']);
@@ -206,6 +213,14 @@ async function main() {
     });
     assert.strictEqual(danglingReferencePreview.response.status, 422);
     assert.ok(danglingReferencePreview.body.report.errors.includes('questTemplateIds 尚无随世界包导入的定义'));
+    const invalidSlotsPackage = JSON.parse(JSON.stringify(worldExport.body));
+    invalidSlotsPackage.content.world.ui.slots.input.visible = 'yes';
+    invalidSlotsPackage.manifest.contentHash = packageHash(invalidSlotsPackage);
+    const invalidSlotsPreview = await jsonRequest(base, '/api/world-imports', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ raw: JSON.stringify(invalidSlotsPackage) }),
+    });
+    assert.strictEqual(invalidSlotsPreview.response.status, 422);
+    assert.ok(invalidSlotsPreview.body.report.errors.includes('ui.slots.input.visible 无效'));
     const sealedStaticRead = await fetch(base + '/data/world-imports/' + encodeURIComponent(importPreview.body.id) + '.json');
     assert.strictEqual(sealedStaticRead.status, 403, 'sealed raw packages are not exposed as static data');
 
