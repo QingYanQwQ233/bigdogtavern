@@ -169,6 +169,10 @@ function newWorldImportId() {
   return 'import-' + Date.now().toString(36) + '-' + crypto.randomBytes(6).toString('hex');
 }
 
+function newWorldDraftId() {
+  return 'world-' + Date.now().toString(36) + '-' + crypto.randomBytes(6).toString('hex');
+}
+
 function newGrowthExperienceId() {
   return 'growth-exp-' + Date.now().toString(36) + '-' + crypto.randomBytes(5).toString('hex');
 }
@@ -3179,8 +3183,13 @@ async function worldDraftPromptIssues(world) {
 async function worldDraftPublicationCheck(draft, worlds) {
   const report = worldDraftPublicationReport(draft);
   const latest = latestWorld(worlds, draft?.worldId);
-  if (!latest) report.errors.push(worldDraftPublicationIssue('definition', 'world-draft-name', '世界卡不存在'));
-  else if (Number(latest.version) !== Number(draft?.baseVersion)) report.errors.push(worldDraftPublicationIssue('definition', 'world-draft-base', `草稿基于 v${draft.baseVersion}，但当前最新版本是 v${latest.version}`));
+  if (draft?.kind === 'new') {
+    if (latest) report.errors.push(worldDraftPublicationIssue('definition', 'world-draft-base', '新世界草稿的 ID 已被占用'));
+  } else if (!latest) {
+    report.errors.push(worldDraftPublicationIssue('definition', 'world-draft-name', '世界卡不存在'));
+  } else if (Number(latest.version) !== Number(draft?.baseVersion)) {
+    report.errors.push(worldDraftPublicationIssue('definition', 'world-draft-base', `草稿基于 v${draft.baseVersion}，但当前最新版本是 v${latest.version}`));
+  }
   if (report.world) report.errors.push(...await worldDraftPromptIssues(report.world));
   const seen = new Set();
   report.errors = report.errors.filter(issue => {
@@ -3663,19 +3672,36 @@ async function handleWorldDraftCreate(req, res) {
     return send(res, status, JSON.stringify({ error: err.message }), 'application/json');
   }
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return send(res, 400, JSON.stringify({ error: '请求必须是 JSON 对象' }), 'application/json');
-  const worldId = String(payload.worldId || '');
-  if (!isSafeId(worldId)) return send(res, 400, JSON.stringify({ error: '无效的 worldId' }), 'application/json');
+  const createNew = payload.mode === 'new';
+  const sourceWorldId = String(payload.sourceWorldId || payload.worldId || '');
+  if (!isSafeId(sourceWorldId)) return send(res, 400, JSON.stringify({ error: '无效的 sourceWorldId' }), 'application/json');
   if (payload.baseVersion !== undefined && (!Number.isInteger(payload.baseVersion) || payload.baseVersion < 1)) return send(res, 400, JSON.stringify({ error: 'baseVersion 必须是正整数' }), 'application/json');
   return withWorldsLock(async () => {
     try {
       const worlds = await loadWorlds();
-      const source = payload.baseVersion === undefined ? latestWorld(worlds, worldId) : findWorldVersion(worlds, worldId, payload.baseVersion);
+      const source = payload.baseVersion === undefined
+        ? latestWorld(worlds, sourceWorldId)
+        : findWorldVersion(worlds, sourceWorldId, payload.baseVersion);
       if (!source) return send(res, 404, JSON.stringify({ error: '世界卡版本不存在' }), 'application/json');
       const drafts = await loadWorldDrafts();
-      const existing = drafts.find(draft => draft && draft.worldId === worldId);
-      if (existing) return send(res, 200, JSON.stringify(worldDraftView(existing)), 'application/json; charset=utf-8');
       const now = Date.now();
-      const draft = { schemaVersion: 1, worldId, baseVersion: Number(source.version), world: cloneJson(source), createdAt: now, updatedAt: now };
+      if (!createNew) {
+        const existing = drafts.find(draft => draft && draft.worldId === sourceWorldId);
+        if (existing) return send(res, 200, JSON.stringify(worldDraftView(existing)), 'application/json; charset=utf-8');
+        const draft = { schemaVersion: 1, worldId: sourceWorldId, baseVersion: Number(source.version), world: cloneJson(source), createdAt: now, updatedAt: now };
+        drafts.push(draft);
+        await writeJsonAtomic(WORLD_DRAFTS_PATH, drafts);
+        return send(res, 201, JSON.stringify(worldDraftView(draft)), 'application/json; charset=utf-8');
+      }
+      const worldId = newWorldDraftId();
+      const world = cloneJson(source);
+      world.id = worldId;
+      world.version = 1;
+      world.title = `${String(world.title || '新世界').trim()}（新建）`.slice(0, 200);
+      delete world.publication;
+      delete world.importInfo;
+      delete world.saveCount;
+      const draft = { schemaVersion: 1, kind: 'new', worldId, sourceWorldId, sourceVersion: Number(source.version), baseVersion: 1, world, createdAt: now, updatedAt: now };
       drafts.push(draft);
       await writeJsonAtomic(WORLD_DRAFTS_PATH, drafts);
       send(res, 201, JSON.stringify(worldDraftView(draft)), 'application/json; charset=utf-8');
@@ -3706,7 +3732,9 @@ async function handleWorldDraftPut(req, res, worldId) {
         return send(res, 409, JSON.stringify({ error: '世界草稿已被更新，请重新读取', updatedAt: current.updatedAt }), 'application/json');
       }
       const worlds = await loadWorlds();
-      if (!findWorldVersion(worlds, worldId, current.baseVersion)) return send(res, 409, JSON.stringify({ error: '草稿所基于的世界版本已不存在' }), 'application/json');
+      if (current.kind !== 'new' && !findWorldVersion(worlds, worldId, current.baseVersion)) {
+        return send(res, 409, JSON.stringify({ error: '草稿所基于的世界版本已不存在' }), 'application/json');
+      }
       const playerCreationInvalid = validatePlayerCreationSchema(payload.playerCreation, current.world);
       if (playerCreationInvalid) return send(res, 400, JSON.stringify({ error: playerCreationInvalid }), 'application/json');
       const turnContractInvalid = validateTurnContract(payload.turnContract);
@@ -3783,8 +3811,11 @@ async function handleWorldDraftPublish(req, res, worldId) {
         return send(res, 409, JSON.stringify({ error: '世界草稿已被更新，请重新读取', updatedAt: current.updatedAt }), 'application/json');
       }
       const latest = latestWorld(worlds, worldId);
-      if (!latest) return send(res, 404, JSON.stringify({ error: '世界卡不存在' }), 'application/json');
-      if (Number(latest.version) !== Number(current.baseVersion)) {
+      if (current.kind === 'new' && latest) {
+        return send(res, 409, JSON.stringify({ error: '新世界草稿的 ID 已被占用' }), 'application/json');
+      }
+      if (current.kind !== 'new' && !latest) return send(res, 404, JSON.stringify({ error: '世界卡不存在' }), 'application/json');
+      if (current.kind !== 'new' && Number(latest.version) !== Number(current.baseVersion)) {
         return send(res, 409, JSON.stringify({
           error: `草稿基于 v${current.baseVersion}，但当前最新版本是 v${latest.version}；请先处理版本冲突`,
           latestVersion: Number(latest.version),
@@ -3794,7 +3825,7 @@ async function handleWorldDraftPublish(req, res, worldId) {
       if (!report.ready) return send(res, 400, JSON.stringify({ error: report.errors[0].message, report }), 'application/json');
       const publishedAt = Date.now();
       const nextWorld = report.world;
-      nextWorld.version = Number(current.baseVersion) + 1;
+      nextWorld.version = current.kind === 'new' ? 1 : Number(current.baseVersion) + 1;
       nextWorld.publication = {
         source: 'draft',
         commandId: payload.commandId,

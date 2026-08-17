@@ -206,6 +206,28 @@ async function main() {
       body: JSON.stringify({ worldId: world.id, baseVersion: world.version }),
     });
     assert.strictEqual(duplicateDraft.response.status, 200, 'draft creation is idempotent');
+    const newWorldDraft = await jsonRequest(base, '/api/world-drafts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'new', sourceWorldId: world.id, baseVersion: world.version }),
+    });
+    assert.strictEqual(newWorldDraft.response.status, 201, 'new world draft creates an independent draft');
+    assert.strictEqual(newWorldDraft.body.kind, 'new');
+    assert.notStrictEqual(newWorldDraft.body.worldId, world.id, 'new world draft gets a new world ID');
+    assert.strictEqual(newWorldDraft.body.world.version, 1);
+    const originalDraftAfterNew = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(world.id));
+    assert.strictEqual(originalDraftAfterNew.body.world.title, '极光大陆', 'new draft does not open the source draft');
+    const newWorldPublish = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(newWorldDraft.body.worldId) + '/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'publish-new-world-0001', expectedUpdatedAt: newWorldDraft.body.updatedAt, baseVersion: 1 }),
+    });
+    assert.strictEqual(newWorldPublish.response.status, 201, 'new world draft publishes as a new world card');
+    assert.strictEqual(newWorldPublish.body.world.id, newWorldDraft.body.worldId);
+    assert.strictEqual(newWorldPublish.body.world.version, 1);
+    const publishedNewWorld = await jsonRequest(base, '/api/worlds/' + encodeURIComponent(newWorldDraft.body.worldId));
+    assert.strictEqual(publishedNewWorld.response.status, 200);
+    assert.strictEqual(publishedNewWorld.body.title, '极光大陆（新建）');
     const draftLocations = [
       { id: 'wolf-tooth-inn', name: '断牙之角', type: 'inn', summary: '雨幕下的旅店', tags: ['安全区'] },
       { id: 'region-2', name: 'Region Two', type: 'region', summary: '', tags: [] },

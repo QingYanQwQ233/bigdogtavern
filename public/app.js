@@ -1434,10 +1434,13 @@ function fillWorldDraftForm(draft) {
   renderWorldDraftJsonArrays();
   fillWorldDraftMapForm(world);
   renderWorldDraftCollections(world);
-  $('world-draft-base').textContent = `基于已发布 v${draft.baseVersion}；草稿修改不会影响旧版本或已有存档。`;
-  $('world-draft-publish').textContent = `发布为 v${Number(draft.baseVersion) + 1}`;
+  const isNewWorld = draft?.kind === 'new';
+  $('world-draft-base').textContent = isNewWorld
+    ? '这是一个独立的新世界草稿；保存不会修改任何已发布世界或已有存档。'
+    : `基于已发布 v${draft.baseVersion}；草稿修改不会影响旧版本或已有存档。`;
+  $('world-draft-publish').textContent = isNewWorld ? '发布为新世界' : `发布为 v${Number(draft.baseVersion) + 1}`;
 }
-async function openWorldDraftEditor() {
+async function openWorldDraftEditor({ createNew = false } = {}) {
   const world = worldCardById(currentWorldId);
   const dialog = $('world-draft-dialog');
   if (!world || !dialog) return showWorldError('请先选择一个世界卡。');
@@ -1447,7 +1450,9 @@ async function openWorldDraftEditor() {
     const res = await fetch('/api/world-drafts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
-      body: JSON.stringify({ worldId: world.id, baseVersion: world.version }),
+      body: JSON.stringify(createNew
+        ? { mode: 'new', sourceWorldId: world.id, baseVersion: world.version }
+        : { worldId: world.id, baseVersion: world.version }),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error(worldApiError(data, '世界草稿读取失败（HTTP ' + res.status + '）'));
@@ -1455,7 +1460,9 @@ async function openWorldDraftEditor() {
     worldDraftDirty = false;
     worldDraftPublishId = null;
     fillWorldDraftForm(data);
-    setWorldDraftStatus(data.createdAt === data.updatedAt ? '草稿已创建，修改后点击保存。' : '已载入上次保存的草稿。');
+    setWorldDraftStatus(data.createdAt === data.updatedAt
+      ? (data.kind === 'new' ? '新世界草稿已创建，修改后点击保存。' : '草稿已创建，修改后点击保存。')
+      : '已载入上次保存的草稿。');
     if (!dialog.open) dialog.showModal();
     requestAnimationFrame(() => $('world-draft-name')?.focus());
   } catch (err) {
@@ -1630,7 +1637,9 @@ async function saveWorldDraft() {
     worldDraftDirty = false;
     worldDraftPublishId = null;
     fillWorldDraftForm(data);
-    setWorldDraftStatus(`草稿已保存，可以发布为 v${Number(data.baseVersion) + 1}。`, 'ok');
+    setWorldDraftStatus(data.kind === 'new'
+      ? '新世界草稿已保存，可以发布为独立世界卡。'
+      : `草稿已保存，可以发布为 v${Number(data.baseVersion) + 1}。`, 'ok');
     return true;
   } catch (err) {
     setWorldDraftStatus(err.message, 'error');
@@ -1645,8 +1654,10 @@ async function publishWorldDraft() {
   if (worldDraftDirty && !await saveWorldDraft()) return;
   if (!await checkWorldDraftPublishability({ save: false, focus: true })) return;
   const title = worldDraft.world?.title || '未命名世界';
-  const nextVersion = Number(worldDraft.baseVersion) + 1;
-  if (!confirm(`将“${title}”发布为 v${nextVersion}？\n\n已发布版本不可覆盖；现有存档仍绑定各自原版本。`)) return;
+  const isNewWorld = worldDraft.kind === 'new';
+  const nextVersion = isNewWorld ? 1 : Number(worldDraft.baseVersion) + 1;
+  const publishLabel = isNewWorld ? '新的世界卡' : `v${nextVersion}`;
+  if (!confirm(`将“${title}”发布为${publishLabel}？\n\n已发布版本不可覆盖；现有存档仍绑定各自原版本。`)) return;
   worldDraftPublishId ||= 'publish-' + uid();
   const publishButton = $('world-draft-publish');
   const saveButton = $('world-draft-save');
@@ -1684,7 +1695,7 @@ async function publishWorldDraft() {
   } finally {
     publishButton.disabled = false;
     saveButton.disabled = false;
-    publishButton.textContent = worldDraft ? oldLabel : `发布为 v${nextVersion}`;
+    publishButton.textContent = worldDraft ? oldLabel : (isNewWorld ? '发布为新世界' : `发布为 v${nextVersion}`);
   }
 }
 async function loadWorldSaves(worldId) {
@@ -10632,7 +10643,7 @@ function bindEvents() {
     btn.disabled = false;
     btn.textContent = old;
   });
-  $('world-new-draft').addEventListener('click', openWorldDraftEditor);
+  $('world-new-draft').addEventListener('click', () => openWorldDraftEditor({ createNew: true }));
   $('world-import').addEventListener('click', openWorldPackageImport);
   $('world-import-file').addEventListener('change', e => previewWorldPackageImport(e.target.files?.[0]));
   $('world-import-form').addEventListener('submit', async e => { e.preventDefault(); await commitWorldPackageImport(); });
@@ -10641,8 +10652,8 @@ function bindEvents() {
   $('world-import-dialog').addEventListener('cancel', e => { e.preventDefault(); closeWorldPackageImport(); });
   $('world-import-dialog').addEventListener('click', e => { if (e.target === e.currentTarget) closeWorldPackageImport(); });
   $('world-export').addEventListener('click', exportCurrentWorldPackage);
-  $('world-edit-draft').addEventListener('click', openWorldDraftEditor);
-  $('world-lorebook-edit').addEventListener('click', openWorldDraftEditor);
+  $('world-edit-draft').addEventListener('click', () => openWorldDraftEditor({ createNew: false }));
+  $('world-lorebook-edit').addEventListener('click', () => openWorldDraftEditor({ createNew: false }));
   $('world-delete').addEventListener('click', event => deleteWorldCard(currentWorldId, event.currentTarget));
   $('world-draft-form').addEventListener('input', () => { worldDraftDirty = true; worldDraftPublishId = null; clearWorldDraftCheckReport(); });
   $('world-extension-load-json').addEventListener('click', () => {

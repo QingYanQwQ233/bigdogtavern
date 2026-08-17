@@ -354,7 +354,7 @@ RP 消息显示会优先识别缩进的 HTML 布局与 HTML 代码块，再交�
 | `GET /api/world-drafts?worldId=<worldId>` | 列出世界草稿摘要；不传 worldId 时列出全部草稿 |
 | `GET /api/world-drafts/<worldId>` | 读取指定世界草稿 |
 | `GET /api/world-drafts/<worldId>/check` | 预检当前持久化草稿的发布条件，返回按世界定义、稳定引用、开局运行态和 Prompt 契约分组的 `report`；不修改草稿 |
-| `POST /api/world-drafts` | 从指定 `worldId` / `baseVersion` 创建草稿；同一世界重复调用幂等 |
+| `POST /api/world-drafts` | 默认从指定 `worldId` / `baseVersion` 创建或读取同一世界的幂等编辑草稿；提交 `mode: "new"` 与 `sourceWorldId` 会克隆为新的独立世界草稿，发布后获得新的世界 ID |
 | `PUT /api/world-drafts/<worldId>` | 使用 `expectedUpdatedAt` 乐观锁保存标题、简介、标签、`lorebookIds`、`rpgPresetName`、声明式 `agent`、`regexes`、`ui`、地图生成参数、声明式 `playerCreation`、`turnContract`、`failure`、`ending`、`time`、`events`、`factions`、`conflicts`、`locations` 与 `npcs`；事件条件、建角字段、回合选项、Agent 工具白名单、输出正则、侧栏数据源、冲突骰子 / 目标、失败引用、结局条件、成长白名单、时间参数、地点/NPC ID 必须受服务端校验 |
 | `POST /api/world-drafts/<worldId>/publish` | 提交 `commandId`、`expectedUpdatedAt` 与 `baseVersion`，服务端会再次执行同一份完整性检查；通过后把草稿发布为不可变的下一版本。命令可幂等重试；草稿落后最新版本时返回 409 并保留草稿 |
 | `POST /api/worlds/<worldId>/versions` | 显式把来源存档中的生成 NPC 收录进下一不可变世界版本；要求 `sourceSaveId`、`npcId`，可选 `expectedRevision` / `title` |
