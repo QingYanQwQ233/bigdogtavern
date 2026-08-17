@@ -106,6 +106,25 @@ assert.strictEqual(context.lorebookImportResult.stBook.entries[0].keys, '青石�
 assert.strictEqual(context.lorebookImportResult.stBook.entries[0].title, '地点');
 assert.strictEqual(context.lorebookImportResult.stBook.entries[0].order, 12);
 vm.runInContext(`
+  globalThis.extendedStBook = normalizeImportedLorebook({ entries: {
+    '0': { key: ['雾港'], keysecondary: ['钟声'], content: '高级条目', extensions: {
+      depth: 2, position: 1, probability: 50, group: '港口', group_weight: 30, scan_depth: 3,
+      case_sensitive: true, sticky: 2, cooldown: 1, delay: 1, role: 'user',
+    } },
+  } });
+`, context);
+const extendedEntry = context.extendedStBook.entries[0];
+assert.deepStrictEqual(JSON.parse(JSON.stringify(extendedEntry.primaryKeys)), ['雾港']);
+assert.strictEqual(extendedEntry.secondaryKeys[0], '钟声');
+assert.strictEqual(extendedEntry.depth, 2);
+assert.strictEqual(extendedEntry.position, 1);
+assert.strictEqual(extendedEntry.probability, 50);
+assert.strictEqual(extendedEntry.group, '港口');
+assert.strictEqual(extendedEntry.groupWeight, 30);
+assert.strictEqual(extendedEntry.scanDepth, 3);
+assert.strictEqual(extendedEntry.caseSensitive, true);
+assert.strictEqual(extendedEntry.role, 'user');
+vm.runInContext(`
   lorebooks = { default: { name: '默认', entries: [] } };
   characters = [{ id: 'legacy-card', name: '旧卡', characterBook: { entries: [{ keys: [], content: '旧卡书', constant: true }] } }];
   ensureCharacterBookLorebooks();

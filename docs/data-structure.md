@@ -278,7 +278,7 @@ RP 消息显示会优先识别缩进的 HTML 布局与 HTML 代码块，再交�
 
 内置酒馆基础预设启用玩家主权、角色稳定、连续性、白描与抗重复模块；内置 RPG 基础预设启用玩家主权、世界连续性、判定、Markdown 叙事和福瑞种族表现模块。RPG 状态协议要求每回合输出恰好 4 个行动选项。
 
-提示词页可导入/导出 SillyTavern Chat Completion 的 `prompts + prompt_order + extensions.regex_scripts`。导入优先选择 `character_id: 100001`；未进入该顺序的 prompts 保留在素材库。常见采样参数会保存在 `modelParameters` 供无损导出，但连接设置仍是运行时权威，不会因导入而静默改动 API 参数。支持安全宏 `{{user}}`、`{{char}}`、`{{persona}}`、`{{description}}`、`{{personality}}`、`{{scenario}}`、`{{setvar::名称::值}}`、`{{getvar::名称}}` 和 `{{trim}}`；未知宏原样保留。导入的输出正则会随预设保存并在对应模式显示前执行；侧栏「正则」可为酒馆 / RPG 分别添加自定义规则。EJS、MVU、扩展脚本仍不会执行。
+提示词页可导入/导出 SillyTavern Chat Completion 的 `prompts + prompt_order + extensions.regex_scripts`。导入同时接受数组、对象映射和字符串 `character_id`；优先选择 `character_id: 100001`，未进入该顺序的 prompts 保留在素材库。常见采样参数会保存在 `modelParameters` 供无损导出，但连接设置仍是运行时权威，不会因导入而静默改动 API 参数。支持安全宏 `{{user}}`、`{{char}}`、`{{persona}}`、`{{description}}`、`{{personality}}`、`{{scenario}}`、`{{mesExamples}}`、`{{mesExamplesRaw}}`、`{{lastMessage}}`、`{{lastUserMessage}}`、`{{lastCharMessage}}`、`{{messageCount}}`、`{{newline}}`、`{{space}}`、`{{setvar::名称::值}}` / `{{setglobalvar::名称::值}}`、`{{getvar::名称}}` / `{{getglobalvar::名称}}`、`{{random::甲::乙}}` / `{{pick::甲::乙}}` 和 `{{trim}}`；全局变量兼容宏只在本次请求内生效，未知宏原样保留。导入的输出正则会保留 `placement/affects`、`trimStrings`、`markdownOnly`、`promptOnly`、深度等元数据，并在对应模式显示前执行；侧栏「正则」可为酒馆 / RPG 分别添加自定义规则。EJS、MVU、扩展脚本仍不会执行。
 
 `_defaults.json.tavern.replyOptions` 定义 RP 自动选项协议（数量、提示词和无选项提示）。内置「RP 基础（示例）」已把协议写入自己的 `postHistory`；其他预设在未提供同类 `<tavern_options>` 协议时，仍由全局配置自动追加，避免重复注入。客户端解析并移除该标签，只把去重后的选项保存到 assistant 消息的 `options[]`，底部快捷栏据此渲染。缺少或不合规标签时，RP 最多额外请求一次协议修复；修复失败则保留原正文，不在客户端臆造选项。正文、正则和选项数据分开处理，AI 未返回标签时不再回退到写死按钮。
 
@@ -295,7 +295,7 @@ RP 消息显示会优先识别缩进的 HTML 布局与 HTML 代码块，再交�
 ```
 - `constant: true` 常驻注入；`keys` 支持 `/正则/`；`order` 决定命中顺序
 - 条目**无 `id` 字段**：匹配去重以 `id || title` 为键（app.js buildWorldInfo）
-- 世界书页支持导入常见 SillyTavern World Info JSON（`entries` 对象/数组，以及 `key`、`keysecondary`、`comment`、`disable`、`order` 等字段）；导入后会生成新的本地世界书 ID，原文件不会被覆盖。
+- 世界书页支持导入常见 SillyTavern World Info JSON（`entries` 对象/数组，以及 `key`、`keysecondary`、`comment`、`disable`、`order` 等字段）；同时保留并读取 `extensions` 下的 `depth`、`position`、`role`、`scan_depth`、`case_sensitive`、`probability`、`group/group_weight`、`sticky/cooldown/delay` 等兼容字段。导入后会生成新的本地世界书 ID，原文件不会被覆盖；尚未实现的 ST 扩展行为（如向量检索、Outlet、定时效果持久化）只保存字段，不执行。
 - 导入带 `character_book` 的 V1/V2/V3 JSON 或 PNG 角色卡时，内嵌角色书会按内容指纹自动注册为独立世界书并显示“角色卡”来源标记；启动时也会迁移已经存在的旧角色卡。角色卡仍保留原始内嵌副本。角色编辑器和世界卡草稿可分别选择绑定，选择自动注册副本时不会重复注入。
 - 世界卡详情页会直接展示“使用世界书”绑定结果；点击“选择世界书”进入草稿选择器，世界书列表中的“设为使用”仅控制酒馆模式全局世界书，不会串入 RPG 世界卡。
 - 默认世界书已内置：大陆概览 + 种族总览（常驻）、人类 + 10 兽人种族外貌特征、旅店/龙谷等地点条目

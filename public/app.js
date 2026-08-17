@@ -5625,7 +5625,9 @@ function normalizeImportedLorebook(raw, fallbackName = '') {
   if (!entries.length) throw new Error('未找到可导入的世界书 entries');
   const normalized = normalizeCharacterBookEntries({
     scan_depth: source?.scan_depth ?? source?.scanDepth,
-    entries: entries.map(entry => {
+    entries: entries.map(rawEntry => {
+      const entry = rawEntry && typeof rawEntry === 'object' ? rawEntry : {};
+      const extensions = entry?.extensions && typeof entry.extensions === 'object' ? entry.extensions : {};
       const primary = entry.keys ?? entry.key ?? entry.primaryKeys ?? entry.primary_keys ?? [];
       const secondary = entry.secondary_keys ?? entry.keysecondary ?? entry.secondaryKeys ?? [];
       return {
@@ -5635,9 +5637,9 @@ function normalizeImportedLorebook(raw, fallbackName = '') {
         keys: primary,
         secondary_keys: secondary,
         insertion_order: entry.insertion_order ?? entry.order ?? 100,
-        scan_depth: entry.scan_depth ?? entry.depth ?? entry.scanDepth,
-        use_regex: entry.use_regex === true || entry.useRegex === true,
-        case_sensitive: entry.case_sensitive === true || entry.caseSensitive === true,
+        scan_depth: entry.scan_depth ?? entry.scanDepth ?? extensions.scan_depth,
+        use_regex: entry.use_regex === true || entry.useRegex === true || extensions.use_regex === true || extensions.useRegex === true,
+        case_sensitive: entry.case_sensitive ?? entry.caseSensitive ?? extensions.case_sensitive ?? extensions.caseSensitive,
         selective: entry.selective === true,
         constant: entry.constant === true,
         enabled: entry.enabled !== false && entry.disable !== true,
@@ -5837,7 +5839,10 @@ function normalizeOutputRegexRule(source, index = 0, origin = 'custom') {
   const raw = source && typeof source === 'object' ? source : {};
   const trimStrings = Array.isArray(raw.trimStrings)
     ? raw.trimStrings.filter(value => typeof value === 'string')
-    : (typeof raw.trimStrings === 'string' && raw.trimStrings ? [raw.trimStrings] : []);
+    : (typeof raw.trimStrings === 'string' && raw.trimStrings
+      ? raw.trimStrings.split(/\r?\n/).filter(Boolean)
+      : []);
+  const placement = raw.placement ?? raw.affects ?? raw.affected ?? raw.placements;
   return {
     id: String(raw.id || `${origin}-regex-${index + 1}`),
     name: String(raw.name || raw.title || raw.id || `输出正则 ${index + 1}`),
@@ -5846,13 +5851,20 @@ function normalizeOutputRegexRule(source, index = 0, origin = 'custom') {
     replaceString: String(raw.replaceString ?? raw.replacement ?? raw.replace ?? ''),
     trimStrings,
     enabled: raw.enabled !== false && raw.disabled !== true,
-    placement: Array.isArray(raw.placement) ? raw.placement.slice(0, 8) : raw.placement,
+    placement: Array.isArray(placement) ? placement.slice(0, 8) : placement,
+    markdownOnly: raw.markdownOnly === true,
+    promptOnly: raw.promptOnly === true,
+    runOnEdit: raw.runOnEdit === true,
+    substituteRegex: raw.substituteRegex !== false,
+    minDepth: Number.isFinite(Number(raw.minDepth)) ? Number(raw.minDepth) : null,
+    maxDepth: Number.isFinite(Number(raw.maxDepth)) ? Number(raw.maxDepth) : null,
     source: origin,
   };
 }
 
 function normalizeOutputRegexRules(source, origin = 'custom') {
-  return (Array.isArray(source) ? source : []).map((rule, index) => normalizeOutputRegexRule(rule, index, origin));
+  const list = Array.isArray(source) ? source : (source && typeof source === 'object' ? Object.values(source) : []);
+  return list.map((rule, index) => normalizeOutputRegexRule(rule, index, origin));
 }
 
 function buildOutputRegex(rule) {
@@ -5894,8 +5906,13 @@ function activeOutputRegexRules(targetMode = mode) {
     ...normalizeOutputRegexRules(preset?.regexes, 'preset'),
     ...normalizeOutputRegexRules(modeOutputRegexes(targetMode), 'custom'),
   ].filter(rule => {
-    if (!Array.isArray(rule.placement) || !rule.placement.length) return true;
-    return rule.placement.some(value => Number(value) === 2 || String(value).toUpperCase() === 'AI_RESPONSE');
+    const placements = Array.isArray(rule.placement) ? rule.placement : (rule.placement == null ? [] : [rule.placement]);
+    if (!placements.length || rule.promptOnly) return !rule.promptOnly;
+    return placements.some(value => {
+      const normalized = String(value).trim().toUpperCase().replace(/[\s-]+/g, '_');
+      return Number(value) === 2 || normalized === 'AI_RESPONSE' || normalized === 'RESPONSE'
+        || normalized === 'DISPLAY' || normalized === 'CHAT_DISPLAY';
+    });
   });
 }
 
@@ -5987,6 +6004,12 @@ function serializeOutputRegexRule(rule) {
     trimStrings: rule.trimStrings,
     disabled: rule.enabled === false,
     ...(rule.placement !== undefined ? { placement: rule.placement } : {}),
+    ...(rule.markdownOnly ? { markdownOnly: true } : {}),
+    ...(rule.promptOnly ? { promptOnly: true } : {}),
+    ...(rule.runOnEdit ? { runOnEdit: true } : {}),
+    ...(rule.substituteRegex === false ? { substituteRegex: false } : {}),
+    ...(rule.minDepth !== null ? { minDepth: rule.minDepth } : {}),
+    ...(rule.maxDepth !== null ? { maxDepth: rule.maxDepth } : {}),
   };
 }
 
@@ -6355,33 +6378,57 @@ function insertPGLibraryPrompt(identifier) {
 }
 
 function convertSTPresetData(data) {
-  if (!data || !Array.isArray(data.prompts) || !Array.isArray(data.prompt_order)) throw new Error('不是 SillyTavern Chat Completion 预设');
-  if (data.prompts.length > 2000) throw new Error('预设素材超过 2000 条，拒绝导入');
-  const profile = data.prompt_order.find(x => x.character_id === 100001) || data.prompt_order.at(-1);
-  if (!profile || !Array.isArray(profile.order)) throw new Error('预设缺少 prompt_order');
-  if (profile.order.length > 2000) throw new Error('提示词顺序超过 2000 条，拒绝导入');
-  const prompts = data.prompts.map((p, i) => ({
+  const promptList = Array.isArray(data?.prompts)
+    ? data.prompts
+    : (data?.prompts && typeof data.prompts === 'object'
+      ? Object.entries(data.prompts).map(([identifier, prompt]) => ({ ...(prompt || {}), identifier: prompt?.identifier || identifier }))
+      : []);
+  const rawOrders = Array.isArray(data?.prompt_order)
+    ? data.prompt_order
+    : (data?.prompt_order && typeof data.prompt_order === 'object'
+      ? Object.entries(data.prompt_order).map(([characterId, profile]) => Array.isArray(profile)
+        ? { character_id: characterId, order: profile }
+        : { ...(profile || {}), character_id: profile?.character_id ?? characterId })
+      : []);
+  if (!data || !promptList.length) throw new Error('不是 SillyTavern Chat Completion 预设');
+  if (promptList.length > 2000) throw new Error('预设素材超过 2000 条，拒绝导入');
+  if (!rawOrders.length) throw new Error('不是 SillyTavern Chat Completion 预设');
+  const profile = rawOrders.find(x => String(x?.character_id ?? x?.characterId ?? x?.id ?? '') === '100001') || rawOrders.at(-1);
+  const rawOrderValue = profile?.order;
+  const rawOrder = Array.isArray(profile?.order)
+    ? profile.order
+    : (profile?.order && typeof profile.order === 'object' ? Object.values(profile.order) : []);
+  if (!profile || !(Array.isArray(rawOrderValue) || (rawOrderValue && typeof rawOrderValue === 'object'))) throw new Error('预设缺少 prompt_order');
+  if (rawOrder.length > 2000) throw new Error('提示词顺序超过 2000 条，拒绝导入');
+  const prompts = promptList.map((rawPrompt, i) => {
+    const p = rawPrompt && typeof rawPrompt === 'object' ? rawPrompt : {};
+    return {
     ...p,
-    identifier: String(p.identifier || `prompt-${i + 1}`),
-    name: String(p.name || p.identifier || `提示词 ${i + 1}`),
-    role: ['system', 'user', 'assistant'].includes(p.role) ? p.role : 'system',
+    identifier: String(p.identifier || p.id || `prompt-${i + 1}`),
+    name: String(p.name || p.title || p.identifier || p.id || `提示词 ${i + 1}`),
+    role: ['system', 'user', 'assistant'].includes(p.role) ? p.role : (p.role === 'ai' ? 'assistant' : 'system'),
     content: String(p.content || ''),
-    marker: !!p.marker || PRESET_MARKER_IDS.has(p.identifier),
-    position: p.injection_position === 1 ? 'in_chat' : 'relative',
-    depth: Math.max(0, Number(p.injection_depth ?? 4) || 0),
-    order: Number(p.injection_order ?? 100) || 0,
-  }));
-  const promptOrder = profile.order.map(o => ({ identifier: o.identifier, enabled: o.enabled !== false }));
+    marker: !!p.marker || p.system_prompt === true || PRESET_MARKER_IDS.has(p.identifier || p.id),
+    position: Number(p.injection_position ?? p.position) === 1 || String(p.position || '').toLowerCase() === 'in_chat' ? 'in_chat' : 'relative',
+    depth: Math.max(0, Number(p.injection_depth ?? p.depth ?? 4) || 0),
+    order: Number(p.injection_order ?? p.order ?? 100) || 0,
+    };
+  });
+  const promptOrder = rawOrder.map(o => {
+    const item = typeof o === 'string' ? { identifier: o } : (o || {});
+    return { identifier: String(item.identifier || item.id || ''), enabled: item.enabled !== false };
+  }).filter(item => item.identifier);
   const modelParameters = Object.fromEntries([
     'temperature', 'frequency_penalty', 'presence_penalty', 'top_p', 'top_k', 'top_a', 'min_p',
-    'repetition_penalty', 'openai_max_context', 'openai_max_tokens', 'seed', 'n', 'stream_openai',
+    'repetition_penalty', 'openai_max_context', 'openai_max_tokens', 'max_tokens', 'max_completion_tokens', 'stop', 'seed', 'n', 'stream', 'stream_openai',
     'reasoning_effort', 'verbosity', 'assistant_prefill', 'continue_prefill', 'continue_postfix',
+    'chat_completion_source', 'openai_model', 'custom_prompt_post_processing',
   ].filter(key => data[key] !== undefined).map(key => [key, data[key]]));
   const importedMode = ['tavern', 'rpg', 'both'].includes(data.tavern_meta?.mode) ? data.tavern_meta.mode : 'tavern';
-  const regexes = normalizeOutputRegexRules(data.extensions?.regex_scripts, 'preset');
+  const regexes = normalizeOutputRegexRules(data.extensions?.regex_scripts ?? data.extensions?.regexScripts, 'preset');
   const importedPostHistory = String(data.tavern_meta?.postHistory || '') || String(prompts.find(prompt => prompt.identifier === 'jailbreak')?.content || '');
   return {
-    preset: { version: PRESET_SCHEMA_VERSION, mode: importedMode, firstMes: String(data.tavern_meta?.firstMes || ''), postHistory: importedPostHistory, prompts, promptOrder, regexes, modelParameters, source: { format: 'sillytavern-chat-completion', profile: profile.character_id, unusedPrompts: Math.max(0, prompts.length - promptOrder.length) } },
+    preset: { version: PRESET_SCHEMA_VERSION, mode: importedMode, firstMes: String(data.tavern_meta?.firstMes || ''), postHistory: importedPostHistory, prompts, promptOrder, regexes, modelParameters, source: { format: 'sillytavern-chat-completion', profile: profile.character_id ?? profile.characterId ?? profile.id, unusedPrompts: Math.max(0, prompts.length - promptOrder.length) } },
     report: { prompts: prompts.length, ordered: promptOrder.length, regexes: regexes.length },
   };
 }
@@ -6714,9 +6761,17 @@ function normalizeCharacterBookEntries(book) {
     return text.split(',').map(item => item.trim()).filter(Boolean);
   };
   return entries.filter(Boolean).map((entry, index) => {
-    const primary = keyList(entry.keys);
-    const secondary = keyList(entry.secondary_keys);
-    const entryDepth = Number(entry.scan_depth);
+    const extensions = entry.extensions && typeof entry.extensions === 'object' ? entry.extensions : {};
+    // ST World Info V2 把多数高级字段放在 extensions 下，旧版/角色书则常直接放在条目上。
+    const primary = keyList(entry.keys ?? entry.key ?? entry.primaryKeys ?? entry.primary_keys);
+    const secondary = keyList(entry.secondary_keys ?? entry.keysecondary ?? entry.secondaryKeys);
+    const entryDepth = Number(entry.scan_depth ?? entry.scanDepth ?? extensions.scan_depth);
+    const numberOr = (value, fallback = null) => {
+      const number = Number(value);
+      return Number.isFinite(number) ? number : fallback;
+    };
+    const position = numberOr(entry.position ?? extensions.position, 0);
+    const depth = numberOr(entry.depth ?? extensions.depth, 4);
     return {
       ...entry,
       id: entry.id || 'character-book-' + index,
@@ -6725,12 +6780,30 @@ function normalizeCharacterBookEntries(book) {
       primaryKeys: primary,
       secondaryKeys: secondary,
       selective: entry.selective === true,
-      useRegex: entry.use_regex === true,
-      caseSensitive: entry.case_sensitive === true,
+      selectiveLogic: String(entry.selectiveLogic ?? extensions.selective_logic ?? extensions.selectiveLogic ?? 'and_any'),
+      useRegex: entry.use_regex === true || entry.useRegex === true || extensions.use_regex === true || extensions.useRegex === true,
+      caseSensitive: entry.case_sensitive ?? entry.caseSensitive ?? extensions.case_sensitive ?? extensions.caseSensitive ?? null,
+      matchWholeWords: entry.match_whole_words ?? entry.matchWholeWords ?? extensions.match_whole_words ?? extensions.matchWholeWords ?? null,
       scanDepth: Number.isFinite(entryDepth) && entryDepth >= 0 ? Math.floor(entryDepth) : scanDepth,
+      position,
+      depth: Math.max(0, depth),
+      role: String(entry.role ?? extensions.role ?? 'system'),
+      probability: Math.max(0, Math.min(100, numberOr(entry.probability ?? extensions.probability, 100))),
+      useProbability: entry.useProbability ?? extensions.use_probability ?? extensions.useProbability ?? true,
+      group: String(entry.group ?? extensions.group ?? '').trim(),
+      groupOverride: entry.groupOverride ?? extensions.group_override ?? extensions.groupOverride ?? false,
+      groupWeight: Math.max(0, numberOr(entry.groupWeight ?? extensions.group_weight ?? extensions.groupWeight, 100)),
+      sticky: Math.max(0, numberOr(entry.sticky ?? extensions.sticky, 0)),
+      cooldown: Math.max(0, numberOr(entry.cooldown ?? extensions.cooldown, 0)),
+      delay: Math.max(0, numberOr(entry.delay ?? extensions.delay, 0)),
+      excludeRecursion: entry.excludeRecursion ?? extensions.exclude_recursion ?? false,
+      preventRecursion: entry.preventRecursion ?? extensions.prevent_recursion ?? false,
+      delayUntilRecursion: entry.delayUntilRecursion ?? extensions.delay_until_recursion ?? false,
+      vectorized: entry.vectorized ?? extensions.vectorized ?? false,
+      automationId: String(entry.automationId ?? extensions.automation_id ?? ''),
       content: String(entry.content || ''),
       order: Number.isFinite(Number(entry.insertion_order ?? entry.order)) ? Number(entry.insertion_order ?? entry.order) : 100,
-      enabled: entry.enabled !== false,
+      enabled: entry.enabled !== false && entry.disable !== true,
       constant: entry.constant === true,
     };
   });
@@ -6774,7 +6847,8 @@ function worldInfoKeyMatches(key, entry, text) {
   } catch {
     return false;
   }
-  if (!caseSensitive && prefs.wiWholeWord && /^[A-Za-z0-9_]+$/.test(source)) {
+  const wholeWord = entry.matchWholeWords ?? prefs.wiWholeWord;
+  if (!caseSensitive && wholeWord && /^[A-Za-z0-9_]+$/.test(source)) {
     return new RegExp('\\b' + source.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&'), 'i').test(text);
   }
   return caseSensitive ? text.includes(source) : text.toLowerCase().includes(source.toLowerCase());
@@ -6812,31 +6886,17 @@ function buildWorldInfo() {
   for (const e of sources) {
     if (e.enabled === false) continue;
     if (e.constant) { hits.push(e); continue; }
+    if (e.delay > 0 && allMessages.length < e.delay) continue;
     const keys = Array.isArray(e.primaryKeys)
       ? e.primaryKeys
       : String(e.keys || '').split(',').map(k => k.trim()).filter(Boolean);
     if (!keys.length) continue;
-    if (Array.isArray(e.primaryKeys)) {
-      const scanText = scanTextFor(Number.isInteger(e.scanDepth) ? e.scanDepth : defaultDepth);
-      if (!keys.some(k => worldInfoKeyMatches(k, e, scanText))) continue;
-      const secondary = Array.isArray(e.secondaryKeys) ? e.secondaryKeys : [];
-      if (e.selective && secondary.length && !secondary.some(k => worldInfoKeyMatches(k, e, scanText))) continue;
-      hits.push(e);
-      continue;
-    }
-    const scanText = scanTextFor(defaultDepth);
-    for (const k of keys) {
-      let matched = false;
-      if (k.startsWith('/') && k.lastIndexOf('/') > 0) {
-        const end = k.lastIndexOf('/');
-        try { matched = new RegExp(k.slice(1, end), k.slice(end + 1)).test(scanText); } catch { matched = false; }
-      } else if (prefs.wiWholeWord && /^[A-Za-z0-9_]+$/.test(k)) {
-        matched = new RegExp('\\b' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i').test(scanText);
-      } else {
-        matched = scanText.toLowerCase().includes(k.toLowerCase());
-      }
-      if (matched) { hits.push(e); break; }
-    }
+    const scanText = scanTextFor(Number.isInteger(e.scanDepth) ? e.scanDepth : defaultDepth);
+    if (!keys.some(k => worldInfoKeyMatches(k, e, scanText))) continue;
+    const secondary = Array.isArray(e.secondaryKeys) ? e.secondaryKeys : [];
+    if (e.selective && secondary.length && !secondary.some(k => worldInfoKeyMatches(k, e, scanText))) continue;
+    if (e.useProbability !== false && e.probability < 100 && Math.random() * 100 >= e.probability) continue;
+    hits.push(e);
   }
   const seen = new Set();
   const uniq = hits.filter(e => {
@@ -7395,9 +7455,22 @@ function expandPresetMacros(text, macroContext, variables) {
     variables[key.trim()] = value;
     return '';
   });
-  output = output.replace(/\{\{getvar::([^}]+)\}\}/g, (_, key) => variables[key.trim()] ?? '');
-  output = output.replace(/\{\{(user|char|persona|description|personality|scenario)\}\}/g, (_, key) => macroContext[key] ?? '');
-  return output.replace(/\{\{trim\}\}/g, '').trim();
+  output = output.replace(/\{\{setglobalvar::([^}:]+)::([\s\S]*?)\}\}/gi, (_, key, value) => {
+    // ST 的全局变量在本项目中降级为本次请求变量，避免预设静默改写存档/用户数据。
+    variables[key.trim()] = value;
+    return '';
+  });
+  output = output.replace(/\{\{(?:getvar|getglobalvar)::([^}]+)\}\}/gi, (_, key) => variables[key.trim()] ?? '');
+  output = output.replace(/\{\{(user|char|persona|description|personality|scenario|mesExamplesRaw|mesExamples|lastMessage|lastUserMessage|lastCharMessage|messageCount|group|charIfNotGroup)\}\}/gi, (_, key) => {
+    const actualKey = Object.keys(macroContext).find(name => name.toLowerCase() === String(key).toLowerCase()) || key;
+    return macroContext[actualKey] ?? '';
+  });
+  output = output.replace(/\{\{(newline|space|noop)\}\}/gi, (_, key) => key.toLowerCase() === 'newline' ? '\n' : (key.toLowerCase() === 'space' ? ' ' : ''));
+  output = output.replace(/\{\{(?:random|pick)::([\s\S]*?)\}\}/gi, (_, values) => {
+    const options = String(values).split(/::|[|,，]/).map(value => value.trim()).filter(Boolean);
+    return options.length ? options[Math.floor(Math.random() * options.length)] : '';
+  });
+  return output.replace(/\{\{trim\}\}/gi, '').trim();
 }
 
 function mergeHistoryInjections(history, injections) {
@@ -7428,6 +7501,11 @@ function buildPromptBlocks() {
   const charParts = worldModeActive() ? { description: '', personality: '', scenario: '' } : buildCharacterPromptParts(promptChar);
   const userPart = worldModeActive() ? '' : buildUserPromptPart();
   const rpgSections = buildRpgPromptSections();
+  const macroMessages = (worldModeActive() ? worldTimelineMessages() : curMessages())
+    .filter(message => message && (message.role === 'user' || message.role === 'assistant'));
+  const lastMacroMessage = macroMessages.at(-1)?.content || '';
+  const lastMacroUserMessage = [...macroMessages].reverse().find(message => message.role === 'user')?.content || '';
+  const lastMacroCharMessage = [...macroMessages].reverse().find(message => message.role === 'assistant')?.content || '';
   const runtime = {
     worldInfoBefore: wi.length ? '【世界设定】\n' + wi.join('\n\n') : '',
     worldInfoAfter: '',
@@ -7448,6 +7526,14 @@ function buildPromptBlocks() {
     description: charParts.description,
     personality: promptChar?.personality != null ? promptChar.personality : (promptChar?.description == null ? (promptChar?.persona || '') : ''),
     scenario: promptChar?.scenario || '',
+    mesExamples: promptChar?.mesExample || promptChar?.mes_example || '',
+    mesExamplesRaw: promptChar?.mesExample || promptChar?.mes_example || '',
+    lastMessage: lastMacroMessage,
+    lastUserMessage: lastMacroUserMessage,
+    lastCharMessage: lastMacroCharMessage,
+    messageCount: String(macroMessages.length),
+    group: '',
+    charIfNotGroup: worldModeActive() ? (currentWorldCard()?.title || '世界') : (promptChar?.name || '角色'),
   };
   const variables = {};
   const promptMap = new Map(preset.prompts.map(p => [p.identifier, p]));

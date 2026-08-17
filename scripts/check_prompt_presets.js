@@ -294,6 +294,31 @@ assert.strictEqual(context.check.converted.preset.prompts.find(x => x.identifier
 assert.ok(!context.check.converted.preset.promptOrder.some(x => x.identifier === 'spare'));
 assert.throws(() => vm.runInContext("convertSTPresetData({ prompts: Array(2001), prompt_order: [] })", context), /超过 2000 条/);
 
+vm.runInContext(`
+  const compatPreset = convertSTPresetData({
+    prompts: {
+      main: { name: '主提示', role: 'system', system_prompt: true, content: '{{user}}/{{lastMessage}}' },
+      history: { name: '历史', marker: true, content: '' },
+    },
+    prompt_order: { '100001': [{ identifier: 'main' }, 'history'] },
+    extensions: { regex_scripts: { hide: { id: 'hide', findRegex: '/\\[x\\]/g', replaceString: '', affects: ['AI Response'], trimStrings: 'a\\nb' } } },
+    max_completion_tokens: 4096,
+  });
+  const macroVars = {};
+  globalThis.compatResult = {
+    preset: compatPreset,
+    macro: expandPresetMacros('{{setglobalvar::tone::冷静}}{{getglobalvar::tone}}|{{mesExamplesRaw}}|{{lastMessage}}|{{newline}}|{{random::甲::乙}}', {
+      mesExamplesRaw: '示例', lastMessage: '上一条', user: '玩家', char: '角色',
+    }, macroVars),
+  };
+`, context);
+assert.strictEqual(context.compatResult.preset.preset.promptOrder.length, 2);
+assert.strictEqual(context.compatResult.preset.preset.modelParameters.max_completion_tokens, 4096);
+assert.strictEqual(context.compatResult.preset.preset.regexes[0].placement[0], 'AI Response');
+assert.deepStrictEqual(JSON.parse(JSON.stringify(context.compatResult.preset.preset.regexes[0].trimStrings)), ['a', 'b']);
+assert.match(context.compatResult.macro, /冷静\|示例\|上一条\|/);
+assert.match(context.compatResult.macro, /甲|乙/);
+
 const tavernDefault = defaultData.presets['RP 基础（示例）'];
 const rpgDefault = defaultData.presets['RPG 叙事引擎（示例）'];
 assert.ok(tavernDefault.systemPrompt.length > 100);
