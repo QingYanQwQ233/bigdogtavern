@@ -90,6 +90,9 @@ async function main() {
     assert.match(worldExport.response.headers.get('content-disposition') || '', /\.tavern-world\.json/);
     assert.strictEqual(worldExport.body.spec, 'tavern_world_package');
     assert.strictEqual(worldExport.body.specVersion, 1);
+    assert.strictEqual(worldExport.body.manifest.appContractVersion, 1);
+    assert.strictEqual(worldExport.body.manifest.capabilities.ui.layout, 'world-desk');
+    assert.strictEqual(worldExport.body.manifest.capabilities.references.preset, true);
     assert.strictEqual(worldExport.body.content.world.id, world.id);
     assert.deepStrictEqual(worldExport.body.content.characters.map(character => character.id), ['char-export']);
     assert.deepStrictEqual(Object.keys(worldExport.body.content.lorebooks), ['default']);
@@ -151,6 +154,24 @@ async function main() {
     assert.strictEqual(importedLorebooks.body[importedWorld.body.lorebookIds[0]].entries.find(entry => entry.id === 'import-regex').enabled, false, 'imported regex remains inert until reviewed');
     const importedPresets = await jsonRequest(base, '/api/data/presets');
     assert.ok(Object.values(importedPresets.body).some(preset => preset.importInfo?.importId === importPreview.body.id));
+
+    const legacyPackage = JSON.parse(JSON.stringify(worldExport.body));
+    delete legacyPackage.manifest.appContractVersion;
+    delete legacyPackage.manifest.capabilities;
+    for (const key of ['ui', 'runtime', 'agent', 'regexes']) delete legacyPackage.content.world[key];
+    legacyPackage.manifest.contentHash = packageHash(legacyPackage);
+    const legacyPreview = await jsonRequest(base, '/api/world-imports', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ raw: JSON.stringify(legacyPackage) }),
+    });
+    assert.strictEqual(legacyPreview.response.status, 201, 'legacy world package remains importable');
+    assert.strictEqual(legacyPreview.body.report.appContractVersion, 1);
+    const legacyImported = await jsonRequest(base, '/api/world-imports/' + encodeURIComponent(legacyPreview.body.id), { method: 'POST' });
+    assert.strictEqual(legacyImported.response.status, 201);
+    const legacyWorld = await jsonRequest(base, `/api/worlds/${encodeURIComponent(legacyImported.body.world.id)}?version=1`);
+    assert.deepStrictEqual(legacyWorld.body.ui, {}, 'legacy package gets a default UI declaration during mapping');
+    assert.deepStrictEqual(legacyWorld.body.runtime, {}, 'legacy package gets a default runtime schema during mapping');
+    assert.deepStrictEqual(legacyWorld.body.agent, {}, 'legacy package gets a default agent profile during mapping');
+    assert.deepStrictEqual(legacyWorld.body.regexes, [], 'legacy package gets a default regex list during mapping');
     const duplicateImport = await jsonRequest(base, '/api/world-imports/' + encodeURIComponent(importPreview.body.id), { method: 'POST' });
     assert.strictEqual(duplicateImport.response.status, 200);
     assert.strictEqual(duplicateImport.body.idempotent, true, 'same sealed package commits idempotently');

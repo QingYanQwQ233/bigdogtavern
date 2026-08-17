@@ -66,7 +66,10 @@ WorldSave(saveId, worldId, worldVersion, revision)
 {
   "spec": "tavern_world_package",
   "specVersion": 1,
-  "manifest": {},
+  "manifest": {
+    "appContractVersion": 1,
+    "capabilities": {}
+  },
   "content": {
     "world": {},
     "characters": [],
@@ -76,6 +79,8 @@ WorldSave(saveId, worldId, worldVersion, revision)
   "assets": []
 }
 ```
+
+`manifest.appContractVersion` 是世界应用契约版本，当前为 `1`；缺失时按旧包兼容处理，未来版本高于宿主能力会拒绝导入。导出时同时写入 `capabilities`，只描述包声明了哪些 UI、runtime、Agent、正则和引用能力，不包含运行时状态。
 
 W1 只扩展 `content.world` 的已知字段，不另起第二份状态仓库。目标结构如下：
 
@@ -106,6 +111,7 @@ W1 只扩展 `content.world` 的已知字段，不另起第二份状态仓库。
 - `ui` 定义界面和权限，不保存对话或正式数值。
 - `assets` 只允许受校验的相对路径 / 数据资源引用；不允许本机绝对路径和带认证参数的 URL。
 - 导入必须保留原始包、来源、版本和哈希；确认后才命名空间化落库。
+- 导入旧包时仅在内存映射阶段补齐缺省的 `ui`、`runtime`、`agent`、`regexes` 和引用数组；原始封存文本与内容哈希不改写。
 
 ## 4. 自定义 UI 契约
 

@@ -132,6 +132,7 @@ function cloneJson(value) {
 
 const WORLD_PACKAGE_SPEC = 'tavern_world_package';
 const WORLD_PACKAGE_VERSION = 1;
+const WORLD_APP_CONTRACT_VERSION = 1;
 const WORLD_IMPORT_MAX_BYTES = 2 * 1024 * 1024;
 const EXPORT_SECRET_KEYS = new Set(['authorization', 'bearer', 'token', 'password', 'extraheaders']);
 const EXPORT_PRIVATE_KEYS = new Set(['sourcesaveid', 'sourcegeneratedentityid']);
@@ -151,6 +152,50 @@ function sha256Json(value) {
 
 function sha256Text(value) {
   return 'sha256:' + crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function normalizeWorldAppWorld(world) {
+  if (!world || typeof world !== 'object' || Array.isArray(world)) return world;
+  const next = cloneJson(world);
+  if (next.schemaVersion === undefined || next.schemaVersion === null) next.schemaVersion = 1;
+  if (next.lorebookIds === undefined || next.lorebookIds === null) next.lorebookIds = [];
+  if (next.rpgPresetName === undefined || next.rpgPresetName === null) next.rpgPresetName = '';
+  if (next.regexes === undefined || next.regexes === null) next.regexes = [];
+  if (next.runtime === undefined || next.runtime === null) next.runtime = {};
+  if (next.agent === undefined || next.agent === null) next.agent = {};
+  if (next.ui === undefined || next.ui === null) next.ui = {};
+  return next;
+}
+
+function normalizeWorldAppPackage(pkg) {
+  if (!pkg || typeof pkg !== 'object' || Array.isArray(pkg)) return pkg;
+  const content = pkg.content && typeof pkg.content === 'object' && !Array.isArray(pkg.content) ? pkg.content : {};
+  return {
+    ...pkg,
+    content: { ...content, world: normalizeWorldAppWorld(content.world) },
+    assets: Array.isArray(pkg.assets) ? pkg.assets : [],
+  };
+}
+
+function worldAppCapabilities(world) {
+  const ui = world?.ui && typeof world.ui === 'object' && !Array.isArray(world.ui) ? world.ui : {};
+  const runtime = world?.runtime && typeof world.runtime === 'object' && !Array.isArray(world.runtime) ? world.runtime : {};
+  const agent = world?.agent && typeof world.agent === 'object' && !Array.isArray(world.agent) ? world.agent : {};
+  return {
+    ui: {
+      layout: typeof ui.layout === 'string' && ui.layout ? ui.layout : 'host',
+      sidebar: Array.isArray(ui.sidebar?.panels) && ui.sidebar.panels.length > 0,
+      extension: ui.extension?.enabled === true,
+      entryGate: ui.entryGate?.enabled === true,
+    },
+    runtime: Array.isArray(runtime.variables) || Array.isArray(runtime.collections) || Array.isArray(runtime.actions),
+    agent: Object.keys(agent).length > 0,
+    regexes: Array.isArray(world?.regexes) ? world.regexes.length : 0,
+    references: {
+      lorebooks: Array.isArray(world?.lorebookIds) ? world.lorebookIds.length : 0,
+      preset: typeof world?.rpgPresetName === 'string' && world.rpgPresetName.length > 0,
+    },
+  };
 }
 
 function worldImportPath(importId) {
@@ -3890,6 +3935,7 @@ async function describeWorldPackageAsset(role, ownerId, uri) {
 }
 
 async function buildWorldPackage(world) {
+  world = normalizeWorldAppWorld(world);
   const [rawCharacters, rawLorebooks, rawPresets] = await Promise.all([
     loadDataDocument('characters'), loadDataDocument('lorebooks'), loadDataDocument('presets'),
   ]);
@@ -3951,6 +3997,8 @@ async function buildWorldPackage(world) {
       packageId: world.id,
       worldVersion: Number(world.version),
       worldSchemaVersion: Number(world.schemaVersion || 1),
+      appContractVersion: WORLD_APP_CONTRACT_VERSION,
+      capabilities: worldAppCapabilities(world),
       title: String(world.title || world.id),
       author: typeof (world.author || world.source?.author) === 'string' ? (world.author || world.source.author) : null,
       license: typeof (world.license || world.source?.license) === 'string' ? (world.license || world.source.license) : null,
@@ -4037,6 +4085,10 @@ function worldPackageImportReport(pkg) {
   }
   if (pkg.spec !== WORLD_PACKAGE_SPEC) errors.push('不支持的世界包 spec');
   if (pkg.specVersion !== WORLD_PACKAGE_VERSION) errors.push('不支持的世界包版本');
+  if (pkg.manifest?.appContractVersion !== undefined
+    && (!Number.isInteger(pkg.manifest.appContractVersion) || pkg.manifest.appContractVersion < 1 || pkg.manifest.appContractVersion > WORLD_APP_CONTRACT_VERSION)) {
+    errors.push('不支持的世界应用契约版本');
+  }
   const content = pkg.content;
   if (!content || typeof content !== 'object' || Array.isArray(content)) errors.push('世界包缺少 content 对象');
   const world = content?.world;
@@ -4138,6 +4190,7 @@ function worldPackageImportReport(pkg) {
     unknownTopLevelKeys,
     inertPaths,
     references: { characters: characters.length, lorebooks: lorebookIds.size, presets: presetNames.size, assets: pkg.assets.length },
+    appContractVersion: Number(pkg.manifest?.appContractVersion || 1),
     disabledRegexEntries: regexEntries.length,
   };
 }
@@ -4198,7 +4251,7 @@ async function handleWorldPackageImportPreview(req, res) {
 }
 
 function mapImportedWorldPackage(pkg, importId, rawHash) {
-  const content = cloneJson(pkg.content);
+  const content = cloneJson(normalizeWorldAppPackage(pkg).content);
   const sourceWorld = content.world;
   const characterIdMap = new Map(content.characters.map(character => [character.id, importedEntityId('char', importId, character.id)]));
   const lorebookIdMap = new Map(Object.keys(content.lorebooks).map(id => [id, importedEntityId('lore', importId, id)]));
