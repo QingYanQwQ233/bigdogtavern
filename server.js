@@ -456,6 +456,22 @@ function validateWorldRuntime(value) {
   return null;
 }
 
+function normalizeMvuUpdates(message) {
+  let value = message;
+  if (typeof value === 'string') {
+    try { value = JSON.parse(value); } catch { return null; }
+  }
+  if (Array.isArray(value)) return value;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  for (const candidate of [value.updates, value.patch?.updates, value.data?.updates]) {
+    if (Array.isArray(candidate)) return candidate;
+  }
+  if (value.variables && typeof value.variables === 'object' && !Array.isArray(value.variables)) {
+    return Object.entries(value.variables).map(([id, variableValue]) => ({ type: 'runtime.variable.set', id, value: variableValue }));
+  }
+  return null;
+}
+
 function materializeWorldRuntimeState(runtime) {
   const schema = runtime && typeof runtime === 'object' && !Array.isArray(runtime) ? cloneJson(runtime) : { version: 1, variables: [], collections: [], actions: [] };
   const initialValue = item => item.initial !== undefined
@@ -5829,13 +5845,16 @@ async function handleWorldRuntimePost(req, res, saveId) {
   try { payload = await readJsonBody(req, 128 * 1024); }
   catch (err) { return send(res, err.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400, JSON.stringify({ error: err.message }), 'application/json'); }
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)
-    || Object.keys(payload).some(key => !['commandId', 'expectedRevision', 'updates'].includes(key))
+    || Object.keys(payload).some(key => !['commandId', 'expectedRevision', 'updates', 'mvu'].includes(key))
     || typeof payload.commandId !== 'string' || !COMMAND_ID_RE.test(payload.commandId)
-    || !Number.isSafeInteger(payload.expectedRevision) || payload.expectedRevision < 0
-    || !Array.isArray(payload.updates) || payload.updates.length < 1 || payload.updates.length > 16) {
-    return send(res, 400, JSON.stringify({ error: 'commandId、expectedRevision 或 updates 无效' }), 'application/json');
+    || !Number.isSafeInteger(payload.expectedRevision) || payload.expectedRevision < 0) {
+    return send(res, 400, JSON.stringify({ error: 'commandId 或 expectedRevision 无效' }), 'application/json');
   }
-  const patch = { protocol: RPG_PATCH_PROTOCOL, version: RPG_PATCH_VERSION, baseRevision: payload.expectedRevision, updates: payload.updates };
+  const updates = Array.isArray(payload.updates) ? payload.updates : normalizeMvuUpdates(payload.mvu);
+  if (!Array.isArray(updates) || updates.length < 1 || updates.length > 16) {
+    return send(res, 400, JSON.stringify({ error: 'updates 或 mvu 消息无效' }), 'application/json');
+  }
+  const patch = { protocol: RPG_PATCH_PROTOCOL, version: RPG_PATCH_VERSION, baseRevision: payload.expectedRevision, updates };
   const invalidPatch = validateRpgPatch(patch);
   if (invalidPatch) return send(res, 400, JSON.stringify({ error: invalidPatch }), 'application/json');
   if (patch.updates.some(update => !String(update.type || '').startsWith('runtime.'))) return send(res, 400, JSON.stringify({ error: '扩展只允许 runtime.* 更新' }), 'application/json');

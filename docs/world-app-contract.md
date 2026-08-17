@@ -212,6 +212,7 @@ UI / Agent action
 - 角色卡、预设中的 EJS / MVU / 脚本：保存、导出、兼容报告，默认不执行；
 - 世界卡中的 EJS：第一阶段只做安全模板子集或原文保留，不执行任意 Node/EJS 代码；
 - 世界卡中的 MVU：映射到受限变量、集合和 Typed Patch，不实现无限制 `eval`；
+- MVU 兼容入口接受现有 Typed Patch、`{ updates: [...] }`、`{ patch: { updates: [...] } }` 或变量映射 `{ variables: { id: value } }`；变量映射会转换为 `runtime.variable.set`，不支持任意 JSON Path。
 - 真正的交互脚本只能走授权后的 sandbox Bridge。
 
 兼容报告必须区分：`完整支持`、`映射但有差异`、`保留但不执行`、`需要人工转换`、`存在风险并隔离`。

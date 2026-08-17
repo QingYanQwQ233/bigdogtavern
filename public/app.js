@@ -3846,8 +3846,15 @@ async function handleWorldExtensionMessage(event) {
   try {
     if (data.type === 'runtime.patch' || data.type === 'mvu') {
       if (!permissions.has('write.runtime')) throw new Error('扩展没有 write.runtime 权限');
-      const updates = data.type === 'runtime.patch' ? data.updates : (data.message?.updates || data.message?.patch?.updates);
-      const result = await submitWorldExtensionUpdates(updates);
+       let message = data.type === 'runtime.patch' ? { updates: data.updates } : data.message;
+       if (typeof message === 'string') {
+         try { message = JSON.parse(message); } catch { message = null; }
+       }
+       const updates = message?.updates || message?.patch?.updates || message?.data?.updates
+         || (message?.variables && typeof message.variables === 'object' && !Array.isArray(message.variables)
+           ? Object.entries(message.variables).map(([id, value]) => ({ type: 'runtime.variable.set', id, value })) : null);
+       if (!Array.isArray(updates)) throw new Error('MVU 消息未包含可映射的 updates 或 variables');
+       const result = await submitWorldExtensionUpdates(updates);
       respondWorldExtension(event, data.requestId, true, result);
       return;
     }
