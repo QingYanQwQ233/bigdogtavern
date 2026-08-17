@@ -26,7 +26,9 @@ vm.runInContext(`
     rpg: [{ id: 'custom-rpg', name: 'RPG 标签', findRegex: '/<hidden>[\\\\s\\\\S]*?<\\\\/hidden>/g', replaceString: '' }],
   } };
   settings = { ...DEFAULT_SETTINGS };
-  characters = [{ id: 'c', name: '测试角色', presetName: '带正则' }];
+  characters = [{ id: 'c', name: '测试角色', presetName: '带正则', cardExtensions: { regex_scripts: [
+    { id: 'card-html', scriptName: '卡片 HTML', findRegex: '/<状态>([\\\\s\\\\S]*?)<\\\\/状态>/g', replaceString: '<strong>$1</strong>', placement: [1, 2] },
+  ] } }];
   currentCharId = 'c';
   currentWorldId = null;
   currentWorldSave = null;
@@ -40,6 +42,8 @@ vm.runInContext(`
   };
   globalThis.check = {
     tavern: applyOutputRegex('正文<think>secret</think>[secret]保留'),
+    character: applyOutputRegex('<状态>在线</状态>'),
+    legacyCharacter: applyCharacterCardOutputRegex('<状态>在线</状态>'),
     matchMacro: applyOutputRegexRule('标签：秘密', { replaceString: '【{{match}}】', trimStrings: [] }, buildOutputRegex({ findRegex: '/秘密/g' })),
     converted: convertSTPresetData({
       prompts: [{ identifier: 'main', content: '' }],
@@ -52,6 +56,8 @@ vm.runInContext(`
 `, context);
 
 assert.strictEqual(context.check.tavern, '正文保留');
+assert.strictEqual(context.check.character, '<strong>在线</strong>');
+assert.strictEqual(context.check.legacyCharacter, '<strong>在线</strong>');
 assert.strictEqual(context.check.matchMacro, '标签：【秘密】');
 assert.strictEqual(context.check.converted.report.regexes, 1);
 assert.strictEqual(context.check.converted.preset.regexes[0].id, 'st-hide');

@@ -7,7 +7,7 @@ Tavern 是一个面向 AI 角色扮演的本地 Web 应用。它把普通的角�
 
 项目的核心不变量是：**数据按所有权分层绑定，不跨角色、跨会话、跨存档串数据；能结构化保存的状态不只依赖 AI 记忆。**
 
-![Tavern 宣传图](public/assets/tavern-promo-v1.png)
+![Tavern 宣传图](public/assets/tavern-promo-text-v2.png)
 
 ## 快速开始
 
@@ -18,6 +18,16 @@ node server.js
 ```
 
 打开 <http://localhost:3000>，然后在「设置 → 连接」中填写 OpenAI 兼容接口的 Base URL、API Key 和模型。支持 OpenAI、DeepSeek、OpenRouter、Ollama、LM Studio 以及其他 `/chat/completions` 兼容服务。
+
+## 本次更新 · 2026-08-17
+
+- RPG 世界卡支持自定义 HTML/CSS/JS 前端、沉浸模式、入口警告、声明式 runtime 变量/集合/动作和 Agent 选择桥接；新增“电子病娇 · 由依协议”测试世界卡。
+- Agent 回合统一接入规则检查、客户端骰子、工具 Guard trace、两阶段提交、pending 恢复和结构化回执。
+- 酒馆模式补齐 Character Card V3 / PNG 元数据、角色书绑定、卡片级输出正则、HTML/Markdown 安全渲染和 `{{user}}` 显示宏。
+- RP / RPG 回复选项改为预设协议驱动，选项不再写死在前端；编辑消息时输入框按聊天区域自适应并支持拖高。
+- Android 套壳补齐 `user.json` 与数组/对象 JSON 原子持久化校验；推送后由 GitHub Actions 构建 APK。
+
+详细变更与验证命令见 [CHANGELOG.md](CHANGELOG.md)。
 
 常用检查：
 
@@ -55,14 +65,16 @@ world-deleted.json         已删除世界卡 ID（防止默认模板重新出�
 
 酒馆模式围绕“角色卡 + 对话会话”工作：
 
-- 角色卡创建、编辑、删除，以及 Character Card V1/V2 JSON 导入导出；
+- 角色卡创建、编辑、删除，以及 Character Card V1/V2/V3 JSON 导入导出；支持读取 PNG 内嵌的 `ccv3` / `chara` 元数据，V3 的角色书与扩展字段按角色卡绑定保存；
 - 三步 AI 写卡：一句话定角色 → JSON Schema 动态填表 → 生成完整结构化角色卡；
 - 动态角色字段、可自定义栏目和运行时保存，不把世界观字段写死在前端；
 - SillyTavern 风格提示词预设：System、历史前/后指令、In-Chat、Relative、宏、排序和导入导出；
+- 独立「后预设 / Post-History」栏目：预设组装完成后追加高优先级指令；RP 基础示例已内置 AI 回复选项协议，其他预设仍按全局配置自动追加；
 - 独立「正则」设置：RP / RPG 分模式保存自定义输出正则，并自动识别预设携带的 `extensions.regex_scripts`；
 - 多本世界书：触发词、正则、常驻、扫描深度、整词匹配和角色绑定；
 - 玩家设定、手动记忆、消息编辑/删除/复制/重生成；
 - 可选旁白/对白拆分：默认整条回复作为连续正文，按需在「设置 → 格式」开启对白气泡；
+- AI 回复选项：RP 与 RPG 都由模型生成结构化快捷行动，点击后直接发送；RP 缺少标签时最多自动修复一次；选项标签不会进入正文，也不再使用写死的快捷按钮；
 - 「设置 → 排版」热调整聊天正文：字体、字号、行间距、段间距、段首缩进（空两格）与左右间距，拖动即时预览、自动保存；
 - AI 消息完整 GFM Markdown 渲染与安全清洗：标题、列表/任务列表、表格、引用、代码块、行内代码、链接、图片、删除线、键盘标记和分隔线；
 - 文生图消息（OpenAI 兼容或 Stable Diffusion），图片保存后可持久化。
@@ -131,7 +143,8 @@ Agent 模式、最大步骤数和工具开关可在世界卡编辑器中按卡�
 
 世界卡还可以通过声明式 `ui.sidebar.panels[]` 增加关系、事件、资源等侧栏投影；数据源使用白名单路径，动态内容始终读取当前存档。
 RPG GEN 3 增加受限 `runtime` DSL：世界卡可声明变量、集合（例如商城）和动作；创建存档时快照到 `state.runtime`，AI 只能通过 Typed Patch 的 `runtime.*` 更新，侧栏可读取 `runtime.variables.<id>` / `runtime.collections.<id>`。
-GEN 3.1 支持世界卡 `ui.extension`：HTML/CSS/JS 在 `sandbox="allow-scripts"` 的隔离 iframe 中运行，CSP 禁止网络、表单、嵌套 frame 和主页面访问；通过 `TavernExtension.requestContext()`、`patch()`、`action()` 和 `mvu()` 走白名单消息协议。世界草稿页提供扩展字段可视化编辑器，也保留高级 JSON 入口；点击“从高级 JSON 载入扩展”后再保存即可合并两种视图。写入统一提交 `/api/world-saves/:id/runtime`，前后端都强制检查 `write.runtime`，仍受存档 revision、runtime Schema 和 Typed Patch 校验，不执行主页面脚本。Agent 两阶段回合的 pending 还会保存受限的待叙事消息和选项，页面刷新后可继续提交或放弃，正式状态仍只在 narrate 阶段写入。
+GEN 3.1 支持世界卡 `ui.extension`：HTML/CSS/JS 在 `sandbox="allow-scripts"` 的隔离 iframe 中运行，CSP 禁止网络、表单、嵌套 frame 和主页面访问；通过 `TavernExtension.requestContext()`、`patch()`、`action()`、`choose()` 和 `mvu()` 走白名单消息协议。`choose(text, { actionId, input, updates })` 会把扩展按钮当作普通 RPG 玩家行动送入现有 Agent 回合（需要 `read.save`）；有 `actionId/updates` 时仍需 `write.runtime`，纯文本选择不需要额外运行时权限。`context.turn.options` 与底部快捷回复读取同一份结构化选项，`context.turn.narrative/hasResponse` 提供最新 AI 正文，`context.messages` 提供当前存档最近 40 条用户 / AI 消息。卡内 HTML 可用 `data-tavern-narrative`（最新叙事）、`data-tavern-messages`（消息历史）、`data-tavern-options`（AI 选项）和 `data-tavern-input` / `data-tavern-submit`（自定义输入）接入；按钮和表单提交会复用当前 Agent 回合，卡可以自行决定结构与 CSS。沉浸扩展没有这些标记时不会被框架偷偷补第二个叙事框或输入框。扩展桥为长思维链和 Agent 工具循环保留 120 秒等待时间。只要世界卡存在扩展，默认独立接管页面；扩展设置 `immersive:false` 才嵌回宿主 RPG 布局（草稿页有对应勾选项），`ui.layout: "immersive"` 仍可作为显式标记。沉浸布局会隐藏主应用侧栏、顶栏、RPG 状态栏和底部输入框，只保留世界卡自己的前端与退出按钮。世界草稿页提供扩展字段可视化编辑器，也保留高级 JSON 入口；点击“从高级 JSON 载入扩展”后再保存即可合并两种视图。写入统一提交 `/api/world-saves/:id/runtime`，前后端都强制检查 `write.runtime`，仍受存档 revision、runtime Schema 和 Typed Patch 校验，不执行主页面脚本。Agent 两阶段回合的 pending 还会保存受限的待叙事消息和选项，页面刷新后可继续提交或放弃，正式状态仍只在 narrate 阶段写入。
+世界卡还可以声明 `ui.entryGate`，在“建立新存档”真正创建前显示卡片自定义的内容警告；取消会回到世界库，确认后才进入玩家建角。`fullscreen: true` 会在确认点击的用户手势内请求浏览器全屏，权限被浏览器拒绝时自动降级为普通沉浸布局。默认种子新增 `world-electronic-yandere`「电子病娇 · 由依协议」，用于验收入口门禁、隔离前端、runtime action 和 Agent 回合：扩展会提出“你爱我吗？”，选择“不爱”后把可见选项锁成“爱”并弹出二次询问。
 Agent 回合还会保存受限的工具 Guard trace，并在 receipt 中记录每个工具的通过 / 拒绝结果；服务端会校验工具阶段顺序（`observe → decide → guard`），成功的 `dice.roll` 必须先有同回合通过的 `rules.check`。trace 只用于诊断，不能绕过服务端 Typed Patch、规则和 CAS 校验。
 Agent 执行摘要还会绑定候选 `agentCalls` 与 trace 的 `callId/name`，并保存候选、观察、通过、拒绝计数；只读 `context.retrieve` 不进入状态候选。
 多步骤行动可把 `objective.upsert` 作为可忽略的计划步骤；计划会随 orchestration 摘要进入 pending/receipt，不会自动变成强制主线。
@@ -170,7 +183,7 @@ RPG 记忆不是一段模糊的 AI 摘要，而是几层结构化事实：
 ### RPG 开发者实验台
 
 启动页面时追加 `?dev=1`，顶栏会显示「🧪 开发者」。选择一个外置测试场景后直接点击「运行所选测试」即可；场景内部自动填充 `rules.check → dice.roll → tool 回传`、Typed Patch、实体候选和事件记忆，不需要填写 JSON。测试反馈会写入本次 RPG 叙事，选项会恢复为叙事栏下方的快捷按钮。没有完成开局规划的存档不会允许提交。它直接复用正式 `/api/world-saves/:id` 回合协议，不会创建第二套状态路径。
-GEN 3 服务端闭环可用 `node scripts/check_rpg_gen3.js` 快速验收；扩展沙箱和 runtime action 可用 `node scripts/check_rpg_extension.js` 验收。
+GEN 3 服务端闭环可用 `node scripts/check_rpg_gen3.js` 快速验收；扩展沙箱和 runtime action 可用 `node scripts/check_rpg_extension.js` 验收；电子病娇世界卡可用 `node scripts/check_world_electronic_yandere.js` 验收。
 
 ## 项目结构
 

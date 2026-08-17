@@ -21,13 +21,13 @@ APK 结构：
                             ├ /api/world-saves/:id/summary|memory 总结与记忆诊断/重建
                             ├ /api/world-drafts 世界草稿（基础读写）
                             ├ /api/world-imports 世界包预览、封存与确认导入（正则默认禁用）
-                            ├ /api/data/*     数据读写 filesDir/data/（首次从 _defaults.json 初始化）
+                            ├ /api/data/*     数据读写 filesDir/data/（首次从 _defaults.json 初始化；角色库数组与其他对象均会原子落盘）
                             └ 静态资源         assets 根；/images/* 读 filesDir/images/
   MainActivity.kt       ← 启动服务 + WebView 加载 http://127.0.0.1:3000/
 ```
 
 - **离线**：全部代码/数据在手机本地；联网仅用于调用你配置的 LLM / 生图 API
-- **前端零改动**：页面与 /api/* 同源，无 CORS；localStorage（角色/世界书/会话）在 WebView 持久
+- **前端零改动**：页面与 /api/* 同源，无 CORS；localStorage 作为缓存，角色卡、世界书、预设、用户设定和会话通过 `/api/data/*` 持久保存到 `filesDir/data/`，大退/重启不会依赖 WebView 缓存
 - **安全**：`network_security_config.xml` 只允许 127.0.0.1 明文，外部一律 HTTPS
 
 ## 构建（你本地不用装任何东西）

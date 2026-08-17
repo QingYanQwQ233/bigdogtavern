@@ -17,12 +17,16 @@ const context = vm.createContext({
 });
 
 const source = fs.readFileSync('public/app.js', 'utf8').replace(/\ninit\(\);\s*$/, '');
+const indexHtml = fs.readFileSync('public/index.html', 'utf8');
 const defaultData = JSON.parse(fs.readFileSync('public/data/_defaults.json', 'utf8'));
 assert.strictEqual(defaultData.rpg.agent.protocol, 'tavern.rpg.agent');
 assert.strictEqual(defaultData.rpg.agent.tools['state.patch'].execution, 'server');
+assert.match(indexHtml, /id="pg-post-history"/);
+assert.doesNotMatch(indexHtml, /摸摸头|观察四周|试探对方|保持戒备/);
+assert.match(defaultData.presets['RP 基础（示例）'].postHistory, /<tavern_options>/);
 vm.runInContext(source, context);
 vm.runInContext(`
-  defaults = { gen: {}, rpg: {} };
+  defaults = { gen: {}, rpg: {}, tavern: { replyOptions: { enabled: true, min: 4, max: 4, count: 4, instruction: 'OPT {count}' } } };
   formatInstructions = { prose: { text: '使用 Markdown。' } };
   prefs = { currentPreset: '旧预设', currentPresetByMode: { tavern: '旧预设', rpg: 'RPG 预设' }, formatPreset: 'prose', formatCustom: '' };
   settings = { ...DEFAULT_SETTINGS, baseUrl: 'http://example.test', history: 20 };
@@ -51,6 +55,19 @@ vm.runInContext(`
     activeTavern: activePresetNameForMode('tavern'),
     activeRpg: activePresetNameForMode('rpg'),
     blocks: buildPromptBlocks(),
+    embeddedOptionBlocks: (() => {
+      const previous = promptPresets['旧预设'].postHistory;
+      promptPresets['旧预设'].postHistory = previous + '<tavern_options>["内置一"]</tavern_options>';
+      const result = buildPromptBlocks();
+      promptPresets['旧预设'].postHistory = previous;
+      return result;
+    })(),
+    tavernOptions: parseTavernReplyOutput('正文。<tavern_options>["A","B","A","C","D","E"]</tavern_options>', promptPresets['旧预设']),
+    tavernOptionsDuplicate: parseTavernReplyOutput('正文。<tavern_options>["A"]</tavern_options>尾部<tavern_options>["B"]</tavern_options>', promptPresets['旧预设']),
+    tavernOptionsMalformed: parseTavernReplyOutput('正文。<tavern_options>{oops}</tavern_options>', promptPresets['旧预设']),
+    tavernNeedsRepair: tavernReplyNeedsOptionRepair(parseTavernReplyOutput('正文。', promptPresets['旧预设']), promptPresets['旧预设']),
+    tavernDoesNotNeedRepair: tavernReplyNeedsOptionRepair(parseTavernReplyOutput('正文。<tavern_options>["A","B","C","D"]</tavern_options>', promptPresets['旧预设']), promptPresets['旧预设']),
+    debugTavernTag: extractDebugOutputTag('正文。<tavern_options>["A","B","C","D"]</tavern_options>'),
     payload: buildPayload(),
     worldPrompt: (() => {
       mode = 'rpg';
@@ -188,6 +205,24 @@ vm.runInContext(`
   check.explicitGlobal = activePresetNameForMode('tavern');
 `, context);
 
+vm.runInContext(`
+  var previousDefaults = defaults;
+  defaults = { gen: {}, rpg: {} };
+  promptPresets['RP 基础（示例）'] = normalizePromptPreset('RP 基础（示例）', {
+    mode: 'tavern', systemPrompt: '你是互动小说作者。', postHistory: '旧后预设', modules: [],
+  });
+  migrateBuiltInTavernPreset({ presets: {
+    'RP 基础（示例）': { postHistory: '内置前置。\\n\\n【AI 回复选项协议】输出 <tavern_options>["A","B","C","D"]</tavern_options>。' },
+  } });
+  globalThis.check.staleMigration = promptPresets['RP 基础（示例）'].postHistory;
+  defaults = { gen: {}, rpg: {}, presets: {
+    'RP 基础（示例）': { postHistory: '内置前置。\\n\\n【AI 回复选项协议】输出 <tavern_options>["A","B","C","D"]</tavern_options>。' },
+  } };
+  mode = 'tavern';
+  globalThis.check.staleOptions = parseTavernReplyOutput('正文。<tavern_options>["A","B","C","D"]</tavern_options>', promptPresets['RP 基础（示例）']);
+  defaults = previousDefaults;
+`, context);
+
 assert.strictEqual(context.check.migratedVersion, 2);
 assert.strictEqual(context.check.escaped, '&quot; onmouseover=&quot;x');
 assert.strictEqual(context.check.activeTavern, '旧预设');
@@ -232,8 +267,20 @@ assert.match(context.check.worldLoreTrace.b, /WORLD_B_NPC/);
 assert.match(context.check.worldLoreTrace.b, /SAVE_B_NPC/);
 assert.doesNotMatch(context.check.worldLoreTrace.b, /WORLD_A_NPC|SAVE_A_NPC/);
 assert.match(context.check.blocks.system, /与 旅人 合作/);
-assert.match(context.check.blocks.system, /保持轻快/);
+assert.match(context.check.blocks.post, /保持轻快/);
+assert.match(context.check.blocks.post, /OPT 4/);
+assert.strictEqual((context.check.embeddedOptionBlocks.post.match(/<tavern_options\b/gi) || []).length, 1);
+assert.doesNotMatch(context.check.embeddedOptionBlocks.post, /OPT 4/);
 assert.strictEqual((context.check.blocks.system.match(/月港终年有雾/g) || []).length, 1);
+assert.deepStrictEqual(JSON.parse(JSON.stringify(context.check.tavernOptions.options)), ['A', 'B', 'C', 'D']);
+assert.strictEqual(context.check.tavernOptions.content, '正文。');
+assert.strictEqual(context.check.tavernOptionsDuplicate.content, '正文。尾部');
+assert.strictEqual(context.check.tavernOptionsMalformed.content, '正文。');
+assert.strictEqual(context.check.tavernNeedsRepair, true);
+assert.strictEqual(context.check.tavernDoesNotNeedRepair, false);
+assert.match(context.check.debugTavernTag, /<tavern_options>/);
+assert.match(context.check.staleMigration, /<tavern_options>/);
+assert.deepStrictEqual(JSON.parse(JSON.stringify(context.check.staleOptions.options)), ['A', 'B', 'C', 'D']);
 assert.deepStrictEqual(JSON.parse(JSON.stringify(context.check.blocks.history)), [
   { role: 'user', content: '出发吧' },
   { role: 'user', content: '只推进一步。' },

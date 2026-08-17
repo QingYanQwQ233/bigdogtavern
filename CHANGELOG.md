@@ -1,5 +1,28 @@
 # 更新日志
 
+## 2026-08-17 · RPG GEN 3 / 世界卡扩展版本
+
+### 新增
+
+- 世界卡可声明隔离的 HTML/CSS/JS 前端、沉浸布局、入口内容警告、全屏请求和自定义输入/叙事/选项挂载点。
+- RPG GEN 3 runtime 变量、集合、动作与 `TavernExtension.choose()`，统一复用 Agent 回合和 WorldSave 权限校验。
+- Agent 工具阶段 Guard trace、两阶段 `execute → narrate`、pending 恢复、计划摘要和回执诊断。
+- Character Card V3 / PNG 元数据读取、角色书自动注册与角色级输出正则；新增电子病娇测试世界卡和验收脚本。
+- RP / RPG 结构化回复选项协议、Markdown/HTML 安全渲染，以及可拖拽扩大的消息编辑框。
+
+### 修复
+
+- 修复 RP 卡片缩进 HTML 被 Markdown 当作代码块显示的问题，并在显示阶段将 `{{user}}` 替换为当前玩家名。
+- 修复角色卡示例图、世界书绑定、存档删除刷新和模式间界面串联等累计问题。
+- Android 运行时新增 `user.json`，JSON PUT 校验同时支持数组和对象，并使用原子写入避免大退后数据丢失。
+- 更新 PWA/前端资源版本，避免浏览器或 APK WebView 继续命中旧缓存。
+
+### 验证与构建
+
+- 通过 `node --check server.js`、`node --check public/app.js` 与现有 `scripts/check_*.js` 回归脚本。
+- 通过 Playwright 验证 RP HTML、`{{user}}` 宏和桌面/手机编辑框尺寸。
+- 推送 `main` 后由 `.github/workflows/android-apk.yml` 自动复制前端资源并构建 Debug APK；真实设备安装与功能回归仍需人工验收。
+
 ## 2026-08-15 · WorldSave / Agent Runtime 版本
 
 ### 新增

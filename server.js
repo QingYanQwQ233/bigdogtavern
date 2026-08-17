@@ -49,6 +49,7 @@ function loadDefaults() {
       settings: (d.settings && typeof d.settings === 'object') ? d.settings : {},
       prefs: (d.prefs && typeof d.prefs === 'object') ? d.prefs : {},
       format: (d.format && typeof d.format === 'object') ? d.format : {},
+      tavern: (d.tavern && typeof d.tavern === 'object') ? d.tavern : {},
       providers: Array.isArray(d.providers) ? d.providers : [],
       ui: (d.ui && typeof d.ui === 'object') ? d.ui : {},
       gen: (d.gen && typeof d.gen === 'object') ? d.gen : {},
@@ -58,7 +59,7 @@ function loadDefaults() {
     };
   } catch (e) {
     console.warn('[data] 读取 _defaults.json 失败（用空结构兜底）:', e.message);
-    return { characters: [], presets: {}, lorebooks: { default: { name: '默认世界书', entries: [] } }, settings: {}, prefs: {}, format: {}, providers: [], ui: {}, gen: {}, rpg: {}, devtools: { scenarios: [] }, worlds: [] };
+    return { characters: [], presets: {}, lorebooks: { default: { name: '默认世界书', entries: [] } }, settings: {}, prefs: {}, format: {}, tavern: {}, providers: [], ui: {}, gen: {}, rpg: {}, devtools: { scenarios: [] }, worlds: [] };
   }
 }
 
@@ -1221,9 +1222,10 @@ const WORLD_EXTENSION_PERMISSIONS = new Set(['read.public', 'read.save', 'write.
 function validateWorldExtension(value) {
   if (value === undefined || value === null) return null;
   if (!value || typeof value !== 'object' || Array.isArray(value)) return 'ui.extension 必须是对象';
-  const allowed = new Set(['enabled', 'title', 'html', 'css', 'js', 'mvu', 'permissions', 'maxHeight', 'timeoutMs']);
+  const allowed = new Set(['enabled', 'immersive', 'title', 'html', 'css', 'js', 'mvu', 'permissions', 'maxHeight', 'timeoutMs', 'actionNarrates']);
   if (Object.keys(value).some(key => !allowed.has(key))) return 'ui.extension 含有未声明字段';
   if (value.enabled !== undefined && typeof value.enabled !== 'boolean') return 'ui.extension.enabled 无效';
+  if (value.immersive !== undefined && typeof value.immersive !== 'boolean') return 'ui.extension.immersive 无效';
   for (const key of ['title', 'html', 'css', 'js']) {
     if (value[key] !== undefined && (typeof value[key] !== 'string' || value[key].length > (key === 'title' ? 120 : 60000))) return `ui.extension.${key} 无效`;
   }
@@ -1233,15 +1235,30 @@ function validateWorldExtension(value) {
   if (value.permissions !== undefined && (!Array.isArray(value.permissions) || value.permissions.length > 8 || value.permissions.some(item => !WORLD_EXTENSION_PERMISSIONS.has(item)))) return 'ui.extension.permissions 无效';
   if (value.maxHeight !== undefined && (!Number.isInteger(value.maxHeight) || value.maxHeight < 180 || value.maxHeight > 800)) return 'ui.extension.maxHeight 必须是 180-800 的整数';
   if (value.timeoutMs !== undefined && (!Number.isInteger(value.timeoutMs) || value.timeoutMs < 200 || value.timeoutMs > 5000)) return 'ui.extension.timeoutMs 必须是 200-5000 的整数';
+  if (value.actionNarrates !== undefined && typeof value.actionNarrates !== 'boolean') return 'ui.extension.actionNarrates 无效';
+  return null;
+}
+function validateWorldEntryGate(value) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'ui.entryGate 必须是对象';
+  const allowed = new Set(['enabled', 'title', 'message', 'confirmText', 'cancelText', 'fullscreen']);
+  if (Object.keys(value).some(key => !allowed.has(key))) return 'ui.entryGate 含有未声明字段';
+  if (value.enabled !== undefined && typeof value.enabled !== 'boolean') return 'ui.entryGate.enabled 无效';
+  for (const key of ['title', 'message', 'confirmText', 'cancelText']) {
+    if (value[key] !== undefined && (typeof value[key] !== 'string' || !value[key].trim() || value[key].length > 1000)) return `ui.entryGate.${key} 无效`;
+  }
+  if (value.fullscreen !== undefined && typeof value.fullscreen !== 'boolean') return 'ui.entryGate.fullscreen 无效';
   return null;
 }
 function validateWorldUi(value) {
   if (value === undefined || value === null) return null;
   if (!value || typeof value !== 'object' || Array.isArray(value)) return 'ui 必须是对象';
-  if (Object.keys(value).some(key => !['layout', 'sidebar', 'extension'].includes(key))) return 'ui 含有未声明字段';
+  if (Object.keys(value).some(key => !['layout', 'sidebar', 'extension', 'entryGate'].includes(key))) return 'ui 含有未声明字段';
   if (value.layout !== undefined && (typeof value.layout !== 'string' || value.layout.length > 80)) return 'ui.layout 无效';
   const extensionInvalid = validateWorldExtension(value.extension);
   if (extensionInvalid) return extensionInvalid;
+  const entryGateInvalid = validateWorldEntryGate(value.entryGate);
+  if (entryGateInvalid) return entryGateInvalid;
   const sidebar = value.sidebar;
   if (sidebar === undefined || sidebar === null) return null;
   if (!sidebar || typeof sidebar !== 'object' || Array.isArray(sidebar) || Object.keys(sidebar).some(key => key !== 'panels')) return 'ui.sidebar 无效';
@@ -3029,6 +3046,7 @@ function validateWorldDraftStart(world) {
   if (start.playerTemplateId !== undefined && start.playerTemplateId !== null && !isSafeId(start.playerTemplateId)) return 'start.playerTemplateId 无效';
   if (start.opening !== undefined && (typeof start.opening !== 'string' || start.opening.length > 100000)) return 'start.opening 无效';
   if (start.openingMode !== undefined && !['static', 'ai'].includes(start.openingMode)) return 'start.openingMode 无效';
+  if (start.options !== undefined && (!Array.isArray(start.options) || start.options.length > 8 || start.options.some(option => typeof option !== 'string' || !option.trim() || option.length > 500) || new Set(start.options.map(option => option.trim())).size !== start.options.length)) return 'start.options 无效';
   if (start.playerTemplate !== undefined && (!start.playerTemplate || typeof start.playerTemplate !== 'object' || Array.isArray(start.playerTemplate))) return 'start.playerTemplate 必须是对象';
   if (start.initialState !== undefined && (!start.initialState || typeof start.initialState !== 'object' || Array.isArray(start.initialState))) return 'start.initialState 必须是对象';
   return null;
@@ -4802,6 +4820,8 @@ async function handleWorldSaveCreate(req, res) {
   const worldVersion = Number(payload.worldVersion ?? world.version);
   if (!Number.isInteger(worldVersion) || worldVersion !== Number(world.version)) return send(res, 409, JSON.stringify({ error: '世界卡版本已变化，请重新打开世界库' }), 'application/json');
   const start = world.start && typeof world.start === 'object' ? world.start : {};
+  const invalidStart = validateWorldDraftStart(world);
+  if (invalidStart) return send(res, 400, JSON.stringify({ error: invalidStart }), 'application/json');
   const invalidStartLocation = validateWorldLocationIds(world, { locationId: start.locationId }, null);
   if (invalidStartLocation) return send(res, 400, JSON.stringify({ error: invalidStartLocation }), 'application/json');
   if (typeof payload.name !== 'string') return send(res, 400, JSON.stringify({ error: '存档名称必须是字符串' }), 'application/json');
@@ -4810,6 +4830,7 @@ async function handleWorldSaveCreate(req, res) {
 
   const id = newSaveId();
   const now = Date.now();
+  const openingOptions = Array.isArray(start.options) ? start.options.map(option => option.trim()).slice(0, 8) : [];
   const initial = start.initialState && typeof start.initialState === 'object' ? start.initialState : {};
   const stats = initial.stats && typeof initial.stats === 'object' ? cloneJson(initial.stats) : {};
   const schemaInvalid = validatePlayerCreationSchema(world.playerCreation, world);
@@ -4934,7 +4955,7 @@ async function handleWorldSaveCreate(req, res) {
     },
     opening: String(start.opening || ''),
     openingMode: start.openingMode === 'static' ? 'static' : 'ai',
-    openingOptions: [],
+    openingOptions,
     openingCommandId: null,
     turns: [],
     receipts: [],

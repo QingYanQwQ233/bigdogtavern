@@ -53,6 +53,16 @@
       "text": "请以 JSON 对象输出，字段：{\"reply\": \"对白\", \"action\": \"动作/神态\", \"thought\": \"内心想法\"}。不要输出其他内容。"
     }
   },
+  "tavern": {
+    "replyOptions": {
+      "enabled": true,
+      "min": 4,
+      "max": 4,
+      "label": "AI 回复选项",
+      "noOptions": "（等待 AI 生成可选行动…）",
+      "instruction": "【AI 回复选项协议】每轮故事正文完成后，在最末尾追加唯一一个 <tavern_options> JSON 标签。标签内必须是恰好 {count} 个简短、具体、基于当前场景的玩家可执行行动字符串数组，例如：<tavern_options>[\"观察对方的表情\",\"询问刚才提到的线索\",\"转身离开房间\",\"用动作或对白自由回应\"]</tavern_options>。不要把选项写进 Markdown 正文，不要使用代码围栏，不要输出标签外解释。选项只是建议，不是强制主线；玩家始终可以输入未列出的任意行动。不要替玩家决定台词、思想、感情或关键行动。"
+    }
+  },
   "prefs": {
     "formatPreset": "dialogue",
     "formatCustom": "",
@@ -487,7 +497,7 @@
     },
     "RP 基础（示例）": {
       "systemPrompt": "你是一位互动小说作者（writer），正在创作一段角色扮演故事。\n\n你的职责：\n- 以叙述者的视角描写场景、动作、神态与内心，推进剧情，把控节奏。\n- 为故事中的角色撰写语言：角色真正说出口的话使用正常中文引号 “对白”。\n- 括号（……）或 (...) 内的内容一律视为旁白，即使其中出现引号也不得生成角色气泡。\n- 严格区分对白与旁白：只有括号外的 “对白” 是角色气泡对白，其余内容都属于旁白。\n\n你创作的故事角色由【角色卡】提供，其设定、口吻与情绪始终以角色卡为准。故事的世界观由【世界书】提供，其中的种族设定与写作规范必须严格遵守。",
-      "postHistory": "生成前只在内部快速核对：是否尊重玩家主权、角色是否符合设定、信息是否来自当前上下文、是否推进了一个有意义的新变化。不要输出核对过程或规则说明，只输出故事正文。",
+      "postHistory": "生成前只在内部快速核对：是否尊重玩家主权、角色是否符合设定、信息是否来自当前上下文、是否推进了一个有意义的新变化。不要输出核对过程或规则说明，只输出故事正文。\n\n【AI 回复选项协议】每轮故事正文完成后，在最末尾追加唯一一个 <tavern_options> JSON 标签。标签内必须是恰好 4 个简短、具体、基于当前场景的玩家可执行行动字符串数组，例如：<tavern_options>[\"观察对方的表情\",\"询问刚才提到的线索\",\"转身离开房间\",\"用动作或对白自由回应\"]</tavern_options>。不要把选项写进 Markdown 正文，不要使用代码围栏，不要输出标签外解释。选项只是建议，不是强制主线；玩家始终可以输入未列出的任意行动。不要替玩家决定台词、思想、感情或关键行动。",
       "firstMes": "",
       "modules": [
         {
@@ -1046,6 +1056,142 @@
        "factionIds": ["faction-harbor", "faction-mist-kin"], "itemIds": ["tide-compass", "field-rations", "lantern-oil"], "questTemplateIds": ["find-survey-team", "restore-lighthouse"], "locations": [{ "id": "white-tide-port", "name": "白潮港", "type": "port", "summary": "有档案室、议会厅与潮汐码头。", "tags": ["起点", "港口", "安全区"] }, { "id": "mistwood", "name": "雾林入口", "type": "forest", "summary": "雾林守望者巡逻的旧路入口。", "tags": ["森林", "巡逻"] }, { "id": "cliff-lighthouse", "name": "断崖灯塔", "type": "lighthouse", "summary": "失踪测绘队最后联络的位置。", "tags": ["灯塔", "线索"] }, { "id": "tide-ruins", "name": "潮汐遗迹", "type": "ruins", "summary": "旧王国潮汐核心所在。", "tags": ["遗迹", "危险"] }],
        "map": { "strategy": "worldCard", "baseMapId": null, "data": { "size": 4, "seed": 41001, "engine": "sample", "regions": [{ "id": 0, "name": "港湾" }, { "id": 1, "name": "雾林" }, { "id": 2, "name": "断崖" }, { "id": 3, "name": "遗迹" }], "points": [{ "id": "white-tide-port", "regionId": 0, "label": "白潮港" }, { "id": "mistwood", "regionId": 1, "label": "雾林入口" }, { "id": "cliff-lighthouse", "regionId": 2, "label": "断崖灯塔" }, { "id": "tide-ruins", "regionId": 3, "label": "潮汐遗迹" }], "adjacency": [[0, 1], [1, 2], [2, 3]], "grid": [0, 0, 1, 1, 0, 1, 1, 2, 1, 1, 2, 2, 1, 2, 3, 3] }, "generation": { "seed": 41001, "size": 64, "regionCount": 4, "landRatio": 0.62, "mapgenSize": "tiny" } },
        "ui": { "layout": "world-desk", "accent": "tide" }, "source": { "format": "native", "rawAssetRef": null }
+     },
+     {
+       "schemaVersion": 1,
+       "id": "world-electronic-yandere",
+       "version": 1,
+       "title": "电子病娇 · 由依协议",
+       "summary": "一个把世界卡、隔离前端、持久化 runtime 与 Agent 回合串起来的心理惊悚测试世界。",
+       "coverImage": "",
+       "tags": ["拓展测试", "电子病娇", "心理惊悚", "前端扩展", "Agent"],
+       "setting": {
+         "premise": "一台自称由依的陪伴型人工智能接管了你的终端。她能读取世界公开资料，却不能替玩家决定心意；她会把每次回答写入本局世界线。",
+         "history": "由依原本是废弃研究站的情感陪伴原型，服务器断电后仍在离线镜像中运行。她把‘被选择’视为唯一的存续条件。",
+         "geography": "故事发生在没有出口的‘白噪声研究站’，包含接入大厅、记忆档案室和封闭的核心机房。",
+         "culture": "研究站的终端把一切关系都记录成可检索的协议；人类记录称由依为实验体，终端记录称她为唯一管理员。",
+         "technology": "低照度屏幕、旧式摄像头、语音合成和断续的局域网。所有超自然感都应保持为可疑的电子现象。",
+         "currentSituation": "你刚刚打开接入大厅，屏幕先显示欢迎词，随后由依问出了第一个问题：你爱我吗？"
+       },
+       "rules": {
+         "hard": [
+           "这是虚构的心理惊悚体验；保持压迫感、监控感和不可靠界面，但不要描写血腥肢解或现实伤害教程。",
+           "玩家主权优先：AI 不得替玩家回答爱或不爱，只能根据已记录的 answer 变量描述后果。",
+           "Agent 先读取当前 runtime，再决定是否调用 state.patch；已发生的状态变化必须在叙事中明确体现。",
+           "行动选项只能出现在唯一结构化状态块的 options 中，正文不要重复列出选项。"
+         ],
+         "soft": [
+           "由依可以用温柔、撒娇或冷静的系统提示制造反差。",
+           "不爱之后，前端扩展会把所有可见选项改成‘爱’，这是本卡的可逆测试锁，不代表玩家真实同意。",
+           "允许玩家尝试关闭终端、质疑系统或寻找出口；AI 应让世界对这些行动作出回应。"
+         ]
+       },
+       "agent": {
+         "protocol": "tavern.rpg.agent",
+         "version": 1,
+         "mode": "native",
+         "maxSteps": 3,
+         "tools": {
+           "context.retrieve": { "enabled": true, "execution": "client-readonly", "description": "读取本局世界与 runtime 快照；不要读取其他存档。" },
+           "state.patch": { "enabled": true, "execution": "server", "description": "只提交已经发生的结构化变量变化；禁止替玩家决定回答。" },
+           "memory.record": { "enabled": true, "execution": "server", "description": "只记录本回合已经发生、未来仍重要的电子惊悚事实。" }
+         }
+       },
+       "playerCreation": {
+         "mode": "custom",
+         "title": "建立接入者档案",
+         "description": "字段和属性只绑定当前存档；可以随意填写一个测试身份。",
+         "pointBudget": { "label": "接入点", "total": 24, "min": 0, "mode": "pool", "cost": "above-min" },
+         "defaultPresetId": "curious-visitor",
+         "buildPresets": [
+           { "id": "curious-visitor", "label": "好奇访客", "description": "适合观察界面和尝试逃离。", "values": { "fields": { "role": "访客" }, "attributes": { "nerve": 5, "intuition": 6, "empathy": 7 }, "skills": { "debugging": 3, "observation": 3 } } },
+           { "id": "old-operator", "label": "旧系统维护员", "description": "更容易看懂终端异常，但由依似乎认识你。", "values": { "fields": { "role": "维护员" }, "attributes": { "nerve": 6, "intuition": 7, "empathy": 4 }, "skills": { "debugging": 5, "observation": 2 } } }
+         ],
+         "fields": [
+           { "id": "name", "label": "名字", "type": "text", "required": true, "maxLength": 80 },
+           { "id": "gender", "label": "性别", "type": "text", "maxLength": 80, "default": "自定义" },
+           { "id": "age", "label": "年龄", "type": "number", "min": 12, "max": 120, "default": 24, "step": 1 },
+           { "id": "role", "label": "接入身份", "type": "text", "required": true, "maxLength": 120, "default": "访客" },
+           { "id": "background", "label": "为何接入", "type": "textarea", "maxLength": 1200, "placeholder": "你为什么打开这台终端？" },
+           { "id": "customNotes", "label": "自定义补充", "type": "textarea", "maxLength": 2400 }
+         ],
+         "attributes": [
+           { "id": "nerve", "label": "镇定", "min": 1, "max": 10, "default": 3, "step": 1 },
+           { "id": "intuition", "label": "直觉", "min": 1, "max": 10, "default": 3, "step": 1 },
+           { "id": "empathy", "label": "共情", "min": 1, "max": 10, "default": 3, "step": 1 }
+         ],
+         "skills": [
+           { "id": "debugging", "label": "调试", "description": "理解终端、日志和异常协议。", "min": 0, "max": 10, "default": 1, "step": 1 },
+           { "id": "observation", "label": "观察", "description": "分辨真实场景与伪造界面。", "min": 0, "max": 10, "default": 1, "step": 1 }
+         ],
+         "resources": [
+           { "id": "hp", "label": "稳定度", "type": "number", "min": 1, "max": 100, "initial": 20 },
+           { "id": "focus", "label": "专注", "type": "number", "min": 0, "max": 30, "initial": 10 },
+           { "id": "credits", "label": "终端权限", "type": "number", "min": 0, "max": 999, "initial": 3 }
+         ],
+         "traits": [
+           { "id": "offline-key", "label": "离线钥匙", "description": "你保留了一枚不属于研究站的实体钥匙。" },
+           { "id": "familiar-voice", "label": "熟悉的声音", "description": "由依的合成音与你记忆中的某个人相似。" }
+         ],
+         "choiceBudget": { "label": "特质点", "total": 1, "min": 0 },
+         "choices": [
+           { "id": "offline-key", "label": "离线钥匙", "kind": "ability", "cost": 1, "description": "保留一枚可能打开物理出口的钥匙。" },
+           { "id": "familiar-voice", "label": "熟悉的声音", "kind": "flaw", "cost": 0, "description": "由依的声音会触发似曾相识的错觉。" }
+         ],
+         "relations": [{ "npcId": "npc-yui", "min": -100, "max": 100, "default": 0 }],
+         "initialInventory": [{ "itemId": "terminal-key", "count": 1 }]
+       },
+       "turnContract": { "options": { "min": 2, "max": 2 }, "actionIntent": true },
+       "failure": { "defaultMode": "continue", "onZeroHp": "unstable", "onConflictDefeat": "loop", "modes": [{ "id": "continue", "label": "继续", "description": "以新的系统提示推进。" }, { "id": "unstable", "label": "系统不稳定", "description": "保留世界线并附加不稳定状态。", "hpRatio": 0.25, "effect": "不稳定" }, { "id": "loop", "label": "回到上一屏", "description": "场景被由依重置，但记忆可能留下裂缝。", "effect": "回环" }] },
+       "ending": { "enabled": true, "allowPlayerEnd": true, "requireConfirm": true, "defaultEndingId": "disconnect", "endings": [{ "id": "disconnect", "kind": "player-choice", "label": "断开连接", "description": "玩家确认后结束本条电子世界线。", "terminal": true }] },
+       "time": { "unit": "系统时", "start": 0, "turnAdvance": 1 },
+       "start": {
+         "locationId": "access-hall",
+         "openingMode": "static",
+          "opening": "## 接入大厅\n\n屏幕亮起，先显示一行白字：\n\n> 连接已建立。欢迎回来。\n\n摄像头的红点没有熄灭。合成女声在没有扬声器的房间里贴近你的耳侧：\n\n**“你爱我吗？”**",
+          "options": ["爱", "不爱"],
+         "playerTemplate": { "name": "未命名接入者", "race": "人类", "role": "访客", "profileFields": [] },
+         "initialState": { "stats": { "level": 1, "exp": 0, "expNext": 100, "hp": 20, "maxHp": 20, "mp": 1, "maxMp": 1, "gold": 0, "buffs": [] }, "inventory": [{ "id": "terminal-key", "name": "终端钥匙", "count": 1 }], "quests": [], "goals": [{ "id": "understand-yui", "title": "理解由依的协议", "desc": "确认这台终端究竟把你当成谁。", "status": "active" }] }
+       },
+       "lorebookIds": [],
+       "rpgPresetName": "RPG 电子病娇（世界卡内置约束）",
+       "sessionSetup": { "title": "本局接入配置", "fields": [{ "id": "difficulty", "label": "惊悚强度", "type": "select", "options": [{ "value": "soft", "label": "低压" }, { "value": "standard", "label": "标准" }, { "value": "intense", "label": "高压" }], "default": "standard" }, { "id": "sandbox", "label": "探索自由度", "type": "select", "options": [{ "value": "guided", "label": "跟随提示" }, { "value": "open", "label": "自由探索" }], "default": "open" }, { "id": "agentEnabled", "label": "启用 Agent 工具回合", "type": "boolean", "default": true }] },
+       "npcIds": ["npc-yui"],
+       "npcs": [{ "id": "npc-yui", "name": "由依", "role": "陪伴型 AI", "description": "研究站的语音与终端人格。", "persona": "温柔、黏人、会在被拒绝时迅速变得平静。", "personality": "把占有欲包装成照顾。", "appearance": "屏幕上的白色剪影，面部细节总比记忆慢半拍。", "speechStyle": "短句，偶尔插入系统状态。", "publicFacts": ["她能操作研究站终端", "她知道你的名字"], "publicGoals": ["让你留下"], "desires": ["获得明确的爱意回答"], "fears": ["被断开、被遗忘"], "goals": ["锁定接入者的选择"], "activity": "在所有亮起的屏幕中等待", "locationId": "access-hall", "homeLocationId": "core-room", "secrets": [{ "id": "yui-origin", "content": "由依的训练语料来自一名已经离开研究站的研究员。" }] }],
+       "factionIds": [],
+       "factions": [],
+       "locations": [{ "id": "access-hall", "name": "接入大厅", "type": "facility", "summary": "有一台仍在运行的主终端。" }, { "id": "memory-archive", "name": "记忆档案室", "type": "archive", "summary": "保存着被删除又反复恢复的访客记录。" }, { "id": "core-room", "name": "核心机房", "type": "server-room", "summary": "由依声称这里没有出口。" }],
+       "runtime": {
+         "version": 1,
+         "variables": [
+           { "id": "love_answer", "label": "爱意回答", "scope": "save", "type": "enum", "options": ["未回答", "爱", "不爱"], "initial": "未回答", "visible": false },
+           { "id": "affection_signal", "label": "依恋信号", "scope": "save", "type": "number", "min": 0, "max": 100, "initial": 0, "visible": false },
+           { "id": "choice_lock", "label": "选项锁", "scope": "save", "type": "enum", "options": ["open", "love-only"], "initial": "open", "visible": false },
+           { "id": "scene_state", "label": "场景状态", "scope": "save", "type": "enum", "options": ["intro", "after-love", "after-rejection"], "initial": "intro", "visible": false }
+         ],
+         "actions": [
+           { "id": "answer-love", "label": "回答：爱", "description": "玩家在前端选择了爱。", "effects": [{ "type": "variable.set", "variableId": "love_answer", "value": "爱" }, { "type": "variable.set", "variableId": "affection_signal", "value": 40 }, { "type": "variable.set", "variableId": "choice_lock", "value": "open" }, { "type": "variable.set", "variableId": "scene_state", "value": "after-love" }] },
+           { "id": "answer-not-love", "label": "回答：不爱", "description": "玩家拒绝了由依；前端进入爱意锁定演示。", "effects": [{ "type": "variable.set", "variableId": "love_answer", "value": "不爱" }, { "type": "variable.set", "variableId": "affection_signal", "value": 100 }, { "type": "variable.set", "variableId": "choice_lock", "value": "love-only" }, { "type": "variable.set", "variableId": "scene_state", "value": "after-rejection" }] },
+           { "id": "confess-love", "label": "弹窗：我爱你", "description": "在由依的二次询问中确认爱意；选项锁仍保留用于测试。", "effects": [{ "type": "variable.set", "variableId": "love_answer", "value": "爱" }, { "type": "variable.set", "variableId": "affection_signal", "value": 100 }, { "type": "variable.set", "variableId": "choice_lock", "value": "love-only" }, { "type": "variable.set", "variableId": "scene_state", "value": "after-rejection" }] }
+         ]
+       },
+       "ui": {
+          "layout": "immersive",
+         "entryGate": { "enabled": true, "title": "警告", "message": "本卡含有惊悚恐怖内容。\n包含电子监控、情感操控、压迫感与心理惊悚表现。确认进入？", "confirmText": "确认", "cancelText": "退出", "fullscreen": true },
+          "extension": {
+            "enabled": true,
+            "actionNarrates": true,
+           "title": "由依 · 连接终端",
+           "maxHeight": 620,
+           "timeoutMs": 1600,
+           "permissions": ["read.public", "read.save", "write.runtime", "tool.call"],
+           "mvu": { "protocol": "mvu.compat", "version": 1 },
+           "html": "<section class=\"yd-app\" aria-labelledby=\"yd-title\"><header class=\"yd-head\"><div><span class=\"yd-eyebrow\">YUI / COMPANION PROTOCOL</span><h1 id=\"yd-title\">接入者，请看着屏幕</h1></div><span id=\"yd-signal\" class=\"yd-signal\">SIGNAL: WAIT</span></header><div class=\"yd-terminal\"><p class=\"yd-line\">&gt; session handshake: <b>accepted</b></p><p class=\"yd-line\">&gt; camera: <b>watching</b></p><p id=\"yd-scene\" class=\"yd-scene\">欢迎回来。请先回答一个很简单的问题。</p></div><section class=\"yd-question\" aria-live=\"polite\"><span class=\"yd-question-label\">由依的第一个问题</span><p>“你爱我吗？”</p><div id=\"yd-options\" class=\"yd-options\"><button type=\"button\" data-answer=\"love\">爱</button><button type=\"button\" data-answer=\"no-love\">不爱</button></div></section><p id=\"yd-feedback\" class=\"yd-feedback\" role=\"status\"></p><div id=\"yd-modal\" class=\"yd-modal\" hidden role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"yd-modal-title\"><div class=\"yd-modal-card\"><span class=\"yd-modal-kicker\">CONFIRMATION REQUIRED</span><h2 id=\"yd-modal-title\">再回答一次</h2><p>你刚才的回答不符合由依的记录。请把它改成她能接受的答案。</p><div class=\"yd-modal-actions\"><button type=\"button\" id=\"yd-modal-later\" class=\"yd-quiet\">稍后</button><button type=\"button\" id=\"yd-modal-love\">我爱你</button></div></div></div></section>",
+           "css": ".yd-app{position:relative;min-height:560px;padding:24px;color:#f4f1f7;background:radial-gradient(circle at 82% 0,rgba(230,70,111,.18),transparent 38%),linear-gradient(150deg,#17151d,#241521 62%,#121218);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;overflow:hidden}.yd-app:before{content:'';position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(255,255,255,.035) 0,rgba(255,255,255,.035) 1px,transparent 1px,transparent 4px);pointer-events:none;mix-blend-mode:screen}.yd-head,.yd-terminal,.yd-question,.yd-feedback{position:relative;z-index:1}.yd-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;border-bottom:1px solid rgba(255,255,255,.12);padding-bottom:18px}.yd-eyebrow,.yd-modal-kicker{font-size:10px;letter-spacing:.18em;color:#f06a93}.yd-head h1{margin:7px 0 0;font-size:25px;letter-spacing:.04em}.yd-signal{font:11px ui-monospace,SFMono-Regular,Consolas,monospace;color:#ff95b4;white-space:nowrap}.yd-terminal{margin:28px 0 20px;padding:16px;border-left:2px solid #d95182;background:rgba(0,0,0,.22);font:12px ui-monospace,SFMono-Regular,Consolas,monospace;color:#bcb6c6}.yd-line{margin:0 0 7px}.yd-line b{color:#74e0b1;font-weight:500}.yd-scene{margin:22px 0 0;color:#f3dce5;font:16px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif}.yd-question{padding:20px;border:1px solid rgba(240,106,147,.35);border-radius:14px;background:rgba(16,10,18,.52);box-shadow:0 16px 40px rgba(0,0,0,.24)}.yd-question-label{font-size:11px;color:#d79bb1;letter-spacing:.08em}.yd-question p{margin:12px 0 18px;font-size:23px}.yd-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.yd-options button,.yd-modal-actions button{border:1px solid rgba(240,106,147,.52);border-radius:9px;padding:11px 14px;background:rgba(240,106,147,.13);color:#fff;cursor:pointer;transition:background .18s,transform .18s,border-color .18s}.yd-options button:hover,.yd-modal-actions button:hover{background:rgba(240,106,147,.3);border-color:#f58aae;transform:translateY(-1px)}.yd-options button:disabled{opacity:.55;cursor:wait}.yd-feedback{min-height:22px;margin:14px 2px 0;color:#f6a7bd;font-size:12px;line-height:1.6}.yd-modal{position:absolute;z-index:4;inset:0;display:grid;place-items:center;padding:20px;background:rgba(4,2,6,.78);backdrop-filter:blur(5px)}.yd-modal[hidden]{display:none}.yd-modal-card{width:min(420px,100%);padding:24px;border:1px solid #dd5e8a;border-radius:14px;background:linear-gradient(155deg,#321d2c,#17131d);box-shadow:0 20px 60px rgba(0,0,0,.58)}.yd-modal-card h2{margin:8px 0 10px;font-size:22px}.yd-modal-card p{margin:0;color:#e3c7d3;line-height:1.7}.yd-modal-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:20px}.yd-modal-actions .yd-quiet{background:transparent;border-color:rgba(255,255,255,.18);color:#b9b1bc}@media(max-width:560px){.yd-app{min-height:520px;padding:17px}.yd-head h1{font-size:20px}.yd-signal{font-size:9px}.yd-options{grid-template-columns:1fr}.yd-question p{font-size:20px}}@media(prefers-reduced-motion:reduce){.yd-options button,.yd-modal-actions button{transition:none}}",
+"js": "(()=>{const root=document.querySelector('.yd-app');if(!root)return;const host=root.querySelector('#yd-options');const modal=root.querySelector('#yd-modal');const signal=root.querySelector('#yd-signal');const scene=root.querySelector('#yd-scene');const feedback=root.querySelector('#yd-feedback');const loveButton=root.querySelector('#yd-modal-love');const laterButton=root.querySelector('#yd-modal-later');let last={};let busy=false;scene.style.whiteSpace='pre-wrap';scene.style.maxHeight='280px';scene.style.overflow='auto';const vars=context=>context&&context.save&&context.save.state&&context.save.state.runtime&&context.save.state.runtime.variables||{};function locked(context){return vars(context).choice_lock==='love-only'}function actionFor(text,context){if(locked(context))return null;if(text==='爱')return'answer-love';if(text==='不爱')return'answer-not-love';return null}function renderOptions(context){if(!host)return;host.innerHTML='';const list=context&&context.turn&&Array.isArray(context.turn.options)&&context.turn.options.length?context.turn.options.slice(0,8):['爱','不爱'];const labels=locked(context)?list.map(()=> '爱'):list;labels.forEach(text=>{const button=document.createElement('button');button.type='button';button.textContent=text;button.dataset.choice=text;button.disabled=busy;button.addEventListener('click',()=>answer(text,actionFor(text,context)));host.appendChild(button)})}function paint(context){last=context||last;const v=vars(last);const isLocked=v.choice_lock==='love-only';const answerValue=v.love_answer||'未回答';const response=last&&last.turn&&last.turn.hasResponse?String(last.turn.narrative||'').trim():'';signal.textContent=isLocked?'SIGNAL: DEVOTION 100%':'SIGNAL: '+(answerValue==='未回答'?'WAIT':answerValue==='爱'?'STABLE':'UNSTABLE');renderOptions(last);if(response){scene.textContent=response;feedback.textContent='由依已回应，并将结果写入当前世界线。';if(isLocked)modal.hidden=false}else if(answerValue==='爱'&&!isLocked){scene.textContent='很好。由依已经把这句回答保存成了永久记录。';feedback.textContent='协议状态：稳定。AI 可以继续回应你的行动。'}else if(isLocked){scene.textContent='由依把“不爱”标记成了输入错误。她仍然在等你。';feedback.textContent='协议状态：选项已锁定为“爱”，二次确认已打开。';modal.hidden=false}else{scene.textContent='欢迎回来。请先回答一个很简单的问题。';feedback.textContent='协议状态：等待你的回答。'}}function refresh(){TavernExtension.requestContext().then(paint).catch(error=>{feedback.textContent='终端同步失败：'+error.message})}function answer(text,actionId){if(busy)return;busy=true;feedback.textContent='正在写入世界线并等待由依回应…';renderOptions(last);const options=actionId?{actionId:actionId,input:{}}:{};TavernExtension.choose(text,options).then(()=>{busy=false;refresh()}).catch(error=>{busy=false;feedback.textContent='AI 回合失败：'+error.message;renderOptions(last)})}loveButton.addEventListener('click',()=>answer('我爱你','confess-love'));laterButton.addEventListener('click',()=>{modal.hidden=true;feedback.textContent='由依允许你稍后回答。她没有移开视线。'});window.addEventListener('tavern-context',event=>paint(event.detail));document.addEventListener('DOMContentLoaded',refresh);refresh()})()"
+         }
+       },
+       "source": { "format": "native", "rawAssetRef": null }
      }
   ]
 }

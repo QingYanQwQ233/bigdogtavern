@@ -7,7 +7,7 @@
   <link rel="manifest" href="manifest.json" />
   <title>Tavern · AI RP 框架演示</title>
   <link rel="icon" type="image/png" href="favicon.png" />
-  <link rel="stylesheet" href="styles.css?v=20260816i" />
+  <link rel="stylesheet" href="styles.css?v=20260817c" />
 </head>
 <body data-theme="vibrancy" data-layout="classic">
   <canvas id="bg-fx" aria-hidden="true"></canvas>
@@ -148,12 +148,7 @@
       <button id="rpg-mobile-scrim" class="rpg-mobile-scrim" type="button" aria-label="关闭 RPG 侧栏" hidden></button>
 
       <footer class="composer">
-        <div class="quick-actions" id="quick-actions">
-          <button class="chip" data-action="（轻轻摸了摸对方的头）">🐾 摸摸头</button>
-          <button class="chip" data-action="（仔细观察四周的环境）">👀 观察四周</button>
-          <button class="chip" data-action="（试探性地）你怎么看这件事？">🤔 试探对方</button>
-          <button class="chip" data-action="（警惕地后退一步，手按在武器上）">⚔ 保持戒备</button>
-        </div>
+        <div class="quick-actions" id="quick-actions" aria-live="polite"></div>
         <div class="composer-row">
           <textarea id="input" rows="2" aria-label="消息输入"
             placeholder="写下你的话或行动（可用 *动作* 表示）… Enter 发送 · Shift+Enter 换行"></textarea>
@@ -163,14 +158,16 @@
     </main>
   </div>
 
+  <button id="world-immersive-exit" class="world-immersive-exit ghost-btn" type="button" hidden aria-label="退出世界卡沉浸模式">退出沉浸</button>
+
   <!-- ═══ 角色管理页 ═══ -->
   <div id="char-mgr" class="char-mgr hidden">
     <div class="cm-side">
       <div class="cm-head">角色库</div>
       <div id="cm-list" class="cm-list"></div>
       <button class="btn gold small" id="cm-new" style="width:100%">＋ 新建角色</button>
-      <button class="ghost-btn" id="cm-import" style="width:100%;margin-top:6px">导入角色卡（V1/V2 JSON）</button>
-      <button class="ghost-btn" id="cm-export" style="width:100%;margin-top:6px">导出当前角色（V2 JSON）</button>
+      <button class="ghost-btn" id="cm-import" style="width:100%;margin-top:6px">导入角色卡（V1/V2/V3 JSON 或 PNG）</button>
+      <button class="ghost-btn" id="cm-export" style="width:100%;margin-top:6px">导出当前角色（V3 JSON）</button>
     </div>
     <div class="cm-edit">
       <div class="cm-edit-head">
@@ -213,11 +210,18 @@
         <div class="field"><label for="cm-race">种族</label><input id="cm-race" /></div>
       </div>
       <div class="field"><label for="cm-role">身份</label><input id="cm-role" /></div>
-      <div class="field"><label for="cm-persona">外貌 / 性格（description）</label><textarea id="cm-persona" rows="3"></textarea></div>
+      <div class="field"><label for="cm-persona">角色描述 / 外貌（description）</label><textarea id="cm-persona" rows="3"></textarea></div>
+      <div class="field"><label for="cm-personality">性格（personality）</label><textarea id="cm-personality" rows="2"></textarea></div>
       <div class="field"><label for="cm-scenario">场景（scenario）</label><textarea id="cm-scenario" rows="2"></textarea></div>
       <div class="field"><label for="cm-first-mes">开场白（first_mes，新会话自动作为首条消息）</label><textarea id="cm-first-mes" rows="3"></textarea></div>
+      <div class="field"><label for="cm-mes-example">示例对话（mes_example）</label><textarea id="cm-mes-example" rows="3"></textarea></div>
       <div class="field"><label for="cm-system">角色提示词（system_prompt，非空时覆盖全局 / 预设）</label><textarea id="cm-system" rows="4"></textarea></div>
       <div class="field"><label for="cm-post">历史后指令（post_history_instructions，插在对话末尾，权重高）</label><textarea id="cm-post" rows="3"></textarea></div>
+      <div class="field"><label for="cm-creator-notes">作者备注（creator_notes）</label><textarea id="cm-creator-notes" rows="2"></textarea></div>
+      <div class="field row2">
+        <div class="field"><label for="cm-creator">作者（creator）</label><input id="cm-creator" /></div>
+        <div class="field"><label for="cm-character-version">角色版本（character_version）</label><input id="cm-character-version" /></div>
+      </div>
       <div class="field row2">
         <div class="field"><label for="cm-preset">绑定提示词预设 <span class="hint-inline">system_prompt 为空时使用</span></label><select id="cm-preset"></select></div>
         <div class="field"><label for="cm-lore">绑定世界书 <span class="hint-inline">仅与该角色对话时生效</span></label><select id="cm-lore"></select></div>
@@ -233,6 +237,7 @@
         <input type="file" id="cm-ref-file" accept="image/*" class="hidden" />
       </div>
       <div class="field"><label for="cm-tags">标签（tags，逗号分隔）</label><input id="cm-tags" /></div>
+      <div class="field"><label for="cm-alt-greetings">备用开场白（alternate_greetings，每行一条）</label><textarea id="cm-alt-greetings" rows="3"></textarea></div>
       <div class="cm-edit-actions">
         <button class="btn gold" id="cm-save">保存角色</button>
         <button class="btn gold" id="cm-use">设为当前角色</button>
@@ -271,6 +276,11 @@
         <div class="field"><label for="pg-mode">适用模式</label><select id="pg-mode"><option value="tavern">酒馆</option><option value="rpg">RPG</option><option value="both">两种模式</option></select></div>
         <div class="field"><label for="pg-first-mes">开场白（新会话）</label><textarea id="pg-first-mes" rows="2"></textarea></div>
       </div>
+      <section class="pg-post-history" aria-labelledby="pg-post-history-title">
+        <div class="pg-section-head"><strong id="pg-post-history-title">后预设 / Post-History Instructions</strong><span class="hint-inline">预设组装完成后追加</span></div>
+        <textarea id="pg-post-history" rows="5" placeholder="写入需要在本次预设之后追加的指令…"></textarea>
+          <p class="hint">RP 基础示例已把 AI 回复选项协议写入这里；其他预设若未提供同类协议会自动追加。旧角色卡的历史后指令会兼容迁移到此处，内容仍会与唯一 System 消息合并发送。</p>
+      </section>
       <div class="pg-manager">
         <section class="pg-sequence" aria-labelledby="pg-sequence-title">
           <div class="pg-section-head"><strong id="pg-sequence-title">提示词顺序</strong><div class="pg-sequence-actions"><select id="pg-library" aria-label="从素材库插入提示词"><option value="">插入素材…</option></select><button class="ghost-btn small" id="pg-prompt-new" type="button">＋ 新条目</button></div></div>
@@ -334,8 +344,10 @@
       <div class="cm-head">世界书</div>
       <div id="lb-list" class="cm-list"></div>
       <button class="btn gold small" id="lb-new" style="width:100%">＋ 新建世界书</button>
+      <button class="ghost-btn" id="lb-import" style="width:100%;margin-top:6px">⇧ 导入 ST 世界书</button>
+      <input id="lb-import-file" type="file" accept=".json,application/json" hidden />
       <button class="ghost-btn" id="lb-del" style="width:100%;margin-top:6px">删除当前世界书</button>
-      <p class="hint" style="margin-top:10px">「设为全局」对所有对话生效；角色卡可绑定专属世界书，仅该角色对话时生效。</p>
+      <p class="hint" style="margin-top:10px">支持 SillyTavern World Info JSON；「设为全局」对所有酒馆对话生效，角色卡和世界卡都可选择绑定。</p>
     </div>
     <div class="cm-edit">
       <div class="cm-edit-head">
@@ -395,7 +407,10 @@
       <p class="hint">玩家设定会以【玩家设定】段注入 System Prompt，AI 据此称呼/对待你。</p>
     </div>
     <div class="cm-edit">
-      <div class="cm-head">💭 记忆条目（自动注入上下文）</div>
+      <div class="cm-edit-head">
+        <span>💭 记忆条目（自动注入上下文）</span>
+        <button class="ghost-btn back-action" data-back-chat type="button">回到对话</button>
+      </div>
       <div class="field">
         <label for="mem-input">新记忆</label>
         <div class="row-inline">
@@ -809,6 +824,16 @@
           </div>
         </div>
         <div id="world-facts" class="world-facts"></div>
+        <section id="world-lorebook-binding" class="world-lorebook-binding" aria-labelledby="world-lorebook-title">
+          <div class="world-section-head">
+            <div>
+              <h2 id="world-lorebook-title">使用世界书</h2>
+              <p>本世界卡的 RPG 上下文会读取这里绑定的世界书。</p>
+            </div>
+            <button class="ghost-btn small" id="world-lorebook-edit" type="button">选择世界书</button>
+          </div>
+          <div id="world-lorebook-list" class="world-lorebook-list" aria-live="polite"></div>
+        </section>
         <form id="world-save-form" class="world-save-form">
           <div class="world-section-head">
             <div>
@@ -839,6 +864,20 @@
       </section>
     </div>
   </div>
+
+  <dialog id="world-entry-gate-dialog" class="world-entry-gate-dialog" aria-labelledby="world-entry-gate-title">
+    <form id="world-entry-gate-form" class="world-entry-gate-card">
+      <div class="world-entry-gate-mark" aria-hidden="true">!</div>
+      <p class="world-eyebrow">WORLD CARD · CONTENT NOTICE</p>
+      <h2 id="world-entry-gate-title">进入世界前确认</h2>
+      <p id="world-entry-gate-message" class="world-entry-gate-message"></p>
+      <p id="world-entry-gate-status" class="world-entry-gate-status" role="status" aria-live="polite"></p>
+      <footer class="world-entry-gate-actions">
+        <button id="world-entry-gate-cancel" class="ghost-btn" type="button">退出</button>
+        <button id="world-entry-gate-confirm" class="btn gold" type="submit">确认进入</button>
+      </footer>
+    </form>
+  </dialog>
 
   <dialog id="world-import-dialog" class="world-draft-dialog world-import-dialog" aria-labelledby="world-import-title">
     <form id="world-import-form" class="world-draft-card">
@@ -921,8 +960,9 @@
             <input id="world-draft-tags" name="worldDraftTags" maxlength="1000" placeholder="日式西幻, 福瑞, 开放世界" />
           </div>
           <div class="field">
-            <label for="world-draft-lorebooks">绑定世界书 ID <span class="hint-inline">逗号分隔</span></label>
-            <input id="world-draft-lorebooks" name="worldDraftLorebooks" maxlength="1000" placeholder="default, lore-aurora" spellcheck="false" />
+            <span id="world-draft-lorebooks-label" class="field-label">绑定世界书 <span class="hint-inline">可多选；列表来自当前世界书库</span></span>
+            <div id="world-draft-lorebooks" class="world-draft-lorebook-options" role="group" aria-labelledby="world-draft-lorebooks-label"></div>
+            <p class="hint">未选择时沿用默认世界书。列表中的“缺失引用”表示旧草稿引用了已删除的世界书，保存或发布前请重新选择。</p>
           </div>
         </div>
         <div class="field">
@@ -948,6 +988,8 @@
             <summary>扩展可视化设置 <span class="hint-inline">高级 JSON 仍可直接编辑</span></summary>
             <div class="world-extension-editor-body">
               <label class="check"><input id="world-extension-enabled" type="checkbox" /> 启用世界扩展</label>
+              <label class="check"><input id="world-extension-immersive" type="checkbox" /> 独立沉浸页面（默认）</label>
+              <label class="check"><input id="world-extension-action-narrates" type="checkbox" /> 扩展 action 触发 AI 回合</label>
               <div class="field row2">
                 <div class="field"><label for="world-extension-title">标题</label><input id="world-extension-title" maxlength="120" placeholder="世界 HUD" /></div>
                 <div class="field row2"><div class="field"><label for="world-extension-height">高度</label><input id="world-extension-height" type="number" min="180" max="800" step="1" value="360" /></div><div class="field"><label for="world-extension-timeout">超时(ms)</label><input id="world-extension-timeout" type="number" min="200" max="5000" step="100" value="1200" /></div></div>
@@ -959,11 +1001,11 @@
                 <label class="check"><input type="checkbox" value="write.runtime" data-world-extension-permission />写入 runtime</label>
                 <label class="check"><input type="checkbox" value="tool.call" data-world-extension-permission />调用声明式动作</label>
               </div>
-              <label for="world-extension-html">HTML</label><textarea id="world-extension-html" rows="4" maxlength="60000" spellcheck="false" placeholder="<section>世界 HUD</section>"></textarea>
+              <label for="world-extension-html">HTML</label><textarea id="world-extension-html" rows="6" maxlength="60000" spellcheck="false" placeholder="<section data-tavern-narrative></section><div data-tavern-options></div><form data-tavern-input><textarea placeholder='输入行动…'></textarea><button data-tavern-submit>发送</button></form>"></textarea>
               <label for="world-extension-css">CSS</label><textarea id="world-extension-css" rows="4" maxlength="60000" spellcheck="false" placeholder="section{padding:12px}"></textarea>
               <label for="world-extension-js">JS（只在隔离 iframe 执行）</label><textarea id="world-extension-js" rows="5" maxlength="60000" spellcheck="false" placeholder="document.querySelector('button')?.addEventListener('click',()=>TavernExtension.action('rest',{}));"></textarea>
               <label for="world-extension-mvu">MVU 协议配置 JSON（可选）</label><textarea id="world-extension-mvu" rows="3" maxlength="12000" spellcheck="false" placeholder='{"protocol":"mvu.compat","version":1}'></textarea>
-              <div class="world-extension-editor-actions"><button id="world-extension-load-json" class="ghost-btn small" type="button">从高级 JSON 载入扩展</button><span class="hint-inline">保存时可视化字段会写回 ui.extension；空白扩展不会写入。</span></div>
+              <div class="world-extension-editor-actions"><button id="world-extension-load-json" class="ghost-btn small" type="button">从高级 JSON 载入扩展</button><span class="hint-inline">卡内可用 <code>data-tavern-narrative</code>（最新叙事）、<code>data-tavern-messages</code>（消息历史）、<code>data-tavern-options</code>（AI 选项）和 <code>data-tavern-input</code> / <code>data-tavern-submit</code>（自定义输入）接入当前存档；沉浸模式不会再补宿主叙事框或输入框。</span></div>
             </div>
           </details>
         </div>
@@ -1306,8 +1348,8 @@
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
   <script src="vendor/mapgen2.bundle.js"></script>
-  <script src="mapgen.js?v=20260816i"></script>
-  <script src="app.js?v=20260816i"></script>
+  <script src="mapgen.js?v=20260817g"></script>
+  <script src="app.js?v=20260817g"></script>
   <script>
     // PWA：注册 service worker（仅 HTTPS / localhost 生效，套壳 APK 可用）
     if ('serviceWorker' in navigator) {

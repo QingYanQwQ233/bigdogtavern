@@ -39,7 +39,7 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
 
     private val dataDir: File = File(ctx.filesDir, "data")
     private val imgDir: File = File(ctx.filesDir, "images")
-    private val dataTypes = setOf("characters", "presets", "lorebooks", "settings", "sessions")
+    private val dataTypes = setOf("characters", "presets", "lorebooks", "settings", "user", "sessions")
     private val worldsFile: File = File(dataDir, "worlds.json")
     private val worldDraftsFile: File = File(dataDir, "world-drafts.json")
     private val worldImportsFile: File = File(dataDir, "world-imports.json")
@@ -1421,11 +1421,14 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
         if (session.method == Method.PUT) {
             val raw = readBody(session)
             try {
-                JSONObject(raw) // 校验
+                // characters.json 是数组，其余数据文件通常是对象；两种根类型都要允许。
+                // 之前只用 JSONObject 校验，角色保存每次都返回 400，前端只能留下 localStorage 缓存。
+                val parsed = org.json.JSONTokener(raw).nextValue()
+                if (parsed !is JSONObject && parsed !is org.json.JSONArray) throw IllegalArgumentException("JSON 根节点必须是对象或数组")
             } catch (e: Exception) {
                 return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "invalid JSON"))
             }
-            f.writeText(raw, Charsets.UTF_8)
+            writeTextAtomic(f, raw)
             return json(Response.Status.OK, JSONObject().put("ok", true))
         }
         return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "method not allowed"))

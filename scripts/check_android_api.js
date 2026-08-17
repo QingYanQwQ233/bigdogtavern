@@ -18,6 +18,9 @@ assert.ok(source.includes('"regexes"'), 'Android must preserve world output rege
 assert.ok(source.includes('setupStatus'), 'Android summaries must expose setup status');
 assert.ok(source.includes('files["content"]'), 'Android PUT bodies must read NanoHTTPD temp content files');
 assert.ok(!source.includes('files["postData"] ?: ""'), 'Android must not silently convert missing bodies to empty JSON');
+assert.ok(source.includes('"characters", "presets", "lorebooks", "settings", "user", "sessions"'), 'Android data API must include user data');
+assert.ok(source.includes('JSONTokener(raw).nextValue()'), 'Android data API must accept JSON array roots such as characters.json');
+assert.ok(source.includes('writeTextAtomic(f, raw)'), 'Android data API must atomically persist PUT bodies');
 assert.ok(source.includes('handleWorldSaveDelete'), 'Android must expose save deletion');
 assert.ok(source.includes('tavern_world_save'), 'Android exports the save envelope');
 assert.ok(source.includes('exportSecretKey'), 'Android save exports must redact secrets');
