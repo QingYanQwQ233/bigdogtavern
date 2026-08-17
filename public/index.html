@@ -1007,7 +1007,7 @@
               <label for="world-extension-css">CSS</label><textarea id="world-extension-css" rows="4" maxlength="60000" spellcheck="false" placeholder="section{padding:12px}"></textarea>
               <label for="world-extension-js">JS（只在隔离 iframe 执行）</label><textarea id="world-extension-js" rows="5" maxlength="60000" spellcheck="false" placeholder="document.querySelector('button')?.addEventListener('click',()=>TavernExtension.action('rest',{}));"></textarea>
               <label for="world-extension-mvu">MVU 协议配置 JSON（可选）</label><textarea id="world-extension-mvu" rows="3" maxlength="12000" spellcheck="false" placeholder='{"protocol":"mvu.compat","version":1}'></textarea>
-              <div class="world-extension-editor-actions"><button id="world-extension-load-json" class="ghost-btn small" type="button">从高级 JSON 载入扩展</button><span class="hint-inline">卡内可用 <code>data-tavern-narrative</code>（最新叙事）、<code>data-tavern-messages</code>（消息历史）、<code>data-tavern-options</code>（AI 选项）和 <code>data-tavern-input</code> / <code>data-tavern-submit</code>（自定义输入）接入当前存档；沉浸模式不会再补宿主叙事框或输入框。</span></div>
+              <div class="world-extension-editor-actions"><button id="world-extension-load-json" class="ghost-btn small" type="button">从高级 JSON 载入扩展</button><span class="hint-inline">卡内可用 <code>data-tavern-narrative</code>（最新叙事）、<code>data-tavern-messages</code>（消息历史）、<code>data-tavern-options</code>（AI 选项）、<code>data-tavern-bind</code>（安全数据绑定）和 <code>data-tavern-input</code> / <code>data-tavern-submit</code>（自定义输入）接入当前存档；沉浸模式不会再补宿主叙事框或输入框。</span></div>
             </div>
           </details>
         </div>

@@ -3598,6 +3598,17 @@ function worldExtensionContext() {
         locationId: save.state?.locationId || null,
         time: save.state?.time || null,
         runtime: save.state?.runtime || null,
+        player: save.state?.player && typeof save.state.player === 'object' ? {
+          fields: save.state.player.fields || {},
+          attributes: save.state.player.attributes || {},
+          skills: save.state.player.skills || {},
+          resources: save.state.player.resources || {},
+          traits: Array.isArray(save.state.player.traits) ? save.state.player.traits : [],
+          relations: save.state.player.relations || {},
+          inventory: Array.isArray(save.state.inventory) ? save.state.inventory : [],
+          equipment: save.state.equipment || {},
+          currencies: save.state.currencies || {},
+        } : null,
         goals: save.state?.goals || [],
         leads: save.state?.leads || [],
         worldEvents: (Array.isArray(save.state?.worldEvents) ? save.state.worldEvents : []).filter(item => item?.visibility !== 'hidden'),
@@ -3652,6 +3663,21 @@ function extensionBridgeSource(nonce) {
       const narrative = String(context && context.turn && context.turn.narrative || '');
       document.querySelectorAll('[data-tavern-narrative]').forEach(target => {
         target.textContent = narrative;
+      });
+    };
+    const readBinding = (context, path) => {
+      const keys = String(path || '').trim().split('.').filter(Boolean);
+      if (!keys.length || keys.length > 8 || keys.some(key => !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(key) || key === '__proto__' || key === 'prototype' || key === 'constructor')) return undefined;
+      return keys.reduce((value, key) => value && typeof value === 'object' ? value[key] : undefined, context);
+    };
+    const bindingText = value => value === undefined || value === null ? '' : Array.isArray(value) ? value.join('、') : typeof value === 'object' ? JSON.stringify(value) : String(value);
+    const renderDataBindings = context => {
+      document.querySelectorAll('[data-tavern-bind]').forEach(target => {
+        target.textContent = bindingText(readBinding(context, target.getAttribute('data-tavern-bind')));
+      });
+      document.querySelectorAll('[data-tavern-show]').forEach(target => {
+        const value = readBinding(context, target.getAttribute('data-tavern-show'));
+        target.hidden = value === undefined || value === null || value === false || value === '' || value === 0;
       });
     };
     const renderOptionSlots = context => {
@@ -3721,6 +3747,7 @@ function extensionBridgeSource(nonce) {
       renderNarrativeSlots(context);
       renderOptionSlots(context);
       bindInputSlots(context);
+      renderDataBindings(context);
     };
     const send = (type, payload = {}) => new Promise((resolve, reject) => {
       const requestId = 'ext-' + (++sequence);
