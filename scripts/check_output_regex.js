@@ -64,4 +64,26 @@ assert.strictEqual(context.check.converted.preset.regexes[0].id, 'st-hide');
 assert.strictEqual(context.check.rpg, 'visible');
 assert.strictEqual(context.check.world, 'visible');
 
+// 真实 V3 卡片的长状态栏正则：多行标签也必须在首次响应时转成卡片 HTML。
+const simulatorCard = Object.values(require('../public/data/characters.json')).find(item => item.name === '人生模拟器，我进入了诡异修仙界');
+assert.ok(simulatorCard, 'simulator character card fixture should exist');
+vm.runInContext(`characters = ${JSON.stringify([simulatorCard])}; currentCharId = ${JSON.stringify(simulatorCard.id)}; mode = 'tavern';`, context);
+const simulatorRaw = [
+  '<姓名>五气</姓名>', '<寿命>16/150</寿命>', '<修为>凡人</修为>', '<灵根>待觉醒</灵根>',
+  '<地点>徐州城</地点>', '<灵石>0</灵石>', '<装备>无</装备>', '<功法>无</功法>', '<技艺>无</技艺>',
+  '<关系>无</关系>', '<天赋>无</天赋>', '<资产>无</资产>', '<模拟器剩余次数>3</模拟器剩余次数>',
+  '<模拟器已模拟次数>0</模拟器已模拟次数>', '<模拟器等级>1</模拟器等级>', '<当前模拟所需货币>0</当前模拟所需货币>',
+  '<人生选择>A. 选项一\nB. 选项二\nC. 选项三\nD. 选项四</人生选择>', '<正文>正文内容</正文>',
+].join('\n');
+const simulatorHtml = vm.runInContext(`applyCharacterCardOutputRegex(${JSON.stringify(simulatorRaw)})`, context);
+assert.ok(simulatorHtml.includes('<div style='), 'long card regex should produce HTML');
+assert.ok(!simulatorHtml.includes('<姓名>'), 'long card regex should hide raw state tags');
+
+const simulatorPartial = simulatorRaw.split('<装备>')[0];
+const simulatorFallback = vm.runInContext(`applyCharacterCardOutputRegex(${JSON.stringify(simulatorPartial)})`, context);
+assert.ok(simulatorFallback.includes('tavern-tag-field'), 'partial card output should use a structured fallback');
+assert.ok(!simulatorFallback.includes('<姓名>'), 'partial card output should hide raw state tags');
+const simulatorLegacyRender = vm.runInContext(`renderOutputContent(${JSON.stringify(simulatorPartial)}, 'tavern')`, context);
+assert.ok(simulatorLegacyRender.includes('tavern-tag-field'), 'legacy messages should retry the active output rules before fallback');
+
 console.log('output regex check passed');

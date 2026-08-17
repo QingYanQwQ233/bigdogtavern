@@ -5880,12 +5880,56 @@ function applyOutputRegexRules(text, rules) {
   return output.trim();
 }
 
+/*
+ * 卡片正则通常把整组状态标签作为一个整体匹配；模型被截断或漏掉一个字段时，
+ * 整组替换会完全失效，原始 XML 标签就会直接落进聊天正文。保留已配置正则的
+ * 优先级，同时给连续的自定义标签一个安全的降级展示，至少不把协议原文泄露给玩家。
+ */
+const STRUCTURED_TAG_FALLBACK_EXCLUDED = new Set([
+  'a', 'article', 'aside', 'audio', 'b', 'body', 'blockquote', 'br', 'button', 'code', 'details', 'div',
+  'em', 'figure', 'footer', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'head', 'html', 'i', 'img',
+  'input', 'kbd', 'label', 'li', 'link', 'main', 'mark', 'meta', 'nav', 'ol', 'option', 'p', 'pre',
+  'script', 'section', 'select', 'small', 'span', 'strong', 'style', 'summary', 'table', 'tbody', 'td',
+  'textarea', 'tfoot', 'th', 'thead', 'title', 'tr', 'u', 'ul', 'video', 'tavern_options',
+  'tavern_state_update', 'think', 'reasoning',
+]);
+const STRUCTURED_TAG_PAIR_RE = /<([^\s<>/]+)>([\s\S]*?)<\/\1\s*>/g;
+
+function recoverStructuredTagOutput(text) {
+  const source = String(text || '').trim();
+  if (!source || /(^|\n)[ \t]*(?:```|~~~)/.test(source)) return source;
+  const pairs = [];
+  const scanner = new RegExp(STRUCTURED_TAG_PAIR_RE.source, 'g');
+  let match;
+  while ((match = scanner.exec(source))) {
+    if (!STRUCTURED_TAG_FALLBACK_EXCLUDED.has(String(match[1]).toLowerCase())) pairs.push(match);
+  }
+  if (pairs.length < 2) return source;
+  return source.replace(STRUCTURED_TAG_PAIR_RE, (full, name, value) => {
+    if (STRUCTURED_TAG_FALLBACK_EXCLUDED.has(String(name).toLowerCase())) return full;
+    return `<span class="tavern-tag-field"><span class="tavern-tag-label">${esc(name)}</span><span class="tavern-tag-value">${esc(String(value || '').trim())}</span></span>`;
+  }).trim();
+}
+
+/* 渲染旧消息时重新检查当前规则；避免消息首次生成时规则尚未载入而永久保留原始标签。 */
+function renderOutputContent(text, targetMode = mode) {
+  const source = String(text || '');
+  const rules = activeOutputRegexRules(targetMode);
+  const needsRegex = rules.some(rule => {
+    const regex = buildOutputRegex(rule);
+    if (!regex) return false;
+    regex.lastIndex = 0;
+    return regex.test(source);
+  });
+  return recoverStructuredTagOutput(needsRegex ? applyOutputRegexRules(source, rules) : source);
+}
+
 function applyCharacterCardOutputRegex(text) {
-  return applyOutputRegexRules(text, activeOutputRegexRules('tavern').filter(rule => rule.source === 'character'));
+  return recoverStructuredTagOutput(applyOutputRegexRules(text, activeOutputRegexRules('tavern').filter(rule => rule.source === 'character')));
 }
 
 function applyOutputRegex(text, targetMode = mode) {
-  return applyOutputRegexRules(text, activeOutputRegexRules(targetMode));
+  return renderOutputContent(text, targetMode);
 }
 
 function serializeOutputRegexRule(rule) {
@@ -8835,16 +8879,14 @@ function renderMessages() {
           if (sb) sb.addEventListener('click', () => saveEdit(m));
           if (cb) cb.addEventListener('click', () => cancelEdit(m));
         } else {
-          const { html, md } = renderBubble(m.outputRegexApplied ? m.content : applyOutputRegex(m.content));
+          const { html, md } = renderBubble(renderOutputContent(m.content, 'rpg'));
           el.innerHTML = `<div class="rpg-prose${md ? ' md' : ''}">${html}</div>`;
           attachMsgActions(el, m, m._opening ? { copy: true } : { regen: true, edit: true, copy: true, del: true });
         }
         chat.appendChild(el);
         continue;
       }
-      const tavernContent = m.outputRegexApplied
-        ? (m.cardOutputRegexApplied ? m.content : applyCharacterCardOutputRegex(m.content))
-        : applyOutputRegex(m.content);
+      const tavernContent = renderOutputContent(m.content, 'tavern');
       const bubbleDialogue = !!prefs.tavernDialogueBubbles;
       const segs = bubbleDialogue ? splitNarration(tavernContent) : [{ type: 'narration', text: tavernContent }];
       segs.forEach((seg, si) => {

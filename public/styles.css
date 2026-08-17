@@ -758,6 +758,30 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   word-break: break-word;
   overflow-wrap: anywhere;
 }
+/* 卡片整组正则未匹配时的结构化标签降级展示，避免原始 XML 直接占满正文。 */
+.tavern-tag-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 4px 0;
+  padding: 4px 9px;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  border-radius: 4px;
+}
+.tavern-tag-label {
+  color: var(--accent);
+  font-size: 0.86em;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+.tavern-tag-value {
+  min-width: 0;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .rpg-prose-editor {
   background: var(--panel);
   border: 1px solid var(--line);
