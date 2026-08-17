@@ -14,6 +14,8 @@ android/app/src/main/assets/
 
 # 工具
 *.exe
+__pycache__/
+tmp/
 
 # Reasonix 内部工作文件
 .reasonix/

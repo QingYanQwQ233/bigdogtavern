@@ -17,6 +17,10 @@ node server.js
 
 打开 <http://localhost:3000>，然后在「设置 → 连接」中填写 OpenAI 兼容接口的 Base URL、API Key 和模型。支持 OpenAI、DeepSeek、OpenRouter、Ollama、LM Studio 以及其他 `/chat/completions` 兼容服务。
 
+### Windows 便携版
+
+GitHub Release 提供 `tavern-*-portable-win-x64.zip`。解压后双击「启动 Tavern.bat」即可运行，包内已包含 Node.js，不需要另行安装 Node.js、npm 或配置环境变量。运行时数据保存在同目录的 `data/`，不会把本机 API Key 和存档打进发布包。
+
 ## 本次更新 · 2026-08-17
 
 - RPG 世界卡支持自定义 HTML/CSS/JS 前端、沉浸模式、入口警告、声明式 runtime 变量/集合/动作和 Agent 选择桥接；新增“电子病娇 · 由依协议”测试世界卡。
@@ -24,6 +28,7 @@ node server.js
 - 酒馆模式补齐 Character Card V3 / PNG 元数据、角色书绑定、卡片级输出正则、HTML/Markdown 安全渲染和 `{{user}}` 显示宏。
 - RP / RPG 回复选项改为预设协议驱动，选项不再写死在前端；编辑消息时输入框按聊天区域自适应并支持拖高。
 - Android 套壳补齐 `user.json` 与数组/对象 JSON 原子持久化校验；推送后由 GitHub Actions 构建 APK。
+- 发布 Windows x64 便携文件夹包，内置 Node.js，解压即可启动。
 
 详细变更与验证命令见 [CHANGELOG.md](CHANGELOG.md)。
 

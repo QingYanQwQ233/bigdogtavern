@@ -1,5 +1,12 @@
 # 更新日志
 
+## 2026-08-17 · v0.1.50
+
+### 发布
+
+- 新增 `tavern-v0.1.50-portable-win-x64.zip`：内置 Node.js 的 Windows x64 独立文件夹版本，解压后双击「启动 Tavern.bat」即可运行。
+- 便携版只携带 `_defaults.json` 模板，API Key、角色卡、世界书和存档首次启动后写入包内 `data/`，不会随发布包泄露。
+
 ## 2026-08-17 · RPG GEN 3 / 世界卡扩展版本
 
 ### 新增
