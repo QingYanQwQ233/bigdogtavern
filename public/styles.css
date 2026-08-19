@@ -2536,8 +2536,22 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
   /* 侧栏已默认隐藏（移动优先）；这里只处理其余元素 */
   .main { grid-column: 1; grid-row: 1; }
   /* 管理页在手机上按“列表 → 详情”钻取，避免两个层级同时挤在屏幕里。 */
-  .char-mgr { inset: 0; grid-template-columns: 1fr; grid-template-rows: 1fr; }
-  .char-mgr .cm-side, .char-mgr .cm-edit { min-height: 0; max-height: none; }
+  .char-mgr {
+    inset: 0;
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr;
+    min-height: 100dvh;
+    height: 100dvh;
+    /* 管理页必须遮住宿主对话；透明 scrim 会让下方内容“漏”出来，像只显示半屏。 */
+    background: var(--bg-0);
+    backdrop-filter: none;
+    overscroll-behavior: contain;
+  }
+  .char-mgr .cm-side, .char-mgr .cm-edit {
+    min-height: 0;
+    max-height: none;
+    height: 100%;
+  }
   .char-mgr[data-mobile-panel="list"] .cm-edit,
   .char-mgr[data-mobile-panel="detail"] .cm-side { display: none; }
   .char-mgr[data-mobile-panel="detail"] .cm-edit { display: block; }
@@ -2619,9 +2633,11 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
   .st-tab { white-space: nowrap; }
   .settings-gen-grid { grid-template-columns: 1fr; }
   .cm-list, .wi-list, .pg-prompts, .lb-list { max-height: 30vh; }
+  /* 管理页的列表占满剩余高度，新增/导入/导出等操作自然贴在底部。 */
+  .char-mgr .cm-list { max-height: none; }
   .pg-manager { grid-template-columns: 1fr; }
   .pg-post-history textarea, .pg-prompt-editor :is(input, textarea, select), .pg-sequence-actions select { font-size: 16px; }
-  .char-mgr { grid-template-rows: auto 1fr; }
+  .char-mgr { grid-template-rows: 1fr; }
   .cm-edit { padding: 12px; }
   .world-hero { flex-wrap: wrap; }
   .world-hero-actions { width: 100%; margin-left: 0; }

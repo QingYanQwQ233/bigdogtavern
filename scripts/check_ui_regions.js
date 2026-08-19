@@ -37,6 +37,8 @@ assert.ok(template.sidebar.panels.some(panel => panel.fields?.includes('$key')))
 assert.match(app, /const MOBILE_MANAGER_IDS = \['char-mgr', 'prompt-mgr', 'regex-mgr', 'lore-mgr', 'memory-mgr', 'world-mgr'\]/);
 assert.match(app, /function setMobileManagerPanel\(managerId, panel = 'list'/);
 assert.match(app, /function handleManagerBack\(button\)/);
+assert.match(app, /function useCharById\(id\)/);
+assert.match(app, /world-lb-use[\s\S]*data-act="use"/);
 assert.match(css, /\.char-mgr\[data-mobile-panel="list"\] \.cm-edit/);
 assert.match(css, /#prompt-mgr\[data-mobile-prompt-panel="entry"\] \.pg-sequence/);
 assert.match(css, /#lore-mgr\[data-mobile-lore-panel="entry"\] \.wi-list/);

@@ -5906,9 +5906,11 @@ function renderCharList() {
     const inUse = c.id === currentCharId;
     el.className = 'cm-item' + (c.id === cmEditingId ? ' active' : '');
     el.tabIndex = 0;
-    el.innerHTML = `<span class="cm-name">${esc(c.name || '未命名')}${inUse ? '<span class="cm-inuse-mark">使用中</span>' : ''}</span><span class="cm-x" title="删除">✕</span>`;
+    el.innerHTML = `<span class="cm-name">${esc(c.name || '未命名')}</span><span class="world-lb-actions"><button class="cm-x world-lb-use" type="button" data-act="use" aria-pressed="${inUse ? 'true' : 'false'}" title="${inUse ? '当前正在使用' : '设为当前使用'}">${inUse ? '使用中' : '设为使用'}</button><button class="cm-x world-lb-delete" type="button" data-act="delete" aria-label="删除 ${esc(c.name || '未命名')}" title="删除角色">删除</button></span>`;
     el.addEventListener('click', (ev) => {
-      if (ev.target.classList.contains('cm-x')) { deleteChar(c.id); return; }
+      const action = ev.target.closest?.('[data-act]')?.dataset.act;
+      if (action === 'use') { useCharById(c.id); return; }
+      if (action === 'delete') { deleteChar(c.id); return; }
       setMobileManagerPanel('char-mgr', 'detail');
       selectCharForEdit(c.id);
     });
@@ -6194,9 +6196,8 @@ function saveCharFromEditor() {
   renderCharacter();
 }
 
-function useCharInEditor() {
-  saveCharFromEditor();
-  const target = cmEditingId ? characters.find(x => x.id === cmEditingId) : characters[characters.length - 1];
+function useCharById(id) {
+  const target = characters.find(x => x.id === id);
   if (target) {
     currentCharId = target.id;
     localStorage.setItem(LS_CURRENT_CHAR, currentCharId);
@@ -6207,6 +6208,11 @@ function useCharInEditor() {
   renderSessions();
   renderMessages();
   switchView('chat');
+}
+
+function useCharInEditor() {
+  saveCharFromEditor();
+  useCharById(cmEditingId || characters[characters.length - 1]?.id);
 }
 
 function deleteChar(id) {
