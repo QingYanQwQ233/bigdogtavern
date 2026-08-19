@@ -23,7 +23,7 @@ GitHub Release 提供 `tavern-*-portable-win-x64.zip`。解压后双击「启动
 
 ## 本次更新 · 2026-08-19
 
-- RPG 世界卡支持自定义 HTML/CSS/JS 前端、沉浸模式、入口警告、声明式 runtime 变量/集合/动作和 Agent 选择桥接；新增“电子病娇 · 由依协议”测试世界卡。
+- RPG 世界卡支持自定义 HTML/CSS/JS 前端、沉浸模式、入口警告、声明式 runtime 变量/集合/动作和 Agent 选择桥接。
 - Agent 回合统一接入规则检查、客户端骰子、工具 Guard trace、两阶段提交、pending 恢复和结构化回执。
 - 酒馆模式补齐 Character Card V3 / PNG 元数据、角色书绑定、卡片级输出正则、HTML/Markdown 安全渲染和 `{{user}}` 显示宏；兼容 ST 角色卡把前端包在带 `text` 标记的代码围栏正则替换中的写法，角色卡消息会占满当前聊天列，iframe 高度跟随卡内内容与折叠状态变化，移动端会将卡内宽度收进消息容器。卡内 HTML/CSS/JS 经用户逐卡确认后进入同源完整兼容 iframe，支持 `parent.document`、localStorage、外部脚本/网络和 ST 聊天/世界书桥；预设 EJS/MVU 仍只保留原文。
 - 角色卡导入入口可自动识别误选的 ST World Info JSON，并转入世界书库；世界书页仍提供独立的 ST 世界书导入入口。
