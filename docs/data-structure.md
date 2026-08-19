@@ -19,7 +19,7 @@ public/data/
   saves/<saveId>.json ← 世界存档（WorldSave；服务端按存档独立读写）
 
 localStorage（前缀 rpg-airp:）→ server JSON 的离线缓存，server 为权威源
-  settings / prefs / profiles / chars / current-char / sessions / lore / prompt-presets / theme
+  settings / prefs / profiles / chars / current-char / sessions / lore / prompt-presets / gen / theme
   current-world / current-world-save（只保存最近打开的 ID，不保存正式世界状态）
   sessions-deleted（已删会话 ID 墓碑，与服务端 deletedIds 合并，防止已删会话在跨浏览器同步时复活）
 ```
@@ -28,13 +28,15 @@ localStorage（前缀 rpg-airp:）→ server JSON 的离线缓存，server 为�
 
 `theme` 仅为兼容旧缓存保留，界面固定使用 `vibrancy`（macOS 深色主题）。
 
-## 二、_defaults.json（唯一数据源）的 9 个段
+`gen` 是可编辑的 AI 工坊配置；首次启动从 `_defaults.json.gen` 初始化并同步到 `gen.json`，设置页修改后只覆盖当前用户的 `charBasicPrompt`、`charFullPrompt`、`lorePrompt` 与 `charFields`，角色字段仍按 JSON Schema 动态读取。
+
+## 二、_defaults.json（唯一数据源）的 10 个段
 
 | 段 | 结构 | 用途 |
 |---|---|---|
 | `providers` | `[{id,label,baseUrl,model}]` | 设置面板「服务预设」下拉（动态渲染） |
 | `format` | `{key:{label,text}}` | 格式指令（对白协议/长叙事/JSON…），附加到 system |
-| `prefs` | `{formatPreset,formatCustom,stop,wiScanDepth,wiWholeWord,currentPresetByMode,outputRegex,cotEnabled,cotEffort,worldContextBudget,typography}` | 界面偏好默认值；酒馆/RPG 分别记忆当前预设与自定义输出正则；RPG 世界上下文字符预算；`typography` 是聊天正文排版（字体/字号/行距/段距/段首缩进/左右间距），改动即时写入 `--chat-*` CSS 变量并自动保存 |
+| `prefs` | `{formatPreset,formatCustom,stop,wiScanDepth,wiIncludeNames,wiCaseSensitive,wiWholeWord,wiRecursive,wiMaxRecursionSteps,wiMinActivations,wiMinActivationsDepthMax,wiBudget,wiUseGroupScoring,wiInsertionStrategy,currentPresetByMode,outputRegex,cotEnabled,cotEffort,worldContextBudget,typography}` | 界面偏好默认值；世界书缺少独立 settings 时的兼容回退；酒馆/RPG 分别记忆当前预设与自定义输出正则；RPG 世界上下文字符预算；`typography` 是聊天正文排版（字体/字号/行距/段距/段首缩进/左右间距），改动即时写入 `--chat-*` CSS 变量并自动保存 |
 | `ui` | `{emptyTitle,emptyGuideWithChar,emptyGuide}` | 空状态文案（`{name}`/`{role}` 插值） |
 | `settings` | 连接参数 + `systemPrompt/postHistory/firstMes` | settings.json 初始内容 |
 | `gen` | `{charFields,charBasicPrompt,charFullPrompt,lorePrompt}` | AI 三步生成角色卡与世界书条目；基本信息栏目由 JSON 动态渲染 |
@@ -116,9 +118,11 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 
 `ui.entryGate` 是可选的存档入口门禁，只有在用户点击“创建存档”时才显示；它不提前创建 `WorldSave`。`cancelText` 退回世界库，`fullscreen: true` 在确认手势内请求浏览器全屏，失败会降级为普通布局。`ui.sidebar.panels[]` 只声明侧边栏面板的标题、位置、布局、字段和白名单数据源（例如 `save.npcStates`、`save.state.goals`、`save.state.player.resources`）；面板是当前 `WorldSave` 的只读投影，不把动态数据写回世界卡，也不执行模板、HTML 或脚本。
 
-`ui.extension` 的 HTML/CSS/JS 在隔离 iframe 中运行，只有声明的权限才能读取当前世界 / 存档或提交 runtime Typed Patch；扩展不能访问主页面、网络或其他存档。桥接 API 的 `TavernExtension.choose(text, options)` 会复用主 RPG 回合管线（需要 `read.save`）：纯文本选择直接进入 AI，带 `actionId` / `updates` 的选择先按 `write.runtime` 提交声明式运行时变化；`context.turn.options` 与底部快捷回复使用同一份 AI 结构化选项，`context.turn.narrative` / `hasResponse` 用于把最新正文重新绘制到自定义界面，`context.messages` 提供当前存档最近 40 条用户 / AI 消息。卡内 HTML 可放置 `data-tavern-narrative`（最新叙事）、`data-tavern-messages`（消息历史）、`data-tavern-options`（AI 选项）以及 `data-tavern-input` / `data-tavern-submit`（自定义输入与提交）；桥接会在卡自己的 DOM 内更新内容，选项和表单仍复用 Agent 回合。没有这些标记时不会自动追加宿主叙事框或输入框，避免卡内 UI 与框架 UI 重复。桥接等待时间为 120 秒，以覆盖 Agent 工具循环和长思维链。存在扩展时默认独立接管页面；设置 `ui.extension.immersive:false` 才嵌回宿主 RPG 布局，草稿编辑器提供对应勾选项，`ui.layout: "immersive"` 仍可作为显式标记。前端会隐藏宿主侧栏、顶栏、RPG 状态和底部输入框，只保留扩展 iframe 与退出入口。切换到酒馆模式会卸载扩展 iframe，避免世界卡 UI 串入 RP。`world-electronic-yandere` 是一个完整示例：它通过声明式 runtime actions 保存“爱 / 不爱”选择，前端只负责呈现病娇界面，Agent 仍通过当前世界卡的 Prompt 与工具协议负责后续叙事。
+`ui.worldUiTemplate` 位于 `_defaults.json.ui`，是世界草稿编辑器的“载入完整模板”数据源，不属于任何具体世界或存档；模板包含 `schemaVersion`、主题 Token、八个区域策略、声明式侧栏和入口门禁示例，载入后会复制到草稿 JSON，用户可按世界需求调整。
 
-`regexes[]` 是世界卡绑定的输出替换规则，按世界卡、RPG 预设、模式自定义的顺序执行；服务端只接受有限正则字段并校验表达式，不执行脚本、EJS 或 MVU。
+`ui.extension` 的 HTML/CSS/JS 在隔离 iframe 中运行，只有声明的权限才能读取当前世界 / 存档或提交 runtime Typed Patch；扩展不能访问主页面、网络或其他存档。桥接 API 的 `TavernExtension.choose(text, options)` 会复用主 RPG 回合管线（需要 `read.save`）：纯文本选择直接进入 AI，带 `actionId` / `updates` 的选择先按 `write.runtime` 提交声明式运行时变化；`context.turn.options` 与底部快捷回复使用同一份 AI 结构化选项，`context.turn.narrativeHtml` / `hasResponse` 用于把已清洗的 Markdown 正文重新绘制到自定义界面，`context.messages[].html` 提供当前存档最近 40 条用户 / AI 消息的安全 HTML。卡内 HTML 可放置 `data-tavern-messages`（唯一消息流，负责滚动）、`data-tavern-narrative`（兼容旧卡的最新叙事）、`data-tavern-options`（AI 选项）以及 `data-tavern-input` / `data-tavern-submit`（自定义输入与提交）；同一页面同时存在消息流和叙事标记时，叙事标记默认隐藏，避免重复内容与双滚动条。桥接会在卡自己的 DOM 内更新内容，选项和表单仍复用 Agent 回合。没有这些标记时不会自动追加宿主叙事框或输入框，避免卡内 UI 与框架 UI 重复。桥接等待时间为 120 秒，以覆盖 Agent 工具循环和长思维链。`ui.layout:"custom"` / `"immersive"` 可按卡声明隐藏宿主区域；`ui.shell.navigation/topbar:"hide"` 可在窗口化隐藏宿主壳层，`TavernExtension.fullscreen()` / `exitFullscreen()` / `exitWorld()` / `openTerminal()` 和 Esc 由宿主统一执行，浏览器全屏拒绝时仍降级为卡内沉浸布局。切换到酒馆模式会卸载扩展 iframe，避免世界卡 UI 串入 RP。`world-electronic-yandere` 是一个完整示例：它通过声明式 runtime actions 保存“爱 / 不爱”选择，前端只负责呈现病娇界面，Agent 仍通过当前世界卡的 Prompt 与工具协议负责后续叙事。
+
+`regexes[]` 是世界卡绑定的输出替换规则，按世界卡、RPG 预设、模式自定义的顺序执行；服务端只接受有限正则字段并校验表达式，不执行脚本、EJS 或 MVU。消息另存 `rawContent` 作为正则前快照，角色卡兼容桥优先读取它，避免状态标签被显示正则覆盖后无法回读。
 
 `setting` 保存世界观稳定段（`premise/history/geography/culture/technology/magic/society/economy/currentSituation`）；`rules.hard` / `rules.soft` 保存作者的硬 / 软叙事约束，`rules.checks[]` 声明 Agent 可引用的判定 ID 与可选目标 / 骰式。二者只属于 `WorldCard@worldVersion`，由 Prompt 作为只读设定投影，不进入 `WorldSave`；硬规则的结构化游戏结算仍必须使用 `turnContract`、失败、冲突、时间和结局等正式字段。
 
@@ -244,9 +248,11 @@ RPG 控制块使用 `protocol: 'tavern.rpg.turn'`、`version: 1`、`baseRevision
 }
 ```
 
-`profileFields` 随角色保存，并写入 Character Card V3 的 `extensions.tavern.profileFields`（仍可导出为 V2）；导入时恢复。角色卡编辑器兼容 V1/V2/V3 JSON，并可从 PNG 的 `ccv3` / `chara` 文本块读取卡片元数据（同时兼容未压缩 `iTXt`）；V3 的 `description`、`personality`、`mes_example`、备用开场白、作者字段、`character_book`、`assets` 与未知扩展字段都会保留；`character_book` 只在绑定该角色的酒馆对话中注入，不会并入全局世界书，也不会自动变成 RPG 世界卡的全局绑定。角色书运行时支持卡片级 `scan_depth`、`use_regex`、`case_sensitive`、`selective` 与 `secondary_keys`。角色卡 `extensions.regex_scripts` 在 RP 模式作为卡片级输出正则执行，先于预设与当前模式正则，用于兼容状态栏/HTML 卡面；脚本本身不会执行，生成的 HTML 仍经 DOMPurify 清洗。构建对话提示词时，非核心字段会追加到唯一的 `【角色卡】` system 段，因此自定义条目不仅用于展示，也会实际参与 AI 对话。
+`profileFields` 随角色保存，并写入 Character Card V3 的 `extensions.tavern.profileFields`（仍可导出为 V2）；导入时恢复。角色卡编辑器兼容 V1/V2/V3 JSON，并可从 PNG 的 `ccv3` / `chara` 文本块读取卡片元数据（同时兼容未压缩 `iTXt`）；V3 的 `description`、`personality`、`mes_example`、备用开场白、作者字段、`character_book`、`assets` 与未知扩展字段都会保留；`character_book` 只在绑定该角色的酒馆对话中注入，不会并入全局世界书，也不会自动变成 RPG 世界卡的全局绑定。角色书运行时支持卡片级 `scan_depth`、`use_regex`、`case_sensitive`、`selective` 与 `secondary_keys`。角色卡 `extensions.regex_scripts` 在 RP 模式作为卡片级输出正则执行，先于预设与当前模式正则，用于兼容状态栏/HTML 卡面；卡内明确存在的脚本会在首次显示前征得用户确认，随后在同源完整兼容 iframe 中运行，可使用宿主 DOM、localStorage、外部脚本、网络与 ST 兼容桥。预设脚本、EJS/MVU 仍只保留原文。生成的 HTML 仍经 DOMPurify 清洗。构建对话提示词时，非核心字段会追加到唯一的 `【角色卡】` system 段，因此自定义条目不仅用于展示，也会实际参与 AI 对话。
 
-RP 消息显示会优先识别缩进的 HTML 布局与 HTML 代码块，再交给 Markdown 与 DOMPurify；显示阶段的 `{{user}}` 会替换为当前玩家设定名字；卡片脚本不会执行。
+RP 消息显示会优先识别缩进的 HTML 布局与 HTML 代码块，再交给 Markdown 与 DOMPurify；ST 常见的带 `text` 标记的 HTML 正则替换结果也会在完整布局检测后展开，并先提取卡内样式；角色卡消息会占满当前聊天列，iframe 高度跟随卡内根节点内容与折叠状态变化，移动端会把卡内固定宽度和横向内容收进当前消息容器。显示阶段的 `{{user}}` 会替换为当前玩家设定名字。绑定角色卡脚本只有在用户授权后进入同源完整兼容 iframe；拒绝授权或脚本来自预设时按原文 / 清洗后的 HTML 显示。世界卡 `ui.extension` 仍维持单独的无同源 sandbox/CSP 边界。
+
+卡内“加载本卡所有设置”之类的 ST 脚本会读取当前会话快照；只有聊天中实际存在 `<world_view>`、`<character_design_complex>`、`<rule_setting_*>` 等结构化标签时才会填充预览，普通叙事文本为空是正常结果，不代表角色书没有绑定。
 
 ### 提示词预设 presets{}（presets.json）
 ```js
@@ -278,7 +284,7 @@ RP 消息显示会优先识别缩进的 HTML 布局与 HTML 代码块，再交�
 
 内置酒馆基础预设启用玩家主权、角色稳定、连续性、白描与抗重复模块；内置 RPG 基础预设启用玩家主权、世界连续性、判定、Markdown 叙事和福瑞种族表现模块。RPG 状态协议要求每回合输出恰好 4 个行动选项。
 
-提示词页可导入/导出 SillyTavern Chat Completion 的 `prompts + prompt_order + extensions.regex_scripts`。导入同时接受数组、对象映射和字符串 `character_id`；优先选择 `character_id: 100001`，未进入该顺序的 prompts 保留在素材库。常见采样参数会保存在 `modelParameters` 供无损导出，但连接设置仍是运行时权威，不会因导入而静默改动 API 参数。支持安全宏 `{{user}}`、`{{char}}`、`{{persona}}`、`{{description}}`、`{{personality}}`、`{{scenario}}`、`{{mesExamples}}`、`{{mesExamplesRaw}}`、`{{lastMessage}}`、`{{lastUserMessage}}`、`{{lastCharMessage}}`、`{{messageCount}}`、`{{newline}}`、`{{space}}`、`{{setvar::名称::值}}` / `{{setglobalvar::名称::值}}`、`{{getvar::名称}}` / `{{getglobalvar::名称}}`、`{{random::甲::乙}}` / `{{pick::甲::乙}}` 和 `{{trim}}`；全局变量兼容宏只在本次请求内生效，未知宏原样保留。导入的输出正则会保留 `placement/affects`、`trimStrings`、`markdownOnly`、`promptOnly`、深度等元数据，并在对应模式显示前执行；侧栏「正则」可为酒馆 / RPG 分别添加自定义规则。角色卡 / 预设中的 EJS、MVU、脚本仍保持不执行；世界卡 `ui.extension` 检测到 EJS、MVU 或扩展脚本时，会先弹出授权确认，确认后才在现有隔离 sandbox iframe 中运行，拒绝则保持扩展停用。授权按世界版本与代码内容哈希保存在本地，代码或版本改变会重新询问。
+提示词页可导入/导出 SillyTavern Chat Completion 的 `prompts + prompt_order + extensions.regex_scripts`。导入同时接受数组、对象映射和字符串 `character_id`；优先选择 `character_id: 100001`，未进入该顺序的 prompts 保留在素材库。常见采样参数会保存在 `modelParameters` 供无损导出，但连接设置仍是运行时权威，不会因导入而静默改动 API 参数。支持安全宏 `{{user}}`、`{{char}}`、`{{persona}}`、`{{description}}`、`{{personality}}`、`{{scenario}}`、`{{mesExamples}}`、`{{mesExamplesRaw}}`、`{{lastMessage}}`、`{{lastUserMessage}}`、`{{lastCharMessage}}`、`{{messageCount}}`、`{{newline}}`、`{{space}}`、`{{setvar::名称::值}}` / `{{setglobalvar::名称::值}}`、`{{getvar::名称}}` / `{{getglobalvar::名称}}`、`{{random::甲::乙}}` / `{{pick::甲::乙}}` 和 `{{trim}}`；全局变量兼容宏只在本次请求内生效，未知宏原样保留。导入的输出正则会保留 `placement/affects`、`trimStrings`、`markdownOnly`、`promptOnly`、深度等元数据，并在对应模式显示前执行；侧栏「正则」可为酒馆 / RPG 分别添加自定义规则。角色卡 / 预设中的 EJS、MVU 仍保持原文保留；绑定角色卡的 HTML/CSS/JS 在用户确认后进入同源完整兼容 iframe，世界卡 `ui.extension` 检测到 EJS、MVU 或扩展脚本时则在现有隔离 sandbox iframe 中运行，拒绝授权时保持停用。授权按世界版本或角色卡代码内容哈希保存在本地，代码或版本改变会重新询问。
 
 `_defaults.json.tavern.replyOptions` 定义 RP 自动选项协议（数量、提示词和无选项提示）。内置「RP 基础（示例）」已把协议写入自己的 `postHistory`；其他预设在未提供同类 `<tavern_options>` 协议时，仍由全局配置自动追加，避免重复注入。客户端解析并移除该标签，只把去重后的选项保存到 assistant 消息的 `options[]`，底部快捷栏据此渲染。缺少或不合规标签时，RP 最多额外请求一次协议修复；修复失败则保留原正文，不在客户端臆造选项。正文、正则和选项数据分开处理，AI 未返回标签时不再回退到写死按钮。
 
@@ -287,15 +293,16 @@ RP 消息显示会优先识别缩进的 HTML 布局与 HTML 代码块，再交�
 {
   default: {
     name: '默认世界书',
+    settings: { scanDepth, includeNames, caseSensitive, matchWholeWords, recursive, maxRecursionSteps, minActivations, minActivationsDepthMax, budget, useGroupScoring, insertionStrategy },
     entries: [
-      { title, keys: '触发词,逗号分隔', content, enabled, constant, order },
+      { uid, title, key: [], keysecondary: [], content, enabled, constant, selective, selectiveLogic, order, position, depth, role },
     ],
   },
 }
 ```
-- `constant: true` 常驻注入；`keys` 支持 `/正则/`；`order` 决定命中顺序
-- 条目**无 `id` 字段**：匹配去重以 `id || title` 为键（app.js buildWorldInfo）
-- 世界书页支持导入常见 SillyTavern World Info JSON（`entries` 对象/数组，以及 `key`、`keysecondary`、`comment`、`disable`、`order` 等字段）；同时保留并读取 `extensions` 下的 `depth`、`position`、`role`、`scan_depth`、`case_sensitive`、`probability`、`group/group_weight`、`sticky/cooldown/delay` 等兼容字段。导入后会生成新的本地世界书 ID，原文件不会被覆盖；尚未实现的 ST 扩展行为（如向量检索、Outlet、定时效果持久化）只保存字段，不执行。
+- `settings` 按本书保存；旧书没有该字段时回退 `prefs.wi*`。多本书可分别设置扫描深度、大小写 / 整词、角色名扫描、递归、最少激活 / 最大扫描深度、预算、分组评分和角色书 / 全局书排序；世界书页的“导出 ST 世界书”会写出 ST 根级设置与条目对象。
+- `constant: true` 常驻注入；`key` 是主关键词，`keysecondary` 是过滤关键词；`selectiveLogic` 支持 ST 的 `AND ANY / NOT ALL / NOT ANY / AND ALL`；`keys` 仅作为旧格式显示兼容；`order` 与 `position/depth/role` 决定候选排序与注入位置标签。
+- 世界书页支持导入 / 导出常见 SillyTavern World Info JSON（`entries` 对象/数组，以及 `key`、`keysecondary`、`comment`、`disable`、`order` 等字段）；同时保留并读取 `extensions` 下的 `depth`、`position`、`role`、`scan_depth`、`case_sensitive`、`probability`、`group/group_weight`、`sticky/cooldown/delay`、递归和匹配来源字段。当前运行时实现选择性、概率、分组、递归、Sticky/Cooldown/Delay、常驻、整词 / 大小写、按书扫描设置和 `{{outlet::名称}}` 提示词宏；向量检索、Quick Reply Automation 仍只保留字段，不执行。由于本项目请求协议保持唯一 `system` 消息，`@depth`、作者注记、示例消息和 Outlet 会先按 ST 位置排序 / 聚合后进入该 system，而不是拆成 ST 的多条原生提示槽位。
 - 导入带 `character_book` 的 V1/V2/V3 JSON 或 PNG 角色卡时，内嵌角色书会按内容指纹自动注册为独立世界书并显示“角色卡”来源标记；启动时也会迁移已经存在的旧角色卡。角色卡仍保留原始内嵌副本。角色编辑器和世界卡草稿可分别选择绑定，选择自动注册副本时不会重复注入。
 - 世界卡详情页会直接展示“使用世界书”绑定结果；点击“选择世界书”进入草稿选择器，世界书列表中的“设为使用”仅控制酒馆模式全局世界书，不会串入 RPG 世界卡。
 - 默认世界书已内置：大陆概览 + 种族总览（常驻）、人类 + 10 兽人种族外貌特征、旅店/龙谷等地点条目
@@ -354,7 +361,7 @@ RP 消息显示会优先识别缩进的 HTML 布局与 HTML 代码块，再交�
 | `GET /api/world-drafts?worldId=<worldId>` | 列出世界草稿摘要；不传 worldId 时列出全部草稿 |
 | `GET /api/world-drafts/<worldId>` | 读取指定世界草稿 |
 | `GET /api/world-drafts/<worldId>/check` | 预检当前持久化草稿的发布条件，返回按世界定义、稳定引用、开局运行态和 Prompt 契约分组的 `report`；不修改草稿 |
-| `POST /api/world-drafts` | 默认从指定 `worldId` / `baseVersion` 创建或读取同一世界的幂等编辑草稿；提交 `mode: "new"` 与 `sourceWorldId` 会克隆为新的独立世界草稿，发布后获得新的世界 ID |
+| `POST /api/world-drafts` | 默认从指定 `worldId` / `baseVersion` 创建或读取同一世界的幂等编辑草稿；提交 `mode: "new"` 与 `sourceWorldId` 会克隆为新的独立世界草稿，提交 `mode: "blank"` 会创建不绑定已有世界卡的空白草稿，二者发布后都会获得新的世界 ID |
 | `PUT /api/world-drafts/<worldId>` | 使用 `expectedUpdatedAt` 乐观锁保存标题、简介、标签、`lorebookIds`、`rpgPresetName`、声明式 `agent`、`regexes`、`ui`、地图生成参数、声明式 `playerCreation`、`turnContract`、`failure`、`ending`、`time`、`events`、`factions`、`conflicts`、`locations` 与 `npcs`；事件条件、建角字段、回合选项、Agent 工具白名单、输出正则、侧栏数据源、冲突骰子 / 目标、失败引用、结局条件、成长白名单、时间参数、地点/NPC ID 必须受服务端校验 |
 | `POST /api/world-drafts/<worldId>/publish` | 提交 `commandId`、`expectedUpdatedAt` 与 `baseVersion`，服务端会再次执行同一份完整性检查；通过后把草稿发布为不可变的下一版本。命令可幂等重试；草稿落后最新版本时返回 409 并保留草稿 |
 | `POST /api/worlds/<worldId>/versions` | 显式把来源存档中的生成 NPC 收录进下一不可变世界版本；要求 `sourceSaveId`、`npcId`，可选 `expectedRevision` / `title` |

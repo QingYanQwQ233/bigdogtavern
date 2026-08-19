@@ -1,5 +1,27 @@
 # 更新日志
 
+## 2026-08-19 · Android 导出与发布准备
+
+### 新增
+
+- Android WebView 增加 `TavernAndroid.saveFile(name, mime, base64)` 导出桥，将前端导出的角色卡、预设、世界书、世界包、WorldSave 和设置写入系统 `Download` 文件夹。
+- Android 10 及以上通过 MediaStore 写入并标记完成；Android 9 及以下兼容公共 Downloads 目录并在首次导出时申请存储权限。
+- 导出文件名经过路径字符清理并限制长度，Base64 数据超过约 36 MB 时拒绝写入，避免误用导致内存异常。
+- 浏览器和非 Android 环境继续使用标准 `<a download>` 回退，不改变桌面端导出行为。
+- 新增 `node scripts/check_android_api.js`，检查前端下载 helper 与 Android bridge 契约。
+
+### 文档与发布
+
+- 更新 README 的能力清单、手机端使用说明和验证命令。
+- Android APK 仍由 `.github/workflows/android-apk.yml` 在推送或手动触发时构建；本次推送后将触发一次 Debug APK 构建。
+
+### 验证
+
+- `node --check public/app.js`
+- `node scripts/check_android_api.js`
+- `node scripts/check_ui_regions.js`
+- Playwright 已验证 Android bridge 被调用时不创建浏览器下载锚点，浏览器回退路径仍可用。
+
 ## 2026-08-17 · World App Contract W0–W6
 
 ### 新增与兼容

@@ -14,7 +14,7 @@
 - 当前 RPG 的“对话”在目标模型中改为“世界存档”；开局叙事与 `turns` 是存档的一部分。
 - 世界卡负责可复用的世界内容；世界存档负责会变化的事实。两者不能互相覆盖。
 - 角色卡在世界模式中分为玩家角色、世界 NPC 与临时 NPC，不再成为 RPG 会话的唯一归属。
-- 沿用 SillyTavern 的世界书 / 提示词素材库 / Prompt 顺序思想；默认使用声明式 UI，明确授权的 `ui.extension` 只在隔离 sandbox iframe 中运行，角色卡 / 预设导入的 EJS、MVU 和脚本仍不执行。
+- 沿用 SillyTavern 的世界书 / 提示词素材库 / Prompt 顺序思想；默认使用声明式 UI，明确授权的世界卡 `ui.extension` 仍在隔离 sandbox iframe 中运行，绑定角色卡脚本则在用户确认后的同源完整兼容 iframe 中运行，预设导入的 EJS、MVU 和脚本仍不执行。
 
 ## 2. 目标与非目标
 
@@ -28,7 +28,7 @@
 
 ### 明确非目标（第一阶段不做）
 
-- 不在主页面运行任意 HTML / JavaScript；世界卡扩展必须经过授权并限制在 sandbox iframe。
+- 世界卡扩展不在主页面运行任意 HTML / JavaScript，必须经过授权并限制在 sandbox iframe；绑定角色卡是独立的 ST 兼容入口，用户确认后允许卡内前端访问宿主页面。
 - 不把 AI 叙事正文直接当作已提交状态。
 - 不自动把所有生成 NPC 晋升到全局角色库。
 - 不做多人联机、云同步、完整 Mod 沙箱、无限分支存档或通用脚本引擎。
@@ -227,9 +227,9 @@ DM 身份与玩家主权
 - `worldLineSummary` 是可重建的世界线叙事投影：`GET /api/world-saves/<saveId>/summary` 只读，`POST /api/world-saves/<saveId>/summary/rebuild` 只从已提交事件、人物经历、关系、阵营、失败和结局生成，带 `sourceRevision/sourceHash`；源事实变化后必须重新生成，不回写 `turns` 或 `state`。
 - `setting` 与 `rules` 是世界卡稳定设定的声明式 Prompt 投影：草稿编辑器只允许预定义世界观字段和 `hard/soft` 字符串数组；它们不写入 `WorldSave`，硬规则目前作为 AI 约束注入，结构化战斗 / 时间 / 失败 / 结局校验仍由各自正式字段负责。
 - RPG 预设由世界卡引用；存档只记录其版本，不能回退到酒馆角色卡的 `presetName`。
-- 导入的 ST 正则、EJS、MVU 和脚本保留在来源 sidecar，默认不执行；展示清理规则也不得写入 RPG 正式状态。
+- 导入的 ST 正则、EJS、MVU 和脚本保留在来源 sidecar；绑定角色卡脚本只有用户授权后才在同源完整兼容 iframe 中运行，预设脚本和模板默认不执行；展示清理规则也不得写入 RPG 正式状态。
 - RPG GEN 3 的 `runtime` 是受限 JSON DSL：世界卡声明变量、集合和动作；创建存档时复制为 `state.runtime.schema`，值写入同一存档的 `variables/collections`。`state.patch` 只允许 `runtime.variable.set/delta`、`runtime.collection.add/remove`、`runtime.action.execute`，服务端按快照 Schema 校验，不执行任意表达式。
-- `WorldCard.ui.extension` 是可选的扩展容器：`html`、`css`、`js`、`mvu`、`permissions`、`maxHeight`、`timeoutMs`。世界草稿页提供这些字段的可视化编辑器，同时保留高级 `ui` JSON；扩展字段通过“从高级 JSON 载入扩展”显式同步，保存时合并回同一个 `ui.extension`，不复制第二份配置。前端使用无同源 `sandbox="allow-scripts"` iframe 和 CSP 隔离扩展；扩展不能读取主页面 DOM、网络或 API 密钥，只能通过带 nonce 的 `tavern.rpg.extension` 消息协议请求上下文、提交 runtime patch 或调用声明式 action。写入端点 `/api/world-saves/:id/runtime` 会在服务端再次检查 `write.runtime`，并执行 commandId 幂等、revision、Schema 和 runtime-only 校验。
+- `WorldCard.ui.extension` 是可选的扩展容器：`html`、`css`、`js`、`mvu`、`permissions`、`maxHeight`、`timeoutMs`。世界草稿页提供这些字段的可视化编辑器，同时保留高级 `ui` JSON；扩展字段通过“从高级 JSON 载入扩展”显式同步，保存时合并回同一个 `ui.extension`，不复制第二份配置。前端继续使用无同源 `sandbox="allow-scripts"` iframe 和 CSP 隔离世界卡扩展；扩展不能读取主页面 DOM、网络或 API 密钥，只能通过带 nonce 的 `tavern.rpg.extension` 消息协议请求上下文、提交 runtime patch 或调用声明式 action。绑定角色卡脚本不走这条世界卡扩展通道，而是在单独的用户确认流程中使用同源完整兼容 iframe。写入端点 `/api/world-saves/:id/runtime` 会在服务端再次检查 `write.runtime`，并执行 commandId 幂等、revision、Schema 和 runtime-only 校验。
 - 声明式侧栏可以读取 `runtime.variables.<id>` 与 `runtime.collections.<id>`；集合适合商城、图鉴、关系表等世界专属内容，旧存档不会跟随世界卡编辑自动串改。
 
 ## 7. 回合、状态与保存
@@ -300,7 +300,7 @@ DM 身份与玩家主权
 └─ 底：状态条 + 当前 revision + 调试入口
 ```
 
-世界入口页和世界桌面由原生组件根据 `WorldCard` 与 `WorldSave` 渲染。它可以拥有鲜明主题和视觉布局，但不接受世界卡内任意可执行网页代码。
+世界入口页和世界桌面由原生组件根据 `WorldCard` 与 `WorldSave` 渲染。世界卡扩展受授权、CSP 与 sandbox 边界约束；绑定角色卡脚本受单独的用户授权约束并运行在同源完整兼容 iframe，不默认执行任何未授权脚本。
 
 ## 9. 与酒馆模式的边界
 
@@ -370,7 +370,7 @@ W5.7 导入保持两段式：`原文封存 + 只读报告 → 用户确认 → �
 | 多世界 / 多存档串数据 | 所有读取以 `saveId` / `worldId` 明确筛选；回归断言 |
 | 存档过大 | 单存档文件；时间线窗口与派生记忆分离 |
 | 旧会话迁移误合并 | 默认一会话一存档；dry-run 与备份 |
-| “网页世界卡”成为执行入口 | 默认声明式 UI；授权后的 `ui.extension` 仅在 sandbox iframe 执行，角色卡 / 预设脚本仍不执行 |
+| “网页世界卡”成为执行入口 | 默认声明式 UI；授权后的 `ui.extension` 在 sandbox iframe 执行，绑定角色卡脚本在完整兼容 iframe 执行，预设脚本仍不执行 |
 
 首批行为验收：
 

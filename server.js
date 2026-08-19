@@ -33,7 +33,7 @@ const RPG_MIGRATIONS_DIR = path.join(DATA_DIR, 'rpg-migrations');
 // --api-only：只暴露 /api/*（无网页），供公网纯 API 场景
 const API_ONLY = process.argv.includes('--api-only');
 
-const DATA_TYPES = ['characters', 'presets', 'lorebooks', 'settings', 'user', 'worlds', 'sessions'];
+const DATA_TYPES = ['characters', 'presets', 'lorebooks', 'settings', 'user', 'gen', 'worlds', 'sessions'];
 const DEFAULTS_PATH = path.join(DATA_DIR, '_defaults.json');
 
 /* 默认模板：从 public/data/_defaults.json 读取（唯一数据源，代码不写死内容） */
@@ -183,9 +183,18 @@ function worldAppCapabilities(world) {
   const agent = world?.agent && typeof world.agent === 'object' && !Array.isArray(world.agent) ? world.agent : {};
   return {
     ui: {
+      schemaVersion: Number.isInteger(ui.schemaVersion) ? ui.schemaVersion : 1,
       layout: typeof ui.layout === 'string' && ui.layout ? ui.layout : 'host',
       slots: Object.keys(ui.slots && typeof ui.slots === 'object' && !Array.isArray(ui.slots) ? ui.slots : {}).filter(slot => WORLD_UI_SLOTS.has(slot)),
+      regions: Object.keys(ui.regions && typeof ui.regions === 'object' && !Array.isArray(ui.regions) ? ui.regions : {}).filter(slot => WORLD_UI_SLOTS.has(slot)),
+      theme: Object.keys(ui.theme?.tokens && typeof ui.theme.tokens === 'object' && !Array.isArray(ui.theme.tokens) ? ui.theme.tokens : {}).length > 0,
       sidebar: Array.isArray(ui.sidebar?.panels) && ui.sidebar.panels.length > 0,
+      shell: ui.shell && typeof ui.shell === 'object' && !Array.isArray(ui.shell) ? {
+        navigation: ui.shell.navigation || 'show',
+        topbar: ui.shell.topbar || 'show',
+        fullscreen: ui.shell.fullscreen !== false,
+        escape: ui.shell.escape || 'fullscreen',
+      } : null,
       extension: ui.extension?.enabled === true,
       entryGate: ui.entryGate?.enabled === true,
     },
@@ -1285,7 +1294,25 @@ const WORLD_UI_SOURCES = new Set([
   'save.state.player.skills', 'save.state.player.resources', 'save.state.player.traits',
 ]);
 const WORLD_UI_SLOTS = new Set(['topbar', 'sidebar.left', 'narrative', 'options', 'input', 'sidebar.right', 'status', 'overlay']);
+const WORLD_UI_REGION_MODES = new Set(['decorate', 'replace', 'append', 'hide']);
+const WORLD_UI_REGION_FALLBACKS = new Set(['host', 'empty']);
+const WORLD_UI_SHELL_MODES = new Set(['show', 'hide']);
+const WORLD_UI_ESCAPE_MODES = new Set(['fullscreen', 'world', 'none']);
 const WORLD_EXTENSION_PERMISSIONS = new Set(['read.public', 'read.save', 'write.runtime', 'tool.call']);
+const WORLD_UI_THEME_TOKEN_RE = /^[a-z][a-z0-9-]{0,40}$/;
+function validateWorldUiTheme(value) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'ui.theme 必须是对象';
+  if (Object.keys(value).length === 0) return null;
+  if (Object.keys(value).some(key => key !== 'tokens')) return 'ui.theme 含有未声明字段';
+  const tokens = value.tokens;
+  if (!tokens || typeof tokens !== 'object' || Array.isArray(tokens) || Object.keys(tokens).length > 32 || runtimeJsonSize(tokens) > 12000) return 'ui.theme.tokens 无效';
+  for (const [key, token] of Object.entries(tokens)) {
+    if (!WORLD_UI_THEME_TOKEN_RE.test(key)) return `ui.theme.tokens.${key} 名称无效`;
+    if (typeof token !== 'string' || token.length > 240 || /[<>{}`;]/.test(token) || /(?:url|expression)\s*\(|(?:javascript|vbscript|data):/i.test(token)) return `ui.theme.tokens.${key} 值无效`;
+  }
+  return null;
+}
 function validateWorldExtension(value) {
   if (value === undefined || value === null) return null;
   if (!value || typeof value !== 'object' || Array.isArray(value)) return 'ui.extension 必须是对象';
@@ -1329,13 +1356,47 @@ function validateWorldUiSlots(value) {
   }
   return null;
 }
+function validateWorldUiRegions(value) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'ui.regions 必须是对象';
+  if (Object.keys(value).some(slot => !WORLD_UI_SLOTS.has(slot))) return 'ui.regions 含有未声明区域';
+  for (const [slot, config] of Object.entries(value)) {
+    if (!config || typeof config !== 'object' || Array.isArray(config)) return `ui.regions.${slot} 必须是对象`;
+    if (Object.keys(config).some(key => !['mode', 'visible', 'label', 'fallback', 'component'].includes(key))) return `ui.regions.${slot} 含有未声明字段`;
+    if (config.mode !== undefined && !WORLD_UI_REGION_MODES.has(config.mode)) return `ui.regions.${slot}.mode 不受支持`;
+    if (config.visible !== undefined && typeof config.visible !== 'boolean') return `ui.regions.${slot}.visible 无效`;
+    if (config.label !== undefined && (typeof config.label !== 'string' || config.label.length > 120)) return `ui.regions.${slot}.label 无效`;
+    if (config.fallback !== undefined && !WORLD_UI_REGION_FALLBACKS.has(config.fallback)) return `ui.regions.${slot}.fallback 不受支持`;
+    if (config.component !== undefined && (typeof config.component !== 'string' || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(config.component))) return `ui.regions.${slot}.component 无效`;
+  }
+  return null;
+}
+function validateWorldUiShell(value) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'ui.shell 必须是对象';
+  const allowed = new Set(['navigation', 'topbar', 'fullscreen', 'escape']);
+  if (Object.keys(value).some(key => !allowed.has(key))) return 'ui.shell 含有未声明字段';
+  for (const key of ['navigation', 'topbar']) {
+    if (value[key] !== undefined && !WORLD_UI_SHELL_MODES.has(value[key])) return `ui.shell.${key} 必须是 show 或 hide`;
+  }
+  if (value.fullscreen !== undefined && typeof value.fullscreen !== 'boolean') return 'ui.shell.fullscreen 无效';
+  if (value.escape !== undefined && !WORLD_UI_ESCAPE_MODES.has(value.escape)) return 'ui.shell.escape 不受支持';
+  return null;
+}
 function validateWorldUi(value) {
   if (value === undefined || value === null) return null;
   if (!value || typeof value !== 'object' || Array.isArray(value)) return 'ui 必须是对象';
-  if (Object.keys(value).some(key => !['layout', 'slots', 'sidebar', 'extension', 'entryGate'].includes(key))) return 'ui 含有未声明字段';
+  if (Object.keys(value).some(key => !['schemaVersion', 'layout', 'theme', 'slots', 'regions', 'sidebar', 'shell', 'extension', 'entryGate'].includes(key))) return 'ui 含有未声明字段';
+  if (value.schemaVersion !== undefined && (!Number.isInteger(value.schemaVersion) || value.schemaVersion !== 1)) return 'ui.schemaVersion 目前只支持 1';
   if (value.layout !== undefined && (typeof value.layout !== 'string' || value.layout.length > 80)) return 'ui.layout 无效';
+  const themeInvalid = validateWorldUiTheme(value.theme);
+  if (themeInvalid) return themeInvalid;
   const slotsInvalid = validateWorldUiSlots(value.slots);
   if (slotsInvalid) return slotsInvalid;
+  const regionsInvalid = validateWorldUiRegions(value.regions);
+  if (regionsInvalid) return regionsInvalid;
+  const shellInvalid = validateWorldUiShell(value.shell);
+  if (shellInvalid) return shellInvalid;
   const extensionInvalid = validateWorldExtension(value.extension);
   if (extensionInvalid) return extensionInvalid;
   const entryGateInvalid = validateWorldEntryGate(value.entryGate);
@@ -1359,7 +1420,7 @@ function validateWorldUi(value) {
       for (const field of panel.fields) {
         const key = typeof field === 'string' ? field : field?.key;
         const label = typeof field === 'string' ? field : field?.label;
-        if (typeof key !== 'string' || !/^[A-Za-z0-9_.-]{1,64}$/.test(key) || (label !== undefined && (typeof label !== 'string' || label.length > 80))) return `ui.sidebar.panels.${id}.fields 无效`;
+        if (typeof key !== 'string' || (key !== '$key' && !/^[A-Za-z0-9_.-]{1,64}$/.test(key)) || (label !== undefined && (typeof label !== 'string' || label.length > 80))) return `ui.sidebar.panels.${id}.fields 无效`;
       }
     }
     ids.add(id);
@@ -3260,7 +3321,7 @@ async function worldDraftPromptIssues(world) {
 async function worldDraftPublicationCheck(draft, worlds) {
   const report = worldDraftPublicationReport(draft);
   const latest = latestWorld(worlds, draft?.worldId);
-  if (draft?.kind === 'new') {
+  if (draft?.kind === 'new' || draft?.kind === 'blank') {
     if (latest) report.errors.push(worldDraftPublicationIssue('definition', 'world-draft-base', '新世界草稿的 ID 已被占用'));
   } else if (!latest) {
     report.errors.push(worldDraftPublicationIssue('definition', 'world-draft-name', '世界卡不存在'));
@@ -3750,12 +3811,37 @@ async function handleWorldDraftCreate(req, res) {
   }
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return send(res, 400, JSON.stringify({ error: '请求必须是 JSON 对象' }), 'application/json');
   const createNew = payload.mode === 'new';
+  const createBlank = payload.mode === 'blank';
   const sourceWorldId = String(payload.sourceWorldId || payload.worldId || '');
-  if (!isSafeId(sourceWorldId)) return send(res, 400, JSON.stringify({ error: '无效的 sourceWorldId' }), 'application/json');
+  if (!createBlank && !isSafeId(sourceWorldId)) return send(res, 400, JSON.stringify({ error: '无效的 sourceWorldId' }), 'application/json');
   if (payload.baseVersion !== undefined && (!Number.isInteger(payload.baseVersion) || payload.baseVersion < 1)) return send(res, 400, JSON.stringify({ error: 'baseVersion 必须是正整数' }), 'application/json');
   return withWorldsLock(async () => {
     try {
       const worlds = await loadWorlds();
+      if (createBlank) {
+        const drafts = await loadWorldDrafts();
+        const now = Date.now();
+        const worldId = newWorldDraftId();
+        const world = {
+          id: worldId,
+          version: 1,
+          title: '新世界草稿',
+          summary: '',
+          tags: [],
+          lorebookIds: [],
+          rpgPresetName: '',
+          locations: [],
+          npcs: [],
+          events: [],
+          factions: [],
+          conflicts: [],
+          source: { format: 'native', rawAssetRef: null },
+        };
+        const draft = { schemaVersion: 1, kind: 'blank', worldId, baseVersion: 1, world, createdAt: now, updatedAt: now };
+        drafts.push(draft);
+        await writeJsonAtomic(WORLD_DRAFTS_PATH, drafts);
+        return send(res, 201, JSON.stringify(worldDraftView(draft)), 'application/json; charset=utf-8');
+      }
       const source = payload.baseVersion === undefined
         ? latestWorld(worlds, sourceWorldId)
         : findWorldVersion(worlds, sourceWorldId, payload.baseVersion);
@@ -3809,7 +3895,7 @@ async function handleWorldDraftPut(req, res, worldId) {
         return send(res, 409, JSON.stringify({ error: '世界草稿已被更新，请重新读取', updatedAt: current.updatedAt }), 'application/json');
       }
       const worlds = await loadWorlds();
-      if (current.kind !== 'new' && !findWorldVersion(worlds, worldId, current.baseVersion)) {
+      if (!['new', 'blank'].includes(current.kind) && !findWorldVersion(worlds, worldId, current.baseVersion)) {
         return send(res, 409, JSON.stringify({ error: '草稿所基于的世界版本已不存在' }), 'application/json');
       }
       const playerCreationInvalid = validatePlayerCreationSchema(payload.playerCreation, current.world);
@@ -3888,11 +3974,12 @@ async function handleWorldDraftPublish(req, res, worldId) {
         return send(res, 409, JSON.stringify({ error: '世界草稿已被更新，请重新读取', updatedAt: current.updatedAt }), 'application/json');
       }
       const latest = latestWorld(worlds, worldId);
-      if (current.kind === 'new' && latest) {
+      const isNewWorldDraft = current.kind === 'new' || current.kind === 'blank';
+      if (isNewWorldDraft && latest) {
         return send(res, 409, JSON.stringify({ error: '新世界草稿的 ID 已被占用' }), 'application/json');
       }
-      if (current.kind !== 'new' && !latest) return send(res, 404, JSON.stringify({ error: '世界卡不存在' }), 'application/json');
-      if (current.kind !== 'new' && Number(latest.version) !== Number(current.baseVersion)) {
+      if (!isNewWorldDraft && !latest) return send(res, 404, JSON.stringify({ error: '世界卡不存在' }), 'application/json');
+      if (!isNewWorldDraft && Number(latest.version) !== Number(current.baseVersion)) {
         return send(res, 409, JSON.stringify({
           error: `草稿基于 v${current.baseVersion}，但当前最新版本是 v${latest.version}；请先处理版本冲突`,
           latestVersion: Number(latest.version),
@@ -3902,7 +3989,7 @@ async function handleWorldDraftPublish(req, res, worldId) {
       if (!report.ready) return send(res, 400, JSON.stringify({ error: report.errors[0].message, report }), 'application/json');
       const publishedAt = Date.now();
       const nextWorld = report.world;
-      nextWorld.version = current.kind === 'new' ? 1 : Number(current.baseVersion) + 1;
+      nextWorld.version = isNewWorldDraft ? 1 : Number(current.baseVersion) + 1;
       nextWorld.publication = {
         source: 'draft',
         commandId: payload.commandId,

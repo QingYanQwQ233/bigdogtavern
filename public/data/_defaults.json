@@ -69,7 +69,16 @@
     "stop": "",
     "tavernDialogueBubbles": false,
     "wiScanDepth": 6,
+    "wiIncludeNames": true,
+    "wiCaseSensitive": false,
     "wiWholeWord": false,
+    "wiRecursive": false,
+"wiMaxRecursionSteps": 3,
+"wiMinActivations": 0,
+"wiMinActivationsDepthMax": 0,
+"wiUseGroupScoring": false,
+    "wiBudget": 0,
+    "wiInsertionStrategy": "evenly",
     "currentPreset": "RP 基础（示例）",
     "currentPresetByMode": {
       "tavern": "RP 基础（示例）",
@@ -89,7 +98,95 @@
     "emptyGuide": "开始你的故事吧。点左侧「角色」创建角色卡，或在上方「🏮」配置 API。",
     "rpgEmptyTitle": "世界线已绑定",
     "rpgEmptyGuide": "当前存档：{save}。RPG 叙事、状态与任务只读取这条世界线；完成开局规划后即可开始。",
-    "noGreeting": "（当前角色未设置开场白 —— 可在「角色」卡填写 first_mes）"
+    "noGreeting": "（当前角色未设置开场白 —— 可在「角色」卡填写 first_mes）",
+    "worldUiTemplate": {
+      "schemaVersion": 1,
+      "layout": "host",
+      "shell": {
+        "navigation": "show",
+        "topbar": "show",
+        "fullscreen": true,
+        "escape": "fullscreen"
+      },
+      "theme": {
+        "tokens": {
+          "bg-scene": "#101217",
+          "bg-0": "#17181c",
+          "bg-1": "#202228",
+          "panel": "#24262d",
+          "panel-2": "#2d3038",
+          "panel-rgb": "36,38,45",
+          "accent": "#0a84ff",
+          "accent-2": "#0066cc",
+          "accent-rgb": "10,132,255",
+          "text": "rgba(255,255,255,0.92)",
+          "muted": "#a6a7ad",
+          "line": "rgba(255,255,255,0.12)",
+          "line-soft": "rgba(255,255,255,0.06)",
+          "radius": "12px",
+          "chat-font-size": "16px",
+          "chat-line-height": "1.85",
+          "chat-para-gap": "0.8em",
+          "chat-side-pad": "28px"
+        }
+      },
+      "regions": {
+        "topbar": { "mode": "decorate", "label": "世界标题" },
+        "sidebar.left": { "mode": "append", "component": "character-panel", "fallback": "host" },
+        "narrative": { "mode": "replace", "component": "world-narrative", "fallback": "host" },
+        "options": { "mode": "append", "component": "choice-deck", "fallback": "host" },
+        "input": { "mode": "decorate", "label": "玩家行动" },
+        "sidebar.right": { "mode": "append", "component": "world-panels", "fallback": "host" },
+        "status": { "mode": "decorate", "label": "当前状态" },
+        "overlay": { "mode": "hide", "fallback": "host" }
+      },
+      "sidebar": {
+        "panels": [
+          {
+            "id": "player-resources",
+            "title": "资源",
+            "icon": "◈",
+            "side": "left",
+            "source": "save.state.player.resources",
+            "layout": "cards",
+            "fields": ["$key"]
+          },
+          {
+            "id": "active-goals",
+            "title": "当前目标",
+            "icon": "◎",
+            "side": "right",
+            "source": "save.state.goals",
+            "layout": "list",
+            "fields": [
+              { "key": "status", "label": "状态" },
+              { "key": "description", "label": "说明" }
+            ]
+          }
+        ]
+      },
+      "entryGate": {
+        "enabled": false,
+        "title": "进入世界",
+        "message": "即将载入本世界的 UI 与规则。",
+        "confirmText": "进入",
+        "cancelText": "返回",
+        "fullscreen": false
+      },
+      "extension": {
+        "enabled": false,
+        "immersive": false,
+        "title": "世界卡扩展",
+        "html": "<section data-tavern-messages></section><div data-tavern-options></div><form data-tavern-input><textarea placeholder=\"输入行动…\"></textarea><button data-tavern-submit>发送</button></form>",
+        "css": "section{padding:16px;border:1px solid var(--accent);border-radius:12px}",
+        "js": "",
+        "mvu": { "protocol": "mvu.compat", "version": 1 },
+        "permissions": ["read.public", "read.save"],
+        "maxHeight": 420,
+        "timeoutMs": 1200,
+        "actionNarrates": false
+      }
+    }
   },
   "devtools": {
     "title": "RPG 开发者实验台",

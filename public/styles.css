@@ -376,6 +376,7 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   flex-wrap: wrap; /* 窄窗口下头部元素换行，不横向溢出 */
   row-gap: 6px;
 }
+.workspace-header-content { display: contents; }
 
 .crest {
   position: relative;
@@ -664,6 +665,9 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
 .mini-crest { width: 22px; height: 22px; fill: var(--accent); filter: drop-shadow(0 0 5px var(--glow)); }
 
 .msg .bubble {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
   padding: 11px 16px;
   background: var(--panel);
   border: 1px solid var(--line);
@@ -678,6 +682,40 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   position: relative;
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22);
   transition: background 0.4s ease, border-color 0.4s ease;
+}
+.msg .bubble[data-tavern-rendered] {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.msg .bubble[data-tavern-rendered] :is(img, video, canvas, svg, iframe, table, pre) {
+  max-width: 100%;
+}
+/* 角色卡是完整界面，不应被普通消息的内容宽度收缩成“手机卡片”。 */
+.msg:has(.tavern-card-script-shell) {
+  width: 100%;
+  max-width: 100%;
+}
+.msg:has(.tavern-card-script-shell) .bubble {
+  flex: 1 1 auto;
+  width: 100%;
+}
+.tavern-card-script-shell {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  background: transparent;
+}
+.tavern-card-script-frame {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: 1px;
+  max-width: 100%;
+  border: 0;
+  background: transparent;
 }
 /* 旁白行：独立于角色气泡，居中叙述 */
 .msg.narration {
@@ -749,6 +787,9 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   padding: 0 clamp(2px, 1.5vw, 18px);
 }
 .rpg-prose {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
   color: var(--text);
   font-size: var(--chat-font-size);
   line-height: var(--chat-line-height);
@@ -1535,8 +1576,7 @@ body[data-mode="rpg"] .composer {
 
 /* ── macOS 毛玻璃：去渐变 / 去发光 / 纯色 / 1px / 停装饰动画 ── */
 body[data-theme="vibrancy"] #bg-fx { display: none; }
-body[data-theme="vibrancy"] .sidebar,
- {
+body[data-theme="vibrancy"] .sidebar {
   background: rgba(28, 28, 30, 0.92);
   backdrop-filter: blur(24px) saturate(1.4);
   -webkit-backdrop-filter: blur(24px) saturate(1.4);
@@ -1618,6 +1658,23 @@ body[data-theme="vibrancy"] .dropdown { box-shadow: none; }
 }
 .st-tab:hover { color: var(--text); }
 .st-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.settings-gen-intro {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  border: 1px solid rgba(var(--accent-rgb), 0.24);
+  border-radius: 10px;
+  background: rgba(var(--accent-rgb), 0.06);
+}
+#settings-modal .modal-box { width: min(760px, 94vw); }
+.settings-gen-intro strong { color: var(--accent); }
+.settings-gen-intro span { color: var(--muted); font-size: 12px; }
+.settings-gen-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+#st-panel-gen textarea { min-height: 120px; font-family: var(--font-mono); font-size: 12px; line-height: 1.55; }
+#st-panel-gen #g-char-fields { min-height: 190px; }
+#g-gen-status.err { color: var(--danger); }
+#g-gen-status.ok { color: var(--ok); }
 
 /* ── 会话切换下拉 ── */
 .session-wrap { position: relative; }
@@ -1662,10 +1719,13 @@ body[data-theme="vibrancy"] .dropdown { box-shadow: none; }
 .sess-item .sess-x:hover { color: var(--danger); }
 .sess-btns { display: flex; gap: 2px; flex: none; }
 
-/* ── 角色管理页 ── */
+/* ── 管理页：固定在主工作区内，保留一级应用侧栏 ── */
 .char-mgr {
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 196px;
   display: grid;
   grid-template-columns: 240px 1fr;
   background: var(--scrim);
@@ -1684,6 +1744,8 @@ body[data-theme="vibrancy"] .dropdown { box-shadow: none; }
   flex-direction: column;
   gap: 6px;
 }
+.mobile-manager-head { display: none; }
+.mobile-memory-open { display: none; }
 .cm-head {
   font-family: var(--font-display);
   font-size: 14px;
@@ -1713,8 +1775,11 @@ body[data-theme="vibrancy"] .dropdown { box-shadow: none; }
 .cm-draft-mark { margin-left: 7px; padding: 1px 5px; border-radius: 999px; background: rgba(var(--accent-rgb), 0.12); color: var(--accent); font-size: 10px; white-space: nowrap; }
 .cm-item .cm-x { color: var(--muted); font-size: 11px; padding: 2px 6px; border-radius: 4px; }
 .cm-item .cm-x:hover { color: var(--danger); }
+.world-lb-actions { display: inline-flex; flex: none; align-items: center; gap: 4px; }
 .cm-item .world-lb-use { flex: none; min-height: 30px; padding: 4px 7px; border: 1px solid var(--line-soft); background: transparent; color: var(--muted); font: inherit; font-size: 10.5px; cursor: pointer; }
 .cm-item .world-lb-use:hover, .cm-item .world-lb-use[aria-pressed="true"] { border-color: rgba(var(--accent-rgb), 0.5); color: var(--accent); }
+.cm-item .world-lb-delete { min-height: 30px; padding: 4px 6px; border: 1px solid rgba(var(--danger-rgb), 0.28); background: transparent; color: var(--danger); font: inherit; font-size: 10.5px; cursor: pointer; }
+.cm-item .world-lb-delete:hover { border-color: var(--danger); background: rgba(var(--danger-rgb), 0.1); }
 .cm-item.pg-inuse { color: var(--accent); }
 .cm-edit {
   padding: 18px 22px;
@@ -1857,7 +1922,7 @@ body.world-immersive #rpg-extension-frame {
   width: 100%;
   height: 100%;
   max-height: none;
-  overflow: auto;
+  overflow: hidden;
   border: 0;
   border-radius: 0;
   background: var(--bg-0);
@@ -1867,18 +1932,101 @@ body.world-immersive .rpg-extension-frame iframe {
   height: 100% !important;
   min-height: 100vh;
 }
-.world-immersive-exit {
-  position: fixed;
-  top: max(14px, env(safe-area-inset-top));
-  right: max(14px, env(safe-area-inset-right));
-  z-index: 70;
-  min-height: 40px;
-  padding-inline: 14px;
-  border-color: rgba(255, 255, 255, .2);
-  background: rgba(20, 20, 24, .72);
-  backdrop-filter: blur(12px);
+/* 世界卡 custom 布局在窗口化时也拥有整块工作区，宿主 RPG 只保留它的 iframe。 */
+body.world-custom-layout {
+  overflow: hidden;
+  background: var(--bg-0);
 }
-.world-immersive-exit[hidden] { display: none; }
+/*
+ * 区域策略由 JS 写入 data-ui-hidden；不要再按 owner 全局隐藏三级节点。
+ * 这样 decorate / append 可以与宿主共存，只有显式 hide 或 custom 兼容回退才会消失。
+ */
+body[data-mode="rpg"] [data-ui-hidden="true"] { display: none !important; }
+/* 移动抽屉工具属于宿主布局控制，不是可替换的世界卡三级区域。 */
+body.world-custom-layout #rpg-mobile-toolbar,
+body.world-custom-layout #rpg-mobile-scrim { display: none !important; }
+body.world-custom-layout #app,
+body.world-custom-layout .main {
+  display: block;
+  width: 100%;
+  height: 100vh;
+  min-height: 100vh;
+  margin: 0;
+}
+body.world-custom-layout #rpg-extension-host:not([hidden]) {
+  display: block !important;
+  width: 100%;
+  height: 100%;
+  min-height: 100vh;
+  padding: 0;
+  border: 0;
+  background: var(--bg-0);
+}
+body.world-custom-layout .rpg-extension-head { display: none; }
+body.world-custom-layout #rpg-extension-frame {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: var(--bg-0);
+}
+body.world-custom-layout .rpg-extension-frame iframe {
+  width: 100%;
+  height: 100% !important;
+  min-height: 100vh;
+}
+/* [hidden] 是扩展卸载/切换时的唯一真相，不能被 custom 工作区样式重新打开。 */
+body.world-custom-layout #rpg-extension-host[hidden] { display: none !important; }
+/*
+ * custom 只接管 RPG 工作区；应用级导航仍属于上级壳层，必须保留返回世界库的入口。
+ * 移动端侧栏继续使用既有抽屉，顶部只留下宿主汉堡按钮，避免再叠一套世界卡导航。
+ */
+body.world-custom-layout:not(.world-immersive) .sidebar {
+  display: flex !important;
+}
+body.world-custom-layout.world-shell-navigation-hidden:not(.world-immersive) .sidebar,
+body.world-custom-layout.world-shell-navigation-hidden:not(.world-immersive) #btn-nav-drawer {
+  display: none !important;
+}
+body.world-custom-layout:not(.world-immersive) .chat-header {
+  display: flex !important;
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 65;
+  width: auto;
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  pointer-events: none;
+}
+body.world-custom-layout:not(.world-immersive) .chat-header > :not(#btn-nav-drawer) { display: none !important; }
+body.world-custom-layout:not(.world-immersive) #btn-nav-drawer {
+  display: inline-flex !important;
+  pointer-events: auto;
+  border-color: var(--line);
+  background: rgba(var(--panel-rgb), .9);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .22);
+}
+body.world-custom-layout.world-shell-topbar-hidden:not(.world-immersive) .chat-header {
+  display: none !important;
+}
+@media (min-width: 961px) {
+  body.world-custom-layout:not(.world-immersive) .main {
+    margin-left: 196px;
+    width: calc(100% - 196px);
+  }
+  body.world-custom-layout:not(.world-immersive) .chat-header { left: 206px; }
+  body.world-custom-layout.sidebar-hidden:not(.world-immersive) .main { margin-left: 0; width: 100%; }
+  body.world-custom-layout.sidebar-hidden:not(.world-immersive) .chat-header { left: 10px; }
+  body.world-custom-layout.world-shell-navigation-hidden:not(.world-immersive) .main { margin-left: 0; width: 100%; }
+}
+@media (max-width: 960px) {
+  body.world-custom-layout:not(.world-immersive) .main { margin-left: 0; width: 100%; }
+}
 .world-draft-dialog {
   width: min(680px, calc(100vw - 32px));
   max-width: none;
@@ -1896,6 +2044,15 @@ body.world-immersive .rpg-extension-frame iframe {
 .world-draft-dialog[open] { animation: world-draft-in 0.2s var(--motion-out); }
 @keyframes world-draft-in { from { opacity: 0; transform: translateY(8px) scale(0.98); } }
 .world-draft-card { display: flex; flex-direction: column; max-height: inherit; }
+.world-draft-choice-dialog { width: min(540px, calc(100vw - 32px)); }
+.world-draft-choice-body { display: grid; gap: 10px; padding: 18px 20px 6px; }
+.world-draft-choice-option { display: grid; gap: 5px; width: 100%; padding: 15px 16px; border: 1px solid var(--line); border-radius: 11px; background: rgba(var(--bg-0-rgb), 0.34); color: var(--text); text-align: left; cursor: pointer; transition: border-color 140ms ease, background-color 140ms ease, transform 140ms ease; }
+.world-draft-choice-option strong { font: 15px var(--font-display); letter-spacing: 0.4px; }
+.world-draft-choice-option span { color: var(--muted); font-size: 11.5px; line-height: 1.55; }
+.world-draft-choice-option:hover, .world-draft-choice-option:focus-visible { border-color: rgba(var(--accent-rgb), 0.7); background: rgba(var(--accent-rgb), 0.1); }
+.world-draft-choice-option:active { transform: translateY(1px); }
+.world-draft-choice-option-primary { border-color: rgba(255, 184, 77, 0.55); }
+.world-draft-choice-option:disabled { cursor: not-allowed; opacity: 0.45; }
 .world-draft-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 18px 20px 14px; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.11), transparent 65%); }
 .world-draft-head h2 { margin: 0; color: var(--text); font: 20px var(--font-display); letter-spacing: 1px; }
 .world-draft-base { margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
@@ -1937,6 +2094,10 @@ body.world-immersive .rpg-extension-frame iframe {
 .world-extension-permissions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px 11px; padding: 8px 0 2px; }
 .world-extension-permissions .check { color: var(--muted); font-size: 11px; }
 .world-extension-editor-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.world-ui-config-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.world-ui-config-head label { min-width: 0; }
+.world-ui-config-head .ghost-btn { flex: 0 0 auto; }
+@media (max-width: 640px) { .world-ui-config-head { align-items: flex-start; flex-direction: column; } }
 .world-draft-collection { margin: 18px 0 20px; padding-top: 16px; border-top: 1px solid var(--line); }
 .world-draft-collection-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .world-draft-collection-head h3 { margin: 0 0 3px; color: var(--text); font: 16px var(--font-display); letter-spacing: 0.8px; }
@@ -2173,7 +2334,9 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
 .wi-item:hover { background: rgba(var(--accent-rgb), 0.07); }
 .wi-item.active { border-color: var(--accent); color: var(--text); }
 .wi-item .wi-title-wrap { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.wi-item .wi-title-wrap small { display: block; color: var(--muted); font: 10px var(--font-mono); opacity: 0.78; overflow: hidden; text-overflow: ellipsis; }
 .wi-item .wi-keys-preview { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
+.wi-item.wi-off { opacity: 0.58; }
 .wi-item .wi-const {
   cursor: pointer;
   font-size: 12px;
@@ -2186,6 +2349,15 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
 .wi-item .wi-const:hover { opacity: 1; background: rgba(var(--accent-rgb), 0.15); }
 .wi-edit { border-top: 1px dashed var(--line); padding-top: 12px; }
 .wi-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.wi-settings, .wi-advanced { margin: 10px 0; border: 1px solid var(--line-soft); border-radius: 9px; background: rgba(var(--bg-0-rgb), 0.22); }
+.wi-settings > summary, .wi-advanced > summary { padding: 9px 11px; color: var(--text); cursor: pointer; user-select: none; }
+.wi-settings > summary::marker, .wi-advanced > summary::marker { color: var(--accent); }
+.wi-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; padding: 0 11px 11px; }
+.wi-settings-grid .field { margin-bottom: 0; }
+.wi-settings-grid .check { min-height: 36px; }
+.lb-book-tools { align-items: end; }
+.lb-book-tools .grow { flex: 1 1 auto; }
+.wi-settings input[type="number"], .wi-advanced input[type="number"] { min-width: 0; }
 .check { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); cursor: pointer; }
 .check input { width: auto; }
 
@@ -2342,6 +2514,7 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
   user-select: text;
 }
 /* ── 滚动条 / 焦点 ── */
+* { scrollbar-width: thin; scrollbar-color: rgba(var(--accent-rgb), 0.55) transparent; }
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
@@ -2362,14 +2535,69 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
 @media (max-width: 960px) {
   /* 侧栏已默认隐藏（移动优先）；这里只处理其余元素 */
   .main { grid-column: 1; grid-row: 1; }
-  .char-mgr { inset: 0; grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-  .cm-side { max-height: 38vh; }
+  /* 管理页在手机上按“列表 → 详情”钻取，避免两个层级同时挤在屏幕里。 */
+  .char-mgr { inset: 0; grid-template-columns: 1fr; grid-template-rows: 1fr; }
+  .char-mgr .cm-side, .char-mgr .cm-edit { min-height: 0; max-height: none; }
+  .char-mgr[data-mobile-panel="list"] .cm-edit,
+  .char-mgr[data-mobile-panel="detail"] .cm-side { display: none; }
+  .char-mgr[data-mobile-panel="detail"] .cm-edit { display: block; }
+  .char-mgr .cm-edit-head {
+    position: sticky;
+    top: -12px;
+    z-index: 4;
+    margin: -12px -12px 14px;
+    padding: max(8px, env(safe-area-inset-top)) 12px 10px;
+    background: linear-gradient(180deg, rgba(var(--panel-rgb), .98), rgba(var(--panel-rgb), .9));
+    border-bottom: 1px solid var(--line);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .18);
+  }
+  .char-mgr .cm-edit-head .back-action { min-height: 44px; }
+  .char-mgr .mobile-manager-head {
+    display: flex;
+    position: sticky;
+    top: -14px;
+    z-index: 4;
+    margin: -14px -14px 8px;
+    padding: max(8px, env(safe-area-inset-top)) 14px 8px;
+    background: linear-gradient(180deg, rgba(var(--panel-rgb), .98), rgba(var(--panel-rgb), .9));
+    border-bottom: 1px solid var(--line);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .18);
+  }
+  .char-mgr .mobile-manager-head .back-action { min-height: 44px; }
+  .char-mgr .mobile-memory-open { display: block; min-height: 44px; width: 100%; }
+  .char-mgr .cm-item { min-height: 44px; }
+  .char-mgr .cm-side > button { min-height: 44px; }
+  #prompt-mgr[data-mobile-prompt-panel="sequence"] .pg-prompt-editor { display: none; }
+  #prompt-mgr[data-mobile-prompt-panel="entry"] .pg-sequence { display: none; }
+  body[data-mode="rpg"] .rpg-drawer-close { min-height: 44px; }
+  #lore-mgr[data-mobile-lore-panel="book"] .wi-edit { display: none; }
+  #lore-mgr[data-mobile-lore-panel="entry"] .wi-list { display: none; }
 }
 
 /* ── 手机（≤640px）细适配：单列化、缩边距、弹窗贴边 ── */
 @media (max-width: 640px) {
   .chat { padding: 12px var(--chat-side-pad); }
   .msg { max-width: 92%; gap: 8px; }
+  /* ST 卡片正则常带固定宽度 / 最小宽度；移动端统一收进当前消息容器。 */
+  .msg .bubble[data-tavern-rendered] {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+  }
+  .msg .bubble[data-tavern-rendered] * {
+    box-sizing: border-box;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+  .msg .bubble[data-tavern-rendered] :is(pre, code, table) {
+    overflow-x: auto;
+    overflow-wrap: normal;
+  }
+  .tavern-card-script-shell, .tavern-card-script-frame {
+    width: 100%;
+    max-width: 100%;
+  }
   .msg.image-msg { max-width: 96%; }
   .chat-header { padding: 10px 12px; gap: 8px; }
   .chat-header h2 { font-size: 15px; }
@@ -2386,8 +2614,10 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
   .modal-box { width: 100vw; max-height: 94vh; border-radius: 14px 14px 0 0; }
   .modal { align-items: end; }
   .field.row2 { grid-template-columns: 1fr; gap: 6px; }
+  .wi-settings-grid { grid-template-columns: 1fr; }
   .settings-tabs { overflow-x: auto; }
   .st-tab { white-space: nowrap; }
+  .settings-gen-grid { grid-template-columns: 1fr; }
   .cm-list, .wi-list, .pg-prompts, .lb-list { max-height: 30vh; }
   .pg-manager { grid-template-columns: 1fr; }
   .pg-post-history textarea, .pg-prompt-editor :is(input, textarea, select), .pg-sequence-actions select { font-size: 16px; }
@@ -2397,6 +2627,7 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
   .world-hero-actions { width: 100%; margin-left: 0; }
   .world-hero-actions .ghost-btn { flex: 1; }
   .world-draft-dialog { width: 100vw; max-height: 100vh; border-radius: 14px 14px 0 0; }
+  .world-draft-choice-dialog { width: 100vw; }
   .world-entry-gate-dialog { width: calc(100vw - 24px); }
   .world-entry-gate-card { padding: 24px 18px 18px; }
   .world-draft-body { padding-inline: 14px; }

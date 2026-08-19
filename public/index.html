@@ -7,7 +7,7 @@
   <link rel="manifest" href="manifest.json" />
   <title>Tavern · AI RP 框架演示</title>
   <link rel="icon" type="image/png" href="favicon.png" />
-  <link rel="stylesheet" href="styles.css?v=20260817c" />
+  <link rel="stylesheet" href="styles.css?v=20260819a" />
 </head>
 <body data-theme="vibrancy" data-layout="classic">
   <canvas id="bg-fx" aria-hidden="true"></canvas>
@@ -15,7 +15,7 @@
   <div id="app">
 
     <!-- ═══ 侧边导航 ═══ -->
-    <aside class="sidebar">
+    <aside class="sidebar" data-ui-level="1" data-ui-region="app.navigation" data-ui-owner="host">
       <div class="logo">
         <span class="logo-name">Tavern</span>
       </div>
@@ -42,12 +42,13 @@
     </aside>
 
     <!-- ═══ 主区：对话 ═══ -->
-    <main class="main">
-      <header class="chat-header">
+    <main class="main" data-ui-level="2" data-ui-region="workspace" data-ui-owner="host">
+      <header class="chat-header" data-ui-level="3" data-ui-region="workspace.topbar" data-ui-owner="host">
         <button class="ghost-btn" id="btn-nav-drawer" title="菜单" aria-label="打开导航">☰</button>
+        <div id="workspace-header-content" class="workspace-header-content" data-ui-level="4" data-ui-region="workspace.topbar.content" data-ui-owner="host">
         <div class="session-wrap">
           <button class="ghost-btn" id="btn-session" title="切换 / 管理会话">📂 <span id="session-name">会话 1</span> ▾</button>
-          <div id="session-menu" class="dropdown hidden">
+          <div id="session-menu" class="dropdown hidden" data-ui-level="4" data-ui-region="workspace.session-menu" data-ui-owner="host">
             <div id="session-menu-list"></div>
             <button class="btn gold small" id="session-menu-new" style="width:100%;margin-top:8px">＋ 新建会话</button>
           </div>
@@ -65,11 +66,12 @@
         <span id="rpg-world-save" class="rpg-world-save" hidden></span>
         <button class="ghost-btn" id="btn-debug" type="button" aria-controls="debug-panel" aria-expanded="false">⌘ 终端</button>
         <button class="ghost-btn devtools-trigger" id="btn-devtools" type="button" aria-controls="devtools-panel" aria-expanded="false" hidden>🧪 开发者</button>
+        </div>
       </header>
 
-      <div id="chat" class="chat" aria-live="polite"></div>
+      <div id="chat" class="chat" data-ui-level="3" data-ui-region="workspace.narrative" data-ui-owner="host" aria-live="polite"></div>
 
-      <section id="rpg-extension-host" class="rpg-extension-host" hidden aria-label="世界卡扩展">
+      <section id="rpg-extension-host" class="rpg-extension-host" data-ui-level="3" data-ui-region="workspace.custom-surface" data-ui-owner="host" hidden aria-label="世界卡扩展">
         <div class="rpg-extension-head">
           <span id="rpg-extension-title">世界扩展</span>
           <span id="rpg-extension-status" class="rpg-extension-status" role="status" aria-live="polite"></span>
@@ -79,8 +81,8 @@
       </section>
 
       <!-- ═══ RPG 模式功能区（默认隐藏，RPG 模式显示） ═══ -->
-      <aside id="rpg-left" class="rpg-panel">
-        <div class="rpg-panel-head">🧬 角色 <button class="ghost-btn small rpg-drawer-close" type="button" data-rpg-drawer-close>关闭</button></div>
+      <aside id="rpg-left" class="rpg-panel" data-ui-level="3" data-ui-region="workspace.sidebar.left" data-ui-owner="host">
+        <div class="rpg-panel-head">🧬 角色 <button class="ghost-btn small rpg-drawer-close" type="button" data-rpg-drawer-close>返回工作台</button></div>
         <div id="rpg-char-summary"></div>
         <div id="rpg-player-sheet" class="rpg-player-sheet" role="region" aria-live="polite" aria-label="角色状态"></div>
         <div class="rpg-panel-head" style="margin-top:10px">🌱 成长候选</div>
@@ -97,8 +99,8 @@
         <div id="rpg-conflicts" class="rpg-list"></div>
         <div id="rpg-custom-left" aria-live="polite"></div>
       </aside>
-      <aside id="rpg-right" class="rpg-panel">
-        <div class="rpg-panel-head">📜 任务 <button class="ghost-btn small rpg-drawer-close" type="button" data-rpg-drawer-close>关闭</button></div>
+      <aside id="rpg-right" class="rpg-panel" data-ui-level="3" data-ui-region="workspace.sidebar.right" data-ui-owner="host">
+        <div class="rpg-panel-head">📜 任务 <button class="ghost-btn small rpg-drawer-close" type="button" data-rpg-drawer-close>返回工作台</button></div>
         <div id="rpg-quests" class="rpg-list"></div>
         <button class="ghost-btn" id="btn-rpg-quest" style="width:100%;margin-top:6px">＋ 添加任务</button>
         <div class="rpg-panel-head" style="margin-top:10px">🎯 目标</div>
@@ -132,7 +134,7 @@
         </div>
         <div id="rpg-custom-right" aria-live="polite"></div>
       </aside>
-      <div id="rpg-status" class="rpg-status">
+      <div id="rpg-status" class="rpg-status" data-ui-level="3" data-ui-region="workspace.status" data-ui-owner="host">
         <div class="rpg-stat hp"><span>HP</span><div class="rpg-bar"><i id="rpg-hp-bar"></i></div><b id="rpg-hp-text">0/0</b></div>
         <div class="rpg-stat mp"><span>MP</span><div class="rpg-bar"><i id="rpg-mp-bar"></i></div><b id="rpg-mp-text">0/0</b></div>
         <div class="rpg-stat exp"><span>EXP</span><div class="rpg-bar"><i id="rpg-exp-bar"></i></div><b id="rpg-exp-text">0/0</b></div>
@@ -141,15 +143,15 @@
         <div id="rpg-dynamic-stats" class="rpg-dynamic-stats" aria-live="polite"></div>
       </div>
 
-      <div id="rpg-mobile-toolbar" class="rpg-mobile-toolbar" aria-label="RPG 工具">
+      <div id="rpg-mobile-toolbar" class="rpg-mobile-toolbar" data-ui-level="3" data-ui-region="workspace.mobile-tools" data-ui-owner="host" aria-label="RPG 工具">
         <button class="ghost-btn small" type="button" data-rpg-drawer="left" aria-controls="rpg-left">角色与背包</button>
         <button class="ghost-btn small" type="button" data-rpg-drawer="right" aria-controls="rpg-right">任务与世界状态</button>
       </div>
       <button id="rpg-mobile-scrim" class="rpg-mobile-scrim" type="button" aria-label="关闭 RPG 侧栏" hidden></button>
 
-      <footer class="composer">
-        <div class="quick-actions" id="quick-actions" aria-live="polite"></div>
-        <div class="composer-row">
+      <footer class="composer" data-ui-level="3" data-ui-region="workspace.input" data-ui-owner="host">
+        <div class="quick-actions" id="quick-actions" data-ui-level="4" data-ui-region="workspace.options" data-ui-owner="host" aria-live="polite"></div>
+        <div class="composer-row" data-ui-level="4" data-ui-region="workspace.input.control" data-ui-owner="host">
           <textarea id="input" rows="2" aria-label="消息输入"
             placeholder="写下你的话或行动（可用 *动作* 表示）… Enter 发送 · Shift+Enter 换行"></textarea>
           <button id="btn-send" class="seal" title="发送">发送</button>
@@ -158,23 +160,22 @@
     </main>
   </div>
 
-  <div id="world-ui-overlay" hidden aria-live="polite" aria-label="世界卡覆盖层"></div>
-
-  <button id="world-immersive-exit" class="world-immersive-exit ghost-btn" type="button" hidden aria-label="退出世界卡沉浸模式">退出沉浸</button>
+  <div id="world-ui-overlay" data-ui-level="1" data-ui-region="overlay.world-card" data-ui-owner="host" hidden aria-live="polite" aria-label="世界卡覆盖层"></div>
 
   <!-- ═══ 角色管理页 ═══ -->
-  <div id="char-mgr" class="char-mgr hidden">
-    <div class="cm-side">
+  <div id="char-mgr" class="char-mgr hidden" data-ui-level="2" data-ui-region="tavern.characters" data-ui-owner="host">
+    <div class="cm-side" data-ui-level="3" data-ui-region="tavern.characters.sidebar" data-ui-owner="host">
+      <div class="mobile-manager-head"><button class="ghost-btn back-action" data-back-chat data-manager-back data-parent-label="角色库" type="button">回到对话</button></div>
       <div class="cm-head">角色库</div>
       <div id="cm-list" class="cm-list"></div>
       <button class="btn gold small" id="cm-new" style="width:100%">＋ 新建角色</button>
       <button class="ghost-btn" id="cm-import" style="width:100%;margin-top:6px">导入角色卡（V1/V2/V3 JSON 或 PNG）</button>
       <button class="ghost-btn" id="cm-export" style="width:100%;margin-top:6px">导出当前角色（V3 JSON）</button>
     </div>
-    <div class="cm-edit">
+    <div class="cm-edit" data-ui-level="3" data-ui-region="tavern.characters.editor" data-ui-owner="host">
       <div class="cm-edit-head">
         <span id="cm-edit-title">编辑角色</span>
-        <button class="ghost-btn back-action" data-back-chat>回到对话</button>
+        <button class="ghost-btn back-action" data-back-chat data-manager-back data-parent-label="角色库">回到对话</button>
       </div>
       <div class="char-wizard" aria-labelledby="cw-title">
         <div class="cw-head">
@@ -249,8 +250,9 @@
   </div>
 
   <!-- ═══ 提示词预设页 ═══ -->
-  <div id="prompt-mgr" class="char-mgr hidden">
-    <div class="cm-side">
+  <div id="prompt-mgr" class="char-mgr hidden" data-ui-level="2" data-ui-region="tavern.prompts" data-ui-owner="host">
+    <div class="cm-side" data-ui-level="3" data-ui-region="tavern.prompts.sidebar" data-ui-owner="host">
+      <div class="mobile-manager-head"><button class="ghost-btn back-action" data-back-chat data-manager-back data-parent-label="预设列表" type="button">回到对话</button></div>
       <div class="cm-head">提示词预设</div>
       <div class="pg-active-panel">
         <div class="field">
@@ -269,10 +271,10 @@
       <button class="ghost-btn" id="pg-del" style="width:100%;margin-top:6px">删除当前预设</button>
       <p class="hint" style="margin-top:10px">兼容 SillyTavern Chat Completion 预设的 prompts、prompt_order 与输出正则；扩展脚本不会执行。</p>
     </div>
-    <div class="cm-edit">
+    <div class="cm-edit" data-ui-level="3" data-ui-region="tavern.prompts.editor" data-ui-owner="host">
       <div class="cm-edit-head">
         <span id="pg-edit-title">编辑预设 / 全局默认</span>
-        <button class="ghost-btn back-action" data-back-chat>回到对话</button>
+        <button class="ghost-btn back-action" data-back-chat data-manager-back data-parent-label="预设列表">回到对话</button>
       </div>
       <div class="field row2">
         <div class="field"><label for="pg-mode">适用模式</label><select id="pg-mode"><option value="tavern">酒馆</option><option value="rpg">RPG</option><option value="both">两种模式</option></select></div>
@@ -312,18 +314,19 @@
   </div>
 
   <!-- ═══ 输出正则页 ═══ -->
-  <div id="regex-mgr" class="char-mgr hidden">
-    <div class="cm-side">
+  <div id="regex-mgr" class="char-mgr hidden" data-ui-level="2" data-ui-region="tavern.regex" data-ui-owner="host">
+    <div class="cm-side" data-ui-level="3" data-ui-region="tavern.regex.sidebar" data-ui-owner="host">
+      <div class="mobile-manager-head"><button class="ghost-btn back-action" data-back-chat data-manager-back data-parent-label="正则列表" type="button">回到对话</button></div>
       <div class="cm-head">输出正则</div>
       <p class="hint" id="regex-mode-note">当前模式：酒馆</p>
       <div id="regex-list" class="cm-list"></div>
       <button class="btn gold small" id="regex-new" style="width:100%">＋ 新建自定义正则</button>
       <p class="hint" style="margin-top:10px">当前预设携带的正则会自动识别并执行；自定义正则只作用于当前模式。</p>
     </div>
-    <div class="cm-edit">
+    <div class="cm-edit" data-ui-level="3" data-ui-region="tavern.regex.editor" data-ui-owner="host">
       <div class="cm-edit-head">
         <span id="regex-edit-title">输出正则</span>
-        <button class="ghost-btn back-action" data-back-chat>回到对话</button>
+        <button class="ghost-btn back-action" data-back-chat data-manager-back data-parent-label="正则列表">回到对话</button>
       </div>
       <div class="field"><label for="regex-name">名称</label><input id="regex-name" placeholder="例如：隐藏思维链标签" /></div>
       <div class="field"><label for="regex-find">匹配表达式 <span class="hint-inline">支持 /表达式/gi 或普通正则</span></label><input id="regex-find" placeholder="例如：/<think>[\\s\\S]*?<\\/think>/g" /></div>
@@ -341,25 +344,43 @@
   </div>
 
   <!-- ═══ 世界书页 ═══ -->
-  <div id="lore-mgr" class="char-mgr hidden">
-    <div class="cm-side">
+  <div id="lore-mgr" class="char-mgr hidden" data-ui-level="2" data-ui-region="tavern.lorebooks" data-ui-owner="host">
+    <div class="cm-side" data-ui-level="3" data-ui-region="tavern.lorebooks.sidebar" data-ui-owner="host">
+      <div class="mobile-manager-head"><button class="ghost-btn back-action" data-back-chat data-manager-back data-parent-label="世界书列表" type="button">回到对话</button></div>
       <div class="cm-head">世界书</div>
       <div id="lb-list" class="cm-list"></div>
       <button class="btn gold small" id="lb-new" style="width:100%">＋ 新建世界书</button>
       <button class="ghost-btn" id="lb-import" style="width:100%;margin-top:6px">⇧ 导入 ST 世界书</button>
       <input id="lb-import-file" type="file" accept=".json,application/json" hidden />
+      <button class="ghost-btn" id="lb-export" style="width:100%;margin-top:6px">⇩ 导出 ST 世界书</button>
       <button class="ghost-btn" id="lb-del" style="width:100%;margin-top:6px">删除当前世界书</button>
       <p class="hint" style="margin-top:10px">支持 SillyTavern World Info JSON；「设为全局」对所有酒馆对话生效，角色卡和世界卡都可选择绑定。</p>
     </div>
-    <div class="cm-edit">
+    <div class="cm-edit" data-ui-level="3" data-ui-region="tavern.lorebooks.editor" data-ui-owner="host">
       <div class="cm-edit-head">
         <span id="lb-edit-title">世界书</span>
-        <button class="ghost-btn back-action" data-back-chat>回到对话</button>
+        <button class="ghost-btn back-action" data-back-chat data-manager-back data-parent-label="世界书列表">回到对话</button>
       </div>
-      <div class="field row2">
-        <div class="field"><label for="lb-scan-depth">扫描深度 <span class="hint-inline">最近 N 条消息</span></label><input id="lb-scan-depth" type="number" min="0" max="50" value="6" /></div>
-        <div class="field"><label for="lb-whole-word">整词匹配 <span class="hint-inline">中文建议关</span></label><label class="switch"><input id="lb-whole-word" type="checkbox" /><span class="slider"></span></label></div>
+      <div class="field row-inline lb-book-tools">
+        <label class="field grow"><span>世界书名称</span><input id="lb-name" autocomplete="off" /></label>
+        <button class="ghost-btn small" id="lb-rename" type="button">保存名称</button>
       </div>
+      <details class="wi-settings" open>
+        <summary>⚙ 激活设置 <span class="hint-inline">对齐 SillyTavern World Info</span></summary>
+        <div class="wi-settings-grid">
+          <label class="field"><span>扫描深度 <span class="hint-inline">最近 N 条消息</span></span><input id="lb-scan-depth" type="number" min="0" max="1000" value="6" /></label>
+          <label class="field"><span>上下文预算（字符，0 不限）</span><input id="lb-budget" type="number" min="0" max="200000" value="0" /></label>
+          <label class="check"><input id="lb-include-names" type="checkbox" checked /> 扫描时包含角色名</label>
+          <label class="check"><input id="lb-case-sensitive" type="checkbox" /> 区分大小写</label>
+          <label class="check"><input id="lb-whole-word" type="checkbox" /> 匹配完整单词 <span class="hint-inline">中文通常关闭</span></label>
+          <label class="check"><input id="lb-recursive" type="checkbox" /> 递归扫描条目内容</label>
+          <label class="field"><span>最大递归轮数</span><input id="lb-max-recursion" type="number" min="1" max="8" value="3" /></label>
+          <label class="field"><span>最少激活条目 <span class="hint-inline">0 关闭</span></span><input id="lb-min-activations" type="number" min="0" max="100" value="0" /></label>
+          <label class="field"><span>最少激活最大扫描深度 <span class="hint-inline">0 = 不限</span></span><input id="lb-min-depth" type="number" min="0" max="1000" value="0" /></label>
+          <label class="check"><input id="lb-group-scoring" type="checkbox" /> 分组按命中数择优</label>
+          <label class="field"><span>角色书 / 全局书顺序</span><select id="lb-strategy"><option value="evenly">混合排序（按顺序）</option><option value="character_first">角色书优先</option><option value="global_first">全局书优先</option></select></label>
+        </div>
+      </details>
       <div class="field">
         <label for="wi-title">注入测试 <span class="hint-inline">按当前最近消息即时检查哪些条目会命中</span></label>
         <button class="btn gold small" id="wi-test">检查注入</button>
@@ -375,12 +396,47 @@
           </div>
         </div>
         <div class="field row2">
-          <div class="field"><label for="wi-title">标题</label><input id="wi-title" /></div>
-          <div class="field"><label for="wi-order">顺序 <span class="hint-inline">大者后插入</span></label><input id="wi-order" type="number" value="100" /></div>
+          <div class="field"><label for="wi-title">标题 / Memo</label><input id="wi-title" /></div>
+          <div class="field"><label for="wi-order">顺序 <span class="hint-inline">数字越大越靠后</span></label><input id="wi-order" type="number" value="100" /></div>
         </div>
-        <div class="field"><label for="wi-keys">触发词（逗号分隔，支持正则）</label><input id="wi-keys" placeholder="酒馆, /龙之谷/i" /></div>
+        <div class="field row2">
+          <div class="field"><label for="wi-position">插入位置</label><select id="wi-position"><option value="0">角色定义前</option><option value="1">角色定义后</option><option value="2">作者注记前</option><option value="3">作者注记后</option><option value="4">聊天深度</option><option value="5">示例消息前</option><option value="6">示例消息后</option><option value="7">Outlet</option></select></div>
+          <div class="field"><label for="wi-depth">深度 / Role</label><div class="row-inline"><input id="wi-depth" type="number" min="0" max="100" value="4" /><select id="wi-role"><option value="0">System</option><option value="1">User</option><option value="2">Assistant</option></select></div></div>
+        </div>
+        <div class="field row2">
+          <div class="field"><label for="wi-keys">主关键词 <span class="hint-inline">逗号分隔，支持 /正则/</span></label><input id="wi-keys" placeholder="酒馆, /龙之谷/i" /></div>
+          <div class="field"><label for="wi-secondary">可选过滤词 <span class="hint-inline">secondary keys</span></label><input id="wi-secondary" placeholder="雨, 夜" /></div>
+        </div>
+        <div class="field row2">
+          <label class="field"><span>过滤逻辑</span><select id="wi-selective-logic"><option value="0">AND ANY：任一过滤词</option><option value="3">AND ALL：全部过滤词</option><option value="2">NOT ANY：不能出现过滤词</option><option value="1">NOT ALL：不能全部出现</option></select></label>
+          <label class="field"><span>Outlet 名称</span><input id="wi-outlet" placeholder="仅位置为 Outlet 时使用" /></label>
+        </div>
         <div class="field"><label for="wi-content">内容（注入到上下文的百科 / 设定）</label><textarea id="wi-content" rows="4"></textarea></div>
-        <div class="field"><label class="check"><input id="wi-constant" type="checkbox" /> 常驻（不触发也总是注入）</label></div>
+        <details class="wi-advanced">
+          <summary>高级激活条件</summary>
+          <div class="wi-settings-grid">
+            <label class="check"><input id="wi-enabled" type="checkbox" checked /> 启用条目</label>
+            <label class="check"><input id="wi-constant" type="checkbox" /> 常驻（不触发也总是注入）</label>
+            <label class="check"><input id="wi-selective" type="checkbox" /> 启用可选过滤词</label>
+            <label class="check"><input id="wi-use-regex" type="checkbox" /> 主/过滤词按正则</label>
+            <label class="check"><input id="wi-case-sensitive" type="checkbox" /> 条目区分大小写</label>
+            <label class="check"><input id="wi-whole-words" type="checkbox" /> 条目匹配完整单词</label>
+            <label class="field"><span>触发概率 %</span><input id="wi-probability" type="number" min="0" max="100" value="100" /></label>
+            <label class="check"><input id="wi-use-probability" type="checkbox" checked /> 使用触发概率</label>
+            <label class="check"><input id="wi-ignore-budget" type="checkbox" /> 忽略上下文预算</label>
+            <label class="field"><span>分组（逗号分隔）</span><input id="wi-group" placeholder="例如：天气" /></label>
+            <label class="field"><span>分组权重</span><input id="wi-group-weight" type="number" min="0" max="100000" value="100" /></label>
+            <label class="check"><input id="wi-group-override" type="checkbox" /> 分组优先（最高顺序获胜）</label>
+            <label class="check"><input id="wi-group-scoring" type="checkbox" /> 此条目按命中数择优</label>
+            <label class="field"><span>Sticky（保持 N 条消息）</span><input id="wi-sticky" type="number" min="0" max="1000" value="0" /></label>
+            <label class="field"><span>Cooldown（冷却 N 条消息）</span><input id="wi-cooldown" type="number" min="0" max="1000" value="0" /></label>
+            <label class="field"><span>Delay（至少 N 条消息后）</span><input id="wi-delay" type="number" min="0" max="1000" value="0" /></label>
+            <label class="check"><input id="wi-exclude-recursion" type="checkbox" /> 不允许被递归触发</label>
+            <label class="check"><input id="wi-prevent-recursion" type="checkbox" /> 不继续触发其他条目</label>
+            <label class="check"><input id="wi-delay-recursion" type="checkbox" /> 仅递归阶段触发</label>
+            <label class="field"><span>Automation ID</span><input id="wi-automation" placeholder="兼容 ST Quick Reply 字段" /></label>
+          </div>
+        </details>
         <div class="wi-actions">
           <button class="btn gold small" id="wi-save">保存条目</button>
           <button class="ghost-btn" id="wi-del">删除条目</button>
@@ -392,8 +448,9 @@
   </div>
 
   <!-- ═══ 记忆 / 玩家设定页 ═══ -->
-  <div id="memory-mgr" class="char-mgr hidden">
-    <div class="cm-side">
+  <div id="memory-mgr" class="char-mgr hidden" data-ui-level="2" data-ui-region="tavern.memory" data-ui-owner="host">
+    <div class="cm-side" data-ui-level="3" data-ui-region="tavern.memory.sidebar" data-ui-owner="host">
+      <div class="mobile-manager-head"><button class="ghost-btn back-action" data-back-chat data-manager-back data-parent-label="记忆列表" type="button">回到对话</button></div>
       <div class="cm-head">🧠 玩家设定</div>
       <div class="field"><label for="um-preset">当前预设</label><select id="um-preset"></select></div>
       <div class="field"><label for="um-name">名字</label><input id="um-name" placeholder="旅人" /></div>
@@ -406,12 +463,13 @@
         <button class="ghost-btn" id="um-save-new">另存预设</button>
         <button class="ghost-btn" id="um-del">删除预设</button>
       </div>
+      <button class="ghost-btn mobile-memory-open" id="memory-open-entries" type="button">进入记忆条目 →</button>
       <p class="hint">玩家设定会以【玩家设定】段注入 System Prompt，AI 据此称呼/对待你。</p>
     </div>
-    <div class="cm-edit">
+    <div class="cm-edit" data-ui-level="3" data-ui-region="tavern.memory.editor" data-ui-owner="host">
       <div class="cm-edit-head">
         <span>💭 记忆条目（自动注入上下文）</span>
-        <button class="ghost-btn back-action" data-back-chat type="button">回到对话</button>
+        <button class="ghost-btn back-action" data-back-chat data-manager-back data-parent-label="记忆列表" type="button">回到对话</button>
       </div>
       <div class="field">
         <label for="mem-input">新记忆</label>
@@ -420,13 +478,13 @@
           <button class="btn gold small" id="mem-add">＋ 添加</button>
         </div>
       </div>
-      <div class="field"><label>已有记忆（点击可编辑，✕ 删除）</label><div id="mem-list" class="wi-list"></div></div>
+      <div class="field"><div class="field-label">已有记忆（点击可编辑，✕ 删除）</div><div id="mem-list" class="wi-list"></div></div>
       <p class="hint">记忆注入在【玩家设定】之后，帮助 AI 记住长期设定与剧情进展。可编辑内容、单独启用/停用。</p>
     </div>
   </div>
 
   <!-- ═══ 手机导航抽屉（仅 ≤960px 使用，侧栏在手机隐藏） ═══ -->
-  <div id="nav-drawer">
+  <div id="nav-drawer" data-ui-level="1" data-ui-region="app.navigation.mobile" data-ui-owner="host">
     <div class="nd-mask"></div>
     <div class="nd-panel">
       <div class="nd-head">
@@ -492,22 +550,23 @@
 
   <!-- ═══ 浮动控制面板 ═══ -->
   <!-- ═══ 设置弹窗（连接 / 格式） ═══ -->
-  <div id="settings-modal" class="modal hidden">
+  <div id="settings-modal" class="modal hidden" data-ui-level="1" data-ui-region="overlay.settings" data-ui-owner="host">
     <div class="modal-box">
       <div class="modal-head">
         <h2>设置</h2>
         <button class="ghost-btn" data-close>✕</button>
       </div>
-      <div class="settings-tabs">
-        <button class="st-tab active" data-st="conn">连接</button>
-        <button class="st-tab" data-st="format">格式</button>
-        <button class="st-tab" data-st="typo">排版</button>
-        <button class="st-tab" data-st="image">文生图</button>
+      <div class="settings-tabs" role="tablist" aria-label="设置分类">
+        <button class="st-tab active" id="st-tab-conn" role="tab" aria-selected="true" aria-controls="st-panel-conn" data-st="conn">连接</button>
+        <button class="st-tab" id="st-tab-format" role="tab" aria-selected="false" aria-controls="st-panel-format" data-st="format">格式</button>
+        <button class="st-tab" id="st-tab-typo" role="tab" aria-selected="false" aria-controls="st-panel-typo" data-st="typo">排版</button>
+        <button class="st-tab" id="st-tab-image" role="tab" aria-selected="false" aria-controls="st-panel-image" data-st="image">文生图</button>
+        <button class="st-tab" id="st-tab-gen" role="tab" aria-selected="false" aria-controls="st-panel-gen" data-st="gen">AI 工坊</button>
       </div>
 
       <div class="modal-body">
         <!-- ── Tab 连接 ── -->
-        <div id="st-panel-conn">
+        <div id="st-panel-conn" role="tabpanel" aria-labelledby="st-tab-conn">
           <div class="field">
             <label for="s-preset">服务预设</label>
             <select id="s-preset">
@@ -597,7 +656,7 @@
         </div>
 
         <!-- ── Tab 格式 ── -->
-        <div id="st-panel-format" class="hidden">
+        <div id="st-panel-format" class="hidden" role="tabpanel" aria-labelledby="st-tab-format">
           <div class="field">
             <label for="f-preset">回复格式预设 <span class="hint-inline">附加到 System Prompt 的输出指令</span></label>
             <select id="f-preset">
@@ -634,7 +693,7 @@
         </div>
 
         <!-- ── Tab 排版 ── -->
-        <div id="st-panel-typo" class="hidden">
+        <div id="st-panel-typo" class="hidden" role="tabpanel" aria-labelledby="st-tab-typo">
           <div class="field">
             <label for="t-font">正文字体 <span class="hint-inline">作用于酒馆对话与 RPG 叙事正文</span></label>
             <select id="t-font">
@@ -682,7 +741,7 @@
         </div>
 
         <!-- ── Tab 文生图（测试） ── -->
-        <div id="st-panel-image" class="hidden">
+        <div id="st-panel-image" class="hidden" role="tabpanel" aria-labelledby="st-tab-image">
           <div class="field">
             <label class="check"><input id="ig-enabled" type="checkbox" /> 启用文生图（测试）<span class="hint-inline">回复完成后自动生图</span></label>
           </div>
@@ -785,13 +844,33 @@
           </div>
           <p class="hint" id="ig-test-result"></p>
         </div>
+
+        <!-- ── Tab AI 工坊 ── -->
+        <div id="st-panel-gen" class="hidden" role="tabpanel" aria-labelledby="st-tab-gen">
+          <div class="settings-gen-intro">
+            <strong>一键写卡提示词</strong>
+            <span>角色工坊与世界书生成会读取这里的配置；字段定义由 JSON 驱动，不在前端写死。</span>
+          </div>
+          <div class="settings-gen-grid">
+            <label class="field"><span>角色基本信息（第二步）</span><textarea id="g-char-basic" rows="8" spellcheck="false"></textarea></label>
+            <label class="field"><span>完整角色卡（第三步）</span><textarea id="g-char-full" rows="8" spellcheck="false"></textarea></label>
+          </div>
+          <label class="field"><span>世界书条目生成</span><textarea id="g-lore" rows="6" spellcheck="false"></textarea></label>
+          <label class="field"><span>角色字段定义（JSON 数组）</span><textarea id="g-char-fields" rows="10" spellcheck="false" placeholder='[{"key":"name","label":"角色名"}]'></textarea></label>
+          <div class="modal-actions settings-gen-actions">
+            <button class="btn gold" id="g-gen-save" type="button">保存 AI 工坊</button>
+            <button class="ghost-btn" id="g-gen-reset" type="button">恢复内置提示词</button>
+          </div>
+          <p class="hint" id="g-gen-status" aria-live="polite">修改后会随设置自动保存。</p>
+        </div>
       </div>
     </div>
   </div>
 
   <!-- ═══ 世界库：WorldCard → WorldSave → RPG 工作区 ═══ -->
-  <div id="world-mgr" class="char-mgr world-mgr hidden">
-    <div class="cm-side world-side">
+  <div id="world-mgr" class="char-mgr world-mgr hidden" data-ui-level="2" data-ui-region="rpg.world-library" data-ui-owner="host">
+    <div class="cm-side world-side" data-ui-level="3" data-ui-region="rpg.world-library.sidebar" data-ui-owner="host">
+      <div class="mobile-manager-head"><button class="ghost-btn back-action" data-back-chat data-world-manager-back data-manager-back data-parent-label="世界库" type="button">返回工作台</button></div>
       <div class="cm-head">世界库</div>
       <p class="world-kicker">选择一个世界，建立独立存档。</p>
       <div id="world-list" class="cm-list" aria-label="世界卡列表"></div>
@@ -800,10 +879,10 @@
       <button class="ghost-btn" id="world-import" type="button" style="width:100%;margin-top:6px">⇧ 导入世界包</button>
       <input id="world-import-file" type="file" accept="application/json,.json" hidden />
     </div>
-    <div class="cm-edit world-edit">
+    <div class="cm-edit world-edit" data-ui-level="3" data-ui-region="rpg.world-library.editor" data-ui-owner="host">
       <div class="cm-edit-head">
         <span id="world-edit-title">选择一个世界</span>
-        <button class="ghost-btn back-action" id="world-close" type="button">返回工作台</button>
+        <button class="ghost-btn back-action" id="world-close" data-world-manager-back data-manager-back data-parent-label="世界库" type="button">返回工作台</button>
       </div>
       <div id="world-empty" class="world-empty">
         <div class="world-empty-mark" aria-hidden="true">✧</div>
@@ -877,6 +956,33 @@
       <footer class="world-entry-gate-actions">
         <button id="world-entry-gate-cancel" class="ghost-btn" type="button">退出</button>
         <button id="world-entry-gate-confirm" class="btn gold" type="submit">确认进入</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="world-draft-choice-dialog" class="world-draft-dialog world-draft-choice-dialog" aria-labelledby="world-draft-choice-title">
+    <form class="world-draft-card" method="dialog">
+      <header class="world-draft-head">
+        <div>
+          <p class="world-eyebrow">WORLD CARD · DRAFT</p>
+          <h2 id="world-draft-choice-title">创建世界草稿</h2>
+          <p class="world-draft-base">选择草稿来源；已有世界卡不会被直接修改。</p>
+        </div>
+        <button class="ghost-btn small" id="world-draft-choice-close" value="cancel" type="submit" aria-label="关闭创建世界草稿选择">✕</button>
+      </header>
+      <div class="world-draft-choice-body">
+        <button class="world-draft-choice-option" id="world-draft-open-existing" value="existing" type="button">
+          <strong>打开已有世界卡</strong>
+          <span>以左侧当前选中的世界卡为基础编辑草稿，发布后生成新版本。</span>
+        </button>
+        <button class="world-draft-choice-option world-draft-choice-option-primary" id="world-draft-create-blank" value="blank" type="button">
+          <strong>创建空白草稿</strong>
+          <span>从最小世界定义开始，自行填写世界观、地点、规则、UI 和 Agent。</span>
+        </button>
+      </div>
+      <footer class="world-draft-actions">
+        <span class="world-draft-action-spacer" aria-hidden="true"></span>
+        <button class="ghost-btn" id="world-draft-choice-cancel" value="cancel" type="submit">取消</button>
       </footer>
     </form>
   </dialog>
@@ -983,9 +1089,9 @@
           <p class="hint">按“世界卡 → RPG 预设 → RPG 模式自定义”顺序执行；留空不覆盖预设。只执行输出替换，不执行脚本、EJS 或 MVU。</p>
         </div>
         <div class="field">
-          <label for="world-draft-ui">RPG 界面配置 <span class="hint-inline">可选 JSON；声明式侧边栏</span></label>
-          <textarea id="world-draft-ui" name="worldDraftUi" rows="8" maxlength="180000" spellcheck="false" placeholder='{"layout":"world-desk","slots":{"narrative":{"visible":true},"options":{"visible":false},"input":{"visible":false,"label":"卡内输入"}},"sidebar":{"panels":[{"id":"relations","title":"人物关系","icon":"💠","side":"right","source":"save.npcStates","layout":"cards","fields":[{"key":"locationId","label":"位置"},{"key":"relation.trust","label":"信任"}]}]},"extension":{"enabled":true,"title":"世界 HUD","html":"<button id=\"rest\">休息</button>","css":"button{padding:8px;border-radius:8px}","js":"document.querySelector(\"#rest\").onclick=()=>TavernExtension.action(\"rest\",{});","permissions":["read.public","read.save","write.runtime","tool.call"]}}'></textarea>
-          <p class="hint"><code>slots</code> 可按插槽隐藏宿主区域（topbar、sidebar.left、narrative、options、input、sidebar.right、status、overlay），避免卡内界面与宿主重复；sidebar 仍使用声明式数据源。如需完整自定义界面，可在同一 JSON 的 <code>extension</code> 中声明 HTML/CSS/JS/MVU 协议。扩展脚本只在隔离 sandbox iframe 内运行。</p>
+          <div class="world-ui-config-head"><label for="world-draft-ui">RPG 界面配置 <span class="hint-inline">可选 JSON；区域级策略 + 声明式侧边栏</span></label><button id="world-ui-load-template" class="ghost-btn small" type="button">载入完整模板…</button></div>
+          <textarea id="world-draft-ui" name="worldDraftUi" rows="8" maxlength="180000" spellcheck="false" placeholder='{"schemaVersion":1,"layout":"host","regions":{"narrative":{"mode":"replace","component":"world-narrative","fallback":"host"},"options":{"mode":"append","component":"choice-deck"},"input":{"mode":"hide"}},"sidebar":{"panels":[{"id":"relations","title":"人物关系","icon":"💠","side":"right","source":"save.npcStates","layout":"cards","fields":[{"key":"locationId","label":"位置"},{"key":"relation.trust","label":"信任"}]}]},"extension":{"enabled":true,"title":"世界 HUD","html":"<button id=\"rest\">休息</button>","css":"button{padding:8px;border-radius:8px}","js":"document.querySelector(\"#rest\").onclick=()=>TavernExtension.action(\"rest\",{});","permissions":["read.public","read.save","write.runtime","tool.call"]}}'></textarea>
+          <p class="hint"><code>regions</code> 按区域独立声明 <code>decorate</code>（美化）、<code>replace</code>（替换）、<code>append</code>（追加）或 <code>hide</code>（隐藏），四种模式可在同一张卡中共存；区域名为 topbar、sidebar.left、narrative、options、input、sidebar.right、status、overlay。旧 <code>slots.visible:false</code> 仍兼容并映射为 hide。<code>component</code> 只接受安全组件 ID，具体实现复用 <code>extension</code> sandbox 或 <code>sidebar.panels</code>，当前没有组件时默认回到宿主。若需要统一接管 RPG 工作区，请将 <code>layout</code> 设为 <code>custom</code>；窗口化 custom 保留应用级导航，浏览器全屏才隐藏上级侧栏。卡内用唯一的 <code>data-tavern-messages</code> 接收 Markdown 消息、选项和输入；扩展脚本只在隔离 sandbox iframe 内运行。</p>
           <details id="world-draft-extension-editor" class="world-extension-editor">
             <summary>扩展可视化设置 <span class="hint-inline">高级 JSON 仍可直接编辑</span></summary>
             <div class="world-extension-editor-body">
@@ -998,16 +1104,16 @@
               </div>
               <div class="world-extension-permissions" role="group" aria-label="扩展权限">
                 <span class="hint-inline">权限</span>
-                <label class="check"><input type="checkbox" value="read.public" data-world-extension-permission />读取世界公开资料</label>
-                <label class="check"><input type="checkbox" value="read.save" data-world-extension-permission />读取当前存档投影</label>
-                <label class="check"><input type="checkbox" value="write.runtime" data-world-extension-permission />写入 runtime</label>
-                <label class="check"><input type="checkbox" value="tool.call" data-world-extension-permission />调用声明式动作</label>
+                <label class="check"><input id="world-extension-permission-read-public" name="worldExtensionPermission" type="checkbox" value="read.public" data-world-extension-permission />读取世界公开资料</label>
+                <label class="check"><input id="world-extension-permission-read-save" name="worldExtensionPermission" type="checkbox" value="read.save" data-world-extension-permission />读取当前存档投影</label>
+                <label class="check"><input id="world-extension-permission-write-runtime" name="worldExtensionPermission" type="checkbox" value="write.runtime" data-world-extension-permission />写入 runtime</label>
+                <label class="check"><input id="world-extension-permission-tool-call" name="worldExtensionPermission" type="checkbox" value="tool.call" data-world-extension-permission />调用声明式动作</label>
               </div>
-              <label for="world-extension-html">HTML</label><textarea id="world-extension-html" rows="6" maxlength="60000" spellcheck="false" placeholder="<section data-tavern-narrative></section><div data-tavern-options></div><form data-tavern-input><textarea placeholder='输入行动…'></textarea><button data-tavern-submit>发送</button></form>"></textarea>
+              <label for="world-extension-html">HTML</label><textarea id="world-extension-html" rows="6" maxlength="60000" spellcheck="false" placeholder="<section data-tavern-messages></section><div data-tavern-options></div><form data-tavern-input><textarea placeholder='输入行动…'></textarea><button data-tavern-submit>发送</button></form>"></textarea>
               <label for="world-extension-css">CSS</label><textarea id="world-extension-css" rows="4" maxlength="60000" spellcheck="false" placeholder="section{padding:12px}"></textarea>
               <label for="world-extension-js">JS（只在隔离 iframe 执行）</label><textarea id="world-extension-js" rows="5" maxlength="60000" spellcheck="false" placeholder="document.querySelector('button')?.addEventListener('click',()=>TavernExtension.action('rest',{}));"></textarea>
               <label for="world-extension-mvu">MVU 协议配置 JSON（可选）</label><textarea id="world-extension-mvu" rows="3" maxlength="12000" spellcheck="false" placeholder='{"protocol":"mvu.compat","version":1}'></textarea>
-              <div class="world-extension-editor-actions"><button id="world-extension-load-json" class="ghost-btn small" type="button">从高级 JSON 载入扩展</button><span class="hint-inline">卡内可用 <code>data-tavern-narrative</code>（最新叙事）、<code>data-tavern-messages</code>（消息历史）、<code>data-tavern-options</code>（AI 选项）、<code>data-tavern-bind</code>（安全数据绑定）、<code>TavernExtension.on()</code>（Agent/回合事件）和 <code>data-tavern-input</code> / <code>data-tavern-submit</code>（自定义输入）接入当前存档；沉浸模式不会再补宿主叙事框或输入框。</span></div>
+              <div class="world-extension-editor-actions"><button id="world-extension-load-json" class="ghost-btn small" type="button">从高级 JSON 载入扩展</button><span class="hint-inline">卡内优先使用唯一的 <code>data-tavern-messages</code>（Markdown 消息历史与滚动）；<code>data-tavern-narrative</code> 仅兼容旧卡且与消息流并存时默认隐藏。另可用 <code>data-tavern-options</code>（AI 选项）、<code>data-tavern-bind</code>（安全数据绑定）、<code>TavernExtension.on()</code>（Agent/回合事件）和 <code>data-tavern-input</code> / <code>data-tavern-submit</code>（自定义输入）接入当前存档；custom 模式接管 RPG 同级工作区，但保留应用级导航，浏览器全屏才隐藏上级侧栏。</span></div>
             </div>
           </details>
         </div>
@@ -1021,7 +1127,7 @@
           <div id="world-draft-player-schema" class="world-draft-player-schema" aria-label="玩家创建规则条目"></div>
           <textarea id="world-draft-player-creation" name="worldDraftPlayerCreation" rows="8" maxlength="30000" spellcheck="false" placeholder='{"mode":"custom","fields":[],"attributes":[],"skills":[],"resources":[],"traits":[]}'></textarea>
           <div class="world-draft-player-advanced"><button class="ghost-btn small" id="world-draft-player-validate-json" type="button">校验 JSON</button><button class="ghost-btn small" id="world-draft-player-load-json" type="button">从高级 JSON 载入编辑器</button><span class="hint-inline">先校验；点击载入后才替换可视化草稿，非法 JSON 不会覆盖最近有效内容</span></div>
-          <label class="world-draft-player-preview-label" for="world-draft-player-preview">建角规则预览</label>
+          <div class="world-draft-player-preview-label">建角规则预览</div>
           <pre id="world-draft-player-preview" class="world-draft-player-preview" aria-live="polite"></pre>
           <label for="world-draft-session-setup">本局游戏配置 Schema <span class="hint-inline">JSON；每个存档可独立选择</span></label>
           <textarea id="world-draft-session-setup" name="worldDraftSessionSetup" rows="6" maxlength="20000" spellcheck="false" placeholder='{"title":"本局游戏配置","fields":[{"id":"difficulty","label":"难度","type":"select","options":[{"value":"standard","label":"标准"}],"default":"standard"}]}'></textarea>
@@ -1030,14 +1136,14 @@
               <div class="world-draft-collection-head"><div><h3 id="world-draft-growth-sources-title">成长来源</h3><p>训练、学习、探索、关系、事件或自定义来源。</p></div><button class="ghost-btn small" type="button" data-world-add="growthSources">＋成长来源</button></div>
               <div id="world-draft-growth-sources-editor" class="world-draft-array-editor" aria-label="成长来源条目"></div>
               <div class="world-draft-array-advanced"><label for="world-draft-player-creation">高级 JSON</label><button class="ghost-btn small" id="world-draft-player-validate-growth-sources-json" type="button">校验</button><button class="ghost-btn small" id="world-draft-player-load-growth-sources-json" type="button">载入来源</button></div>
-              <label class="world-draft-array-preview-label" for="world-draft-growth-sources-preview">成长来源预览</label>
+              <div class="world-draft-array-preview-label">成长来源预览</div>
               <pre id="world-draft-growth-sources-preview" class="world-draft-array-preview" aria-live="polite"></pre>
             </section>
             <section class="world-draft-rule-collection" aria-labelledby="world-draft-growth-candidates-title">
               <div class="world-draft-collection-head"><div><h3 id="world-draft-growth-candidates-title">成长候选</h3><p>把剧情成果绑定到属性、技能、资源、特质、关系、派系或身份。</p></div><button class="ghost-btn small" type="button" data-world-add="growthCandidates">＋成长候选</button></div>
               <div id="world-draft-growth-candidates-editor" class="world-draft-array-editor" aria-label="成长候选条目"></div>
               <div class="world-draft-array-advanced"><label for="world-draft-player-creation">高级 JSON</label><button class="ghost-btn small" id="world-draft-player-validate-growth-candidates-json" type="button">校验</button><button class="ghost-btn small" id="world-draft-player-load-growth-candidates-json" type="button">载入候选</button></div>
-              <label class="world-draft-array-preview-label" for="world-draft-growth-candidates-preview">成长候选预览</label>
+              <div class="world-draft-array-preview-label">成长候选预览</div>
               <pre id="world-draft-growth-candidates-preview" class="world-draft-array-preview" aria-live="polite"></pre>
             </section>
           </div>
@@ -1054,7 +1160,7 @@
             <div class="world-draft-collection-head"><div><h3 id="world-draft-failure-modes-title">失败模式条目</h3><p>模式 ID 会被 defaultMode / onZeroHp / onConflictDefeat 引用。</p></div><button class="ghost-btn small" type="button" data-world-add="failureModes">＋失败模式</button></div>
             <div id="world-draft-failure-modes-editor" class="world-draft-array-editor" aria-label="失败模式条目"></div>
             <div class="world-draft-array-advanced"><label for="world-draft-failure">高级 JSON</label><button class="ghost-btn small" id="world-draft-failure-validate-modes-json" type="button">校验</button><button class="ghost-btn small" id="world-draft-failure-load-modes-json" type="button">载入失败模式</button></div>
-            <label class="world-draft-array-preview-label" for="world-draft-failure-modes-preview">失败模式预览</label>
+            <div class="world-draft-array-preview-label">失败模式预览</div>
             <pre id="world-draft-failure-modes-preview" class="world-draft-array-preview" aria-live="polite"></pre>
           </section>
           <p class="hint">可用模式包括继续、重伤、俘虏、资源损失、永久死亡和按卡定义；AI 不得直接写入存档失败状态。</p>
@@ -1066,7 +1172,7 @@
             <div class="world-draft-collection-head"><div><h3 id="world-draft-ending-endings-title">结局条目</h3><p>结局可由玩家选择或由世界卡条件触发。</p></div><button class="ghost-btn small" type="button" data-world-add="endingEndings">＋结局条目</button></div>
             <div id="world-draft-ending-endings-editor" class="world-draft-array-editor" aria-label="结局条目"></div>
             <div class="world-draft-array-advanced"><label for="world-draft-ending">高级 JSON</label><button class="ghost-btn small" id="world-draft-ending-validate-endings-json" type="button">校验</button><button class="ghost-btn small" id="world-draft-ending-load-endings-json" type="button">载入结局</button></div>
-            <label class="world-draft-array-preview-label" for="world-draft-ending-endings-preview">结局预览</label>
+            <div class="world-draft-array-preview-label">结局预览</div>
             <pre id="world-draft-ending-endings-preview" class="world-draft-array-preview" aria-live="polite"></pre>
           </section>
           <p class="hint">世界卡可以声明多个结局；AI 只能提出叙事结果，不能自行结束存档。</p>
@@ -1086,7 +1192,7 @@
           <div id="world-draft-events-editor" class="world-draft-array-editor" aria-label="世界事件条目"></div>
           <div class="world-draft-array-advanced"><label for="world-draft-events">高级 JSON</label><button class="ghost-btn small" id="world-draft-events-validate-json" type="button">校验 JSON</button><button class="ghost-btn small" id="world-draft-events-load-json" type="button">载入编辑器</button></div>
           <textarea id="world-draft-events" name="worldDraftEvents" rows="6" maxlength="30000" spellcheck="false" placeholder='[{"id":"event-id","title":"事件标题","trigger":{"at":10},"visibility":"public","once":true}]'></textarea>
-          <label class="world-draft-array-preview-label" for="world-draft-events-preview">事件模板预览</label>
+          <div class="world-draft-array-preview-label">事件模板预览</div>
           <pre id="world-draft-events-preview" class="world-draft-array-preview" aria-live="polite"></pre>
           <p class="hint">trigger 支持 <code>at</code>（世界时间）、<code>afterTurns</code>（成功回合数）和 <code>locationId</code>（地点条件）；条件同时存在时需全部满足。</p>
         </section>
@@ -1101,7 +1207,7 @@
           <div id="world-draft-factions-editor" class="world-draft-array-editor" aria-label="派系条目"></div>
           <div class="world-draft-array-advanced"><label for="world-draft-factions">高级 JSON</label><button class="ghost-btn small" id="world-draft-factions-validate-json" type="button">校验 JSON</button><button class="ghost-btn small" id="world-draft-factions-load-json" type="button">载入编辑器</button></div>
           <textarea id="world-draft-factions" name="worldDraftFactions" rows="8" maxlength="50000" spellcheck="false" placeholder='[{"id":"north-guild","name":"北方公会","actions":[{"id":"patrol","title":"巡逻山口","description":"派出巡逻队。","trigger":{"at":9,"locationId":"wolf-tooth-inn"},"changes":{"resources":{"funds":-5}}}]}]'></textarea>
-          <label class="world-draft-array-preview-label" for="world-draft-factions-preview">派系模板预览</label>
+          <div class="world-draft-array-preview-label">派系模板预览</div>
           <pre id="world-draft-factions-preview" class="world-draft-array-preview" aria-live="polite"></pre>
           <p class="hint">行动支持 <code>at</code> / <code>afterTurns</code> 与可选 <code>locationId</code>；每个行动默认只结算一次，变化只写入当前存档。</p>
         </section>
@@ -1116,7 +1222,7 @@
           <div id="world-draft-conflicts-editor" class="world-draft-array-editor" aria-label="冲突模板条目"></div>
           <div class="world-draft-array-advanced"><label for="world-draft-conflicts">高级 JSON</label><button class="ghost-btn small" id="world-draft-conflicts-validate-json" type="button">校验 JSON</button><button class="ghost-btn small" id="world-draft-conflicts-load-json" type="button">载入编辑器</button></div>
           <textarea id="world-draft-conflicts" name="worldDraftConflicts" rows="8" maxlength="50000" spellcheck="false" placeholder='[{"id":"conflict-id","label":"冲突标题","type":"combat","phases":[],"actions":[{"id":"strike","label":"攻击","check":{"roll":"1d20","target":10}}],"outcomes":[]}]'></textarea>
-          <label class="world-draft-array-preview-label" for="world-draft-conflicts-preview">冲突模板预览</label>
+          <div class="world-draft-array-preview-label">冲突模板预览</div>
           <pre id="world-draft-conflicts-preview" class="world-draft-array-preview" aria-live="polite"></pre>
         </section>
         <section class="world-draft-collection world-draft-map" aria-labelledby="world-draft-map-title" hidden>
@@ -1226,7 +1332,7 @@
         </section>
         <div class="world-opening-step"><span class="world-opening-step-no">03</span><div><strong>规划故事开场</strong><p>这些内容只绑定当前存档，不会改写世界卡。</p></div></div>
         <label class="field"><span>起始地点</span><select id="world-opening-location"></select></label>
-        <label class="field"><span>在场 NPC（可多选）</span><div id="world-opening-npcs" class="world-opening-checks"></div></label>
+        <div class="field"><div class="field-label">在场 NPC（可多选）</div><div id="world-opening-npcs" class="world-opening-checks"></div></div>
         <div id="world-opening-npc-contexts" class="world-opening-npc-contexts"></div>
         <div class="field row2">
           <label class="field"><span>世界纪年 / 时代</span><input id="world-opening-era" maxlength="240" placeholder="例如：星历 742 年·裂隙期" /></label>
@@ -1262,7 +1368,7 @@
         </section>
         <div id="world-opening-candidate" class="world-opening-candidate" hidden>
           <label class="field"><span>开场叙事</span><textarea id="world-opening-narrative" rows="8" maxlength="100000"></textarea></label>
-          <div class="world-opening-options"><label class="field"><span>行动选项 1</span><input data-opening-option="0" maxlength="500" /></label><label class="field"><span>行动选项 2</span><input data-opening-option="1" maxlength="500" /></label><label class="field"><span>行动选项 3</span><input data-opening-option="2" maxlength="500" /></label><label class="field"><span>行动选项 4</span><input data-opening-option="3" maxlength="500" /></label></div>
+          <div class="world-opening-options"><label class="field"><span>行动选项 1</span><input id="world-opening-option-0" name="worldOpeningOption0" data-opening-option="0" maxlength="500" /></label><label class="field"><span>行动选项 2</span><input id="world-opening-option-1" name="worldOpeningOption1" data-opening-option="1" maxlength="500" /></label><label class="field"><span>行动选项 3</span><input id="world-opening-option-2" name="worldOpeningOption2" data-opening-option="2" maxlength="500" /></label><label class="field"><span>行动选项 4</span><input id="world-opening-option-3" name="worldOpeningOption3" data-opening-option="3" maxlength="500" /></label></div>
         </div>
         <p id="world-opening-status" class="world-draft-status" role="status" aria-live="polite"></p>
       </div>
@@ -1276,7 +1382,7 @@
     </form>
   </dialog>
 
-  <dialog id="debug-panel" class="debug-panel" aria-labelledby="debug-title">
+  <dialog id="debug-panel" class="debug-panel" data-ui-level="1" data-ui-region="overlay.terminal" data-ui-owner="host" aria-labelledby="debug-title">
     <header class="debug-head">
       <div>
         <strong id="debug-title">AI 往返终端</strong>
@@ -1350,13 +1456,13 @@
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
   <script src="vendor/mapgen2.bundle.js"></script>
-  <script src="mapgen.js?v=20260817h"></script>
-  <script src="app.js?v=20260817h"></script>
+  <script src="mapgen.js?v=20260819a"></script>
+  <script src="app.js?v=20260819a"></script>
   <script>
     // PWA：注册 service worker（仅 HTTPS / localhost 生效，套壳 APK 可用）
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('sw.js').catch(() => {});
+        navigator.serviceWorker.register('sw.js?v=20260819a').catch(() => {});
       });
     }
   </script>

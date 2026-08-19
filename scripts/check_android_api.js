@@ -4,6 +4,8 @@ const assert = require('assert');
 const fs = require('fs');
 
 const source = fs.readFileSync('android/app/src/main/java/com/tavern/app/TavernServer.kt', 'utf8');
+const activity = fs.readFileSync('android/app/src/main/java/com/tavern/app/MainActivity.kt', 'utf8');
+const app = fs.readFileSync('public/app.js', 'utf8');
 for (const route of ['/api/worlds/', '/api/world-saves', '/setup', '/opening-candidate', '/opening', '/rename', '/export', '/copy', '/upgrade', '/agent-execute', '/agent-cancel', '/growth', '/end', '/reopen', '/summary', '/memory']) {
   assert.ok(source.includes(route), `Android route missing: ${route}`);
 }
@@ -33,4 +35,9 @@ assert.ok(source.includes('tavern_world_package'), 'Android import must validate
 assert.ok(source.includes('regexDisabledOnImport'), 'Android imports must keep regex inert by default');
 assert.ok(source.includes('worldUpgradeReport'), 'Android must expose save upgrade preview');
 assert.ok(source.includes('world-version-upgrade'), 'Android upgrades must leave a migration record');
+assert.ok(activity.includes('addJavascriptInterface(DownloadBridge(), "TavernAndroid")'), 'Android must expose the export bridge');
+assert.ok(activity.includes('MediaStore.Downloads'), 'Android exports must target the public Download folder');
+assert.ok(activity.includes('saveFile(rawName'), 'Android export bridge must receive frontend files');
+assert.match(app, /async function downloadBlob\(blob, filename\)/);
+assert.ok(app.includes('bridge.saveFile(filename'), 'Frontend exports must use the Android bridge when available');
 console.log('android API contract check passed');

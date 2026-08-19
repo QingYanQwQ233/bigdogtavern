@@ -1,13 +1,24 @@
 package com.tavern.app
 
+import android.Manifest
 import android.app.Activity
+import android.content.ContentValues
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.MediaStore
+import android.util.Base64
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.JavascriptInterface
+import android.widget.Toast
+import java.io.File
+import java.io.FileOutputStream
 
 /**
  * Tavern · 离线 APK 入口
@@ -20,6 +31,10 @@ class MainActivity : Activity() {
     private lateinit var webView: WebView
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private val FILE_CHOOSER_REQ = 1001
+    private val DOWNLOAD_PERMISSION_REQ = 1002
+    private var pendingDownload: DownloadRequest? = null
+
+    private data class DownloadRequest(val name: String, val mimeType: String, val base64: String)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,6 +58,7 @@ class MainActivity : Activity() {
         // → 会导致 ≥961px 判定成立、侧栏误显示
         webView.settings.useWideViewPort = true
         webView.settings.loadWithOverviewMode = true
+        webView.addJavascriptInterface(DownloadBridge(), "TavernAndroid")
         webView.webChromeClient = object : WebChromeClient() {
             // 文件选择器：<input type="file"> 必须实现此回调，否则点击无效（导入形象参考图依赖）
             override fun onShowFileChooser(
@@ -78,6 +94,61 @@ class MainActivity : Activity() {
         webView.loadUrl("http://127.0.0.1:3000/")
     }
 
+    private inner class DownloadBridge {
+        @JavascriptInterface
+        fun saveFile(rawName: String, rawMimeType: String, base64: String): Boolean {
+            if (base64.length > 48_000_000) {
+                runOnUiThread { Toast.makeText(this@MainActivity, "导出文件过大（上限约 36 MB）", Toast.LENGTH_LONG).show() }
+                return false
+            }
+            val request = DownloadRequest(safeDownloadName(rawName), rawMimeType.ifBlank { "application/octet-stream" }, base64)
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                pendingDownload = request
+                runOnUiThread { requestPermissions(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), DOWNLOAD_PERMISSION_REQ) }
+                return true
+            }
+            return writeDownload(request)
+        }
+    }
+
+    private fun safeDownloadName(rawName: String): String {
+        val name = rawName.substringAfterLast('/').substringAfterLast('\\')
+            .replace(Regex("[\\\\/:*?\"<>|\\r\\n]"), "_").trim()
+        return name.take(180).ifBlank { "tavern-export.json" }
+    }
+
+    private fun writeDownload(request: DownloadRequest): Boolean {
+        return try {
+            val bytes = Base64.decode(request.base64, Base64.DEFAULT)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, request.name)
+                    put(MediaStore.Downloads.MIME_TYPE, request.mimeType)
+                    put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                    put(MediaStore.Downloads.IS_PENDING, 1)
+                }
+                val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return false
+                try {
+                    contentResolver.openOutputStream(uri)?.use { it.write(bytes) } ?: throw IllegalStateException("无法打开下载文件")
+                    contentResolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
+                } catch (error: Exception) {
+                    contentResolver.delete(uri, null, null)
+                    throw error
+                }
+            } else {
+                val directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                if (!directory.exists() && !directory.mkdirs()) throw IllegalStateException("无法创建 Download 文件夹")
+                val target = File(directory, request.name)
+                FileOutputStream(target).use { it.write(bytes) }
+            }
+            runOnUiThread { Toast.makeText(this, "已导出到 Download/${request.name}", Toast.LENGTH_SHORT).show() }
+            true
+        } catch (error: Exception) {
+            runOnUiThread { Toast.makeText(this, "导出失败：${error.message ?: "无法写入文件"}", Toast.LENGTH_LONG).show() }
+            false
+        }
+    }
+
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode == FILE_CHOOSER_REQ) {
@@ -93,6 +164,15 @@ class MainActivity : Activity() {
         } else {
             super.onActivityResult(requestCode, resultCode, data)
         }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != DOWNLOAD_PERMISSION_REQ) return
+        val request = pendingDownload ?: return
+        pendingDownload = null
+        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) writeDownload(request)
+        else Toast.makeText(this, "未获得存储权限，无法导出文件", Toast.LENGTH_LONG).show()
     }
 
     override fun onBackPressed() {

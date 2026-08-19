@@ -264,6 +264,23 @@ async function main() {
     const publishedNewWorld = await jsonRequest(base, '/api/worlds/' + encodeURIComponent(newWorldDraft.body.worldId));
     assert.strictEqual(publishedNewWorld.response.status, 200);
     assert.strictEqual(publishedNewWorld.body.title, '极光大陆（新建）');
+    const blankWorldDraft = await jsonRequest(base, '/api/world-drafts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'blank' }),
+    });
+    assert.strictEqual(blankWorldDraft.response.status, 201, 'blank world draft creates without a source card');
+    assert.strictEqual(blankWorldDraft.body.kind, 'blank');
+    assert.deepStrictEqual(blankWorldDraft.body.world.locations, []);
+    assert.deepStrictEqual(blankWorldDraft.body.world.npcs, []);
+    const blankWorldPublish = await jsonRequest(base, '/api/world-drafts/' + encodeURIComponent(blankWorldDraft.body.worldId) + '/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commandId: 'publish-blank-world-0001', expectedUpdatedAt: blankWorldDraft.body.updatedAt, baseVersion: 1 }),
+    });
+    assert.strictEqual(blankWorldPublish.response.status, 201, 'blank world draft publishes as a new world card');
+    assert.strictEqual(blankWorldPublish.body.world.id, blankWorldDraft.body.worldId);
+    assert.strictEqual(blankWorldPublish.body.world.version, 1);
     const draftLocations = [
       { id: 'wolf-tooth-inn', name: '断牙之角', type: 'inn', summary: '雨幕下的旅店', tags: ['安全区'] },
       { id: 'region-2', name: 'Region Two', type: 'region', summary: '', tags: [] },

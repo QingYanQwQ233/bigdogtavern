@@ -45,7 +45,7 @@ WorldSave(saveId, worldId, worldVersion, revision)
 | Agent | `agent` profile、`agent-execute` / `agentPhase` | 已实现工具候选 / 原生循环 |
 | 自定义 UI | `ui.sidebar` 声明式面板 | 已实现有限数据源 |
 | 扩展 UI | `ui.extension` HTML/CSS/JS/MVU + sandbox iframe | 已实现；首次授权后运行 |
-| 旧卡脚本 | 角色卡 / 预设中的 EJS、MVU、脚本 | 保留但不执行 |
+| 旧卡脚本 | 绑定角色卡中的 HTML/CSS/JS；预设中的 EJS、MVU、脚本 | 角色卡脚本需用户授权后在同源完整兼容 iframe 中运行，可访问宿主 DOM、localStorage、外部脚本和网络；预设脚本与模板保留但不执行 |
 | 世界包 | `tavern_world_package` 导入 / 导出 | 已实现；未知可执行内容不执行 |
 
 当前扩展桥接入口为 `TavernExtension`：
@@ -55,6 +55,12 @@ WorldSave(saveId, worldId, worldVersion, revision)
 - `action(actionId, input)`：调用世界卡声明式动作；
 - `choose(text, options)`：复用普通 RPG 回合管线；
 - `mvu(message)`：把兼容消息映射到受限 runtime 更新。
+- `fullscreen()`：由卡内按钮请求浏览器全屏；失败时仍保持整页沉浸视图；
+- `exitFullscreen()`：退出浏览器全屏和沉浸布局，恢复窗口化卡内界面；Esc 使用同一退出路径；
+- `exitWorld()`：退出当前世界工作区，回到世界库；适用于世界卡隐藏宿主导航时提供卡内返回入口。
+- `openTerminal()`：打开宿主 AI 往返终端；适用于卡内隐藏顶栏后仍保留调试入口。
+
+绑定角色卡脚本另有一组只读 ST 兼容快照接口：`getLastMessageId()`、`getCurrentMessageId()`、`getChatMessages(range)`、`getAllChatMessages()`、`getCharWorldbookNames()`、`getWorldbook(name)` 和 `getCurrentChatId()`。快照在角色卡消息渲染时注入，只包含当前 Tavern 会话及绑定角色书；完整兼容 iframe 另提供宿主 DOM、localStorage、外部脚本、网络和原生 `alert()`，因此依赖这些同步接口或卡内资源的“加载本卡设置”类脚本可以运行。角色卡脚本仅在用户明确确认后启用；世界卡 `ui.extension` 仍维持 sandbox 边界。
 
 现有 `ui.extension` 是 W1 的兼容入口，不立即删除或改名。新的 UI 插槽和权限契约必须能从旧扩展配置降级出来。
 
@@ -94,11 +100,14 @@ W1 只扩展 `content.world` 的已知字段，不另起第二份状态仓库。
   "runtime": {},
   "agent": {},
   "ui": {
-    "layout": "host | immersive | custom",
+    "schemaVersion": 1,
+    "layout": "host",
     "theme": {},
     "slots": {},
+    "regions": {},
     "sidebar": { "panels": [] },
-    "extension": {}
+    "extension": {},
+    "entryGate": {}
   },
   "assets": []
 }
@@ -109,11 +118,48 @@ W1 只扩展 `content.world` 的已知字段，不另起第二份状态仓库。
 - `lorebookIds`、`rpgPresetName`、`regexes` 是当前世界版本的 AI 依赖快照；不会读取酒馆模式当前选择。
 - `runtime` 只定义 Schema；本局的值在创建存档时复制到 `WorldSave.state.runtime`。
 - `ui` 定义界面和权限，不保存对话或正式数值。
+- `ui.schemaVersion` 当前为 `1`；缺失按旧格式兼容，未知版本拒绝发布。
 - `assets` 只允许受校验的相对路径 / 数据资源引用；不允许本机绝对路径和带认证参数的 URL。
 - 导入必须保留原始包、来源、版本和哈希；确认后才命名空间化落库。
 - 导入旧包时仅在内存映射阶段补齐缺省的 `ui`、`runtime`、`agent`、`regexes` 和引用数组；原始封存文本与内容哈希不改写。
 
 ## 4. 自定义 UI 契约
+
+宿主 UI 按五级组织；三级区域按声明选择渲染策略，允许世界卡局部接管而不必整页替换：
+
+```text
+一级  app shell       全局导航、移动抽屉、设置/终端/确认覆盖层（宿主）
+二级  workspace       Tavern / RPG / 世界库等视图路由（宿主）
+三级  workspace slots  顶栏、叙事、侧栏、状态、选项、输入（宿主或世界卡）
+四级  components       卡片、列表、按钮、表单、消息和滚动容器（当前渲染 owner）
+五级  bridge            投影读取、UI Command、统一回合与 runtime Patch（宿主校验）
+```
+
+移动端不改变这五级归属，但把同级管理器收敛为“父级列表 → 子级详情”的钻取流程；列表和详情顶部都固定显示返回条，详情返回只回到上一级，嵌套的预设条目与世界书条目继续使用各自的二级返回；玩家设定页先显示设定列表，再从顶部按钮进入记忆条目。
+
+`ui.layout:"custom"` 仍是完整扩展的兼容模式：它接管 RPG 的三级工作区；默认保留一级应用导航，但可由 `ui.shell.navigation:"hide"` / `ui.shell.topbar:"hide"` 在当前世界工作区隐藏。浏览器全屏后会连应用级导航一起隐藏；Esc 按 `ui.shell.escape` 统一退出沉浸、返回世界库或保持不变（`none`）。需要局部接管时使用 `ui.regions`；旧卡的 `ui.slots` 继续有效，并会映射为同名区域的 `decorate` / `hide` 策略。
+
+`layout` 仍接受旧卡的自定义标识（例如 `world-desk`），但只有 `host`、`immersive`、`custom` 会触发当前宿主布局策略；未知标识按宿主布局处理，不会阻断旧世界卡导入。
+
+完整的字段示例、四种区域模式、主题 Token、声明式侧栏、扩展桥和无障碍约束见 [docs/ui-beauty-declaration.md](ui-beauty-declaration.md)。
+
+世界卡可以声明共用 CSS Token，作用于宿主投影和卡内 sandbox：
+
+```json
+{
+  "ui": {
+    "theme": {
+      "tokens": {
+        "accent": "#77e6d5",
+        "accent-rgb": "119,230,213",
+        "panel": "#10262d"
+      }
+    }
+  }
+}
+```
+
+Token 名称和值会经过服务端和客户端限制；不允许外链、脚本协议或 CSS 块注入。未声明主题时继承 Tavern 的黑色 macOS 基础主题。
 
 目标插槽：
 
@@ -147,13 +193,40 @@ UI 不直接写 `WorldSave`。卡内控件应通过稳定绑定描述数据源�
 }
 ```
 
-宿主首版支持通过 `ui.slots` 控制固定插槽的显示与无障碍标签：`topbar`、`sidebar.left`、`narrative`、`options`、`input`、`sidebar.right`、`status`、`overlay`。未声明的插槽保持宿主默认；声明 `visible:false` 可让卡内扩展独立接管对应区域，避免出现两套输入框或选项栏。
+宿主支持通过 `ui.regions` 控制固定三级插槽：`topbar`、`sidebar.left`、`narrative`、`options`、`input`、`sidebar.right`、`status`、`overlay`。每个区域可以独立声明四种模式，因此它们可以在同一张世界卡中共存：
+
+| 模式 | 宿主行为 | 适用场景 |
+|---|---|---|
+| `decorate` | 保留宿主内容，并应用世界卡主题/区域元数据 | 只改颜色、标签、间距或外观 |
+| `replace` | 标记该区域由世界卡组件负责，保留宿主安全回退 | 世界卡提供自己的叙事/侧栏/选项组件 |
+| `append` | 保留宿主内容，同时声明世界卡组件可追加内容 | 在原有选项或状态旁增加卡专属信息 |
+| `hide` | 隐藏宿主区域但保留 DOM 和状态，离开世界卡后恢复 | 卡内完全接管输入、选项或侧栏 |
+
+示例：
+
+```json
+{
+  "ui": {
+    "regions": {
+      "topbar": { "mode": "decorate", "label": "世界时间" },
+      "sidebar.left": { "mode": "append", "component": "character-panel" },
+      "narrative": { "mode": "replace", "component": "world-narrative", "fallback": "host" },
+      "options": { "mode": "append", "component": "choice-deck" },
+      "input": { "mode": "hide", "fallback": "host" }
+    }
+  }
+}
+```
+
+`component` 是受限组件 ID（不是 HTML/JS），作为世界卡扩展/宿主声明式面板之间的稳定标识；本轮不会把一个 sandbox iframe 自动拆分注入多个主页面区域，卡内前端仍通过现有 `ui.extension` 或 `ui.sidebar.panels` 实现具体内容。当前没有可用组件时默认保留宿主，避免出现空白工作区；`fallback:"empty"` 先作为协议保留，待组件注册表启用后生效；不会在主页面执行卡内脚本。
+
+旧字段 `ui.slots` 仍可控制这些插槽的显示与无障碍标签：未声明的插槽保持宿主默认；声明 `visible:false` 会映射为 `hide`。若需要让卡内前端统一接管 RPG 工作区，使用 `ui.layout:"custom"` 或 `ui.extension.immersive:true`；`custom` 会隐藏宿主 RPG 的同级工作区（叙事、状态、选项、输入和 RPG 两侧栏）。默认保留应用级导航；若卡声明 `ui.shell.navigation:"hide"` / `ui.shell.topbar:"hide"`，窗口化时也隐藏对应宿主壳层，卡内通过 `TavernExtension.exitWorld()` 返回世界库；卡内请求浏览器全屏后会连应用级导航一起隐藏，Esc 按 `ui.shell.escape` 回到窗口化 custom 或退出世界。消息接口以 `data-tavern-messages` 为唯一记录流；同一页面同时声明 `data-tavern-narrative` 时，后者默认隐藏（除非设置 `data-tavern-allow-duplicate="true"`），避免重复叙事与嵌套滚动条。
 
 旧配置兼容：
 
 - `ui.sidebar.panels` 继续由宿主声明式渲染；
 - `ui.extension` 继续作为完整自定义界面的 sandbox 入口；
-- `data-tavern-narrative`、`data-tavern-options`、`data-tavern-input` 等标记继续有效；
+- `data-tavern-messages`、`data-tavern-narrative`、`data-tavern-options`、`data-tavern-input` 等标记继续有效；消息与叙事会提供已安全清洗的 Markdown HTML，卡内可用单一消息流自行控制滚动；
 - `data-tavern-bind="save.state.player.resources.hp"` 将白名单投影写入 `textContent`，`data-tavern-show="turn.canChoose"` 控制显示；路径只允许有限层级的对象键，绑定不会执行表达式或写入主页面。
 - 扩展脚本可用 `TavernExtension.on(name, handler)` 监听 `turn.start`、`agent.execute`、`agent.complete`、`turn.commit`、`turn.error`；事件只发送脱敏的回合号、版本、工具状态或错误摘要，不携带工具结果与隐藏世界数据。
 - 新插槽缺失时回退到当前宿主 RPG 布局；扩展加载失败时不能让存档无法打开。
@@ -199,6 +272,7 @@ UI / Agent action
 |---|---:|---|
 | 声明式 | 开启 | HTML 片段、CSS、数据绑定、动作描述 |
 | sandbox | 关闭，首次询问 | 世界卡 `ui.extension` 的隔离 JS / 桥接 MVU |
+| 角色卡完整兼容 | 关闭，首次询问 | 绑定角色卡的同源 HTML/CSS/JS、外部依赖、宿主 DOM、localStorage、网络与 ST 兼容桥 |
 | 主页面任意脚本 | 永不默认开启 | 当前项目不提供 |
 
 授权规则：
@@ -212,11 +286,14 @@ UI / Agent action
 
 ### 6.2 EJS / MVU 兼容边界
 
-- 角色卡、预设中的 EJS / MVU / 脚本：保存、导出、兼容报告，默认不执行；
+- 角色卡中的 HTML/CSS/JS：首次显示前需用户授权，在同源完整兼容 iframe 中运行；角色卡可使用宿主 DOM、localStorage、外部脚本、网络和原生 `alert()`；预设中的 EJS / MVU / 脚本仍保存、导出并标记为不执行；
+- 角色卡 EJS / MVU 模板：只保留原文，不解释模板变量；脚本提供 ST 兼容桥：`triggerSlash('/send …|/trigger')`、`copyToTavernDialog(text)`、`TavernCard.send/copy` 分别发送到当前 Tavern 对话或填入输入框，并注入当前对话/角色书的只读快照；
 - 世界卡中的 EJS：第一阶段只做安全模板子集或原文保留，不执行任意 Node/EJS 代码；
 - 世界卡中的 MVU：映射到受限变量、集合和 Typed Patch，不实现无限制 `eval`；
 - MVU 兼容入口接受现有 Typed Patch、`{ updates: [...] }`、`{ patch: { updates: [...] } }` 或变量映射 `{ variables: { id: value } }`；变量映射会转换为 `runtime.variable.set`，不支持任意 JSON Path。
-- 真正的交互脚本只能走授权后的 sandbox Bridge。
+- 世界卡扩展的交互脚本只能走授权后的 sandbox Bridge；角色卡脚本则走用户确认后的完整兼容 iframe。
+
+角色卡完整兼容模式不使用 `sandbox` 或 `connect-src 'none'`，因为部分 ST 卡依赖 `parent.document`、localStorage、外部 CDN、卡内相对路径和网络请求。它仍要求逐卡确认，并只接受 `http:` / `https:` 外部脚本 URL；不要导入不可信角色卡。该模式不等于把脚本直接拼进宿主主页面，卡内代码仍位于独立 iframe 文档中。
 
 兼容报告必须区分：`完整支持`、`映射但有差异`、`保留但不执行`、`需要人工转换`、`存在风险并隔离`。
 
