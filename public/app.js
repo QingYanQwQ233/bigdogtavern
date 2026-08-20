@@ -46,7 +46,6 @@ const PRESET_MARKERS = [
 ];
 const PRESET_MARKER_IDS = new Set(PRESET_MARKERS.map(([id]) => id));
 
-const PAW_SVG = '<span class="avatar-mark">✦</span>';
 
 /* 风格主题（色调）——UI 设计配置，保留在代码（驱动 CSS 变量） */
 const FIXED_THEME = 'vibrancy';
@@ -162,6 +161,8 @@ const WORLD_EXTENSION_CHANNEL = 'tavern.rpg.extension';
 let worldExtensionState = { iframe: null, nonce: '', signature: '', ready: false, timer: null, pending: new Map(), nextRequestId: 0 };
 const worldExtensionDeniedApprovals = new Set();
 const cardScriptDeniedApprovals = new Set();
+const tavernMemoryPending = new Set();
+const tavernMemoryStatus = new Map();
 
 /* ─────────── 数据加载 / 保存（JSON 文件存储） ─────────── */
 function saveSettings() {
@@ -2783,7 +2784,7 @@ async function deleteWorldSave(saveId, button) {
   const save = saves.find(item => item.id === saveId);
   if (!save) return;
   if (worldTurnPendingActive() && currentWorldSaveId === saveId) {
-    showWorldError('当前存档还有未完成的回合，请先结束或放弃本回合。');
+    showWorldError('当前存档还有未完成的回合，请先处理当前回合。');
     return;
   }
   if (!confirm(`确定删除存档“${save.name || save.id}”？\n\n这会永久删除该存档的状态与叙事记录。`)) return;
@@ -3068,6 +3069,21 @@ function getGreeting() {
     || (char && Array.isArray(char.alternateGreetings) && char.alternateGreetings.find(g => String(g || '').trim()))
     || (preset && preset.firstMes && preset.firstMes.trim())
     || settings.firstMes || '';
+}
+
+/* 开场白与 AI 回复共用同一套 Tavern 协议解析，确保首条消息里的
+ * <tavern_options> 也会进入底部快捷行动栏，而不会泄露到正文。 */
+function createTavernGreetingMessage(greeting) {
+  const processed = processAIOutput(greeting);
+  const message = {
+    id: uid(),
+    role: 'assistant',
+    content: processed.content,
+    rawContent: processed.rawContent,
+    ts: Date.now(),
+  };
+  if (Array.isArray(processed.options) && processed.options.length) message.options = processed.options;
+  return message;
 }
 function curSession() { return Array.isArray(sessions) ? sessions.find(s => s.id === currentSessionId && sessionMatches(s)) || null : null; }
 function activeConversationScope() { return worldModeActive() ? currentWorldSave : curSession(); }
@@ -3541,6 +3557,9 @@ function applyWorldUiTheme() {
   appliedWorldThemeTokens = new Set(Object.keys(next));
   for (const [key, value] of Object.entries(next)) document.body.style.setProperty(`--${key}`, value);
   document.body.dataset.uiTheme = Object.keys(next).length ? 'world-card' : 'host';
+  // 世界卡退出后，重新把宿主主题同步到 body；否则进入世界卡前留下的
+  // body 内联变量会遮住用户刚在设置里改好的根变量。
+  if (!worldModeActive()) applyUiTheme(uiThemeFromPrefs());
 }
 
 function applyWorldUiSlots() {
@@ -5506,7 +5525,7 @@ function initTavernCardFrameBridge() {
       if (data.action === 'send') {
         if (mode === 'rpg') throw new Error('角色卡桥只能在 Tavern 模式发送');
         if (sending || worldTurnPreparing || worldTurnPending) throw new Error('当前对话正在生成，请稍后再试');
-        setTavernCardDialogInput(text);
+        setTavernCardDialogInput(applyRegexStage(text, 'slash_command'));
         void sendMessage().catch(error => setApiStatus(`角色卡发送失败：${error.message}`, true));
         respond(true, { sent: true, textLength: text.length });
         return;
@@ -5614,8 +5633,10 @@ function splitNarration(text) {
 }
 
 /* ─────────── 会话管理 ─────────── */
-function saveSessions() {
-  const cur = curSession();
+function saveSessions(updatedSession = curSession()) {
+  const cur = updatedSession && Array.isArray(sessions)
+    ? sessions.find(session => session.id === updatedSession.id) || curSession()
+    : curSession();
   if (cur) cur.updatedAt = Date.now(); // 跨浏览器合并时按更新时间取新
   try {
     // 图片消息存的是本地相对路径（/images/xxx.png，很小），可以安全持久化
@@ -5707,6 +5728,7 @@ function ensureSessions() {
     for (const s of sessions) {
       if (!s.kind) s.kind = 'tavern';
       if (!s.charId || s.charId === 'undefined') s.charId = currentCharId;
+      if (s.kind === 'tavern') ensureTavernSessionMemory(s);
     }
     // 当前会话必须同时属于当前角色与当前模式。
     if (!curSession()) currentSessionId = (sessions.find(sessionMatches) || {}).id || null;
@@ -5721,6 +5743,7 @@ function ensureSessions() {
     messages: (oldMsgs && oldMsgs.length) ? oldMsgs : [],
     createdAt: Date.now(),
   }];
+  if (oldKind === 'tavern') ensureTavernSessionMemory(sessions[0]);
   currentSessionId = sessionMatches(sessions[0]) ? sessions[0].id : null;
   saveSessions();
 }
@@ -5740,11 +5763,13 @@ function newSession(askName = true) {
   const messages = [];
   const greeting = getGreeting();
   if (greeting) {
-    messages.push({ role: 'assistant', content: greeting, ts: Date.now() }); // 开场白：正常走旁白/对白拆分
+    messages.push(createTavernGreetingMessage(greeting)); // 开场白：与 AI 回复共用协议解析
   } else if (defaults && defaults.ui && defaults.ui.noGreeting) {
     messages.push({ role: 'system', content: defaults.ui.noGreeting, ts: Date.now() });
   }
-  sessions.unshift({ id: uid(), name, charId: currentCharId, kind: mode, messages, createdAt: Date.now() });
+  const session = { id: uid(), name, charId: currentCharId, kind: mode, messages, createdAt: Date.now() };
+  if (mode === 'tavern') ensureTavernSessionMemory(session);
+  sessions.unshift(session);
   currentSessionId = sessions[0].id;
   saveSessions();
   renderSessions();
@@ -6361,7 +6386,8 @@ function charToV3(c) {
       },
     },
   };
-  if (c.characterBook) data.character_book = cloneCardJson(c.characterBook);
+  const characterBook = boundCharacterBookForExport(c);
+  if (characterBook) data.character_book = characterBook;
   if (Array.isArray(c.assets) && c.assets.length) data.assets = cloneCardJson(c.assets);
   return { spec: 'chara_card_v3', spec_version: '3.0', data };
 }
@@ -6731,6 +6757,165 @@ function deleteUserPreset() {
   fillUserForm();
 }
 
+/* ─────────── RP 自动滚动记忆 ───────────
+ * 原始消息始终保留在会话中；这里只记录摘要覆盖了哪些消息，并在发给 AI 时替换旧历史。
+ */
+function tavernAutoMemoryDefaults() {
+  const source = defaults?.prefs?.tavernAutoMemory;
+  return {
+    enabled: source?.enabled === true,
+    windowTurns: Number(source?.windowTurns) || 20,
+    summarizeTurns: Number(source?.summarizeTurns) || 15,
+    summaryChars: Number(source?.summaryChars) || 100,
+  };
+}
+
+function tavernAutoMemoryConfig() {
+  const base = tavernAutoMemoryDefaults();
+  const saved = prefs?.tavernAutoMemory && typeof prefs.tavernAutoMemory === 'object'
+    ? prefs.tavernAutoMemory : {};
+  const windowTurns = Math.max(2, Math.min(100, Number(saved.windowTurns) || base.windowTurns));
+  const summarizeTurns = Math.max(1, Math.min(windowTurns - 1, Number(saved.summarizeTurns) || base.summarizeTurns));
+  return {
+    enabled: saved.enabled === undefined ? base.enabled : saved.enabled === true,
+    windowTurns,
+    summarizeTurns,
+    summaryChars: Math.max(20, Math.min(500, Number(saved.summaryChars) || base.summaryChars)),
+  };
+}
+
+function ensureTavernSessionMemory(session) {
+  if (!session || session.kind !== 'tavern') return null;
+  if (!session.autoMemory || typeof session.autoMemory !== 'object' || Array.isArray(session.autoMemory)) {
+    session.autoMemory = { version: 1, summaries: [] };
+  }
+  if (!Array.isArray(session.autoMemory.summaries)) session.autoMemory.summaries = [];
+  session.autoMemory.version = 1;
+  return session.autoMemory;
+}
+
+function ensureTavernMessageIds(session) {
+  if (!session || session.kind !== 'tavern' || !Array.isArray(session.messages)) return false;
+  let changed = false;
+  for (const message of session.messages) {
+    if (!message || (message.role !== 'user' && message.role !== 'assistant')) continue;
+    if (!message.id) { message.id = uid(); changed = true; }
+  }
+  return changed;
+}
+
+function getTavernTurns(session) {
+  if (!session || session.kind !== 'tavern' || !Array.isArray(session.messages)) return [];
+  const turns = [];
+  let pendingUser = null;
+  for (const message of session.messages) {
+    if (!message || message.meta) continue;
+    if (message.role === 'user') {
+      pendingUser = message;
+      continue;
+    }
+    if (message.role !== 'assistant' || !pendingUser) continue;
+    turns.push({ messages: [pendingUser, message] });
+    pendingUser = null;
+  }
+  return turns;
+}
+
+function getTavernSummarizedIds(session) {
+  const memory = ensureTavernSessionMemory(session);
+  return new Set(memory.summaries.flatMap(summary => Array.isArray(summary.sourceMessageIds) ? summary.sourceMessageIds : []));
+}
+
+function getTavernUnsummarizedTurns(session) {
+  const summarizedIds = getTavernSummarizedIds(session);
+  return getTavernTurns(session).filter(turn => turn.messages.every(message => !summarizedIds.has(message.id)));
+}
+
+function tavernTurnHistory(session = curSession()) {
+  if (!session) return [];
+  return getTavernUnsummarizedTurns(session).flatMap(turn => turn.messages.map(message => ({
+    role: message.role,
+    content: message.content || '',
+  })));
+}
+
+function buildTavernAutoMemoryPromptPart(session = curSession()) {
+  if (mode !== 'tavern' || !tavernAutoMemoryConfig().enabled || !session) return '';
+  const summaries = ensureTavernSessionMemory(session).summaries.filter(summary => summary?.text?.trim());
+  if (!summaries.length) return '';
+  return '【本会话自动记忆】\n' + summaries.map((summary, index) => `- ${index + 1}. ${summary.text.trim()}`).join('\n');
+}
+
+function renderTavernAutoMemoryStatus() {
+  const status = $('mem-auto-status');
+  if (!status) return;
+  if (mode !== 'tavern') {
+    status.textContent = '自动记忆仅在酒馆模式生效。';
+    return;
+  }
+  const config = tavernAutoMemoryConfig();
+  const session = curSession();
+  if (!session) {
+    status.textContent = config.enabled ? '自动记忆：已开启，等待 RP 会话。' : '自动记忆：已关闭。';
+    return;
+  }
+  const memory = ensureTavernSessionMemory(session);
+  const pending = getTavernUnsummarizedTurns(session).length;
+  const lastError = tavernMemoryStatus.get(session.id);
+  status.textContent = config.enabled
+    ? `自动记忆：已开启 · 已生成 ${memory.summaries.length} 段摘要 · 待总结 ${pending}/${config.windowTurns} 轮${lastError ? ` · ${lastError}` : ''}`
+    : `自动记忆：已关闭 · 当前会话已有 ${memory.summaries.length} 段摘要（重新开启后继续使用）`;
+  status.classList.toggle('error', !!lastError);
+}
+
+function fillTavernAutoMemoryForm() {
+  const config = tavernAutoMemoryConfig();
+  if ($('mem-auto-enabled')) $('mem-auto-enabled').checked = config.enabled;
+  if ($('mem-auto-window')) $('mem-auto-window').value = config.windowTurns;
+  if ($('mem-auto-summarize')) $('mem-auto-summarize').value = config.summarizeTurns;
+  if ($('mem-auto-chars')) $('mem-auto-chars').value = config.summaryChars;
+  renderTavernAutoMemoryStatus();
+}
+
+function readTavernAutoMemoryForm() {
+  if (!$('mem-auto-enabled')) return;
+  const current = tavernAutoMemoryConfig();
+  const windowTurns = Math.max(2, Math.min(100, Number($('mem-auto-window').value) || current.windowTurns));
+  const summarizeTurns = Math.max(1, Math.min(windowTurns - 1, Number($('mem-auto-summarize').value) || current.summarizeTurns));
+  const summaryChars = Math.max(20, Math.min(500, Number($('mem-auto-chars').value) || current.summaryChars));
+  prefs.tavernAutoMemory = {
+    enabled: $('mem-auto-enabled').checked,
+    windowTurns,
+    summarizeTurns,
+    summaryChars,
+  };
+  saveJSON(LS_PREFS, prefs);
+  renderTavernAutoMemoryStatus();
+}
+
+function clearTavernAutoMemory() {
+  const session = curSession();
+  if (!session) return;
+  const memory = ensureTavernSessionMemory(session);
+  if (!memory.summaries.length) return;
+  if (!confirm('清空当前会话的自动摘要？原始聊天记录不会删除。')) return;
+  memory.summaries = [];
+  tavernMemoryStatus.delete(session.id);
+  saveSessions(session);
+  renderMessages();
+}
+
+function invalidateTavernAutoMemory(session, messageIds) {
+  const memory = ensureTavernSessionMemory(session);
+  if (!memory?.summaries?.length) return false;
+  const ids = new Set(Array.isArray(messageIds) ? messageIds : [messageIds]);
+  const affected = memory.summaries.some(summary => (summary.sourceMessageIds || []).some(id => ids.has(id)));
+  if (!affected) return false;
+  memory.summaries = [];
+  tavernMemoryStatus.set(session.id, '历史已修改，自动摘要已清除');
+  return true;
+}
+
 /* 记忆条目 */
 function renderMemList() {
   const list = $('mem-list');
@@ -6786,6 +6971,50 @@ function ensureEntryIds() {
 /* ─────────── 输出正则（预设 + 模式自定义） ─────────── */
 const OUTPUT_REGEX_FLAGS = 'dgimsuvy';
 
+/* SillyTavern placement 兼容层。内部统一成阶段名，导入/导出仍保留 ST 的数字字段。 */
+const REGEX_STAGE_ALIASES = Object.freeze({
+  '0': 'chat_display', MD_DISPLAY: 'chat_display', DISPLAY: 'chat_display',
+  '1': 'user_input', USER: 'user_input', USER_INPUT: 'user_input', INPUT: 'user_input',
+  '2': 'ai_response', AI: 'ai_response', AI_OUTPUT: 'ai_response', AI_RESPONSE: 'ai_response', RESPONSE: 'ai_response',
+  '3': 'slash_command', SLASH: 'slash_command', SLASH_COMMAND: 'slash_command',
+  '4': 'send_as', SEND_AS: 'send_as',
+  '5': 'world_info', WORLD: 'world_info', WORLD_INFO: 'world_info', WORLDINFO: 'world_info',
+  '6': 'reasoning', REASONING: 'reasoning', THINKING: 'reasoning', COT: 'reasoning',
+  CHAT_DISPLAY: 'chat_display', VISUAL: 'chat_display', MARKDOWN: 'chat_display',
+  PROMPT: 'prompt', PROMPT_HISTORY: 'prompt_history', HISTORY: 'prompt_history', CHAT_HISTORY: 'prompt_history',
+  SYSTEM: 'system_prompt', SYSTEM_PROMPT: 'system_prompt', POST_HISTORY: 'system_prompt',
+});
+
+const REGEX_STAGE_TO_ST_PLACEMENT = Object.freeze({
+  chat_display: 0,
+  user_input: 1,
+  ai_response: 2,
+  slash_command: 3,
+  send_as: 4,
+  world_info: 5,
+  reasoning: 6,
+});
+
+function canonicalRegexStage(value) {
+  if (value === null || value === undefined || value === '') return '';
+  const key = String(value).trim().toUpperCase().replace(/[\s-]+/g, '_');
+  return REGEX_STAGE_ALIASES[key] || (key === 'ALL' ? 'all' : key.toLowerCase());
+}
+
+function normalizeRegexStages(value, raw = {}) {
+  const values = Array.isArray(value) ? value : (value === undefined || value === null || value === '' ? [] : [value]);
+  const stages = values.map(canonicalRegexStage).filter(Boolean);
+  if (raw.onlyFormatDisplay === true || raw.onlyFormatVisual === true || raw.only_format_visual === true || raw.markdownOnly === true) stages.push('chat_display');
+  if (raw.onlyFormatPrompt === true || raw.only_format_prompt === true || raw.promptOnly === true) stages.push('prompt');
+  if (!stages.length) stages.push('ai_response');
+  return [...new Set(stages)];
+}
+
+function regexRulePresetScope(raw) {
+  const value = raw?.presetScope ?? raw?.presetName ?? raw?.boundPresetName ?? raw?.preset_scope;
+  return value === undefined || value === null || value === '' ? null : String(value);
+}
+
 function normalizeOutputRegexRule(source, index = 0, origin = 'custom') {
   const raw = source && typeof source === 'object' ? source : {};
   const trimStrings = Array.isArray(raw.trimStrings)
@@ -6794,21 +7023,35 @@ function normalizeOutputRegexRule(source, index = 0, origin = 'custom') {
       ? raw.trimStrings.split(/\r?\n/).filter(Boolean)
       : []);
   const placement = raw.placement ?? raw.affects ?? raw.affected ?? raw.placements;
+  const stages = normalizeRegexStages(raw.stages ?? raw.tavernStages ?? raw.targets ?? placement, raw);
+  const parseDepth = value => value === null || value === undefined || value === ''
+    ? null
+    : (Number.isFinite(Number(value)) ? Number(value) : null);
   return {
     id: String(raw.id || `${origin}-regex-${index + 1}`),
-    name: String(raw.name || raw.title || raw.id || `输出正则 ${index + 1}`),
+    // SillyTavern uses scriptName; keep accepting the app's older name field.
+    name: String(raw.name || raw.scriptName || raw.title || raw.id || `输出正则 ${index + 1}`),
     findRegex: String(raw.findRegex ?? raw.pattern ?? raw.find ?? ''),
     flags: String(raw.flags || ''),
     replaceString: String(raw.replaceString ?? raw.replacement ?? raw.replace ?? ''),
     trimStrings,
     enabled: raw.enabled !== false && raw.disabled !== true,
     placement: Array.isArray(placement) ? placement.slice(0, 8) : placement,
-    markdownOnly: raw.markdownOnly === true,
-    promptOnly: raw.promptOnly === true,
+    stages,
+    markdownOnly: raw.markdownOnly === true || raw.onlyFormatDisplay === true || raw.onlyFormatVisual === true || raw.only_format_visual === true,
+    promptOnly: raw.promptOnly === true || raw.onlyFormatPrompt === true || raw.only_format_prompt === true,
+    onlyFormatDisplay: raw.onlyFormatDisplay === true || raw.onlyFormatVisual === true || raw.only_format_visual === true || raw.markdownOnly === true,
+    onlyFormatPrompt: raw.onlyFormatPrompt === true || raw.only_format_prompt === true || raw.promptOnly === true,
     runOnEdit: raw.runOnEdit === true,
-    substituteRegex: raw.substituteRegex !== false,
-    minDepth: Number.isFinite(Number(raw.minDepth)) ? Number(raw.minDepth) : null,
-    maxDepth: Number.isFinite(Number(raw.maxDepth)) ? Number(raw.maxDepth) : null,
+    // ST stores this as 0/1/2. Preserve that value instead of coercing 0 to true.
+    substituteRegex: raw.substituteRegex === undefined || raw.substituteRegex === null
+      ? true
+      : (raw.substituteRegex === false ? false : (Number.isFinite(Number(raw.substituteRegex)) ? Number(raw.substituteRegex) : true)),
+    minDepth: parseDepth(raw.minDepth),
+    maxDepth: parseDepth(raw.maxDepth),
+    presetScope: regexRulePresetScope(raw),
+    boundCustomId: raw.boundCustomId ? String(raw.boundCustomId) : null,
+    boundCustomMode: ['tavern', 'rpg'].includes(raw.boundCustomMode) ? raw.boundCustomMode : null,
     source: origin,
   };
 }
@@ -6818,8 +7061,33 @@ function normalizeOutputRegexRules(source, origin = 'custom') {
   return list.map((rule, index) => normalizeOutputRegexRule(rule, index, origin));
 }
 
+function escapeRegexMacro(value) {
+  return String(value ?? '').replace(/[\\^$.*+?()[\]{}|/\-]/g, '\\$&').replace(/\r/g, '\\r').replace(/\n/g, '\\n').replace(/\t/g, '\\t');
+}
+
+function regexMacroValues() {
+  const char = currentChar();
+  const world = currentWorldCard();
+  const user = currentUserPreset();
+  return {
+    user: user?.name || '玩家',
+    char: mode === 'rpg' && worldModeActive() ? (world?.title || '世界') : (char?.name || '角色'),
+    persona: user?.persona || '',
+  };
+}
+
+function expandRegexMacros(content, escaped = false) {
+  const values = regexMacroValues();
+  return String(content ?? '').replace(/\{\{\s*(user|char|persona)\s*\}\}/gi, (full, key) => {
+    const value = values[String(key).toLowerCase()];
+    return value === undefined ? full : (escaped ? escapeRegexMacro(value) : value);
+  });
+}
+
 function buildOutputRegex(rule) {
-  const raw = String(rule?.findRegex || '').trim();
+  const substituteMode = rule?.substituteRegex === false ? 0 : Number(rule?.substituteRegex);
+  const substitute = Number.isFinite(substituteMode) ? substituteMode : 1;
+  const raw = String(substitute === 0 ? (rule?.findRegex || '') : expandRegexMacros(rule?.findRegex || '', substitute === 2)).trim();
   if (!raw || raw.length > 2000) return null;
   let pattern = raw;
   let flags = String(rule?.flags || '');
@@ -6828,7 +7096,7 @@ function buildOutputRegex(rule) {
     pattern = literal[1];
     flags = literal[2];
   }
-  flags = [...new Set((flags + 'g').split('').filter(flag => OUTPUT_REGEX_FLAGS.includes(flag)))].join('');
+  flags = [...new Set(flags.split('').filter(flag => OUTPUT_REGEX_FLAGS.includes(flag)))].join('');
   try { return new RegExp(pattern, flags); }
   catch { return null; }
 }
@@ -6846,39 +7114,75 @@ function characterCardOutputRegexes(char = currentChar()) {
     || cardDataExtensions.regex_scripts || cardDataExtensions.regexScripts || [];
 }
 
-function activeOutputRegexRules(targetMode = mode) {
+function currentRegexPresetScope(targetMode = mode) {
+  if (targetMode !== mode) return activePresetNameForMode(targetMode) || GLOBAL_PRESET_KEY;
+  return resolvePromptPreset()?.name || GLOBAL_PRESET_KEY;
+}
+
+function regexRuleAppliesToStage(rule, stage, { depth = null, editing = false, includePromptOnly = true } = {}) {
+  if (!rule || rule.enabled === false) return false;
+  if (editing && rule.runOnEdit !== true) return false;
+  if (depth !== null && depth !== undefined) {
+    if (rule.minDepth !== null && depth < rule.minDepth) return false;
+    if (rule.maxDepth !== null && depth > rule.maxDepth) return false;
+  }
+  const target = canonicalRegexStage(stage);
+  const stages = Array.isArray(rule.stages) && rule.stages.length ? rule.stages : ['ai_response'];
+  if (rule.onlyFormatDisplay && !['chat_display', 'chat_display_persisted'].includes(target) && rule.source !== 'character') return false;
+  if (rule.onlyFormatPrompt && !['prompt_history', 'system_prompt', 'world_info'].includes(target)) return false;
+  if (!includePromptOnly && rule.onlyFormatPrompt) return false;
+  if (target === 'chat_display') return stages.includes('chat_display') || stages.includes('ai_response') || rule.onlyFormatDisplay;
+  if (target === 'chat_display_persisted') return stages.includes('chat_display') || rule.onlyFormatDisplay;
+  // 角色卡的 legacy regex 常用 markdownOnly 生成整块 HTML；保留它在首轮响应时落盘，
+  // 否则状态栏会在历史消息中失去结构。普通 ST 预设仍遵循“仅显示”语义。
+  if (target === 'ai_response') return stages.includes('ai_response') && (!rule.onlyFormatDisplay || rule.source === 'character') && !rule.onlyFormatPrompt;
+  if (target === 'prompt_history') return stages.includes('prompt') || stages.includes('prompt_history') || rule.onlyFormatPrompt;
+  if (target === 'system_prompt') return stages.includes('prompt') || stages.includes('system_prompt') || rule.onlyFormatPrompt;
+  if (target === 'world_info') return stages.includes('world_info') || stages.includes('prompt') || rule.onlyFormatPrompt;
+  return stages.includes(target) || stages.includes('all');
+}
+
+function activeRegexRules(targetMode = mode) {
   const character = targetMode === 'tavern' && targetMode === mode ? currentChar() : null;
   const preset = targetMode === mode ? resolvePromptPreset()?.preset : null;
   const world = targetMode === 'rpg' && targetMode === mode && worldModeActive() ? currentWorldCard() : null;
+  const presetRules = normalizeOutputRegexRules(preset?.regexes, 'preset');
+  const boundCustomIds = new Set(presetRules.map(rule => rule.boundCustomId).filter(Boolean));
+  const activePreset = currentRegexPresetScope(targetMode);
   return [
     // SillyTavern 角色卡常用自身 regex_scripts 把状态标签转换为 HTML；RP 中先执行卡片规则，再执行预设/自定义规则。
     ...normalizeOutputRegexRules(characterCardOutputRegexes(character), 'character'),
     ...normalizeOutputRegexRules(world?.regexes, 'world'),
-    ...normalizeOutputRegexRules(preset?.regexes, 'preset'),
-    ...normalizeOutputRegexRules(modeOutputRegexes(targetMode), 'custom'),
-  ].filter(rule => {
-    const placements = Array.isArray(rule.placement) ? rule.placement : (rule.placement == null ? [] : [rule.placement]);
-    if (!placements.length || rule.promptOnly) return !rule.promptOnly;
-    return placements.some(value => {
-      const normalized = String(value).trim().toUpperCase().replace(/[\s-]+/g, '_');
-      return Number(value) === 2 || normalized === 'AI_RESPONSE' || normalized === 'RESPONSE'
-        || normalized === 'DISPLAY' || normalized === 'CHAT_DISPLAY';
-    });
-  });
+    ...presetRules,
+    // 绑定到预设的模式正则已在 presetRules 中执行，避免同一条规则重复替换。
+    ...normalizeOutputRegexRules(modeOutputRegexes(targetMode), 'custom').filter(rule => !boundCustomIds.has(rule.id)
+      && (!rule.presetScope || rule.presetScope === activePreset)),
+  ];
+}
+
+function activeOutputRegexRules(targetMode = mode, stage = 'ai_response', options = {}) {
+  return activeRegexRules(targetMode).filter(rule => regexRuleAppliesToStage(rule, stage, options));
+}
+
+function applyRegexStage(text, stage, { targetMode = mode, depth = null, editing = false, includePromptOnly = true } = {}) {
+  const rules = activeOutputRegexRules(targetMode, stage, { depth, editing, includePromptOnly });
+  return rules.length ? applyOutputRegexRules(text, rules) : String(text ?? '');
 }
 
 function applyOutputRegexRule(output, rule, regex) {
-  const replacement = String(rule.replaceString || '');
+  const replacement = expandRegexMacros(rule.replaceString || '');
   if (!replacement.includes('{{match}}') && !rule.trimStrings.length) return output.replace(regex, replacement);
   return output.replace(regex, (...args) => {
     const match = String(args[0] || '');
     const groups = typeof args.at(-1) === 'object' ? args.at(-1) : null;
     const captures = args.slice(1, groups ? -3 : -2);
     let trimmed = match;
-    for (const trim of rule.trimStrings) if (trim) trimmed = trimmed.split(trim).join('');
+    for (const trim of rule.trimStrings) if (trim) trimmed = trimmed.split(expandRegexMacros(trim)).join('');
     return replacement
       .replace(/\{\{match\}\}/g, trimmed)
-      .replace(/\$(\d+)/g, (_, index) => captures[Number(index) - 1] ?? '');
+      .replace(/\$(\d+)|\$<([^>]+)>/g, (_, index, name) => index
+        ? (captures[Number(index) - 1] ?? '')
+        : (groups?.[name] ?? ''));
   });
 }
 
@@ -6932,9 +7236,9 @@ function recoverStructuredTagOutput(text) {
 }
 
 /* 渲染旧消息时重新检查当前规则；避免消息首次生成时规则尚未载入而永久保留原始标签。 */
-function renderOutputContent(text, targetMode = mode) {
+function renderOutputContent(text, targetMode = mode, { fromRaw = true } = {}) {
   const source = String(text || '');
-  const rules = activeOutputRegexRules(targetMode);
+  const rules = activeOutputRegexRules(targetMode, fromRaw ? 'chat_display' : 'chat_display_persisted');
   const needsRegex = rules.some(rule => {
     const regex = buildOutputRegex(rule);
     if (!regex) return false;
@@ -6945,27 +7249,38 @@ function renderOutputContent(text, targetMode = mode) {
 }
 
 function applyCharacterCardOutputRegex(text) {
-  return recoverStructuredTagOutput(applyOutputRegexRules(text, activeOutputRegexRules('tavern').filter(rule => rule.source === 'character')));
+  return recoverStructuredTagOutput(applyOutputRegexRules(text, activeOutputRegexRules('tavern', 'ai_response').filter(rule => rule.source === 'character')));
 }
 
 function applyOutputRegex(text, targetMode = mode) {
-  return renderOutputContent(text, targetMode);
+  return recoverStructuredTagOutput(applyOutputRegexRules(text, activeOutputRegexRules(targetMode, 'ai_response')));
 }
 
 function serializeOutputRegexRule(rule) {
+  const substituteRegex = rule.substituteRegex === false
+    ? 0
+    : (Number.isFinite(Number(rule.substituteRegex)) ? Number(rule.substituteRegex) : 1);
+  const stages = Array.isArray(rule.stages) ? rule.stages : [];
+  const exportPlacement = [...new Set((stages.length ? stages : (Array.isArray(rule.placement) ? rule.placement : [2]))
+    .map(value => REGEX_STAGE_TO_ST_PLACEMENT[canonicalRegexStage(value)] ?? Number(value))
+    .filter(value => Number.isFinite(value) && value >= 0 && value <= 6))];
   return {
     id: rule.id,
-    name: rule.name,
+    // SillyTavern's regex editor requires scriptName; `name` is ignored there.
+    scriptName: rule.name,
     findRegex: rule.findRegex,
     ...(rule.flags ? { flags: rule.flags } : {}),
     replaceString: rule.replaceString,
-    trimStrings: rule.trimStrings,
+    trimStrings: Array.isArray(rule.trimStrings) ? rule.trimStrings : [],
     disabled: rule.enabled === false,
-    ...(rule.placement !== undefined ? { placement: rule.placement } : {}),
-    ...(rule.markdownOnly ? { markdownOnly: true } : {}),
-    ...(rule.promptOnly ? { promptOnly: true } : {}),
-    ...(rule.runOnEdit ? { runOnEdit: true } : {}),
-    ...(rule.substituteRegex === false ? { substituteRegex: false } : {}),
+    placement: exportPlacement.length ? exportPlacement : [2],
+    tavernStages: stages,
+    markdownOnly: rule.markdownOnly === true,
+    promptOnly: rule.promptOnly === true,
+    only_format_visual: rule.onlyFormatDisplay === true,
+    only_format_prompt: rule.onlyFormatPrompt === true,
+    runOnEdit: rule.runOnEdit === true,
+    substituteRegex,
     ...(rule.minDepth !== null ? { minDepth: rule.minDepth } : {}),
     ...(rule.maxDepth !== null ? { maxDepth: rule.maxDepth } : {}),
   };
@@ -6983,6 +7298,10 @@ function makePresetMarker(identifier, name, content = '') {
 
 function normalizePromptPreset(name, source) {
   const src = source && typeof source === 'object' ? source : {};
+  const sourceRegexes = src.regexes
+    ?? src.extensions?.regex_scripts
+    ?? src.extensions?.regexScripts
+    ?? src.regexScripts;
   if (src.version === PRESET_SCHEMA_VERSION && Array.isArray(src.prompts) && Array.isArray(src.promptOrder)) {
     const seen = new Set();
     const prompts = src.prompts.map((p, i) => {
@@ -7019,7 +7338,7 @@ function normalizePromptPreset(name, source) {
     const migratedPostHistory = explicitPostHistory.trim() || (jailbreakOrder?.enabled !== false ? String(jailbreak?.content || '') : '');
     // 旧版把后指令放在 jailbreak 固定条目；迁移到独立字段后清空旧条目，避免保存编辑器后重复注入。
     if (!explicitPostHistory.trim() && jailbreak?.content) jailbreak.content = '';
-    return { ...src, version: PRESET_SCHEMA_VERSION, mode: presetMode(name, src), firstMes: String(src.firstMes || ''), postHistory: migratedPostHistory, prompts, promptOrder, regexes: normalizeOutputRegexRules(src.regexes, 'preset') };
+    return { ...src, version: PRESET_SCHEMA_VERSION, mode: presetMode(name, src), firstMes: String(src.firstMes || ''), postHistory: migratedPostHistory, prompts, promptOrder, regexes: normalizeOutputRegexRules(sourceRegexes, 'preset') };
   }
 
   const prompts = PRESET_MARKERS.map(([id, label]) => makePresetMarker(
@@ -7035,7 +7354,7 @@ function normalizePromptPreset(name, source) {
     prompts.push({ identifier, name: String(module.name || identifier), role: 'system', content: String(module.content || ''), marker: false, position: 'relative', depth: 4, order: 100 });
     promptOrder.splice(formatIndex + i, 0, { identifier, enabled: module.enabled !== false });
   }
-  return { version: PRESET_SCHEMA_VERSION, mode: presetMode(name, src), firstMes: String(src.firstMes || ''), postHistory: String(src.postHistory || ''), prompts, promptOrder, regexes: normalizeOutputRegexRules(src.regexes, 'preset'), ...(src.agent && typeof src.agent === 'object' && !Array.isArray(src.agent) ? { agent: cloneValue(src.agent) } : {}) };
+  return { version: PRESET_SCHEMA_VERSION, mode: presetMode(name, src), firstMes: String(src.firstMes || ''), postHistory: String(src.postHistory || ''), prompts, promptOrder, regexes: normalizeOutputRegexRules(sourceRegexes, 'preset'), ...(src.agent && typeof src.agent === 'object' && !Array.isArray(src.agent) ? { agent: cloneValue(src.agent) } : {}) };
 }
 
 function ensurePromptPresetsV2() {
@@ -7114,8 +7433,9 @@ function renderPGList() {
     const el = document.createElement('div');
     const inUse = name === resolvePromptPreset().name;
     const badge = presetMode(name, promptPresets[name]) === 'both' ? '通用' : (presetMode(name, promptPresets[name]) === 'rpg' ? 'RPG' : '酒馆');
+    const regexCount = normalizeOutputRegexRules(promptPresets[name]?.regexes, 'preset').length;
     el.className = 'cm-item' + (name === pgEditingName ? ' active' : '') + (inUse ? ' pg-inuse' : '');
-    el.innerHTML = `<span>${esc(display)} <small>${badge}</small>${inUse ? ' ●' : ''}</span>${name === GLOBAL_PRESET_KEY ? '' : '<span class="cm-x" data-act="del" title="删除">✕</span>'}`;
+    el.innerHTML = `<span>${esc(display)} <small>${badge}${regexCount ? ` · 正则 ${regexCount}` : ''}</small>${inUse ? ' ●' : ''}</span>${name === GLOBAL_PRESET_KEY ? '' : '<span class="cm-x" data-act="del" title="删除">✕</span>'}`;
     el.addEventListener('click', (ev) => {
       if (ev.target.dataset && ev.target.dataset.act === 'del') { pgDelete(name); return; }
       setMobileManagerPanel('prompt-mgr', 'detail');
@@ -7129,7 +7449,10 @@ function renderPGList() {
 function fillPGActive() {
   const sel = $('pg-active');
   if (!sel) return;
-  const cur = sel.value;
+  // The effective preset can be forced by the current character/world card.
+  // Reading the old select value here made the editor display a stale choice.
+  const resolved = resolvePromptPreset();
+  const actualName = resolved.name || '';
   sel.innerHTML = '';
   const o0 = document.createElement('option');
   o0.value = '';
@@ -7143,11 +7466,15 @@ function fillPGActive() {
     o.textContent = name;
     sel.appendChild(o);
   }
-  if (cur && promptPresets[cur]) sel.value = cur;
-  else sel.value = activePresetNameForMode(mode);
-  const active = sel.value || '全局默认';
+  sel.value = actualName && [...sel.options].some(option => option.value === actualName) ? actualName : '';
+  const active = actualName || '全局默认';
+  const char = currentChar();
+  const world = currentWorldCard();
+  const boundByCharacter = !!actualName && mode === 'tavern' && char?.presetName === actualName;
+  const boundByWorld = !!actualName && mode === 'rpg' && world?.rpgPresetName === actualName;
+  const source = boundByCharacter ? '（由当前角色卡绑定）' : (boundByWorld ? '（由当前世界卡绑定）' : '');
   const note = $('pg-active-note');
-  if (note) note.textContent = `当前${mode === 'rpg' ? 'RPG' : '酒馆'}模式实际使用：${active}。左侧列表用于编辑预设内容。`;
+  if (note) note.textContent = `当前${mode === 'rpg' ? 'RPG' : '酒馆'}模式实际使用：${active}${source}。左侧列表用于编辑预设内容。`;
 }
 
 function selectPresetForEdit(name) {
@@ -7161,6 +7488,94 @@ function selectPresetForEdit(name) {
   $('pg-post-history').value = pgEditingPreset.postHistory || '';
   fillPGActive();
   renderPGPrompts();
+  renderPGRegexBindings();
+  renderPGList();
+}
+
+function presetRegexBindingModes() {
+  const selectedMode = $('pg-mode')?.value;
+  const targetMode = ['tavern', 'rpg', 'both'].includes(selectedMode) ? selectedMode : pgEditingPreset?.mode;
+  return targetMode === 'both' ? ['tavern', 'rpg'] : [targetMode === 'rpg' ? 'rpg' : 'tavern'];
+}
+
+function renderPGRegexBindings() {
+  const host = $('pg-regex-binding-list');
+  if (!host) return;
+  const customRules = [];
+  const seen = new Set();
+  for (const targetMode of presetRegexBindingModes()) {
+    for (const rule of normalizeOutputRegexRules(modeOutputRegexes(targetMode), 'custom')) {
+      if (seen.has(rule.id)) continue;
+      seen.add(rule.id);
+      customRules.push({ ...rule, bindingMode: targetMode });
+    }
+  }
+  const boundRules = normalizeOutputRegexRules(pgEditingPreset?.regexes, 'preset');
+  const boundIds = new Set(boundRules.map(rule => rule.boundCustomId).filter(Boolean));
+  host.innerHTML = '';
+  if (!customRules.length && !boundRules.length) {
+    host.innerHTML = '<div class="hint">当前模式还没有自定义正则。请先到「正则」栏目创建，或导入带正则的 ST 预设。</div>';
+    return;
+  }
+  if (customRules.length) {
+    for (const rule of customRules) {
+      const label = document.createElement('label');
+      label.className = 'pg-regex-binding';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = boundIds.has(rule.id);
+      checkbox.addEventListener('change', () => togglePGRegexBinding(rule.id, checkbox.checked, rule.bindingMode));
+      const text = document.createElement('span');
+      text.textContent = rule.name;
+      const source = document.createElement('small');
+      source.textContent = rule.bindingMode === 'rpg' ? 'RPG 自定义' : '酒馆自定义';
+      label.append(checkbox, text, source);
+      host.appendChild(label);
+    }
+  }
+  const unavailableBound = boundRules.filter(rule => rule.boundCustomId && !seen.has(rule.boundCustomId));
+  const embedded = boundRules.filter(rule => !rule.boundCustomId);
+  if (unavailableBound.length || embedded.length) {
+    const wrap = document.createElement('div');
+    wrap.className = 'pg-regex-bound';
+    for (const rule of unavailableBound) {
+      const label = document.createElement('label');
+      label.className = 'pg-regex-binding';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = true;
+      checkbox.addEventListener('change', () => togglePGRegexBinding(rule.boundCustomId, false, rule.boundCustomMode || mode));
+      const text = document.createElement('span');
+      text.textContent = `已绑定：${rule.name}`;
+      const source = document.createElement('small');
+      source.textContent = '来源未找到，可解除';
+      label.append(checkbox, text, source);
+      wrap.appendChild(label);
+    }
+    for (const rule of embedded) {
+      const tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.textContent = `已携带：${rule.name}`;
+      wrap.appendChild(tag);
+    }
+    host.appendChild(wrap);
+  }
+}
+
+function togglePGRegexBinding(id, enabled, bindingMode) {
+  if (!pgEditingPreset) return;
+  const current = normalizeOutputRegexRules(pgEditingPreset.regexes, 'preset');
+  const custom = normalizeOutputRegexRules(modeOutputRegexes(bindingMode), 'custom').find(rule => rule.id === id);
+  pgEditingPreset.regexes = current.filter(rule => rule.boundCustomId !== id);
+  if (enabled && custom) {
+    pgEditingPreset.regexes.push(normalizeOutputRegexRule({
+      ...custom,
+      id: `bound-${bindingMode}-${id}`,
+      boundCustomId: id,
+      boundCustomMode: bindingMode,
+    }, pgEditingPreset.regexes.length, 'preset'));
+  }
+  renderPGRegexBindings();
   renderPGList();
 }
 
@@ -7202,6 +7617,7 @@ function pgSave() {
   pgEditingPreset.postHistory = $('pg-post-history').value;
   promptPresets[name] = JSON.parse(JSON.stringify(pgEditingPreset));
   savePresets();
+  renderPGRegexBindings();
   renderPGList();
 }
 
@@ -7410,13 +7826,14 @@ function importSTPreset(data, filename) {
 async function exportPromptPreset() {
   if (!pgEditingPreset || pgEditingName === GLOBAL_PRESET_KEY) return;
   capturePGPromptEditor();
+  const regexes = normalizeOutputRegexRules(pgEditingPreset.regexes, 'preset');
   const prompts = pgEditingPreset.prompts.map(p => ({
     name: p.name, system_prompt: p.marker, role: p.role, content: p.identifier === 'jailbreak' ? (pgEditingPreset.postHistory || p.content) : p.content,
     identifier: p.identifier, marker: p.marker || undefined,
     injection_position: p.position === 'in_chat' ? 1 : 0,
     injection_depth: p.depth, injection_order: p.order,
   }));
-  const payload = { ...(pgEditingPreset.modelParameters || {}), prompts, prompt_order: [{ character_id: 100001, order: pgEditingPreset.promptOrder }], extensions: { regex_scripts: (pgEditingPreset.regexes || []).map(serializeOutputRegexRule) }, tavern_meta: { version: PRESET_SCHEMA_VERSION, mode: pgEditingPreset.mode, firstMes: pgEditingPreset.firstMes, postHistory: pgEditingPreset.postHistory || '' } };
+  const payload = { ...(pgEditingPreset.modelParameters || {}), prompts, prompt_order: [{ character_id: 100001, order: pgEditingPreset.promptOrder }], extensions: { regex_scripts: regexes.map(serializeOutputRegexRule) }, tavern_meta: { version: PRESET_SCHEMA_VERSION, mode: pgEditingPreset.mode, firstMes: pgEditingPreset.firstMes, postHistory: pgEditingPreset.postHistory || '' } };
   await downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }), pgEditingName.replace(/[\\/:*?"<>|]/g, '_') + '.json');
 }
 
@@ -7445,14 +7862,26 @@ function renderRegexEditor(rule = null, source = 'custom') {
   $('regex-find').value = rule?.findRegex || '';
   $('regex-replace').value = rule?.replaceString || '';
   $('regex-trim').value = (rule?.trimStrings || []).join(', ');
+  document.querySelectorAll('#regex-stages input[type="checkbox"]').forEach(input => {
+    input.checked = (rule?.stages || ['ai_response']).includes(input.value);
+    input.disabled = readOnly;
+  });
+  $('regex-display-only').checked = rule?.onlyFormatDisplay === true;
+  $('regex-prompt-only').checked = rule?.onlyFormatPrompt === true;
+  $('regex-substitute').value = rule?.substituteRegex === false ? '0' : String(Number.isFinite(Number(rule?.substituteRegex)) ? Number(rule.substituteRegex) : 1);
+  $('regex-min-depth').value = rule?.minDepth ?? '';
+  $('regex-max-depth').value = rule?.maxDepth ?? '';
+  $('regex-run-on-edit').checked = rule?.runOnEdit === true;
+  $('regex-preset-scope').checked = rule ? !!rule.presetScope : true;
   $('regex-enabled').checked = rule ? rule.enabled !== false : true;
-  ['regex-name', 'regex-find', 'regex-replace', 'regex-trim', 'regex-enabled'].forEach(id => { $(id).disabled = readOnly; });
+  ['regex-name', 'regex-find', 'regex-replace', 'regex-trim', 'regex-display-only', 'regex-prompt-only', 'regex-substitute', 'regex-min-depth', 'regex-max-depth', 'regex-run-on-edit', 'regex-preset-scope', 'regex-enabled']
+    .forEach(id => { $(id).disabled = readOnly; });
   $('regex-save').disabled = readOnly;
   $('regex-del').disabled = readOnly || !rule;
   $('regex-copy').classList.toggle('hidden', !readOnly);
   $('regex-note').textContent = readOnly
     ? `这是当前${source === 'world' ? '世界卡' : '预设'}携带的正则，只读；复制后可作为当前模式的自定义正则调整。`
-    : '自定义正则只作用于当前模式，并会在世界卡 / 预设正则之后执行。';
+    : `自定义正则只作用于当前${mode === 'rpg' ? 'RPG' : '酒馆'}模式；${rule?.presetScope ? `当前预设「${rule.presetScope === GLOBAL_PRESET_KEY ? '全局默认' : rule.presetScope}」` : '未勾选预设专属时为模式全局'}。执行顺序为角色卡/世界卡 → 预设 → 自定义。`;
 }
 
 function resetRegexEditor() {
@@ -7493,7 +7922,8 @@ function renderRegexList() {
     for (const rule of rules) {
       const item = document.createElement('div');
       item.className = 'cm-item' + (source === regexEditingSource && rule.id === regexEditingId ? ' active' : '') + (rule.enabled === false ? ' regex-off' : '');
-      item.innerHTML = `<span>${rule.enabled === false ? '🚫 ' : ''}${esc(rule.name)}</span><small>${source === 'preset' ? '预设' : source === 'world' ? '世界卡' : '当前模式'}</small>`;
+      const scopeLabel = source === 'custom' ? (rule.presetScope ? ` · ${rule.presetScope === GLOBAL_PRESET_KEY ? '全局默认' : '预设专属'}` : ' · 模式全局') : '';
+      item.innerHTML = `<span>${rule.enabled === false ? '🚫 ' : ''}${esc(rule.name)}</span><small>${source === 'preset' ? '预设' : source === 'world' ? '世界卡' : '当前模式'}${scopeLabel}</small>`;
       item.addEventListener('click', () => selectRegexForEdit(source, rule.id));
       list.appendChild(item);
     }
@@ -7507,12 +7937,24 @@ function saveRegexEditor() {
   if (['preset', 'world'].includes(regexEditingSource)) return;
   const name = $('regex-name').value.trim() || '未命名正则';
   const findRegex = $('regex-find').value.trim();
+  const selectedStages = [...document.querySelectorAll('#regex-stages input[type="checkbox"]:checked')].map(input => input.value);
+  const currentPreset = currentRegexPresetScope(mode);
+  const minDepth = $('regex-min-depth').value === '' ? null : Number($('regex-min-depth').value);
+  const maxDepth = $('regex-max-depth').value === '' ? null : Number($('regex-max-depth').value);
   const candidate = normalizeOutputRegexRule({
     id: regexEditingId || uid(),
     name,
     findRegex,
     replaceString: $('regex-replace').value,
     trimStrings: $('regex-trim').value.split(',').map(value => value.trim()).filter(Boolean),
+    stages: selectedStages.length ? selectedStages : ['ai_response'],
+    onlyFormatDisplay: $('regex-display-only').checked,
+    onlyFormatPrompt: $('regex-prompt-only').checked,
+    substituteRegex: Number($('regex-substitute').value) || 0,
+    minDepth: Number.isFinite(minDepth) ? Math.max(0, minDepth) : null,
+    maxDepth: Number.isFinite(maxDepth) ? Math.max(0, maxDepth) : null,
+    runOnEdit: $('regex-run-on-edit').checked,
+    presetScope: $('regex-preset-scope').checked ? currentPreset : null,
     enabled: $('regex-enabled').checked,
   }, 0, 'custom');
   if (!buildOutputRegex(candidate)) {
@@ -7528,18 +7970,20 @@ function saveRegexEditor() {
   regexEditingSource = 'custom';
   saveOutputRegexPrefs();
   renderRegexList();
+  renderPGRegexBindings();
   renderRegexEditor(candidate, 'custom');
 }
 
 function copyPresetRegexToCustom() {
   const rule = selectedOutputRegex();
   if (!rule || !['preset', 'world'].includes(regexEditingSource)) return;
-  const copy = normalizeOutputRegexRule({ ...rule, id: uid(), name: `${rule.name}（自定义）` }, 0, 'custom');
+  const copy = normalizeOutputRegexRule({ ...rule, id: uid(), name: `${rule.name}（自定义）`, presetScope: currentRegexPresetScope(mode) }, 0, 'custom');
   modeOutputRegexes().push(copy);
   saveOutputRegexPrefs();
   regexEditingId = copy.id;
   regexEditingSource = 'custom';
   renderRegexList();
+  renderPGRegexBindings();
   renderRegexEditor(copy, 'custom');
 }
 
@@ -7550,6 +7994,7 @@ function deleteRegexEditor() {
   if (index < 0 || !confirm(`删除正则「${rules[index].name || regexEditingId}」？`)) return;
   rules.splice(index, 1);
   saveOutputRegexPrefs();
+  renderPGRegexBindings();
   resetRegexEditor();
 }
 
@@ -8021,6 +8466,52 @@ function characterBookForChar(char) {
   return null;
 }
 
+/* 将角色绑定的独立世界书打包回 V3 character_book，避免导出后只剩绑定 id。 */
+function lorebookToCharacterBook(book) {
+  if (!book || typeof book !== 'object') return null;
+  const entries = [];
+  lorebookEntriesForPrompt(book).forEach((entry, index) => {
+    const normalized = normalizeCharacterBookEntries({ entries: [entry] })[0] || entry;
+    const serialized = serializeSTWorldInfoEntry(normalized, index);
+    entries.push({
+      keys: serialized.key,
+      secondary_keys: serialized.keysecondary,
+      comment: serialized.comment,
+      content: serialized.content,
+      constant: serialized.constant,
+      selective: serialized.selective,
+      selectiveLogic: serialized.selectiveLogic,
+      insertion_order: serialized.order,
+      enabled: !serialized.disable,
+      position: serialized.position,
+      depth: serialized.depth,
+      role: serialized.role,
+      ...(normalized.useRegex ? { use_regex: true } : {}),
+      ...(normalized.caseSensitive !== null ? { case_sensitive: normalized.caseSensitive } : {}),
+      ...(normalized.matchWholeWords !== null ? { match_whole_words: normalized.matchWholeWords } : {}),
+      extensions: serialized.extensions,
+    });
+  });
+  if (!entries.length) return null;
+  const settings = normalizeLorebookSettings(book);
+  return {
+    name: String(book.name || book.title || '角色卡世界书'),
+    entries,
+    ...(settings.scanDepth !== null ? { scan_depth: settings.scanDepth } : {}),
+    ...(settings.budget !== null ? { token_budget: settings.budget } : {}),
+    ...(settings.recursive !== null ? { recursive_scanning: settings.recursive } : {}),
+    ...(book.extensions && typeof book.extensions === 'object' ? { extensions: cloneCardJson(book.extensions) } : {}),
+  };
+}
+
+function boundCharacterBookForExport(char) {
+  if (!char || typeof char !== 'object') return null;
+  const inline = characterBookForChar(char);
+  if (inline) return cloneCardJson(inline);
+  const boundId = String(char.loreId || char.characterBookLoreId || '').trim();
+  return boundId && lorebooks?.[boundId] ? lorebookToCharacterBook(lorebooks[boundId]) : null;
+}
+
 function worldInfoKeyMatches(key, entry, text) {
   const source = String(key || '').trim();
   if (!source) return false;
@@ -8360,7 +8851,11 @@ function buildUserPromptPart() {
 
 function buildMemoryPromptPart() {
   const mems = (userData?.memories || []).filter(m => m.enabled !== false && m.content?.trim());
-  return mems.length ? '【记忆】\n' + mems.map(m => '- ' + m.content.trim()).join('\n') : '';
+  const parts = [];
+  if (mems.length) parts.push('【记忆】\n' + mems.map(m => '- ' + m.content.trim()).join('\n'));
+  const rolling = buildTavernAutoMemoryPromptPart();
+  if (rolling) parts.push(rolling);
+  return parts.join('\n\n');
 }
 
 function buildFormatPromptPart() {
@@ -8915,7 +9410,8 @@ function buildPromptBlocks() {
   const { preset: rawPreset } = resolvePromptPreset();
   const preset = normalizePromptPreset('', rawPreset);
   const wiResult = buildWorldInfo({ withOutlets: true });
-  const wi = wiResult.entries;
+  // 提示词正则只作用于本次请求副本；世界书/历史原文与会话存档保持不变。
+  const wi = wiResult.entries.map(entry => applyRegexStage(entry, 'world_info', { includePromptOnly: false }));
   const charParts = worldModeActive() ? { description: '', personality: '', scenario: '' } : buildCharacterPromptParts(promptChar);
   const userPart = worldModeActive() ? '' : buildUserPromptPart();
   const rpgSections = buildRpgPromptSections();
@@ -9002,8 +9498,15 @@ function buildPromptBlocks() {
   }
 
   const recentContext = worldModeActive() ? buildWorldRecentContext() : null;
+  const rollingHistory = mode === 'tavern' && tavernAutoMemoryConfig().enabled
+    ? tavernTurnHistory()
+    : null;
   let history = includeHistory
-    ? (recentContext ? recentContext.messages : curMessages().slice(-Math.max(1, settings.history || 20)).filter(m => m.role === 'user' || m.role === 'assistant').map(m => ({ role: m.role, content: m.content })))
+    ? (recentContext
+      ? recentContext.messages
+      : (rollingHistory || curMessages().slice(-Math.max(1, settings.history || 20))
+        .filter(m => m.role === 'user' || m.role === 'assistant')
+        .map(m => ({ role: m.role, content: m.content }))))
     : [];
   if (mode === 'rpg' && defaults?.rpg?.exampleTurn) {
     const ex = defaults.rpg.exampleTurn;
@@ -9017,7 +9520,19 @@ function buildPromptBlocks() {
     ? ''
     : buildTavernReplyOptionsPrompt(preset);
   if (optionPrompt) standalonePost.push(expandPresetMacros(optionPrompt, macroContext, variables));
-  return { system: systemParts.join('\n\n'), wi, history: [...beforeHistory, ...history, ...afterHistory], post: standalonePost.filter(Boolean).join('\n\n'), worldInfoInSystem: worldInfoInjected, recentContext, rpgSections };
+  const promptHistory = [...beforeHistory, ...history, ...afterHistory].map((message, index, list) => ({
+    ...message,
+    content: applyRegexStage(message.content, 'prompt_history', { depth: Math.max(0, list.length - index - 1) }),
+  }));
+  return {
+    system: applyRegexStage(systemParts.join('\n\n'), 'system_prompt'),
+    wi,
+    history: promptHistory,
+    post: applyRegexStage(standalonePost.filter(Boolean).join('\n\n'), 'system_prompt'),
+    worldInfoInSystem: worldInfoInjected,
+    recentContext,
+    rpgSections,
+  };
 }
 
 /* ─────────── API ─────────── */
@@ -9052,7 +9567,9 @@ function buildPayload({ test = false } = {}) {
   // 避免多条 system 穿插在 user/assistant 之间导致模型混淆 role 边界（DeepSeek/本地模型尤其敏感）
   const sysParts = [];
   if (system && system.trim()) sysParts.push(system);
-  if (!worldInfoInSystem && wi && wi.length) sysParts.push('【世界设定】\n' + wi.join('\n\n'));
+  if (!worldInfoInSystem && wi && wi.length) {
+    sysParts.push('【世界设定】\n' + wi.map(entry => applyRegexStage(entry, 'system_prompt')).join('\n\n'));
+  }
   if (post && post.trim()) sysParts.push('【后预设 / Post-History】\n' + post);
   body.messages = [];
   if (sysParts.length) body.messages.push({ role: 'system', content: sysParts.join('\n\n') });
@@ -9081,6 +9598,107 @@ async function callAPI(payload) {
     throw new Error(msg);
   }
   return data;
+}
+
+function summarizeTavernTurnText(turns) {
+  return turns.map((turn, index) => {
+    const parts = turn.messages.map(message => {
+      const role = message.role === 'user' ? '玩家' : '角色';
+      // ponytail: 每条消息最多取 900 字，避免一次总结请求被单条长文本撑爆；需要更高上限时再改为按 token 预算切分。
+      return `${role}：${String(message.content || '').replace(/<tavern_options>[\s\S]*?<\/tavern_options>/gi, '').trim().slice(0, 900)}`;
+    });
+    return `第${index + 1}轮\n${parts.join('\n')}`;
+  }).join('\n\n');
+}
+
+async function requestTavernMemorySummary(turns, config) {
+  if (!settings.baseUrl) throw new Error('未配置 API，自动记忆将在下一轮重试');
+  const payload = {
+    baseUrl: settings.baseUrl,
+    apiKey: settings.apiKey,
+    body: {
+      model: settings.model || 'default',
+      messages: [
+        {
+          role: 'system',
+          content: `你是 RP 对话记忆压缩器。将输入的完整对话压缩成约 ${config.summaryChars} 个中文字符的事实摘要。保留人物关系、关键事件、地点、承诺、未完成目标和重要状态；不要补写未发生的内容。只输出摘要正文，不要标题、解释、JSON、Markdown 代码块或 tavern_options 标签。`,
+        },
+        { role: 'user', content: summarizeTavernTurnText(turns) },
+      ],
+      temperature: Math.min(0.4, Number(settings.temperature) || 0.4),
+      max_tokens: Math.max(96, Math.min(256, Math.ceil(config.summaryChars * 2.5))),
+      top_p: settings.topP,
+      frequency_penalty: settings.frequencyPenalty,
+      presence_penalty: settings.presencePenalty,
+      stream: false,
+    },
+  };
+  const data = await callAPI(payload);
+  const content = data?.choices?.[0]?.message?.content;
+  if (!content || data?.choices?.[0]?.finish_reason === 'length') throw new Error('摘要输出被截断或为空');
+  const text = String(content)
+    .replace(/^```[\s\S]*?\n|```$/g, '')
+    .replace(/^摘要[:：]\s*/i, '')
+    .replace(/<tavern_options>[\s\S]*?<\/tavern_options>/gi, '')
+    .trim();
+  if (!text) throw new Error('摘要输出为空');
+  return Array.from(text).slice(0, config.summaryChars).join('');
+}
+
+async function maybeRollTavernMemory(session = curSession(), { force = false } = {}) {
+  if (mode !== 'tavern' || !session || session !== curSession()) return;
+  const config = tavernAutoMemoryConfig();
+  if ((!force && !config.enabled) || tavernMemoryPending.has(session.id)) {
+    renderTavernAutoMemoryStatus();
+    return;
+  }
+  const changed = ensureTavernMessageIds(session);
+  ensureTavernSessionMemory(session);
+  if (changed) saveSessions(session);
+  const turns = getTavernUnsummarizedTurns(session);
+  if (!turns.length) {
+    if (force) tavernMemoryStatus.set(session.id, '暂无可总结的完整对话');
+    renderTavernAutoMemoryStatus();
+    return;
+  }
+  if (!force && turns.length < config.windowTurns) {
+    renderTavernAutoMemoryStatus();
+    return;
+  }
+  const sourceTurns = turns.slice(0, Math.min(config.summarizeTurns, turns.length));
+  const sourceMessageIds = sourceTurns.flatMap(turn => turn.messages.map(message => message.id));
+  const requestSessionId = session.id;
+  tavernMemoryPending.add(requestSessionId);
+  tavernMemoryStatus.set(requestSessionId, '正在生成摘要…');
+  renderTavernAutoMemoryStatus();
+  try {
+    const text = await requestTavernMemorySummary(sourceTurns, config);
+    const target = sessions.find(item => item.id === requestSessionId && item.kind === 'tavern');
+    if (!target) return;
+    const memory = ensureTavernSessionMemory(target);
+    memory.summaries.push({ id: uid(), text, sourceMessageIds, createdAt: Date.now() });
+    tavernMemoryStatus.delete(requestSessionId);
+    saveSessions(target);
+  } catch (error) {
+    tavernMemoryStatus.set(requestSessionId, `总结失败，将重试：${error.message}`);
+    console.warn('[Tavern] 自动记忆总结失败:', error.message);
+  } finally {
+    tavernMemoryPending.delete(requestSessionId);
+    renderTavernAutoMemoryStatus();
+    if (curSession()?.id === requestSessionId) renderMessages();
+  }
+}
+
+async function manualRollTavernMemory() {
+  const button = $('mem-auto-run');
+  if (button?.disabled) return;
+  const label = button?.textContent || '立即总结';
+  if (button) { button.disabled = true; button.textContent = '总结中…'; }
+  try {
+    await maybeRollTavernMemory(curSession(), { force: true });
+  } finally {
+    if (button) { button.disabled = false; button.textContent = label; }
+  }
 }
 
 function mergeNativeToolCall(toolCalls, delta) {
@@ -9711,6 +10329,246 @@ function resetTypography() {
   saveJSON(LS_PREFS, prefs);
 }
 
+/* ─────────── 界面主题设置（设置 → 界面） ───────────
+ * 只覆盖现有 CSS token，不另起主题系统；高级变量使用 setProperty，避免把用户输入拼进 <style>。 */
+const UI_THEME_DEFAULTS = {
+  colors: {
+    bg0: '#1c1c1e', bg1: '#232326', panel: '#2c2c2e', panel2: '#3a3a3c', bgScene: '#1c1c1e',
+    accent: '#0a84ff', accent2: '#0a6dd4', danger: '#ff453a', danger2: '#c0342b', ok: '#30d158',
+    text: '#ffffff', muted: '#98989d', line: '#ffffff',
+  },
+  lineOpacity: 0.1, lineSoftOpacity: 0.06, radius: 10, sidebarWidth: 196, rpgPanelWidth: 210, scale: 1, customVars: {},
+};
+const UI_THEME_COLOR_FIELDS = ['bg0', 'bg1', 'panel', 'panel2', 'bgScene', 'accent', 'accent2', 'danger', 'danger2', 'ok', 'text', 'muted', 'line'];
+const UI_THEME_FIELD_IDS = Object.fromEntries(UI_THEME_COLOR_FIELDS.map(key => [key, `ui-${key.replace(/[A-Z0-9]/g, match => '-' + match.toLowerCase())}`]));
+let appliedHostUiThemeVars = new Set();
+
+function uiThemePresetCatalog() {
+  const source = defaults?.prefs?.uiThemePresets;
+  if (!source || typeof source !== 'object' || Array.isArray(source)) return {};
+  return Object.fromEntries(Object.entries(source).filter(([, preset]) => preset && typeof preset === 'object'
+    && preset.theme && typeof preset.theme === 'object' && !Array.isArray(preset.theme)));
+}
+
+function renderUiThemePresets() {
+  const select = $('ui-theme-preset');
+  if (!select) return;
+  const current = prefs?.uiThemePreset && uiThemePresetCatalog()[prefs.uiThemePreset] ? prefs.uiThemePreset : 'custom';
+  select.innerHTML = '<option value="custom">自定义（当前颜色）</option>';
+  for (const [id, preset] of Object.entries(uiThemePresetCatalog())) {
+    const option = document.createElement('option');
+    option.value = id;
+    option.textContent = String(preset.label || id);
+    select.appendChild(option);
+  }
+  select.value = current;
+  updateUiThemePresetDescription(current);
+}
+
+function updateUiThemePresetDescription(id = $('ui-theme-preset')?.value || 'custom') {
+  const desc = $('ui-theme-preset-desc');
+  if (!desc) return;
+  const preset = uiThemePresetCatalog()[id];
+  desc.textContent = preset ? String(preset.description || '可继续手动微调颜色与布局。') : '手动修改颜色后会变为自定义。';
+}
+
+function applyUiThemePreset(id) {
+  const preset = uiThemePresetCatalog()[id];
+  if (!preset) {
+    updateUiThemePresetDescription('custom');
+    return false;
+  }
+  const base = uiThemeDefaults();
+  const theme = preset.theme;
+  prefs.uiTheme = {
+    ...base,
+    ...theme,
+    colors: { ...base.colors, ...(theme.colors && typeof theme.colors === 'object' ? theme.colors : {}) },
+    customVars: validCustomThemeVars(theme.customVars) || {},
+  };
+  prefs.uiThemePreset = id;
+  fillUiThemeForm();
+  applyUiTheme(prefs.uiTheme);
+  saveJSON(LS_PREFS, prefs);
+  $('ui-theme-status').textContent = `已套用「${String(preset.label || id)}」。还可以继续手动微调。`;
+  $('ui-theme-status').className = 'hint ok';
+  return true;
+}
+
+function uiThemeDefaults() {
+  const source = defaults?.prefs?.uiTheme && typeof defaults.prefs.uiTheme === 'object' ? defaults.prefs.uiTheme : {};
+  return {
+    ...UI_THEME_DEFAULTS,
+    ...source,
+    colors: { ...UI_THEME_DEFAULTS.colors, ...(source.colors && typeof source.colors === 'object' ? source.colors : {}) },
+    customVars: source.customVars && typeof source.customVars === 'object' && !Array.isArray(source.customVars) ? source.customVars : {},
+  };
+}
+
+function uiThemeFromPrefs() {
+  const base = uiThemeDefaults();
+  const saved = prefs?.uiTheme && typeof prefs.uiTheme === 'object' ? prefs.uiTheme : {};
+  return {
+    ...base,
+    ...saved,
+    colors: { ...base.colors, ...(saved.colors && typeof saved.colors === 'object' ? saved.colors : {}) },
+    lineOpacity: clampNum(saved.lineOpacity, 0, 1, base.lineOpacity),
+    lineSoftOpacity: clampNum(saved.lineSoftOpacity, 0, 1, base.lineSoftOpacity),
+    radius: clampNum(saved.radius, 0, 24, base.radius),
+    sidebarWidth: clampNum(saved.sidebarWidth, 160, 320, base.sidebarWidth),
+    rpgPanelWidth: clampNum(saved.rpgPanelWidth, 160, 320, base.rpgPanelWidth),
+    scale: clampNum(saved.scale, 0.85, 1.2, base.scale),
+    customVars: saved.customVars && typeof saved.customVars === 'object' && !Array.isArray(saved.customVars) ? saved.customVars : {},
+  };
+}
+
+function hexToRgb(value) {
+  const raw = String(value || '').trim().replace(/^#/, '');
+  const hex = raw.length === 3 ? raw.split('').map(char => char + char).join('') : raw;
+  if (!/^[\da-f]{6}$/i.test(hex)) return null;
+  return [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)];
+}
+
+function safeThemeColor(value, fallback) {
+  const raw = String(value || '').trim().replace(/^#/, '');
+  if (!/^[\da-f]{3}(?:[\da-f]{3})?$/i.test(raw)) return fallback;
+  const hex = raw.length === 3 ? raw.split('').map(char => char + char).join('') : raw;
+  return `#${hex.toLowerCase()}`;
+}
+
+function validCustomThemeVars(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const entries = Object.entries(value);
+  if (entries.length > 64) return null;
+  const output = {};
+  for (const [name, raw] of entries) {
+    if (!/^--[A-Za-z0-9_-]{1,64}$/.test(name)) return null;
+    const text = String(raw ?? '').trim();
+    if (!text || text.length > 300) return null;
+    output[name] = text;
+  }
+  return output;
+}
+
+function applyUiTheme(uiTheme = uiThemeFromPrefs()) {
+  // 旧缓存 CSS 可能在 body 层提供变量；普通界面同时写入 body 让设置
+  // 立即生效。世界卡接管时只改根节点，避免覆盖卡片自己的 body 主题。
+  const rootStyle = document.documentElement?.style;
+  const bodyStyle = document.body?.style;
+  const worldOwnsUi = typeof worldModeActive === 'function' && worldModeActive();
+  for (const name of appliedHostUiThemeVars) {
+    rootStyle?.removeProperty(name);
+    if (!worldOwnsUi) bodyStyle?.removeProperty(name);
+  }
+  const styles = [rootStyle, worldOwnsUi ? null : bodyStyle].filter(Boolean);
+  if (!styles.length) return;
+  const set = (name, value) => styles.forEach(style => style.setProperty(name, value));
+  const colors = uiTheme.colors || {};
+  const get = (key) => safeThemeColor(colors[key], UI_THEME_DEFAULTS.colors[key]);
+  const customVars = validCustomThemeVars(uiTheme.customVars) || {};
+  const colorVars = {
+    '--bg-0': get('bg0'), '--bg-1': get('bg1'), '--panel': get('panel'), '--panel-2': get('panel2'), '--bg-scene': get('bgScene'),
+    '--accent': get('accent'), '--accent-2': get('accent2'), '--danger': get('danger'), '--danger-2': get('danger2'), '--ok': get('ok'),
+    '--text': get('text'), '--muted': get('muted'), '--on-accent': '#ffffff',
+  };
+  Object.entries(colorVars).forEach(([name, value]) => set(name, value));
+  const rgbNames = { bg0: '--bg-0-rgb', panel: '--panel-rgb', accent: '--accent-rgb', danger: '--danger-rgb', ok: '--ok-rgb' };
+  Object.entries(rgbNames).forEach(([key, name]) => {
+    if (Object.prototype.hasOwnProperty.call(customVars, name)) return;
+    const rgb = hexToRgb(get(key));
+    if (rgb) set(name, rgb.join(', '));
+  });
+  const lineRgb = hexToRgb(get('line')) || [255, 255, 255];
+  if (!Object.prototype.hasOwnProperty.call(customVars, '--line')) set('--line', `rgba(${lineRgb.join(', ')}, ${uiTheme.lineOpacity})`);
+  if (!Object.prototype.hasOwnProperty.call(customVars, '--line-soft')) set('--line-soft', `rgba(${lineRgb.join(', ')}, ${uiTheme.lineSoftOpacity})`);
+  set('--radius', `${uiTheme.radius}px`);
+  set('--sidebar-width', `${uiTheme.sidebarWidth}px`);
+  set('--rpg-panel-width', `${uiTheme.rpgPanelWidth}px`);
+  set('--ui-scale', String(uiTheme.scale));
+  for (const [name, value] of Object.entries(customVars)) set(name, value);
+  // 高级变量覆盖颜色时，若没有同时提供 rgb token，自动同步 rgba 使用的派生值。
+  for (const [colorName, rgbName] of Object.entries(rgbNames)) {
+    if (Object.prototype.hasOwnProperty.call(customVars, rgbName) || !Object.prototype.hasOwnProperty.call(customVars, `--${colorName === 'bg0' ? 'bg-0' : colorName}`)) continue;
+    const rgb = hexToRgb(customVars[`--${colorName === 'bg0' ? 'bg-0' : colorName}`]);
+    if (rgb) set(rgbName, rgb.join(', '));
+  }
+  appliedHostUiThemeVars = new Set([
+    ...Object.keys(colorVars), ...Object.values(rgbNames), '--line', '--line-soft',
+    '--radius', '--sidebar-width', '--rpg-panel-width', '--ui-scale', ...Object.keys(customVars),
+  ]);
+}
+
+function updateUiThemeLabels(uiTheme = uiThemeFromPrefs()) {
+  const set = (id, value) => { const el = $(id); if (el) el.textContent = value; };
+  set('ui-line-opacity-val', `${Math.round(uiTheme.lineOpacity * 100)}%`);
+  set('ui-line-soft-opacity-val', `${Math.round(uiTheme.lineSoftOpacity * 100)}%`);
+  set('ui-radius-val', `${uiTheme.radius}px`);
+  set('ui-sidebar-width-val', `${uiTheme.sidebarWidth}px`);
+  set('ui-rpg-panel-width-val', `${uiTheme.rpgPanelWidth}px`);
+  set('ui-scale-val', `${Math.round(uiTheme.scale * 100)}%`);
+}
+
+function fillUiThemeForm() {
+  const uiTheme = uiThemeFromPrefs();
+  renderUiThemePresets();
+  for (const key of UI_THEME_COLOR_FIELDS) if ($(UI_THEME_FIELD_IDS[key])) $(UI_THEME_FIELD_IDS[key]).value = safeThemeColor(uiTheme.colors[key], UI_THEME_DEFAULTS.colors[key]);
+  $('ui-line-opacity').value = uiTheme.lineOpacity;
+  $('ui-line-soft-opacity').value = uiTheme.lineSoftOpacity;
+  $('ui-radius').value = uiTheme.radius;
+  $('ui-sidebar-width').value = uiTheme.sidebarWidth;
+  $('ui-rpg-panel-width').value = uiTheme.rpgPanelWidth;
+  $('ui-scale').value = uiTheme.scale;
+  $('ui-custom-vars').value = JSON.stringify(uiTheme.customVars || {}, null, 2);
+  updateUiThemeLabels(uiTheme);
+}
+
+function readUiThemeForm({ parseCustom = true, save = false } = {}) {
+  const previous = uiThemeFromPrefs();
+  let customVars = previous.customVars;
+  if (parseCustom) {
+    try {
+      const parsed = JSON.parse($('ui-custom-vars').value || '{}');
+      customVars = validCustomThemeVars(parsed);
+      if (!customVars) throw new Error('变量名必须是 --name，最多 64 项，每项值不超过 300 字符。');
+    } catch (error) {
+      $('ui-theme-status').textContent = `高级变量未保存：${error.message}`;
+      $('ui-theme-status').className = 'hint err';
+      return false;
+    }
+  }
+  prefs.uiTheme = {
+    ...previous,
+    colors: Object.fromEntries(UI_THEME_COLOR_FIELDS.map(key => [key, safeThemeColor($(UI_THEME_FIELD_IDS[key]).value, previous.colors[key])])),
+    lineOpacity: clampNum($('ui-line-opacity').value, 0, 1, previous.lineOpacity),
+    lineSoftOpacity: clampNum($('ui-line-soft-opacity').value, 0, 1, previous.lineSoftOpacity),
+    radius: clampNum($('ui-radius').value, 0, 24, previous.radius),
+    sidebarWidth: clampNum($('ui-sidebar-width').value, 160, 320, previous.sidebarWidth),
+    rpgPanelWidth: clampNum($('ui-rpg-panel-width').value, 160, 320, previous.rpgPanelWidth),
+    scale: clampNum($('ui-scale').value, 0.85, 1.2, previous.scale),
+    customVars,
+  };
+  prefs.uiThemePreset = 'custom';
+  const preset = $('ui-theme-preset');
+  if (preset) preset.value = 'custom';
+  updateUiThemePresetDescription('custom');
+  applyUiTheme(prefs.uiTheme);
+  updateUiThemeLabels(prefs.uiTheme);
+  $('ui-theme-status').textContent = save ? '界面设置已保存。' : '预览中；松开滑块或离开输入框后自动保存。';
+  $('ui-theme-status').className = 'hint ok';
+  if (save) saveJSON(LS_PREFS, prefs);
+  return true;
+}
+
+function resetUiTheme() {
+  prefs.uiTheme = { ...uiThemeDefaults(), colors: { ...uiThemeDefaults().colors }, customVars: {} };
+  prefs.uiThemePreset = uiThemePresetCatalog()['macos-dark'] ? 'macos-dark' : 'custom';
+  fillUiThemeForm();
+  applyUiTheme(prefs.uiTheme);
+  saveJSON(LS_PREFS, prefs);
+  $('ui-theme-status').textContent = '已恢复界面默认值。';
+  $('ui-theme-status').className = 'hint ok';
+}
+
 function fillSettingsForm() {
   const s = settings;
   $('s-preset').value = s.preset || '';
@@ -9759,6 +10617,7 @@ function fillSettingsForm() {
   $('ig-ref-strength').value = ig.refStrength || 0.5;
   $('ig-prompt-instr').value = ig.promptInstruction || '';
   fillTypographyForm();
+  fillUiThemeForm();
 }
 
 function readSettingsForm() {
@@ -10351,9 +11210,18 @@ function editMessage(m) {
 }
 function saveEdit(m) {
   const ta = $('edit-msg');
-  if (ta) { m.content = ta.value; delete m.rawContent; }
+  if (ta) {
+    const stage = m.role === 'user' ? 'user_input' : (m.role === 'assistant' ? 'ai_response' : 'system_prompt');
+    m.content = applyRegexStage(ta.value, stage, { editing: true });
+    delete m.rawContent;
+  }
   delete m._editing;
-  if (worldModeActive()) queueWorldSave(currentWorldSave); else saveSessions();
+  if (worldModeActive()) queueWorldSave(currentWorldSave);
+  else {
+    const session = curSession();
+    invalidateTavernAutoMemory(session, m.id);
+    saveSessions(session);
+  }
   renderMessages();
 }
 function cancelEdit(m) {
@@ -10376,8 +11244,9 @@ function deleteMessage(m) {
   const i = s.messages.indexOf(m);
   if (i < 0) return;
   if (!confirm('删除这条消息？')) return;
+  invalidateTavernAutoMemory(s, m.id);
   s.messages.splice(i, 1);
-  saveSessions();
+  saveSessions(s);
   renderMessages();
 }
 function copyMessage(m) {
@@ -10402,8 +11271,9 @@ async function regenAssistant(m) {
   if (!s || sending) return;
   const i = s.messages.indexOf(m);
   if (i < 0 || s.messages[i].role !== 'assistant') return;
+  invalidateTavernAutoMemory(s, s.messages.slice(i).map(message => message.id));
   s.messages = s.messages.slice(0, i);
-  saveSessions();
+  saveSessions(s);
   renderMessages();
   await requestReply();
 }
@@ -10417,6 +11287,7 @@ function renderMessages() {
   const chat = $('chat');
   initTavernCardFrameBridge();
   renderDebugTerminal();
+  renderTavernAutoMemoryStatus();
   if (mode !== 'rpg') clearWorldExtension();
   applyWorldUiSlots();
   chat.innerHTML = '';
@@ -10471,14 +11342,14 @@ function renderMessages() {
           if (sb) sb.addEventListener('click', () => saveEdit(m));
           if (cb) cb.addEventListener('click', () => cancelEdit(m));
         } else {
-          const { html, md } = renderBubble(renderOutputContent(m.content, 'rpg'));
+          const { html, md } = renderBubble(renderOutputContent(m.rawContent ?? m.content, 'rpg', { fromRaw: typeof m.rawContent === 'string' }));
           el.innerHTML = `<div class="rpg-prose${md ? ' md' : ''}" data-tavern-rendered>${html}</div>`;
           attachMsgActions(el, m, m._opening ? { copy: true } : { regen: true, edit: true, copy: true, del: true });
         }
         chat.appendChild(el);
         continue;
       }
-      const tavernContent = renderOutputContent(m.content, 'tavern');
+      const tavernContent = renderOutputContent(m.rawContent ?? m.content, 'tavern', { fromRaw: typeof m.rawContent === 'string' });
       const bubbleDialogue = !!prefs.tavernDialogueBubbles;
       const segs = bubbleDialogue ? splitNarration(tavernContent) : [{ type: 'narration', text: tavernContent }];
       segs.forEach((seg, si) => {
@@ -10495,7 +11366,7 @@ function renderMessages() {
             el.innerHTML = `<div class="nar-icon">✦</div><div class="bubble${md ? ' md' : ''}" data-tavern-rendered>${html}</div>`;
           } else {
             el.className = 'msg assistant';
-            el.innerHTML = `<div class="avatar">${PAW_SVG}</div><div class="bubble tavern-dialogue${md ? ' md' : ''}" data-tavern-rendered>${html}</div>`;
+            el.innerHTML = `<div class="bubble tavern-dialogue${md ? ' md' : ''}" data-tavern-rendered>${html}</div>`;
           }
         }
         // 操作按钮只挂在第一段（整条消息共享操作）
@@ -10524,10 +11395,8 @@ function renderMessages() {
       if (sb) sb.addEventListener('click', () => saveEdit(m));
       if (cb) cb.addEventListener('click', () => cancelEdit(m));
     } else {
-      const avatar = (m.meta || m.role === 'system') ? '<span>❖</span>'
-        : (m.role === 'user' ? '<span>🧑</span>' : PAW_SVG);
       const { html, md } = renderBubble(m.content);
-      el.innerHTML = `<div class="avatar">${avatar}</div><div class="bubble${md ? ' md' : ''}" data-tavern-rendered>${html}</div>`;
+      el.innerHTML = `<div class="bubble${md ? ' md' : ''}" data-tavern-rendered>${html}</div>`;
       attachMsgActions(el, m,
         m.role === 'user' ? { edit: true, copy: true, del: true }
         : m.role === 'system' ? { copy: true, del: true }
@@ -10556,10 +11425,10 @@ function pushMessage(role, content, extra) {
   }
   const s = curSession();
   if (!s) return;
-  const msg = { role, content, ts: Date.now() };
+  const msg = { id: uid(), role, content, ts: Date.now() };
   if (extra) Object.assign(msg, extra);
   s.messages.push(msg);
-  saveSessions();
+  saveSessions(s);
   renderMessages();
   renderSessions();
 }
@@ -10571,7 +11440,7 @@ function addTyping() {
   el.id = 'typing-msg';
   el.innerHTML = mode === 'rpg'
     ? '<div class="rpg-prose" data-tavern-rendered>世界正在回应…</div>'
-    : `<div class="avatar">${PAW_SVG}</div><div class="bubble" data-tavern-rendered>正在思索…</div>`;
+    : '<div class="bubble" data-tavern-rendered>正在思索…</div>';
   chat.appendChild(el);
   chat.scrollTop = chat.scrollHeight;
 }
@@ -11018,6 +11887,7 @@ async function requestReply() {
         : '模型未返回内容（请检查模型名与 API 是否匹配；请求详情见浏览器控制台）';
       throw new Error(msg);
     }
+    cot = applyRegexStage(cot, 'reasoning');
     setDebugTrace(targetScope, {
       status: '已完成',
       output: cot ? `${reply}\n\n[reasoning_content]\n${cot}` : String(reply),
@@ -11134,6 +12004,7 @@ async function requestReply() {
       await submitWorldTurn(worldTurnPending);
     } else {
       pushMessage('assistant', clean, extra);
+      void maybeRollTavernMemory(curSession());
     }
     // 文生图（测试）：回复完成后自动生图（异步，不阻塞对话）
     const ig = settings.imageGen;
@@ -11167,7 +12038,7 @@ async function submitWorldActionText(text, { throwOnError = false } = {}) {
     if (throwOnError) throw new Error(message);
     return false;
   }
-  const value = String(text || '').trim();
+  const value = applyRegexStage(String(text || '').trim(), 'user_input');
   if (!value) {
     if (throwOnError) throw new Error('行动不能为空');
     return false;
@@ -11220,13 +12091,15 @@ async function sendMessage() {
   if (sending || worldTurnPreparing || worldTurnPending || (worldModeActive() && (worldSavePlanning() || currentWorldSave?.state?.ending?.status === 'ended' || currentWorldSave?.state?.failure?.status === 'terminal'))) return;
   if (mode === 'rpg' && !worldModeActive()) { openWorldLibrary(); return; }
   const input = $('input');
-  const text = input.value.trim();
-  if (!text) return;
+  const rawText = input.value.trim();
+  if (!rawText) return;
   input.value = '';
   if (worldModeActive()) {
-    await submitWorldActionText(text);
+    await submitWorldActionText(rawText);
     return;
   }
+  const text = applyRegexStage(rawText, 'user_input');
+  if (!text) return;
   pushMessage('user', text);
   // 掷骰：玩家输入含 d20+5 / 2d6-1 → 自动掷骰并显示结果（不进 AI 上下文）
   const rolls = rollDiceIn(text);
@@ -11425,6 +12298,7 @@ function switchView(name) {
     $('memory-mgr').classList.remove('hidden');
     ensureUserData();
     fillUserForm();
+    fillTavernAutoMemoryForm();
     renderMemList();
     setMobileManagerPanel('memory-mgr', 'list', { focus: false });
     return;
@@ -11442,6 +12316,7 @@ function applyTheme() {
   theme = FIXED_THEME;
   document.body.dataset.theme = theme;
   localStorage.setItem(LS_THEME, theme);
+  applyUiTheme();
   initBackground();
 }
 
@@ -11964,12 +12839,7 @@ function renderQuickActions() {
     resume.className = 'btn gold small';
     resume.textContent = '继续提交';
     resume.addEventListener('click', resumeWorldAgentNarration);
-    const discard = document.createElement('button');
-    discard.type = 'button';
-    discard.className = 'ghost-btn small';
-    discard.textContent = '放弃本回合';
-    discard.addEventListener('click', discardWorldTurnPending);
-    actions.append(resume, discard);
+    actions.append(resume);
     box.append(text, actions);
     qa.appendChild(box);
     return;
@@ -11991,12 +12861,7 @@ function renderQuickActions() {
     retry.className = 'btn gold small';
     retry.textContent = '重试 AI';
     retry.addEventListener('click', retryWorldTurn);
-    const discard = document.createElement('button');
-    discard.type = 'button';
-    discard.className = 'ghost-btn small';
-    discard.textContent = '放弃本回合';
-    discard.addEventListener('click', discardWorldTurnPending);
-    actions.append(retry, discard);
+    actions.append(retry);
     box.appendChild(actions);
     qa.appendChild(box);
     return;
@@ -12184,6 +13049,11 @@ function bindEvents() {
   $('um-del').addEventListener('click', deleteUserPreset);
   $('mem-add').addEventListener('click', addMemory);
   $('mem-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') addMemory(); });
+  $('mem-auto-enabled')?.addEventListener('change', readTavernAutoMemoryForm);
+  ['mem-auto-window', 'mem-auto-summarize', 'mem-auto-chars'].forEach(id =>
+    $(id)?.addEventListener('change', readTavernAutoMemoryForm));
+  $('mem-auto-run')?.addEventListener('click', manualRollTavernMemory);
+  $('mem-auto-clear')?.addEventListener('click', clearTavernAutoMemory);
   // AI 生成
   $('btn-ai-char').addEventListener('click', aiGenChar);
   $('btn-ai-char-full').addEventListener('click', aiGenFullChar);
@@ -12229,6 +13099,7 @@ function bindEvents() {
   $('pg-new').addEventListener('click', pgNew);
   $('pg-del').addEventListener('click', () => { if (pgEditingName) pgDelete(pgEditingName); });
   $('pg-save').addEventListener('click', pgSave);
+  $('pg-mode').addEventListener('change', () => renderPGRegexBindings());
   $('pg-prompt-new').addEventListener('click', pgPromptNew);
   $('pg-prompt-del').addEventListener('click', pgPromptDelete);
   $('pg-library').addEventListener('change', () => { insertPGLibraryPrompt($('pg-library').value); $('pg-library').value = ''; });
@@ -12251,6 +13122,8 @@ function bindEvents() {
   $('pg-active').addEventListener('change', () => {
     setActivePresetName($('pg-active').value || '');
     renderPGList();
+    renderRegexList();
+    resetRegexEditor();
   });
   // 输出正则
   $('regex-new').addEventListener('click', resetRegexEditor);
@@ -12567,11 +13440,22 @@ function bindEvents() {
   $('settings-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeSettings(); });
   // 热保存：排版控件拖动即时预览（防抖写盘）；任意设置 change 即读取并保存，不再依赖「保存」按钮
   let typoSaveTimer = null;
+  let uiThemeSaveTimer = null;
   $('settings-modal').addEventListener('input', e => {
-    if (!e.target.closest || !e.target.closest('#st-panel-typo')) return;
-    readTypographyForm();
-    clearTimeout(typoSaveTimer);
-    typoSaveTimer = setTimeout(() => saveJSON(LS_PREFS, prefs), 400);
+    if (!e.target.closest) return;
+    if (e.target.closest('#st-panel-typo')) {
+      readTypographyForm();
+      clearTimeout(typoSaveTimer);
+      typoSaveTimer = setTimeout(() => saveJSON(LS_PREFS, prefs), 400);
+      return;
+    }
+    if (e.target.closest('#st-panel-ui')) {
+      // 预设下拉框由专用 change 处理器套用；通用热保存会把它提前改回 custom。
+      if (e.target.id === 'ui-theme-preset') return;
+      readUiThemeForm({ parseCustom: false });
+      clearTimeout(uiThemeSaveTimer);
+      uiThemeSaveTimer = setTimeout(() => saveJSON(LS_PREFS, prefs), 400);
+    }
   });
   $('settings-modal').addEventListener('change', e => {
     if (e.target.closest && e.target.closest('#st-panel-typo')) {
@@ -12579,10 +13463,41 @@ function bindEvents() {
       saveJSON(LS_PREFS, prefs);
       return;
     }
+    if (e.target.closest && e.target.closest('#st-panel-ui')) {
+      if (e.target.id === 'ui-theme-preset') return;
+      clearTimeout(uiThemeSaveTimer);
+      readUiThemeForm({ parseCustom: true, save: true });
+      renderMessages();
+      return;
+    }
     readSettingsForm();
     renderMessages();
   });
   $('btn-typo-reset').addEventListener('click', resetTypography);
+  $('btn-ui-theme-reset').addEventListener('click', resetUiTheme);
+  $('ui-theme-preset').addEventListener('change', e => {
+    const id = e.target.value;
+    updateUiThemePresetDescription(id);
+    // 选择即套用，避免用户只看到下拉值变化却误以为预设失效；按钮仍保留作重复套用入口。
+    if (id !== 'custom') applyUiThemePreset(id);
+    else {
+      prefs.uiThemePreset = 'custom';
+      saveJSON(LS_PREFS, prefs);
+      $('ui-theme-status').textContent = '已切换到自定义；当前颜色保持不变。';
+      $('ui-theme-status').className = 'hint ok';
+    }
+  });
+  $('btn-ui-theme-preset-apply').addEventListener('click', () => {
+    const id = $('ui-theme-preset').value;
+    if (id === 'custom') {
+      prefs.uiThemePreset = 'custom';
+      saveJSON(LS_PREFS, prefs);
+      $('ui-theme-status').textContent = '已切换到自定义；当前颜色保持不变。';
+      $('ui-theme-status').className = 'hint ok';
+      return;
+    }
+    applyUiThemePreset(id);
+  });
   $('g-gen-save').addEventListener('click', () => { if (readGenerationForm()) renderMessages(); });
   $('g-gen-reset').addEventListener('click', resetGenerationForm);
   $('btn-save-settings').addEventListener('click', () => { if (readSettingsForm() === false) return; closeSettings(); renderMessages(); });
@@ -12618,7 +13533,7 @@ function bindEvents() {
     // 清空后重新加载开场白（getGreeting：char → preset → settings）
     const greeting = getGreeting();
     s.messages = greeting
-      ? [{ role: 'assistant', content: greeting, ts: Date.now() }] // 开场白：正常拆分旁白/对白
+      ? [createTavernGreetingMessage(greeting)] // 开场白：与 AI 回复共用协议解析
       : (defaults && defaults.ui && defaults.ui.noGreeting
         ? [{ role: 'system', content: defaults.ui.noGreeting, ts: Date.now() }]
         : []);

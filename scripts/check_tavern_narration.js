@@ -103,6 +103,10 @@ assert.match(stylesSource, /\.msg \.bubble\[data-tavern-rendered\][\s\S]*?max-wi
 assert.match(stylesSource, /\.msg:has\(\.tavern-card-script-shell\)[\s\S]*?width:\s*100%/, 'role-card messages should use the full desktop chat width');
 assert.match(stylesSource, /\.msg:has\(\.tavern-card-script-shell\) \.bubble[\s\S]*?flex:\s*1 1 auto/, 'role-card bubbles should not shrink-to-fit their contents');
 assert.match(stylesSource, /@media \(max-width: 640px\)[\s\S]*?\.msg \.bubble\[data-tavern-rendered\][\s\S]*?min-width:\s*0/, 'mobile rendered card bubbles need a zero minimum width');
+assert.doesNotMatch(source, /class=\\?"avatar\\?"/, 'chat messages should not render host avatars');
+assert.doesNotMatch(stylesSource, /\.msg \.avatar\s*\{/, 'host avatar styling should not remain active');
+assert.doesNotMatch(source, /放弃本回合/, 'pending turn UI should not expose the surrender action');
+assert.match(stylesSource, /\.msg-actions\s*\{[\s\S]*?position:\s*static;[\s\S]*?flex:\s*0 0 100%;[\s\S]*?justify-content:\s*flex-end/, 'message actions should occupy their own row instead of overlapping message text');
 const cardFrameSource = source.slice(source.indexOf('function tavernCardScriptFrame'), source.indexOf('let tavernCardFrameBridgeReady'));
 assert.match(cardFrameSource, /data-tavern-card-mode="full"/, 'role-card scripts must opt into the full ST-compatible iframe mode');
 assert.doesNotMatch(cardFrameSource, /sandbox=/, 'role-card full mode must not add a sandbox attribute');

@@ -7,10 +7,43 @@
   <link rel="manifest" href="manifest.json" />
   <title>Tavern · AI RP 框架演示</title>
   <link rel="icon" type="image/png" href="favicon.png" />
-  <link rel="stylesheet" href="styles.css?v=20260819a" />
+  <link rel="stylesheet" href="styles.css?v=20260820g" />
 </head>
 <body data-theme="vibrancy" data-layout="classic">
   <canvas id="bg-fx" aria-hidden="true"></canvas>
+
+  <!-- 旧 Android WebView 可能无法解析 app.js；这里故意使用 ES5 语法，保证提示仍能显示。 -->
+  <aside id="webview-compat-warning" class="webview-compat-warning" hidden role="alertdialog" aria-modal="true" aria-labelledby="webview-compat-title" aria-describedby="webview-compat-message">
+    <div class="webview-compat-card">
+      <div class="webview-compat-kicker">TAVERN / COMPATIBILITY</div>
+      <h1 id="webview-compat-title">Android WebView 版本过低</h1>
+      <p id="webview-compat-message">当前 Android WebView 版本过低，可能导致按钮无法点击或界面异常，请更新 Android System WebView / Chrome 后重试。</p>
+      <p id="webview-compat-version" class="webview-compat-version"></p>
+      <button id="webview-compat-close" class="btn gold" type="button">知道了</button>
+    </div>
+  </aside>
+  <script>
+    // 只使用旧版 WebView 可解析的 ES5 语法；主 app.js 解析失败时也必须能提示用户。
+    (function () {
+      var ua = navigator.userAgent || '';
+      var isAndroid = /Android/i.test(ua);
+      var isWebView = isAndroid && (/\bwv\b/i.test(ua) || /;\s*wv\)/i.test(ua) || (/Version\/4\.0/i.test(ua) && /Chrome\//i.test(ua)));
+      var match = ua.match(/(?:Chrome|Chromium)\/(\d+)/i);
+      var major = match ? parseInt(match[1], 10) : 0;
+      var minimum = 92;
+      if (!isWebView || !major || major >= minimum) return;
+      var warning = document.getElementById('webview-compat-warning');
+      var version = document.getElementById('webview-compat-version');
+      var close = document.getElementById('webview-compat-close');
+      if (!warning) return;
+      if (version) version.textContent = '检测到：Android WebView / Chromium ' + major + '；建议更新至 92 或更高版本。';
+      warning.hidden = false;
+      if (close) {
+        close.addEventListener('click', function () { warning.hidden = true; });
+        close.focus();
+      }
+    }());
+  </script>
 
   <div id="app">
 
@@ -285,6 +318,11 @@
         <textarea id="pg-post-history" rows="5" placeholder="写入需要在本次预设之后追加的指令…"></textarea>
           <p class="hint">RP 基础示例已把 AI 回复选项协议写入这里；其他预设若未提供同类协议会自动追加。旧角色卡的历史后指令会兼容迁移到此处，内容仍会与唯一 System 消息合并发送。</p>
       </section>
+      <section id="pg-regex-bindings" class="pg-regex-bindings" aria-labelledby="pg-regex-bindings-title">
+        <div class="pg-section-head"><strong id="pg-regex-bindings-title">绑定输出正则</strong><span class="hint-inline">随本预设保存 / 导出</span></div>
+        <p class="hint">勾选当前模式的自定义正则后，它会复制到本预设；运行时只执行一次。导入 ST 预设自带的正则会显示在下方并保留。</p>
+        <div id="pg-regex-binding-list" class="pg-regex-binding-list"></div>
+      </section>
       <div class="pg-manager">
         <section class="pg-sequence" aria-labelledby="pg-sequence-title">
           <div class="pg-section-head"><strong id="pg-sequence-title">提示词顺序</strong><div class="pg-sequence-actions"><select id="pg-library" aria-label="从素材库插入提示词"><option value="">插入素材…</option></select><button class="ghost-btn small" id="pg-prompt-new" type="button">＋ 新条目</button></div></div>
@@ -332,6 +370,29 @@
       <div class="field"><label for="regex-find">匹配表达式 <span class="hint-inline">支持 /表达式/gi 或普通正则</span></label><input id="regex-find" placeholder="例如：/<think>[\\s\\S]*?<\\/think>/g" /></div>
       <div class="field"><label for="regex-replace">替换为</label><input id="regex-replace" placeholder="留空表示删除匹配内容" /></div>
       <div class="field"><label for="regex-trim">额外移除片段 <span class="hint-inline">逗号分隔</span></label><input id="regex-trim" placeholder="例如：<analysis>, </analysis>" /></div>
+      <fieldset class="regex-stage-field"><legend>作用于（对标 SillyTavern）</legend><div id="regex-stages" class="regex-stage-grid">
+        <label class="check"><input type="checkbox" value="user_input" /> 用户输入</label>
+        <label class="check"><input type="checkbox" value="ai_response" /> AI 原始回复</label>
+        <label class="check"><input type="checkbox" value="chat_display" /> 聊天显示</label>
+        <label class="check"><input type="checkbox" value="prompt_history" /> 历史消息 / 提示词</label>
+        <label class="check"><input type="checkbox" value="system_prompt" /> System / 后预设</label>
+        <label class="check"><input type="checkbox" value="world_info" /> 世界书注入</label>
+        <label class="check"><input type="checkbox" value="reasoning" /> 思维链</label>
+        <label class="check"><input type="checkbox" value="slash_command" /> 斜杠命令</label>
+      </div></fieldset>
+      <div class="field row-inline regex-flags-row">
+        <label class="check"><input id="regex-display-only" type="checkbox" /> 仅显示格式化（不改存档/原始回复）</label>
+        <label class="check"><input id="regex-prompt-only" type="checkbox" /> 仅提示词格式化（不改存档）</label>
+        <label class="field regex-substitute-field"><span>匹配宏</span><select id="regex-substitute"><option value="0">不替换</option><option value="1" selected>替换（原值）</option><option value="2">替换（正则转义）</option></select></label>
+      </div>
+      <div class="field row-inline regex-depth-row">
+        <label for="regex-min-depth">最小深度</label><input id="regex-min-depth" type="number" min="0" placeholder="不限" />
+        <label for="regex-max-depth">最大深度</label><input id="regex-max-depth" type="number" min="0" placeholder="不限" />
+        <label class="check"><input id="regex-run-on-edit" type="checkbox" /> 编辑消息时运行</label>
+      </div>
+      <div class="field row-inline">
+        <label class="check"><input id="regex-preset-scope" type="checkbox" checked /> 当前预设专属（切换预设默认不应用）</label>
+      </div>
       <div class="field"><label class="check"><input id="regex-enabled" type="checkbox" checked /> 启用此正则</label></div>
       <div class="wi-actions">
         <button class="btn gold small" id="regex-save">保存正则</button>
@@ -339,7 +400,7 @@
         <button class="ghost-btn" id="regex-del">删除正则</button>
         <button class="ghost-btn" id="regex-reset">＋ 新建</button>
       </div>
-      <p id="regex-note" class="hint">预设正则只读；点击「复制为自定义」后可调整。</p>
+      <p id="regex-note" class="hint">预设正则只读；点击「复制为自定义」后可调整。导入/导出兼容 SillyTavern regex_scripts。</p>
     </div>
   </div>
 
@@ -471,6 +532,27 @@
         <span>💭 记忆条目（自动注入上下文）</span>
         <button class="ghost-btn back-action" data-back-chat data-manager-back data-parent-label="记忆列表" type="button">回到对话</button>
       </div>
+      <section class="memory-auto-panel" aria-labelledby="mem-auto-title">
+        <div class="memory-auto-head">
+          <div>
+            <h3 id="mem-auto-title">↻ RP 自动滚动记忆</h3>
+            <p class="hint">每累计 N 个完整对话轮次，将最早 M 轮压缩成摘要；原始聊天记录不会删除。</p>
+          </div>
+          <label class="switch" title="启用 RP 自动记忆"><input id="mem-auto-enabled" type="checkbox" /><span class="slider"></span></label>
+        </div>
+        <div class="memory-auto-grid">
+          <label class="field"><span>滚动窗口</span><input id="mem-auto-window" type="number" min="2" max="100" /></label>
+          <label class="field"><span>每次总结</span><input id="mem-auto-summarize" type="number" min="1" max="99" /></label>
+          <label class="field"><span>摘要字数</span><input id="mem-auto-chars" type="number" min="20" max="500" /></label>
+        </div>
+        <div class="memory-auto-footer">
+          <p id="mem-auto-status" class="hint" role="status">自动记忆：已关闭。</p>
+          <div class="memory-auto-actions">
+            <button class="ghost-btn small" id="mem-auto-run" type="button">立即总结</button>
+            <button class="ghost-btn small danger" id="mem-auto-clear" type="button">清空当前摘要</button>
+          </div>
+        </div>
+      </section>
       <div class="field">
         <label for="mem-input">新记忆</label>
         <div class="row-inline">
@@ -560,6 +642,7 @@
         <button class="st-tab active" id="st-tab-conn" role="tab" aria-selected="true" aria-controls="st-panel-conn" data-st="conn">连接</button>
         <button class="st-tab" id="st-tab-format" role="tab" aria-selected="false" aria-controls="st-panel-format" data-st="format">格式</button>
         <button class="st-tab" id="st-tab-typo" role="tab" aria-selected="false" aria-controls="st-panel-typo" data-st="typo">排版</button>
+        <button class="st-tab" id="st-tab-ui" role="tab" aria-selected="false" aria-controls="st-panel-ui" data-st="ui">界面</button>
         <button class="st-tab" id="st-tab-image" role="tab" aria-selected="false" aria-controls="st-panel-image" data-st="image">文生图</button>
         <button class="st-tab" id="st-tab-gen" role="tab" aria-selected="false" aria-controls="st-panel-gen" data-st="gen">AI 工坊</button>
       </div>
@@ -738,6 +821,58 @@
             <button class="ghost-btn" id="btn-typo-reset">恢复默认排版</button>
           </div>
           <p class="hint">排版修改立即生效并自动保存；设置中的其他改动同样改完即存，不再依赖「保存」按钮。</p>
+        </div>
+
+        <!-- ── Tab 界面 ── -->
+        <div id="st-panel-ui" class="hidden" role="tabpanel" aria-labelledby="st-tab-ui">
+          <div class="settings-ui-intro">
+            <strong>界面主题</strong>
+            <span>只覆盖 Tavern 现有界面变量，修改会即时预览并自动保存；世界卡自带的 UI 不会被强行改写。</span>
+          </div>
+          <div class="field row2 ui-theme-preset-row">
+            <div class="field">
+              <label for="ui-theme-preset">界面预设</label>
+              <select id="ui-theme-preset" aria-describedby="ui-theme-preset-desc">
+                <option value="custom">自定义（当前颜色）</option>
+              </select>
+            </div>
+            <div class="ui-theme-preset-info">
+              <span class="hint" id="ui-theme-preset-desc" aria-live="polite">手动修改颜色后会变为自定义。</span>
+              <button class="ghost-btn" id="btn-ui-theme-preset-apply" type="button">套用预设</button>
+            </div>
+          </div>
+          <div class="theme-color-grid">
+            <label class="theme-color-field" for="ui-bg-0"><span>主背景</span><input id="ui-bg-0" type="color" aria-label="主背景颜色" /></label>
+            <label class="theme-color-field" for="ui-bg-1"><span>次背景</span><input id="ui-bg-1" type="color" aria-label="次背景颜色" /></label>
+            <label class="theme-color-field" for="ui-panel"><span>面板</span><input id="ui-panel" type="color" aria-label="面板颜色" /></label>
+            <label class="theme-color-field" for="ui-panel-2"><span>高亮面板</span><input id="ui-panel-2" type="color" aria-label="高亮面板颜色" /></label>
+            <label class="theme-color-field" for="ui-bg-scene"><span>场景背景</span><input id="ui-bg-scene" type="color" aria-label="场景背景颜色" /></label>
+            <label class="theme-color-field" for="ui-accent"><span>强调色</span><input id="ui-accent" type="color" aria-label="强调色" /></label>
+            <label class="theme-color-field" for="ui-accent-2"><span>强调色（深）</span><input id="ui-accent-2" type="color" aria-label="深强调色" /></label>
+            <label class="theme-color-field" for="ui-danger"><span>危险色</span><input id="ui-danger" type="color" aria-label="危险色" /></label>
+            <label class="theme-color-field" for="ui-danger-2"><span>危险色（深）</span><input id="ui-danger-2" type="color" aria-label="深危险色" /></label>
+            <label class="theme-color-field" for="ui-ok"><span>成功色</span><input id="ui-ok" type="color" aria-label="成功色" /></label>
+            <label class="theme-color-field" for="ui-text"><span>正文色</span><input id="ui-text" type="color" aria-label="正文颜色" /></label>
+            <label class="theme-color-field" for="ui-muted"><span>辅助文字</span><input id="ui-muted" type="color" aria-label="辅助文字颜色" /></label>
+            <label class="theme-color-field" for="ui-line"><span>边框色</span><input id="ui-line" type="color" aria-label="边框颜色" /></label>
+          </div>
+          <div class="field row2">
+            <div class="field"><label for="ui-line-opacity">边框透明度 <span id="ui-line-opacity-val" class="hint-inline">10%</span></label><input id="ui-line-opacity" type="range" min="0" max="1" step="0.01" /></div>
+            <div class="field"><label for="ui-line-soft-opacity">弱边框透明度 <span id="ui-line-soft-opacity-val" class="hint-inline">6%</span></label><input id="ui-line-soft-opacity" type="range" min="0" max="1" step="0.01" /></div>
+          </div>
+          <div class="field row2">
+            <div class="field"><label for="ui-radius">圆角 <span id="ui-radius-val" class="hint-inline">10px</span></label><input id="ui-radius" type="range" min="0" max="24" step="1" /></div>
+            <div class="field"><label for="ui-scale">界面缩放 <span id="ui-scale-val" class="hint-inline">100%</span></label><input id="ui-scale" type="range" min="0.85" max="1.2" step="0.01" /></div>
+          </div>
+          <div class="field row2">
+            <div class="field"><label for="ui-sidebar-width">应用侧栏宽度 <span id="ui-sidebar-width-val" class="hint-inline">196px</span></label><input id="ui-sidebar-width" type="range" min="160" max="320" step="2" /></div>
+            <div class="field"><label for="ui-rpg-panel-width">RPG 两侧栏宽度 <span id="ui-rpg-panel-width-val" class="hint-inline">210px</span></label><input id="ui-rpg-panel-width" type="range" min="160" max="320" step="2" /></div>
+          </div>
+          <div class="field"><label for="ui-custom-vars">高级 CSS 变量 <span class="hint-inline">JSON；例如 {"--font-body":"system-ui"}</span></label><textarea id="ui-custom-vars" rows="7" spellcheck="false" placeholder='{"--font-body":"system-ui, sans-serif","--glow":"rgba(10,132,255,.25)"}'></textarea></div>
+          <div class="modal-actions">
+            <button class="ghost-btn" id="btn-ui-theme-reset" type="button">恢复默认界面</button>
+          </div>
+          <p class="hint" id="ui-theme-status" aria-live="polite">界面设置会自动保存。</p>
         </div>
 
         <!-- ── Tab 文生图（测试） ── -->
@@ -1456,13 +1591,13 @@
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
   <script src="vendor/mapgen2.bundle.js"></script>
-  <script src="mapgen.js?v=20260819a"></script>
-  <script src="app.js?v=20260819a"></script>
+  <script src="mapgen.js?v=20260820g"></script>
+  <script src="app.js?v=20260820g"></script>
   <script>
     // PWA：注册 service worker（仅 HTTPS / localhost 生效，套壳 APK 可用）
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('sw.js?v=20260819a').catch(() => {});
+    navigator.serviceWorker.register('sw.js?v=20260820g').catch(() => {});
       });
     }
   </script>

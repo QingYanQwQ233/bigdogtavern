@@ -1,5 +1,27 @@
 # 更新日志
 
+## 2026-08-20 · RP 消息布局与兼容性修订
+
+### 修复
+
+- 修复消息重新生成、编辑、复制、删除按钮使用绝对定位时覆盖正文或跑出手机屏幕的问题；操作栏改为消息底部独立行。
+- 移除 Tavern 宿主头像渲染和 RPG 回合的可见“放弃本回合”按钮，避免与世界卡自定义 UI 重叠。
+
+### 兼容与验证
+
+- 酒馆开场白和 AI 回复统一走 `<tavern_options>` 结构化选项解析，开场白也能生成底部快捷行动。
+- 更新前端/PWA 缓存版本，避免旧 CSS 在浏览器或 Android WebView 中继续生效。
+- 新增/补充 RP 正则、自动记忆、主题和消息布局回归检查。
+
+### 验证
+
+- `node --check public/app.js`
+- `node --check public/mapgen.js`
+- `node scripts/check_tavern_narration.js`
+- `node scripts/check_ui_theme.js`
+- `node scripts/check_pwa.js`
+- Playwright 桌面与 381×875 移动视口检查消息操作栏不再覆盖正文。
+
 ## 2026-08-19 · Android 导出与发布准备
 
 ### 新增

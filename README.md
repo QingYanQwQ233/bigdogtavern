@@ -17,6 +17,13 @@ node server.js
 
 打开 <http://localhost:3000>，然后在「设置 → 连接」中填写 OpenAI 兼容接口的 Base URL、API Key 和模型。支持 OpenAI、DeepSeek、OpenRouter、Ollama、LM Studio 以及其他 `/chat/completions` 兼容服务。
 
+## 本次更新 · 2026-08-20
+
+- 修复消息操作按钮在窄屏或长正文上覆盖内容、跑出聊天区域的问题；操作栏现在独立占用消息底部一行，手机端也保持在消息容器内。
+- 移除宿主头像和 RPG 回合中的“放弃本回合”入口，减少与世界卡自定义界面的视觉冲突。
+- 酒馆开场白与 AI 回复共用 `<tavern_options>` 解析协议，开场白中的快捷选项也会进入底部选项栏。
+- 补充 RP 自动记忆、输出正则阶段、世界卡前端桥接和主题自定义的回归检查，更新 PWA 资源缓存版本。
+
 ### Windows 便携版
 
 GitHub Release 提供 `tavern-*-portable-win-x64.zip`。解压后双击「启动 Tavern.bat」即可运行，包内已包含 Node.js，不需要另行安装 Node.js、npm 或配置环境变量。运行时数据保存在同目录的 `data/`，不会把本机 API Key 和存档打进发布包。
@@ -29,6 +36,7 @@ GitHub Release 提供 `tavern-*-portable-win-x64.zip`。解压后双击「启动
 - 角色卡导入入口可自动识别误选的 ST World Info JSON，并转入世界书库；世界书页仍提供独立的 ST 世界书导入入口。
 - RP / RPG 回复选项改为预设协议驱动，选项不再写死在前端；编辑消息时输入框按聊天区域自适应并支持拖高。
 - Android 套壳补齐 `user.json` 与数组/对象 JSON 原子持久化校验；推送后由 GitHub Actions 构建 APK。
+- Android APK 启动时会检测 Android System WebView/Chromium 版本；低于 92 会提示更新，避免旧 WebView 解析失败导致按钮失效。
 - Android 导出桥接：角色卡、预设、世界书、世界包、世界存档和设置可直接导出到系统 `Download` 文件夹；Android 10+ 使用 MediaStore，旧系统按需申请存储权限，浏览器端仍保留下载回退。
 - 新增 Android 导出回归检查 `node scripts/check_android_api.js`，覆盖 WebView JavaScript bridge、文件名清理、大小限制和前端下载回退。
 - 发布 Windows x64 便携文件夹包，内置 Node.js，解压即可启动。
@@ -72,21 +80,23 @@ world-deleted.json         已删除世界卡 ID（防止默认模板重新出�
 
 酒馆模式围绕“角色卡 + 对话会话”工作：
 
-- 角色卡创建、编辑、删除，以及 Character Card V1/V2/V3 JSON 导入导出；支持读取 PNG 内嵌的 `ccv3` / `chara` 元数据，V3 的角色书与扩展字段按角色卡绑定保存；
+- 角色卡创建、编辑、删除，以及 Character Card V1/V2/V3 JSON 导入导出；支持读取 PNG 内嵌的 `ccv3` / `chara` 元数据，V3 的角色书与扩展字段按角色卡绑定保存；导出时会把角色绑定的世界书一并写入 `data.character_book`；
 - 三步 AI 写卡：一句话定角色 → JSON Schema 动态填表 → 生成完整结构化角色卡；
 - 动态角色字段、可自定义栏目和运行时保存，不把世界观字段写死在前端；
 - SillyTavern 风格提示词预设：System、历史前/后指令、In-Chat、Relative、宏、排序和导入导出；
 - 独立「后预设 / Post-History」栏目：预设组装完成后追加高优先级指令；RP 基础示例已内置 AI 回复选项协议，其他预设仍按全局配置自动追加；
-- 独立「正则」设置：RP / RPG 分模式保存自定义输出正则，并自动识别预设携带的 `extensions.regex_scripts`；
+- 独立「正则」设置：RP / RPG 分模式保存自定义规则，兼容 SillyTavern `extensions.regex_scripts` 的 `placement`、`trimStrings`、`substituteRegex`、深度、`markdownOnly`、`promptOnly`、`runOnEdit` 等字段；规则可作用于用户输入、AI 原始回复、聊天显示、历史/提示词、System/后预设、世界书、思维链和斜杠命令。自定义规则默认绑定当前提示词预设，切换预设不会串用其他预设规则，也可改为模式全局；提示词/显示专用规则只改请求副本或渲染结果，不覆盖存档原文；预设编辑页可绑定当前模式自定义正则，保存或导出预设时会一并写入 ST 的 `extensions.regex_scripts`，运行时避免重复执行；
 - 多本世界书：兼容 SillyTavern World Info JSON 的主 / secondary 关键词、四种选择性逻辑、正则、常驻、概率、分组、递归、Sticky / Cooldown / Delay、扫描设置、Outlet 宏、角色绑定，以及 ST JSON 导入 / 导出；
-- 玩家设定、手动记忆、消息编辑/删除/复制/重生成；
+- 玩家设定、手动记忆、消息编辑/删除/复制/重生成；可在「记忆」页开启 RP 自动滚动记忆：每 20 个完整对话轮次把最早 15 轮压缩为约 100 字摘要，也可随时手动触发总结；原始消息仍保留在当前会话；窗口、总结轮数和摘要字数均可调整；
 - 可选旁白/对白拆分：默认整条回复作为连续正文，按需在「设置 → 格式」开启对白气泡；
 - AI 回复选项：RP 与 RPG 都由模型生成结构化快捷行动，点击后直接发送；RP 缺少标签时最多自动修复一次；选项标签不会进入正文，也不再使用写死的快捷按钮；
 - 「设置 → 排版」热调整聊天正文：字体、字号、行间距、段间距、段首缩进（空两格）与左右间距，拖动即时预览、自动保存；
+- 「设置 → 界面」可即时调整 Tavern 的颜色 token、边框透明度、圆角、应用侧栏/RPG 两侧栏宽度和界面缩放；支持受校验的高级 CSS 变量 JSON，并可一键恢复默认，刷新后自动恢复；
+- 「设置 → 界面」内置 macOS 深色、Nord、Dracula、Catppuccin Mocha、Tokyo Night 五套界面预设；预设来自公开主题调色板，套用后仍可继续微调并自动保存；
 - AI 消息完整 GFM Markdown 渲染与安全清洗：标题、列表/任务列表、表格、引用、代码块、行内代码、链接、图片、删除线、键盘标记和分隔线；
 - 文生图消息（OpenAI 兼容或 Stable Diffusion），图片保存后可持久化。
 
-酒馆记忆目前是用户级手动记忆，保存在 `user.json`，尚未完全绑定到单一角色和单一会话。
+酒馆手动记忆仍保存在用户级 `user.json`；自动滚动摘要则保存在对应 `sessions.json` 的当前酒馆会话中，不会跨角色或跨会话共享。关闭自动记忆时继续使用设置里的普通历史条数。
 
 ## RPG 世界卡模式
 

@@ -68,6 +68,241 @@
     "formatCustom": "",
     "stop": "",
     "tavernDialogueBubbles": false,
+    "uiTheme": {
+      "colors": {
+        "bg0": "#1c1c1e",
+        "bg1": "#232326",
+        "panel": "#2c2c2e",
+        "panel2": "#3a3a3c",
+        "bgScene": "#1c1c1e",
+        "accent": "#0a84ff",
+        "accent2": "#0a6dd4",
+        "danger": "#ff453a",
+        "danger2": "#c0342b",
+        "ok": "#30d158",
+        "text": "#ffffff",
+        "muted": "#98989d",
+        "line": "#ffffff"
+      },
+      "lineOpacity": 0.1,
+      "lineSoftOpacity": 0.06,
+      "radius": 10,
+      "sidebarWidth": 196,
+      "rpgPanelWidth": 210,
+      "scale": 1,
+      "customVars": {}
+    },
+    "uiThemePreset": "macos-dark",
+    "uiThemePresets": {
+      "macos-dark": {
+        "label": "macOS 深色（默认）",
+        "description": "当前 Tavern 的黑色 macOS 风格。",
+        "theme": {
+          "colors": {
+            "bg0": "#1c1c1e",
+            "bg1": "#232326",
+            "panel": "#2c2c2e",
+            "panel2": "#3a3a3c",
+            "bgScene": "#1c1c1e",
+            "accent": "#0a84ff",
+            "accent2": "#0a6dd4",
+            "danger": "#ff453a",
+            "danger2": "#c0342b",
+            "ok": "#30d158",
+            "text": "#ffffff",
+            "muted": "#98989d",
+            "line": "#ffffff"
+          },
+          "lineOpacity": 0.1,
+          "lineSoftOpacity": 0.06,
+          "radius": 10,
+          "sidebarWidth": 196,
+          "rpgPanelWidth": 210,
+          "scale": 1,
+          "customVars": {}
+        }
+      },
+      "nord": {
+        "label": "Nord 极地蓝",
+        "description": "冷静、低饱和的北极蓝灰色调。",
+        "theme": {
+          "colors": {
+            "bg0": "#2e3440",
+            "bg1": "#3b4252",
+            "panel": "#434c5e",
+            "panel2": "#4c566a",
+            "bgScene": "#2e3440",
+            "accent": "#88c0d0",
+            "accent2": "#5e81ac",
+            "danger": "#bf616a",
+            "danger2": "#8f3f48",
+            "ok": "#a3be8c",
+            "text": "#eceff4",
+            "muted": "#d8dee9",
+            "line": "#d8dee9"
+          },
+          "lineOpacity": 0.16,
+          "lineSoftOpacity": 0.1,
+          "radius": 10,
+          "sidebarWidth": 196,
+          "rpgPanelWidth": 210,
+          "scale": 1,
+          "customVars": {}
+        }
+      },
+      "dracula": {
+        "label": "Dracula 吸血鬼",
+        "description": "深紫背景搭配粉紫、青色和荧光绿强调色。",
+        "theme": {
+          "colors": {
+            "bg0": "#282a36",
+            "bg1": "#343746",
+            "panel": "#44475a",
+            "panel2": "#6272a4",
+            "bgScene": "#282a36",
+            "accent": "#bd93f9",
+            "accent2": "#8be9fd",
+            "danger": "#ff5555",
+            "danger2": "#cb3a2a",
+            "ok": "#50fa7b",
+            "text": "#f8f8f2",
+            "muted": "#bdc0d1",
+            "line": "#f8f8f2"
+          },
+          "lineOpacity": 0.16,
+          "lineSoftOpacity": 0.1,
+          "radius": 10,
+          "sidebarWidth": 196,
+          "rpgPanelWidth": 210,
+          "scale": 1,
+          "customVars": {}
+        }
+      },
+      "catppuccin-mocha": {
+        "label": "Catppuccin Mocha",
+        "description": "柔和的深色底，使用薰衣草、蓝色和青绿色点缀。",
+        "theme": {
+          "colors": {
+            "bg0": "#1e1e2e",
+            "bg1": "#181825",
+            "panel": "#313244",
+            "panel2": "#45475a",
+            "bgScene": "#11111b",
+            "accent": "#89b4fa",
+            "accent2": "#74c7ec",
+            "danger": "#f38ba8",
+            "danger2": "#eba0ac",
+            "ok": "#a6e3a1",
+            "text": "#cdd6f4",
+            "muted": "#a6adc8",
+            "line": "#cdd6f4"
+          },
+          "lineOpacity": 0.16,
+          "lineSoftOpacity": 0.1,
+          "radius": 12,
+          "sidebarWidth": 196,
+          "rpgPanelWidth": 210,
+          "scale": 1,
+          "customVars": {}
+        }
+      },
+      "tokyo-night": {
+        "label": "Tokyo Night",
+        "description": "夜东京蓝紫霓虹，低对比背景配亮色交互。",
+        "theme": {
+          "colors": {
+            "bg0": "#1a1b26",
+            "bg1": "#16161e",
+            "panel": "#24283b",
+            "panel2": "#292e42",
+            "bgScene": "#1a1b26",
+            "accent": "#7aa2f7",
+            "accent2": "#7dcfff",
+            "danger": "#f7768e",
+            "danger2": "#db4b4b",
+            "ok": "#9ece6a",
+            "text": "#c0caf5",
+            "muted": "#a9b1d6",
+            "line": "#565f89"
+          },
+          "lineOpacity": 0.2,
+          "lineSoftOpacity": 0.12,
+          "radius": 10,
+          "sidebarWidth": 196,
+          "rpgPanelWidth": 210,
+          "scale": 1,
+          "customVars": {}
+        }
+      },
+      "daylight": {
+        "label": "白天清透",
+        "description": "明亮的纸白与蓝色强调，适合白天阅读和长时间编辑。",
+        "theme": {
+          "colors": {
+            "bg0": "#f1f5f9",
+            "bg1": "#e2e8f0",
+            "panel": "#ffffff",
+            "panel2": "#dbeafe",
+            "bgScene": "#f8fafc",
+            "accent": "#2563eb",
+            "accent2": "#1d4ed8",
+            "danger": "#dc2626",
+            "danger2": "#b91c1c",
+            "ok": "#15803d",
+            "text": "#172033",
+            "muted": "#64748b",
+            "line": "#64748b"
+          },
+          "lineOpacity": 0.18,
+          "lineSoftOpacity": 0.1,
+          "radius": 10,
+          "sidebarWidth": 196,
+          "rpgPanelWidth": 210,
+          "scale": 1,
+          "customVars": {
+            "--glow": "rgba(37,99,235,.12)"
+          }
+        }
+      },
+      "parchment": {
+        "label": "羊皮纸古卷",
+        "description": "温暖的旧纸、棕墨与朱砂强调，像一张可展开的冒险手稿。",
+        "theme": {
+          "colors": {
+            "bg0": "#d8c095",
+            "bg1": "#e8d3a8",
+            "panel": "#f6e8c8",
+            "panel2": "#dcc091",
+            "bgScene": "#cdb27d",
+            "accent": "#7f3f1f",
+            "accent2": "#a15c2d",
+            "danger": "#a33b2b",
+            "danger2": "#7c261f",
+            "ok": "#4c6b3c",
+            "text": "#2b2118",
+            "muted": "#6e5a43",
+            "line": "#6e5a43"
+          },
+          "lineOpacity": 0.3,
+          "lineSoftOpacity": 0.18,
+          "radius": 6,
+          "sidebarWidth": 196,
+          "rpgPanelWidth": 210,
+          "scale": 1,
+          "customVars": {
+            "--font-display": "Georgia, 'Noto Serif SC', 'Songti SC', serif",
+            "--font-body": "'Noto Serif SC', 'Songti SC', 'STSong', serif",
+            "--glow": "none"
+          }
+        }
+      }
+    },
+    "tavernAutoMemory": {
+      "enabled": false,
+      "windowTurns": 20,
+      "summarizeTurns": 15,
+      "summaryChars": 100
+    },
     "wiScanDepth": 6,
     "wiIncludeNames": true,
     "wiCaseSensitive": false,

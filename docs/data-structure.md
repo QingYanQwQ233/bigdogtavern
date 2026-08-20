@@ -36,7 +36,7 @@ localStorage（前缀 rpg-airp:）→ server JSON 的离线缓存，server 为�
 |---|---|---|
 | `providers` | `[{id,label,baseUrl,model}]` | 设置面板「服务预设」下拉（动态渲染） |
 | `format` | `{key:{label,text}}` | 格式指令（对白协议/长叙事/JSON…），附加到 system |
-| `prefs` | `{formatPreset,formatCustom,stop,wiScanDepth,wiIncludeNames,wiCaseSensitive,wiWholeWord,wiRecursive,wiMaxRecursionSteps,wiMinActivations,wiMinActivationsDepthMax,wiBudget,wiUseGroupScoring,wiInsertionStrategy,currentPresetByMode,outputRegex,cotEnabled,cotEffort,worldContextBudget,typography}` | 界面偏好默认值；世界书缺少独立 settings 时的兼容回退；酒馆/RPG 分别记忆当前预设与自定义输出正则；RPG 世界上下文字符预算；`typography` 是聊天正文排版（字体/字号/行距/段距/段首缩进/左右间距），改动即时写入 `--chat-*` CSS 变量并自动保存 |
+| `prefs` | `{formatPreset,formatCustom,stop,tavernAutoMemory,uiTheme,uiThemePreset,uiThemePresets,wiScanDepth,wiIncludeNames,wiCaseSensitive,wiWholeWord,wiRecursive,wiMaxRecursionSteps,wiMinActivations,wiMinActivationsDepthMax,wiBudget,wiUseGroupScoring,wiInsertionStrategy,currentPresetByMode,outputRegex,cotEnabled,cotEffort,worldContextBudget,typography}` | 界面偏好默认值；`tavernAutoMemory` 控制 RP 自动滚动记忆（开关、窗口轮数、每次总结轮数和摘要字数）；`uiTheme` 覆盖现有 CSS token（颜色、边框透明度、圆角、侧栏宽度、RPG 两侧栏宽度、缩放和受校验的高级 CSS 变量），改动即时写入 `:root` 并自动保存；`uiThemePreset` 保存当前界面预设 ID，`uiThemePresets` 是从 `_defaults.json` 读取的预设目录；世界书缺少独立 settings 时的兼容回退；酒馆/RPG 分别记忆当前预设与自定义输出正则；RPG 世界上下文字符预算；`typography` 是聊天正文排版（字体/字号/行距/段距/段首缩进/左右间距），改动即时写入 `--chat-*` CSS 变量并自动保存 |
 | `ui` | `{emptyTitle,emptyGuideWithChar,emptyGuide}` | 空状态文案（`{name}`/`{role}` 插值） |
 | `settings` | 连接参数 + `systemPrompt/postHistory/firstMes` | settings.json 初始内容 |
 | `gen` | `{charFields,charBasicPrompt,charFullPrompt,lorePrompt}` | AI 三步生成角色卡与世界书条目；基本信息栏目由 JSON 动态渲染 |
@@ -63,10 +63,13 @@ W1 已实现世界卡目录到存档的创建、列表和打开；W2 已把当�
 ```js
 {
   id, charId, kind: 'tavern' | 'rpg', name, createdAt,
-  messages: [{ role, content, options?, ts }],
+  messages: [{ id?, role, content, options?, ts }],
+  autoMemory: { version, summaries: [{ id, text, sourceMessageIds[], createdAt }] }, // 仅 kind=tavern
   rpgState: { hp, mp, inventory, quests, mapData, mapImage }
 }
 ```
+
+酒馆自动记忆只在 `prefs.tavernAutoMemory.enabled` 开启时自动参与请求：按完整的用户消息 + AI 回复计为一轮，达到 `windowTurns` 后把最早 `summarizeTurns` 轮压缩为 `summaryChars` 字左右的摘要；「立即总结」按钮可在不开启自动触发的情况下手动总结当前未总结轮次。原始 `messages` 不删除，Prompt 只发送当前会话的摘要与尚未总结轮次。开场白、system/meta 消息不计入轮次。若摘要请求失败，原始历史保留并在后续 AI 回复完成后重试；编辑或删除已被摘要覆盖的消息会清空该会话的派生摘要，避免旧摘要覆盖新剧情。
 
 旧会话缺少 `kind` 时迁移为 `tavern`，缺少 `charId` 时绑定到迁移时的当前角色；已有归属不会被改写。
 
@@ -122,7 +125,7 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 
 `ui.extension` 的 HTML/CSS/JS 在隔离 iframe 中运行，只有声明的权限才能读取当前世界 / 存档或提交 runtime Typed Patch；扩展不能访问主页面、网络或其他存档。桥接 API 的 `TavernExtension.choose(text, options)` 会复用主 RPG 回合管线（需要 `read.save`）：纯文本选择直接进入 AI，带 `actionId` / `updates` 的选择先按 `write.runtime` 提交声明式运行时变化；`context.turn.options` 与底部快捷回复使用同一份 AI 结构化选项，`context.turn.narrativeHtml` / `hasResponse` 用于把已清洗的 Markdown 正文重新绘制到自定义界面，`context.messages[].html` 提供当前存档最近 40 条用户 / AI 消息的安全 HTML。卡内 HTML 可放置 `data-tavern-messages`（唯一消息流，负责滚动）、`data-tavern-narrative`（兼容旧卡的最新叙事）、`data-tavern-options`（AI 选项）以及 `data-tavern-input` / `data-tavern-submit`（自定义输入与提交）；同一页面同时存在消息流和叙事标记时，叙事标记默认隐藏，避免重复内容与双滚动条。桥接会在卡自己的 DOM 内更新内容，选项和表单仍复用 Agent 回合。没有这些标记时不会自动追加宿主叙事框或输入框，避免卡内 UI 与框架 UI 重复。桥接等待时间为 120 秒，以覆盖 Agent 工具循环和长思维链。`ui.layout:"custom"` / `"immersive"` 可按卡声明隐藏宿主区域；`ui.shell.navigation/topbar:"hide"` 可在窗口化隐藏宿主壳层，`TavernExtension.fullscreen()` / `exitFullscreen()` / `exitWorld()` / `openTerminal()` 和 Esc 由宿主统一执行，浏览器全屏拒绝时仍降级为卡内沉浸布局。切换到酒馆模式会卸载扩展 iframe，避免世界卡 UI 串入 RP。`world-electronic-yandere` 是一个完整示例：它通过声明式 runtime actions 保存“爱 / 不爱”选择，前端只负责呈现病娇界面，Agent 仍通过当前世界卡的 Prompt 与工具协议负责后续叙事。
 
-`regexes[]` 是世界卡绑定的输出替换规则，按世界卡、RPG 预设、模式自定义的顺序执行；服务端只接受有限正则字段并校验表达式，不执行脚本、EJS 或 MVU。消息另存 `rawContent` 作为正则前快照，角色卡兼容桥优先读取它，避免状态标签被显示正则覆盖后无法回读。
+`regexes[]` 是世界卡绑定的输出替换规则，按角色卡/世界卡、当前预设、当前模式自定义的顺序执行；客户端兼容 SillyTavern 的 `placement`（0 旧版显示、1 用户输入、2 AI 回复、3 斜杠命令、5 世界书、6 思维链）、`trimStrings`、`substituteRegex`（0 不替换、1 原值、2 正则转义）、`minDepth/maxDepth`、`markdownOnly`、`promptOnly` 与 `runOnEdit`，并提供聊天显示、历史/提示词和 System/后预设等细分阶段。自定义规则默认写入当前提示词预设作用域，切换预设时自动隔离；取消专属后才作为当前模式全局规则。提示词/显示阶段只改请求副本或渲染结果，不覆盖会话原文。服务端只接受有限正则字段并校验表达式，不执行脚本、EJS 或 MVU。消息另存 `rawContent` 作为正则前快照，角色卡兼容桥优先读取它，避免状态标签被显示正则覆盖后无法回读。
 
 `setting` 保存世界观稳定段（`premise/history/geography/culture/technology/magic/society/economy/currentSituation`）；`rules.hard` / `rules.soft` 保存作者的硬 / 软叙事约束，`rules.checks[]` 声明 Agent 可引用的判定 ID 与可选目标 / 骰式。二者只属于 `WorldCard@worldVersion`，由 Prompt 作为只读设定投影，不进入 `WorldSave`；硬规则的结构化游戏结算仍必须使用 `turnContract`、失败、冲突、时间和结局等正式字段。
 
@@ -284,7 +287,7 @@ RP 消息显示会优先识别缩进的 HTML 布局与 HTML 代码块，再交�
 
 内置酒馆基础预设启用玩家主权、角色稳定、连续性、白描与抗重复模块；内置 RPG 基础预设启用玩家主权、世界连续性、判定、Markdown 叙事和福瑞种族表现模块。RPG 状态协议要求每回合输出恰好 4 个行动选项。
 
-提示词页可导入/导出 SillyTavern Chat Completion 的 `prompts + prompt_order + extensions.regex_scripts`。导入同时接受数组、对象映射和字符串 `character_id`；优先选择 `character_id: 100001`，未进入该顺序的 prompts 保留在素材库。常见采样参数会保存在 `modelParameters` 供无损导出，但连接设置仍是运行时权威，不会因导入而静默改动 API 参数。支持安全宏 `{{user}}`、`{{char}}`、`{{persona}}`、`{{description}}`、`{{personality}}`、`{{scenario}}`、`{{mesExamples}}`、`{{mesExamplesRaw}}`、`{{lastMessage}}`、`{{lastUserMessage}}`、`{{lastCharMessage}}`、`{{messageCount}}`、`{{newline}}`、`{{space}}`、`{{setvar::名称::值}}` / `{{setglobalvar::名称::值}}`、`{{getvar::名称}}` / `{{getglobalvar::名称}}`、`{{random::甲::乙}}` / `{{pick::甲::乙}}` 和 `{{trim}}`；全局变量兼容宏只在本次请求内生效，未知宏原样保留。导入的输出正则会保留 `placement/affects`、`trimStrings`、`markdownOnly`、`promptOnly`、深度等元数据，并在对应模式显示前执行；侧栏「正则」可为酒馆 / RPG 分别添加自定义规则。角色卡 / 预设中的 EJS、MVU 仍保持原文保留；绑定角色卡的 HTML/CSS/JS 在用户确认后进入同源完整兼容 iframe，世界卡 `ui.extension` 检测到 EJS、MVU 或扩展脚本时则在现有隔离 sandbox iframe 中运行，拒绝授权时保持停用。授权按世界版本或角色卡代码内容哈希保存在本地，代码或版本改变会重新询问。
+提示词页可导入/导出 SillyTavern Chat Completion 的 `prompts + prompt_order + extensions.regex_scripts`。导入同时接受数组、对象映射和字符串 `character_id`；优先选择 `character_id: 100001`，未进入该顺序的 prompts 保留在素材库。常见采样参数会保存在 `modelParameters` 供无损导出，但连接设置仍是运行时权威，不会因导入而静默改动 API 参数。支持安全宏 `{{user}}`、`{{char}}`、`{{persona}}`、`{{description}}`、`{{personality}}`、`{{scenario}}`、`{{mesExamples}}`、`{{mesExamplesRaw}}`、`{{lastMessage}}`、`{{lastUserMessage}}`、`{{lastCharMessage}}`、`{{messageCount}}`、`{{newline}}`、`{{space}}`、`{{setvar::名称::值}}` / `{{setglobalvar::名称::值}}`、`{{getvar::名称}}` / `{{getglobalvar::名称}}`、`{{random::甲::乙}}` / `{{pick::甲::乙}}` 和 `{{trim}}`；全局变量兼容宏只在本次请求内生效，未知宏原样保留。导入的输出正则会保留 ST 的 `placement/affects`、`trimStrings`、`markdownOnly`、`promptOnly`、`runOnEdit`、深度等元数据，并在用户输入、AI 回复、聊天显示、提示词/历史、世界书、思维链和斜杠命令阶段执行；侧栏「正则」可为酒馆 / RPG 分别添加自定义规则，默认绑定当前预设且可切为模式全局。角色卡 / 预设中的 EJS、MVU 仍保持原文保留；绑定角色卡的 HTML/CSS/JS 在用户确认后进入同源完整兼容 iframe，世界卡 `ui.extension` 检测到 EJS、MVU 或扩展脚本时则在现有隔离 sandbox iframe 中运行，拒绝授权时保持停用。授权按世界版本或角色卡代码内容哈希保存在本地，代码或版本改变会重新询问。
 
 `_defaults.json.tavern.replyOptions` 定义 RP 自动选项协议（数量、提示词和无选项提示）。内置「RP 基础（示例）」已把协议写入自己的 `postHistory`；其他预设在未提供同类 `<tavern_options>` 协议时，仍由全局配置自动追加，避免重复注入。客户端解析并移除该标签，只把去重后的选项保存到 assistant 消息的 `options[]`，底部快捷栏据此渲染。缺少或不合规标签时，RP 最多额外请求一次协议修复；修复失败则保留原正文，不在客户端臆造选项。正文、正则和选项数据分开处理，AI 未返回标签时不再回退到写死按钮。
 
