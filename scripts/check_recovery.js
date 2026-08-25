@@ -12,7 +12,7 @@ const defaults = JSON.parse(fs.readFileSync(path.join(root, 'public', 'data', '_
 fs.writeFileSync(path.join(tempDir, '_defaults.json'), JSON.stringify(defaults, null, 2));
 fs.writeFileSync(path.join(tempDir, 'worlds.json'), JSON.stringify(defaults.worlds, null, 2));
 process.env.TAVERN_DATA_DIR = tempDir;
-process.env.TAVERN_PROXY_TIMEOUT_MS = '40';
+process.env.TAVERN_PROXY_TIMEOUT_MS = '1000';
 
 const { server, startServer } = require(path.join(root, 'server.js'));
 
@@ -31,8 +31,48 @@ async function request(base, pathname, options = {}) {
   return { response, body };
 }
 
+function abortStreamingRequest(base, upstreamBase) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({ baseUrl: upstreamBase, body: { model: 'cancel-stream', messages: [], stream: true } });
+    const req = http.request(base + '/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+    }, res => {
+      res.once('data', () => {
+        req.destroy();
+        resolve(Date.now());
+      });
+      res.on('error', error => { if (error.code !== 'ECONNRESET') reject(error); });
+    });
+    req.on('error', error => { if (error.code !== 'ECONNRESET') reject(error); });
+    req.end(body);
+  });
+}
+
 async function main() {
-  const upstream = http.createServer((req) => { req.resume(); });
+  let resolveCancelledUpstream;
+  const cancelledUpstream = new Promise(resolve => { resolveCancelledUpstream = resolve; });
+  const upstream = http.createServer(async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    if (payload.model === 'stream') {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.end('data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n');
+      return;
+    }
+    if (payload.model === 'cancel-stream') {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write('data: {"choices":[{"delta":{"content":"start"}}]}\n\n');
+      const interval = setInterval(() => res.write('data: {"choices":[{"delta":{"content":"."}}]}\n\n'), 20);
+      res.once('close', () => {
+        clearInterval(interval);
+        resolveCancelledUpstream(Date.now());
+      });
+      return;
+    }
+    // 其他模型故意不响应，用于验证代理超时。
+  });
   try {
     await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
     await startServer(0);
@@ -44,6 +84,15 @@ async function main() {
     assert.strictEqual(badChatJson.response.status, 400, 'bad chat JSON is rejected');
     const oversizedChat = await request(base, '/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ baseUrl: upstreamBase, body: { messages: [{ role: 'user', content: 'x'.repeat(4 * 1024 * 1024) }] } }) });
     assert.strictEqual(oversizedChat.response.status, 413, 'oversized chat body is rejected');
+    const streamed = await request(base, '/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ baseUrl: upstreamBase, body: { model: 'stream', messages: [], stream: true } }) });
+    assert.strictEqual(streamed.response.status, 200, 'streaming response is proxied');
+    assert.match(streamed.body, /data: \[DONE\]/, 'SSE body remains intact');
+    const disconnectedAt = await abortStreamingRequest(base, upstreamBase);
+    const upstreamClosedAt = await Promise.race([
+      cancelledUpstream,
+      new Promise(resolve => setTimeout(() => resolve(null), 500)),
+    ]);
+    assert.ok(upstreamClosedAt && upstreamClosedAt - disconnectedAt < 500, 'downstream disconnect aborts the upstream stream');
     const timedOut = await request(base, '/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ baseUrl: upstreamBase, body: { model: 'hang', messages: [] } }) });
     assert.strictEqual(timedOut.response.status, 504, 'hanging model request returns gateway timeout');
     assert.match(String(timedOut.body?.error?.message || ''), /超时/);

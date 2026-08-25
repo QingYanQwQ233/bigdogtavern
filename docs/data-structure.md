@@ -110,34 +110,37 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
     layout: 'world-desk',
     entryGate: { enabled: true, title: '警告', message: '进入前提示', confirmText: '确认', cancelText: '退出', fullscreen: false },
     sidebar: { panels: [{ id: 'relations', title: '人物关系', side: 'right', source: 'save.npcStates', layout: 'cards', fields: [{ key: 'locationId', label: '位置' }] }] },
-    extension: { enabled: true, immersive: true, title: '世界 HUD', html: '<section>…</section><div data-tavern-messages></div>', css: '', js: '', permissions: ['read.public', 'read.save'] }
+    extension: { enabled: true, immersive: true, surfaces: ['play'], title: '世界 HUD', html: '<section>…</section><div data-tavern-messages></div>', css: '', js: '', permissions: ['read.public', 'read.save'] }
   },
-  locations: [], npcs: [], factions: [], items: [], quests: [],
-  map: { strategy: 'worldCard', data: null, imagePath: null },
+  locations: [], npcs: [],
 }
 ```
 
-世界卡是可复用的静态定义，不保存某个玩家的回合、背包或地图图片。初始内容来自 `_defaults.json.worlds` 初始化的 `worlds.json`；W5 草稿层保存在独立的 `world-drafts.json`，可编辑世界元数据、声明式 `locations` 与 `npcs`，并通过稳定 ID 互相引用；保存草稿不会改写 `worlds.json` 或已有存档。发布会基于当前最新版本追加不可变的 `version + 1`，然后消费该草稿；旧版本仍可按版本号读取，已有 `WorldSave.worldVersion` 不会自动迁移。除明确声明且运行在隔离 iframe 的 `ui.extension` 外，服务端只接受白名单字段，不接受可执行 HTML/JS。W4.7 仍提供“从指定存档收录 NPC”这一条显式版本创建接口。
+世界卡是可复用的静态定义，不保存某个玩家的回合或存档状态。初始内容来自 `_defaults.json.worlds` 初始化的 `worlds.json`；草稿层保存在独立的 `world-drafts.json`，可编辑世界元数据、声明式 `locations` 与 `npcs`；保存草稿不会改写 `worlds.json` 或已有存档。发布会基于当前最新版本追加不可变的 `version + 1`，然后消费该草稿；旧版本仍可按版本号读取，已有 `WorldSave.worldVersion` 不会自动迁移。
 
-`ui.entryGate` 是可选的存档入口门禁，只有在用户点击“创建存档”时才显示；它不提前创建 `WorldSave`。`cancelText` 退回世界库，`fullscreen: true` 在确认手势内请求浏览器全屏，失败会降级为普通布局。`ui.sidebar.panels[]` 只声明侧边栏面板的标题、位置、布局、字段和白名单数据源（例如 `save.npcStates`、`save.state.goals`、`save.state.player.resources`）；面板是当前 `WorldSave` 的只读投影，不把动态数据写回世界卡，也不执行模板、HTML 或脚本。
+当前 RPG 世界卡的正式运行契约是声明式的：`playerCreation`（字段、属性、技能、资源、特质与关系）、`locations` / `npcs`、世界时间、开局文本、回合选项、必要判定以及当前存档的叙事历史，加上世界卡自行声明的 `runtime.variables`、`runtime.collections`、`runtime.actions`。旧版 `economy`、`growth`、`events`、`factions`、`conflicts` 和硬编码物品/任务投影仍可兼容读取，但不会作为统一系统继续生成；需要这些玩法时应放进 runtime schema，由 AI 通过 Typed Patch 更新。
+
+`ui.entryGate` 是可选的存档入口门禁，只有在用户点击“创建存档”时才显示；它不提前创建 `WorldSave`。`cancelText` 退回世界库，`fullscreen: true` 在确认手势内请求浏览器全屏，失败会降级为普通布局。`ui.sidebar.panels[]` 只声明侧边栏面板的标题、位置、布局、字段和白名单数据源（例如 `save.npcStates`、`save.state.goals`、`save.state.player.resources`）；面板是当前 `WorldSave` 的投影，不把动态数据写回世界卡，也不执行模板、HTML 或脚本。集合卡片的默认 `status` 字段会把 `confirmed` / `unconfirmed` 显示为“已确认”/“未确认”，并在面板标题汇总确认数量；这只是当前存档状态的可见投影。`source: "runtime.actions.<id>"` 配合 `layout: "actions"` 会按动作 Schema 生成输入表单；若动作声明的 `collection.patch` 已把目标状态置为 `confirmed`，宿主会把该确认动作标为已完成并禁止重复提交。其他动作提交仍复用世界回合管线，动作 ID 进入 `actionIntent`，最终由 AI 叙事与 Typed Patch 决定是否产生效果。
 
 `ui.worldUiTemplate` 位于 `_defaults.json.ui`，是世界草稿编辑器的“载入完整模板”数据源，不属于任何具体世界或存档；模板包含 `schemaVersion`、主题 Token、八个区域策略、声明式侧栏和入口门禁示例，载入后会复制到草稿 JSON，用户可按世界需求调整。
 
-`ui.extension` 的 HTML/CSS/JS 在隔离 iframe 中运行，只有声明的权限才能读取当前世界 / 存档或提交 runtime Typed Patch；扩展不能访问主页面、网络或其他存档。桥接 API 的 `TavernExtension.choose(text, options)` 会复用主 RPG 回合管线（需要 `read.save`）：纯文本选择直接进入 AI，带 `actionId` / `updates` 的选择先按 `write.runtime` 提交声明式运行时变化；`context.turn.options` 与底部快捷回复使用同一份 AI 结构化选项，`context.turn.narrativeHtml` / `hasResponse` 用于把已清洗的 Markdown 正文重新绘制到自定义界面，`context.messages[].html` 提供当前存档最近 40 条用户 / AI 消息的安全 HTML。卡内 HTML 可放置 `data-tavern-messages`（唯一消息流，负责滚动）、`data-tavern-narrative`（兼容旧卡的最新叙事）、`data-tavern-options`（AI 选项）以及 `data-tavern-input` / `data-tavern-submit`（自定义输入与提交）；同一页面同时存在消息流和叙事标记时，叙事标记默认隐藏，避免重复内容与双滚动条。桥接会在卡自己的 DOM 内更新内容，选项和表单仍复用 Agent 回合。没有这些标记时不会自动追加宿主叙事框或输入框，避免卡内 UI 与框架 UI 重复。桥接等待时间为 120 秒，以覆盖 Agent 工具循环和长思维链。`ui.layout:"custom"` / `"immersive"` 可按卡声明隐藏宿主区域；`ui.shell.navigation/topbar:"hide"` 可在窗口化隐藏宿主壳层，`TavernExtension.fullscreen()` / `exitFullscreen()` / `exitWorld()` / `openTerminal()` 和 Esc 由宿主统一执行，浏览器全屏拒绝时仍降级为卡内沉浸布局。切换到酒馆模式会卸载扩展 iframe，避免世界卡 UI 串入 RP。`world-electronic-yandere` 是一个完整示例：它通过声明式 runtime actions 保存“爱 / 不爱”选择，前端只负责呈现病娇界面，Agent 仍通过当前世界卡的 Prompt 与工具协议负责后续叙事。
+`ui.extension` 的 HTML/CSS/JS 在隔离 iframe 中运行，只能读取当前世界 / 存档并提交玩家行动；扩展不能访问主页面、网络或其他存档。`surfaces` 可选为 `['play']`、`['setup']` 或 `['setup','play']`：声明 `setup` 后，创建存档会生成一个 `planning` 存档并把卡前端作为开局配置页加载；卡内通过 `TavernExtension.setup.get/patch/commit/cancel` 保存角色与规则草稿。游玩阶段可用 `TavernExtension.getContext()` 或 `TavernExtension.runtime.get()` 读取当前 runtime 快照，但不提供 runtime/MVU/action 直写桥；变量、集合与动作效果必须由 AI 回合提交声明式 patch，扩展不能创建第二套状态系统。
+
+正式游玩阶段的桥接 API `TavernExtension.choose(text)` 会复用主 RPG 回合管线；`context.turn.options` 与底部快捷回复使用同一份 AI 结构化选项，`context.turn.narrativeHtml` / `hasResponse` 用于把已清洗的 Markdown 正文重新绘制到自定义界面，`context.messages[].html` 提供当前存档最近 40 条用户 / AI 消息的安全 HTML。卡内 HTML 可放置 `data-tavern-messages`、`data-tavern-options`、`data-tavern-input` / `data-tavern-submit` 接入自定义界面；桥接会在卡自己的 DOM 内更新内容，选项和表单仍复用 Agent 回合。
 
 `regexes[]` 是世界卡绑定的输出替换规则，按角色卡/世界卡、当前预设、当前模式自定义的顺序执行；客户端兼容 SillyTavern 的 `placement`（0 旧版显示、1 用户输入、2 AI 回复、3 斜杠命令、5 世界书、6 思维链）、`trimStrings`、`substituteRegex`（0 不替换、1 原值、2 正则转义）、`minDepth/maxDepth`、`markdownOnly`、`promptOnly` 与 `runOnEdit`，并提供聊天显示、历史/提示词和 System/后预设等细分阶段。自定义规则默认写入当前提示词预设作用域，切换预设时自动隔离；取消专属后才作为当前模式全局规则。提示词/显示阶段只改请求副本或渲染结果，不覆盖会话原文。服务端只接受有限正则字段并校验表达式，不执行脚本、EJS 或 MVU。消息另存 `rawContent` 作为正则前快照，角色卡兼容桥优先读取它，避免状态标签被显示正则覆盖后无法回读。
 
-`setting` 保存世界观稳定段（`premise/history/geography/culture/technology/magic/society/economy/currentSituation`）；`rules.hard` / `rules.soft` 保存作者的硬 / 软叙事约束，`rules.checks[]` 声明 Agent 可引用的判定 ID 与可选目标 / 骰式。二者只属于 `WorldCard@worldVersion`，由 Prompt 作为只读设定投影，不进入 `WorldSave`；硬规则的结构化游戏结算仍必须使用 `turnContract`、失败、冲突、时间和结局等正式字段。
+`setting` 保存世界观稳定段；`rules.hard` / `rules.soft` 保存作者的硬 / 软叙事约束，`rules.checks[]` 声明 Agent 可引用的固定判定 ID 与可选目标 / 骰式。需要根据当前行动临时决定属性时，Agent 可直接调用动态 `rules.check`，提交 `actionId`、`sides`、`target` 与最多 8 条 `modifiers`，统一公式为 `1dN + Σ(modifier)`；修正来源只能是当前玩家的 `attributes/skills/resources`、已声明 runtime 集合的数字字段或常数。`rules.check` 通过后，`dice.roll.expr` 只写基础骰式（如 `1d20`，不得写 `1d20+1`），并原样传回 `modifierRules`。客户端只负责生成随机骰面，服务端从当前存档快照重新解析修正并复核最终总值，不能由 AI 直接伪造修正。固定规则仍兼容旧的单个 `modifier` / `modifierRule`。不同世界使用不同字段时完全以本次判定声明为准；判定提案只属于当前回合，不写入 `WorldSave`。
 
-地图数据属于世界卡：可选 `map.data` 保存序列化后的地图网格、区域、地标与邻接，`map.imagePath` 保存受校验的本地图片路径。运行时不再按 `map.generation` 随机生成地图；创建存档时只复制世界卡明确提供的数据，没有地图则保持 `state.map.data = null`。旧的 `generation` 字段仍可保留，供未来地图编辑器恢复。
+地图生成和地图状态不属于当前最小 RPG 世界卡契约；旧卡字段只读兼容，不会进入新存档。
 
-`playerCreation.economy` 是可选的声明式经济规则：`inventory.enabled/maxSlots/maxWeight/items[]` 控制背包、物品重量与堆叠；`equipment.enabled/slots[]` 控制装备位；`currencies[]` 控制货币 ID、范围和初始值。启用后，存档状态使用 `state.inventory`、`state.equipment` 与 `state.currencies`，每次创建、普通保存和正式回合都会按当前世界卡重新校验；未声明该段的旧世界继续使用兼容的自由背包 / `stats.gold`。
+`playerCreation.economy`、`playerCreation.growth` 以及 `events` / `factions` / `conflicts` 是旧版本兼容字段；新的物品、任务、关系和其他世界专属数据应声明在 `runtime.variables`、`runtime.collections`、`runtime.actions`，由 AI 回合通过 Typed Patch 更新。
 
 `sessionSetup.fields[]` 是本局游戏规则 Schema；字段类型只允许 `text/textarea/select/number/boolean`，可声明默认值、必填、选项、范围和自定义值。世界草稿编辑器以高级 JSON 保存它，创建存档时物化为 `WorldSave.setup.game`，因此难度、Sandbox、战斗开关、世界推进与新实体许可等规则不会写死在前端。
 
-`playerCreation.buildPresets[]` 只声明建角起点，`values` 可按同一 Schema 提供 fields、attributes、skills、resources、traits、choices、initialInventory 和 relations 的默认值；用户和 AI 的后续修改会覆盖预设。创建接口会校验 `playerPresetId` 并将其写入当前 `WorldSave.setup`，但最终实际值仍独立保存到 `player.snapshot` 与 `state.player`。`pointBudget.mode` 支持 `pool` / `free`，`cost: 'above-min'` 表示只计算超过各属性最低值的部分，因此不同世界可以使用不同点数规则，不再由前端固定总和。
+`playerCreation.buildPresets[]` 只声明建角起点，`values` 可按同一 Schema 提供 fields、attributes、skills、resources、traits、choices 和 relations 的默认值；用户和 AI 的后续修改会覆盖预设。创建接口会校验 `playerPresetId` 并将其写入当前 `WorldSave.setup`，但最终实际值仍独立保存到 `player.snapshot` 与 `state.player`。`pointBudget.mode` 支持 `pool` / `free`，`cost: 'above-min'` 表示只计算超过各属性最低值的部分。
 
-`playerCreation.growth` 是可选的成长声明：`sources[]` 记录训练、学习、探索、关系与事件等来源，`candidates[]` 只声明允许的目标 bucket、目标 ID 与 delta/value；bucket 可为属性、技能、资源、特质、NPC 关系、阵营声望或身份标签。运行态 `WorldSave.state.growthCandidates` 只保存当前存档的 `proposed` 候选及其 `reason`；玩家通过 `POST /api/world-saves/<saveId>/growth` 的 `accepted/rejected` 决策处理候选，服务端才会应用世界卡声明的变化。接受结果写入 `state.growthApplications` 与 `state.experiences`，人物经历带有 candidate/source、效果、地点和 revision，可回溯且不会跨存档共享。
+旧的成长、物品、任务、地图、派系宿主投影不会在新草稿和回合中生成；runtime 是新世界卡的通用扩展边界，支持变量、集合、动作以及 `collection.patch` 的 set/delta 局部修改。动作可声明 `inputs`、`availability`（持有物品、数量、变量比较等前置条件）和可选 `check: { sides, target, modifiers }`。带 `check` 的物品/技能动作必须先由 Agent 调用同一 `actionId` 的 `rules.check` 与客户端骰子，再由服务端按当前存档快照复核骰面、属性/技能修正和目标值；判定失败或缺少判定时，动作效果不会执行。无 `check` 的日常动作可直接执行。所有动作仍在原子提交前复核动作存在、输入类型和前置条件；不满足时整次动作拒绝，不留下半截状态。动作 effect 可用 `{{input.field}}` 绑定本回合输入，服务端解析后仍会按 entry schema 校验，适合登记物品、关系、线索等动态条目。
 
 世界草稿编辑器对 `playerCreation.fields/attributes/skills/resources/traits` 提供分组条目操作；条目顺序就是数组顺序，新增、删除和排序只改变当前世界草稿，不会改写已发布世界版本或已有存档。每条可保留 schema 允许之外的扩展键，保存时仍由服务端 `validatePlayerCreationSchema` 负责最终校验；高级 JSON 可显式载入编辑器，若直接修改后保存也会按原始文本校验，解析失败不会覆盖最近一次有效草稿。
 
@@ -145,7 +148,7 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 
 默认种子还包含 `world-grey-harbor` 与 `world-orbit-station` 两张不同题材卡；服务端加载世界库时只在内存补入缺失的默认世界，不覆盖用户已有的 `worlds.json` 内容；后续创建草稿、发布或导入等写操作才会按现有流程落盘。
 
-RPG 前端角色状态面板按 `playerCreation.attributes/skills/resources/derived/traits/relations` 和存档 `state.player` 动态投影；不会根据固定 ID 绘制新字段。装备面板按 `economy.equipment.slots` 与 `economy.inventory.items` 显示声明的装备位和物品名，冲突面板按 `conflicts[]` 模板与 `state.conflicts` 显示实例；缺少声明时保留空状态提示，旧存档继续使用兼容的固定状态栏。
+RPG 前端角色状态面板按 `playerCreation.attributes/skills/resources/derived/traits/relations` 和存档 `state.player` 动态投影；不会根据固定 ID 绘制新字段。世界模式的自定义侧栏还可按 `runtime.variables.<id>` / `runtime.collections.<id>` 读取声明式状态；宿主不再提供物品、任务、装备或冲突的写入控件，旧存档仅保留兼容读取。
 
 `conflicts[]` 是世界卡声明的冲突模板：`type`、`phases[]`、`actions[]`、`outcomes[]` 与可选 `maxRounds` 只定义规则；运行态只属于当前存档的 `state.conflicts`，按实例 ID 保存 `templateId/status/phase/round/participants/objectives/availableActions/outcome`。行动可声明 `check: { roll, modifier: { bucket, id, factor?, bonus? }, target, damage?: { roll, modifier? } }`；参与者可带 `hp/maxHp/defense`，实例用 `targetId` 指向目标。AI 只能通过 `start`、`advance`、`end` 候选推进，服务端在同一 CAS 回合边界校验模板引用、轮次、阶段和结束结果；combat 按当前存档玩家数值执行 `d20 + 修正 >= target/防御`，命中后才掷伤害骰并写回目标 HP；social / stealth 只执行 `d20 + 技能修正 >= target`，结果写入 receipt 的 `conflictChecks`，不读取或扣除 HP。AI 不能提交伪造的骰子、判定或战斗数值；已结束冲突不可重开，receipt 会记录冲突生命周期变化。
 
@@ -161,13 +164,17 @@ RPG Prompt 的短期窗口由前端 `buildWorldRecentContext()` 在请求前从�
 
 `eventMemory[]` 是服务端在正式回合提交后规范化的长期事件记忆（最多 512 条），只接受 AI 提交的本回合候选摘要；来源回合、来源事件、`sourceRevision`、地点和时间由服务端绑定，不能由客户端伪造或改写。每项带 `entityIds`、`locationId`、`time`、`visibility` 与来源 ID，Prompt 只注入当前存档可见且地点匹配的记忆；删除或清理派生记忆不会改变 `turns`、`state` 或 `eventLedger`。R6.6 增加 `GET /api/world-saves/<saveId>/memory` 诊断和 `POST /api/world-saves/<saveId>/memory/rebuild` 重建：重建只读取结构化世界事件、成长事实及账本来源引用，不读取原始叙事正文，不改变正式 `revision`；诊断中的隐藏记忆只保留脱敏占位。
 
-RPG Agent Profile 来自 `_defaults.json.rpg.agent`，可由 RPG Preset 的 `agent` 和未来 WorldCard 的 `agent` 覆盖。它只声明协议、模式、最大步骤数和工具执行策略，不保存玩家状态。`tools.*.parameters` 是 OpenAI-compatible JSON Schema，可被世界卡 / 预设调整，但不能注入 handler、任意路径或脚本。原生请求对外使用符合 OpenAI 函数名约束的 wire name（如 `dice_roll`），收到后映射回内部能力 ID（如 `dice.roll`），服务端兼容层仍使用内部 ID。原生 `mode: native` 请求会在同一模型请求链中循环 `assistant.tool_calls → tool`，最多 `maxSteps` 次；兼容 `mode: tool-candidate` / 非 native 模式会从唯一状态块读取 `toolCalls`，客户端执行同一工具白名单，再以 `tavern.rpg.agent.tool_result` 消息回传并继续请求模型，最多 `maxSteps` 次。两种模式都把 `context.retrieve` 限制为当前 WorldSave 作用域内的只读工具，不进入提交候选；客户端骰子结果必须在工具循环内回传，不能在模型回复后补掷。`WorldSave.agentRuntime` 仅保存 `{ version, status, pending }` 的短暂执行协调信息：pending 绑定 `commandId + baseRevision`，包含已校验的预览 state、NPC 状态、生成实体和规则结果；正式事实仍以 `state`、`turns`、`receipts` 和 `eventLedger` 为准。前端 Typed Patch 回合会先调用 `agent-execute`，叙事提交失败可复用同一 pending，放弃回合则调用 `agent-cancel`。
+RPG Agent Profile 来自 `_defaults.json.rpg.agent`，可由 RPG Preset 的 `agent` 和未来 WorldCard 的 `agent` 覆盖。它只声明协议、模式、最大步骤数和工具执行策略，不保存玩家状态。`tools.*.parameters` 是 OpenAI-compatible JSON Schema，可被世界卡 / 预设调整，但不能注入 handler、任意路径或脚本。含有 `runtime.actions` 的世界卡会自动开放一等候选工具 `runtime.action.execute`；服务端仍会校验动作 ID、输入 Schema、availability 与判定结果后才提交效果。原生请求对外使用符合 OpenAI 函数名约束的 wire name（如 `dice_roll`），收到后映射回内部能力 ID（如 `dice.roll`），服务端兼容层仍使用内部 ID。原生 `mode: native` 请求会在同一模型请求链中循环 `assistant.tool_calls → tool`，最多 `maxSteps` 次；兼容 `mode: tool-candidate` / 非 native 模式会从唯一状态块读取 `toolCalls`，客户端执行同一工具白名单，再以 `tavern.rpg.agent.tool_result` 消息回传并继续请求模型，最多 `maxSteps` 次。两种模式都把 `context.retrieve` 限制为当前 WorldSave 作用域内的只读工具，不进入提交候选；客户端骰子结果必须在工具循环内回传，不能在模型回复后补掷。`WorldSave.agentRuntime` 仅保存 `{ version, status, pending }` 的短暂执行协调信息：pending 绑定 `commandId + baseRevision`，包含已校验的预览 state、NPC 状态、生成实体和规则结果；正式事实仍以 `state`、`turns`、`receipts` 和 `eventLedger` 为准。前端 Typed Patch 回合会先调用 `agent-execute`，叙事提交失败可复用同一 pending，放弃回合则调用 `agent-cancel`。
 
 R6.4 的事实层级不复制一份“当前世界”：`WorldCard@worldVersion` 保留稳定简介、地点、NPC 公共资料、NPC 行动模板、派系定义、事件模板和规则；`WorldSave@revision` 保留当前地点、时间、NPC 状态、目标、冲突、已提交事件和记忆。Prompt 同时标明两者的来源与作用，冲突时只让存档状态解释当前局面，不回写世界卡，也不让旧静态默认值覆盖已提交状态。
 
 R6.5 的上下文组装是请求级派生结果：NPC 按当前地点、队伍、任务 / 目标 / 线索、冲突参与者和已召回记忆筛选；地图只注入当前位置及相邻区域；事件、派系和长期记忆按当前地点与最近记录裁剪。所有作用域段共享 `prefs.worldContextBudget` 字符预算（默认 24000，范围 6000–60000），按当前状态、目标、记忆、NPC、事件到地图 / 派系的优先级保留；超预算只裁剪请求文本，不删除或改写 `WorldSave` 正式事实。
 
 正式回合 receipt 采用 `{ kind: 'turn', commandId, revision, turnIds, eventIds, agent, committedAt }`，开场等其他 receipt 不计入成功回合数。`agent.proposedTools` 只保存经过 Schema 校验的 AI 候选名称；`agent-execute` 阶段不写正式 receipt，`narrate` 阶段才把预览结果转为一次正式提交。正式 RPG 回合的骰子由客户端生成并写入 `actionIntent.dice`，服务端只校验表达式、面值和总和；原生与兼容 Agent 都必须先调用 `rules.check` 才能调用 `dice.roll`，并在同一 Agent 循环内把结果回传给模型后再生成叙事。`/api/dice` 保留为兼容/诊断接口，不再是世界回合的随机源。
+
+`rules.check` 的结果是只读 `CheckProposal`：固定规则回传当前世界卡或活动冲突动作声明的 `id`、`label`、`description`、基础 `roll`、`target`、`modifier`、`modifierRule`；动态规则回传临时 `actionId`、`1dN`、`target` 与 `modifierRules`。客户端不会把判定定义当作存档事实，也不会让 AI 自行改写难度或修正。后续 `dice.roll` 必须提交基础骰式与匹配的 `modifier` / `modifiers` 参数，仍由客户端生成骰点；服务端在 `agent-execute` 依据当前 `state.player`、runtime 快照和已校验的 `actionIntent.dice` 重算只读 `ResolutionCandidate`（骰点、修正、总值、目标、差值、结果等级），并把它保存到 `agentRuntime.pending.outcome`，在 `narrate`/receipt 中复用，AI 不能提交自定义结果或覆盖它。活动冲突仍由冲突结算器负责，避免重复结算。
+
+`actionIntent` 从旧版 `{ raw, verb?, target?, method?, risk?, dice? }` 兼容迁移为版本化 `TurnIntent@1`：`kind` 区分玩家文本、卡内选项和卡内动作，`source` 标记输入来源，`optionId` 可绑定世界卡声明的动作 ID。旧请求缺少这些字段时，服务端按 `kind: 'text'`、`source: 'input'` 补齐；其他未声明字段仍会被拒绝。这样同一条回合链可以保留玩家输入、卡内 UI、开发者测试和 Agent 工具产生的行动来源，而不把来源信息写进叙事正文。
 
 `state.goals` 与 `state.leads` 是存档级目标 / 线索投影，使用稳定 `id`、`title`、`desc`、`status`，可选引用当前世界的 `actorId` / `locationId` 与 `deadline`；它们与旧 `quests` 并存，AI 只能通过本回合结构化 `objective.upsert` 增量写入或 `objective.status` 推进，服务端会校验 ID、状态和地点引用。
 
@@ -182,6 +189,8 @@ RPG 控制块使用 `protocol: 'tavern.rpg.turn'`、`version: 1`、`baseRevision
 如需把存档 NPC 收录为长期世界 NPC，客户端必须显式调用 `POST /api/worlds/<worldId>/versions`，提交 `sourceSaveId`、`expectedRevision` 和该存档生成的 `npcId`。服务端会复制来源世界卡为下一 `version`，分配新的稳定 NPC ID 并写入来源映射；来源世界版本与来源存档均不改写。同一来源 NPC 重复调用会返回已创建版本（幂等）。
 
 ### 世界存档 WorldSave（saves/<saveId>.json）
+
+RPG 请求还会派生不落盘的 `tavern.rpg.context@1` 快照，供提示词与终端调试共用：`scope` 绑定 `worldId/worldVersion/saveId/revision`；`world` 只标记稳定 WorldCard 事实来源及当前地点 / 时间；`save` 只标记当前 WorldSave 动态事实与短期窗口账本来源；`action` 记录本回合 `TurnIntent` 是否待提交；`tools` 列出本次请求启用的工具、只读工具、候选工具及客户端骰子来源。快照不复制完整状态，也不改变事实权限；缺失字段不能由模型猜测，完整内容仍按各 Prompt section 的来源与 Knowledge Scope 注入。
 
 ```js
 {
@@ -202,7 +211,9 @@ RPG 控制块使用 `protocol: 'tavern.rpg.turn'`、`version: 1`、`baseRevision
     candidate: null
   },
   openingMode: 'static' | 'ai', openingOptions: [], openingCommandId: null,
-  turns: [{ id, role: 'user' | 'assistant' | 'system', content, ts, options?, actionIntent?: { raw, verb?, target?, method?, risk? } }],
+  turns: [{ id, role: 'user' | 'assistant' | 'system', content, ts, options?, actionIntent?: { version: 1, kind: 'text' | 'option' | 'action', source: 'input' | 'option' | 'world-card' | 'devtools' | 'system', raw, optionId?, verb?, target?, method?, risk?, dice? } }],
+  initialState: { /* 创建/确认开局时固化的本存档状态基线，包含 runtime/MVU 初值 */ },
+  initialNpcStates: { /* 本存档 NPC 初始状态 */ }, initialEventLedger: [],
   receipts: [], eventLedger: [], eventMemory: [], memoryRebuild: null, worldLineSummary: null, generatedEntities: {},
   reopenInfo: null, // 重开存档的只读来源摘要；不与当前回合、状态或结局共享写入
   migrationHistory: [{ kind: 'world-version-upgrade', commandId, fromVersion, toVersion, changes, addedNpcStateIds, revision, migratedAt }]
@@ -253,7 +264,9 @@ RPG 控制块使用 `protocol: 'tavern.rpg.turn'`、`version: 1`、`baseRevision
 
 `profileFields` 随角色保存，并写入 Character Card V3 的 `extensions.tavern.profileFields`（仍可导出为 V2）；导入时恢复。角色卡编辑器兼容 V1/V2/V3 JSON，并可从 PNG 的 `ccv3` / `chara` 文本块读取卡片元数据（同时兼容未压缩 `iTXt`）；V3 的 `description`、`personality`、`mes_example`、备用开场白、作者字段、`character_book`、`assets` 与未知扩展字段都会保留；`character_book` 只在绑定该角色的酒馆对话中注入，不会并入全局世界书，也不会自动变成 RPG 世界卡的全局绑定。角色书运行时支持卡片级 `scan_depth`、`use_regex`、`case_sensitive`、`selective` 与 `secondary_keys`。角色卡 `extensions.regex_scripts` 在 RP 模式作为卡片级输出正则执行，先于预设与当前模式正则，用于兼容状态栏/HTML 卡面；卡内明确存在的脚本会在首次显示前征得用户确认，随后在同源完整兼容 iframe 中运行，可使用宿主 DOM、localStorage、外部脚本、网络与 ST 兼容桥。预设脚本、EJS/MVU 仍只保留原文。生成的 HTML 仍经 DOMPurify 清洗。构建对话提示词时，非核心字段会追加到唯一的 `【角色卡】` system 段，因此自定义条目不仅用于展示，也会实际参与 AI 对话。
 
-RP 消息显示会优先识别缩进的 HTML 布局与 HTML 代码块，再交给 Markdown 与 DOMPurify；ST 常见的带 `text` 标记的 HTML 正则替换结果也会在完整布局检测后展开，并先提取卡内样式；角色卡消息会占满当前聊天列，iframe 高度跟随卡内根节点内容与折叠状态变化，移动端会把卡内固定宽度和横向内容收进当前消息容器。显示阶段的 `{{user}}` 会替换为当前玩家设定名字。绑定角色卡脚本只有在用户授权后进入同源完整兼容 iframe；拒绝授权或脚本来自预设时按原文 / 清洗后的 HTML 显示。世界卡 `ui.extension` 仍维持单独的无同源 sandbox/CSP 边界。
+ST Lite 兼容桥向已授权的角色卡脚本提供 `SillyTavern`、`getContext`、`eventSource`、`substituteParams`、`getChatMessages`、角色卡世界书读取、`/send` 与当前 Tavern 会话变量读写；变量只写入当前 `ChatSession` 的 `stVariables`，不会进入其他角色卡或 RPG 存档。该桥只覆盖轻量卡片 API，不承诺兼容依赖 ST 私有 DOM、后端扩展或 npm/Node 的大型插件。
+
+RP 消息显示会优先识别缩进的 HTML 布局与 HTML 代码块，再交给 Markdown 与 DOMPurify；ST 常见的带 `text` 标记的 HTML 正则替换结果也会在完整布局检测后展开，并先提取卡内样式；角色卡消息会占满当前聊天列，iframe 高度跟随卡内根节点内容与折叠状态变化，移动端会把卡内固定宽度和横向内容收进当前消息容器。角色卡可在 `extensions.tavern.ui.scrollMode` 声明 `host`（宿主滚动）、`card`（卡内滚动）或 `auto`（默认，兼容未知卡）；未知卡不强制隐藏内部滚动，避免固定高度面板被裁剪。显示阶段的 `{{user}}` 会替换为当前玩家设定名字。绑定角色卡脚本只有在用户授权后进入同源完整兼容 iframe；拒绝授权或脚本来自预设时按原文 / 清洗后的 HTML 显示。世界卡 `ui.extension` 仍维持单独的无同源 sandbox/CSP 边界。
 
 卡内“加载本卡所有设置”之类的 ST 脚本会读取当前会话快照；只有聊天中实际存在 `<world_view>`、`<character_design_complex>`、`<rule_setting_*>` 等结构化标签时才会填充预览，普通叙事文本为空是正常结果，不代表角色书没有绑定。
 
@@ -289,7 +302,9 @@ RP 消息显示会优先识别缩进的 HTML 布局与 HTML 代码块，再交�
 
 提示词页可导入/导出 SillyTavern Chat Completion 的 `prompts + prompt_order + extensions.regex_scripts`。导入同时接受数组、对象映射和字符串 `character_id`；优先选择 `character_id: 100001`，未进入该顺序的 prompts 保留在素材库。常见采样参数会保存在 `modelParameters` 供无损导出，但连接设置仍是运行时权威，不会因导入而静默改动 API 参数。支持安全宏 `{{user}}`、`{{char}}`、`{{persona}}`、`{{description}}`、`{{personality}}`、`{{scenario}}`、`{{mesExamples}}`、`{{mesExamplesRaw}}`、`{{lastMessage}}`、`{{lastUserMessage}}`、`{{lastCharMessage}}`、`{{messageCount}}`、`{{newline}}`、`{{space}}`、`{{setvar::名称::值}}` / `{{setglobalvar::名称::值}}`、`{{getvar::名称}}` / `{{getglobalvar::名称}}`、`{{random::甲::乙}}` / `{{pick::甲::乙}}` 和 `{{trim}}`；全局变量兼容宏只在本次请求内生效，未知宏原样保留。导入的输出正则会保留 ST 的 `placement/affects`、`trimStrings`、`markdownOnly`、`promptOnly`、`runOnEdit`、深度等元数据，并在用户输入、AI 回复、聊天显示、提示词/历史、世界书、思维链和斜杠命令阶段执行；侧栏「正则」可为酒馆 / RPG 分别添加自定义规则，默认绑定当前预设且可切为模式全局。角色卡 / 预设中的 EJS、MVU 仍保持原文保留；绑定角色卡的 HTML/CSS/JS 在用户确认后进入同源完整兼容 iframe，世界卡 `ui.extension` 检测到 EJS、MVU 或扩展脚本时则在现有隔离 sandbox iframe 中运行，拒绝授权时保持停用。授权按世界版本或角色卡代码内容哈希保存在本地，代码或版本改变会重新询问。
 
-`_defaults.json.tavern.replyOptions` 定义 RP 自动选项协议（数量、提示词和无选项提示）。内置「RP 基础（示例）」已把协议写入自己的 `postHistory`；其他预设在未提供同类 `<tavern_options>` 协议时，仍由全局配置自动追加，避免重复注入。客户端解析并移除该标签，只把去重后的选项保存到 assistant 消息的 `options[]`，底部快捷栏据此渲染。缺少或不合规标签时，RP 最多额外请求一次协议修复；修复失败则保留原正文，不在客户端臆造选项。正文、正则和选项数据分开处理，AI 未返回标签时不再回退到写死按钮。
+`_defaults.json.tavern.replyOptions` 定义 RP 自动选项协议（数量、提示词和无选项提示）。内置「RP 基础（示例）」已把协议写入自己的 `postHistory`；其他预设在未提供同类 `<tavern_options>` 协议时，仍由全局配置自动追加，避免重复注入。客户端解析并移除该标签，只把去重后的选项保存到 assistant 消息的 `options[]`，底部快捷栏据此渲染。RP 选项标签缺失时最多额外请求一次修复；RPG 控制块缺失或不合规时最多额外请求两次协议修复。已通过执行器校验的原生工具候选会先转换成内部 Typed Patch，模型正文里的重复 patch 不能覆盖它；协议修复也只替换坏字段，保留本回合已经合法的 options 或 patch。RPG 修复优先强制模型通过专用 function schema 返回控制数据；不支持 function calling 的兼容接口可回退为专用裸 JSON，再由客户端注入固定 `protocol`、`version` 与当前 `baseRevision`，最终仍经同一 Typed Patch 和服务端 revision 校验。修复失败仍保留已生成正文，不在客户端臆造选项。正文、正则和选项数据分开处理，AI 未返回标签时不再回退到写死按钮。兼容模型偶发返回的 `{ label, value }` 选项对象；客户端会在最终提交前统一为字符串，并确保顶层 `options` 与 `patch.options` 同源。`variable.*` / `collection.*` 是世界卡 action effects 的内部名；若模型把这五种内部名复制到回合 `updates`，客户端与服务端只为它们补 `runtime.`（变量键同时从 `variableId` 规范为 `id`），随后仍执行完整 ID 与 Schema 校验；其他未知操作仍拒绝。
+
+DeepSeek V4 默认开启 thinking，但 thinking 模式不接受强制 `tool_choice`；专用 RPG 协议修复请求会显式切换为 non-thinking，普通叙事请求仍遵循用户的思维链设置。强制工具请求被拒绝或返回不可解析内容时，官方 DeepSeek 接口才使用 `response_format: { type: "json_object" }` 兜底；JSON Output 仍可能为空，因此返回值不会直接提交，必须继续通过客户端协议解析和服务端校验。
 
 ### 世界书 lorebooks{}（lorebooks.json）
 ```js
@@ -376,7 +391,8 @@ RP 消息显示会优先识别缩进的 HTML 布局与 HTML 代码块，再交�
 | `POST /api/world-saves/<saveId>/opening` | 以 `commandId + expectedRevision` 幂等提交 AI 开场正文与 4 个选项；原子把 `setup.status` 切为 `active` 并更新当前存档的 `opening` / `openingOptions` |
 | `GET /api/world-saves/<saveId>` | 读取一个完整 WorldSave |
 | `PUT /api/world-saves/<saveId>` | 使用 `expectedRevision` 原子提交当前存档的 `state`、`turns` 与 `opening`；版本冲突返回 409 |
-| `POST /api/world-saves/<saveId>` | 提交一次 RPG 回合候选；新协议携带 `patch { protocol, version, baseRevision, updates }`，服务端在当前存档上严格校验、物化并按 revision 原子提交；同时校验 `commandId`、assistant 回合、卡片允许数量的唯一选项、玩家 `actionIntent.raw`，成功后推进时间、结算 `events`、把行动意图附着到本回合并记录 receipt；旧完整 `state` 提交与相同 commandId 继续兼容且幂等返回 |
+| `POST /api/world-saves/<saveId>/reset` | 使用 `commandId + expectedRevision` 将当前 RPG 存档恢复到 `initialState` / `initialNpcStates` 基线，同时清空回合、MVU/runtime 动态值、事件记忆和 Agent 临时态 |
+| `POST /api/world-saves/<saveId>` | 提交一次 RPG 回合候选；新协议携带 `patch { protocol, version, baseRevision, updates }`，服务端在当前存档上严格校验、物化并按 revision 原子提交；同时校验 `commandId`、assistant 回合、卡片允许数量的唯一选项、版本化 `TurnIntent`，成功后推进时间、结算 `events`、把行动意图附着到本回合并记录 receipt；旧完整 `state` 提交与相同 commandId 继续兼容且幂等返回 |
 | `POST /api/world-saves/<saveId>/agent-execute` | 先执行 Typed Patch 与世界规则，结果写入带 `baseRevision` 的 `agentRuntime.pending`，不推进正式 revision；相同 commandId 幂等返回 |
 | `POST /api/world-saves/<saveId>/agent-cancel` | 使用 `commandId + expectedRevision` 清理未提交的 Agent pending，不改变正式 revision |
 | `POST /api/world-saves/<saveId>/growth` | 使用 `commandId + expectedRevision` 接受或拒绝一个当前存档的成长候选；接受时服务端应用能力 / 特质 / 关系 / 阵营声望 / 身份标签并追加人物经历，拒绝时只追加处理记录；相同 commandId 幂等返回 |
@@ -437,3 +453,7 @@ API additions: `POST /api/rpg-migrations` (preview/seal), `GET /api/rpg-migratio
 
 ### WorldSave 失败 / 结局重开（R6.10）
 `POST /api/world-saves/<saveId>/reopen` 只接受 `state.ending.status = 'ended'` 或 `state.failure.status = 'terminal'` 的世界线。新存档使用 `reopen-<source+command hash>` 的确定 ID，复制当前状态与长期记忆但把 `revision`、回合、receipt、账本和当前 `worldLineSummary` 重新置空；过去结局 / 失败与总结放入只读 `reopenInfo`，并在 Prompt 中标记为背景连续性。终止失败重开时仅把当前存档的 HP 恢复到至少 1，新存档的后续写入不会改动源存档；相同 `commandId` 重试返回同一重开存档。
+
+### Android 内嵌服务器同步（R6.11）
+
+Android 内嵌服务器按 URL 的 `path` 与查询参数分开路由，因此 `worldId`、`version`、`targetVersion` 等查询参数与 Web 端一致。`PUT /api/world-saves/<saveId>` 的 `turns` 是完整快照替换，`POST` 才是增量回合追加；Agent 执行暂存会保留 `turns`、`options`、`agentToolTrace` 与阶段历史，重启后可继续 narrate 阶段。

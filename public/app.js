@@ -107,6 +107,7 @@ const worldCardVersions = new Map();
 let currentWorldId = localStorage.getItem(LS_CURRENT_WORLD) || null;
 let currentWorldSaveId = localStorage.getItem(LS_CURRENT_WORLD_SAVE) || null;
 let currentWorldSave = null;
+let worldWorkspaceActive = false;
 let worldSavesByWorld = new Map();
 let worldLoadToken = 0;
 let worldSaveWriteChain = Promise.resolve();
@@ -116,6 +117,12 @@ let worldSummaryPending = false;
 let worldTurnError = null;
 let worldTurnPreparing = false;
 let worldTurnEpoch = 0;
+let rpgCheckAnimation = null;
+// AI 正文已完成、协议/状态仍在收尾时的临时预览；不进入历史，提交成功后原子替换。
+let responsePreview = null;
+const WORLD_TURN_AUTO_RETRY_MAX = 1;
+const WORLD_STATE_FEEDBACK_EXIT_MS = 180;
+let worldStateFeedback = { saveId: null, token: 0, changes: new Map(), exiting: false };
 let worldDraft = null;
 let worldDraftDirty = false;
 let worldDraftOpener = null;
@@ -137,12 +144,18 @@ let worldImport = null;
 let worldImportOpener = null;
 let rpgMigration = null;
 let rpgMigrationOpener = null;
+// ponytail: 仅在超长会话窗口化，保留“加载更早消息”入口；短会话继续走原渲染路径。
+const MESSAGE_RENDER_WINDOW_SIZE = 120;
+const MESSAGE_RENDER_WINDOW_STEP = 80;
+let messageRenderWindow = { key: '', start: 0, preserveScroll: false };
 let theme = FIXED_THEME;
 let mode = localStorage.getItem(LS_MODE) || 'tavern'; // 'tavern' 酒馆模式 | 'rpg' RPG 模式
 let sending = false;
 const debugTraces = new Map(); // 仅内存、按 session.id 隔离，不把完整 Prompt 写入存档
 const debugMemoryDiagnostics = new Map(); // 仅内存、按 save.id 隔离，不写入世界存档
 const debugMemoryPending = new Set();
+// ponytail: 事件账本只保留最近 96 条摘要，避免长回合把调试内存变成第二份聊天记录。
+const rpgAgentRequestSessions = new WeakMap();
 let debugTab = 'output';
 const devtoolsEnabled = typeof location !== 'undefined' && /(?:^|[?&])dev=1(?:&|$)/.test(location.search || '');
 let devtoolsScenarios = [];
@@ -158,7 +171,7 @@ let regexEditingSource = 'custom';
 let rpgDrawerReturnFocus = null;
 const serverDataWriteQueues = new Map();
 const WORLD_EXTENSION_CHANNEL = 'tavern.rpg.extension';
-let worldExtensionState = { iframe: null, nonce: '', signature: '', ready: false, timer: null, pending: new Map(), nextRequestId: 0 };
+let worldExtensionState = { iframe: null, nonce: '', signature: '', ready: false, timer: null, pending: new Map(), nextRequestId: 0, surface: 'play' };
 const worldExtensionDeniedApprovals = new Set();
 const cardScriptDeniedApprovals = new Set();
 const tavernMemoryPending = new Set();
@@ -248,11 +261,35 @@ function sessionMatches(s) { return !!s && s.charId === currentCharId && s.kind 
 /* ─────────── 世界库 / 世界存档（W2：RPG 主链由当前 WorldSave 持有） ─────────── */
 function worldCardById(id) { return worldCards.find(w => w.id === id) || null; }
 function worldCardKey(id, version) { return `${id}@${version}`; }
+/*
+ * RPG 世界卡的运行契约保持小而稳定：角色、地点/时间、叙事、选项与必要判定。
+ * 旧卡仍可从服务端读取完整字段，但新回合不会把已废弃的系统暴露给 UI/提示词。
+ */
+function compactRpgWorldCard(world) {
+  if (!world || typeof world !== 'object' || Array.isArray(world)) return world;
+  const cached = compactRpgWorldCard.cache.get(world);
+  if (cached) return cached;
+  const card = cloneValue(world);
+  for (const key of ['events', 'factions', 'conflicts', 'map', 'mapGeneration', 'itemIds', 'questTemplateIds', 'factionIds']) delete card[key];
+  if (card.playerCreation && typeof card.playerCreation === 'object') {
+    for (const key of ['economy', 'growth', 'initialInventory']) delete card.playerCreation[key];
+  }
+  if (card.start && typeof card.start === 'object' && card.start.initialState && typeof card.start.initialState === 'object') {
+    for (const key of ['inventory', 'equipment', 'currencies', 'quests', 'goals', 'leads', 'activeHooks', 'conflicts', 'growthCandidates', 'growthApplications', 'experiences', 'map']) {
+      delete card.start.initialState[key];
+    }
+    if (card.start.initialState.player && typeof card.start.initialState.player === 'object') delete card.start.initialState.player.initialInventory;
+    if (card.start.initialState.stats && typeof card.start.initialState.stats === 'object') delete card.start.initialState.stats.gold;
+  }
+  compactRpgWorldCard.cache.set(world, card);
+  return card;
+}
+compactRpgWorldCard.cache = new WeakMap();
 function currentWorldCard() {
   const version = currentWorldSave && currentWorldSave.worldVersion;
   const summary = worldCardById(currentWorldId);
   const targetVersion = version === undefined || version === null ? summary?.version : version;
-  return worldCardVersions.get(worldCardKey(currentWorldId, targetVersion)) || summary;
+  return compactRpgWorldCard(worldCardVersions.get(worldCardKey(currentWorldId, targetVersion)) || summary);
 }
 function formatWorldDate(ts) {
   if (!ts) return '时间未知';
@@ -266,12 +303,143 @@ function worldModeActive() {
   return mode === 'rpg' && !!currentWorldSave && currentWorldSave.id === currentWorldSaveId;
 }
 function worldSavePlanning(save = currentWorldSave) { return !!save && save.setup?.status === 'planning'; }
+function syncConversationResetButton() {
+  const button = $('btn-clear-chat');
+  if (!button) return;
+  const reset = worldModeActive();
+  button.textContent = reset ? '重置对话' : '清空对话';
+  button.title = reset ? '重置当前 RPG 存档到开局状态（含 MVU/runtime）' : '清空当前对话';
+}
 function activeConversationKey() {
   const scope = activeConversationScope();
   return scope ? `${worldModeActive() ? 'world' : 'session'}:${scope.id}` : '';
 }
 function cloneValue(value) {
   return JSON.parse(JSON.stringify(value));
+}
+function createRpgAgentSession(payload, targetScope) {
+  const profile = payload?.agentProfile || {};
+  const session = {
+    id: uid(),
+    commandId: worldTurnPendingActive() ? worldTurnPending.commandId : null,
+    worldId: worldModeActive() ? currentWorldId : null,
+    saveId: worldModeActive() ? currentWorldSaveId : null,
+    baseRevision: worldModeActive() ? currentWorldSave?.revision ?? null : null,
+    mode: profile.mode || 'direct',
+    maxSteps: Math.max(1, Math.min(8, Number(profile.maxSteps) || 1)),
+    status: 'running',
+    phase: 'observe',
+    step: 0,
+    messages: Array.isArray(payload?.body?.messages) ? payload.body.messages.map(cloneValue) : [],
+    events: [],
+    accepted: [],
+    toolTrace: [],
+    cot: '',
+    previewNarrative: '',
+    checkpoints: [],
+    targetKey: activeConversationKey(),
+  };
+  rpgAgentRequestSessions.set(payload, session);
+  appendRpgAgentEvent(session, 'turn.start', {
+    mode: session.mode,
+    messageCount: session.messages.length,
+    stream: payload?.body?.stream === true,
+  });
+  syncRpgAgentDebug(session, targetScope, 'Agent 回合开始');
+  return session;
+}
+function appendRpgAgentEvent(session, type, data = {}) {
+  if (!session) return;
+  const event = {
+    id: uid(),
+    ts: Date.now(),
+    type: String(type || 'event'),
+    step: Number.isInteger(session.step) ? session.step : 0,
+    ...data,
+  };
+  session.events.push(event);
+  if (session.events.length > 96) session.events.splice(0, session.events.length - 96);
+}
+function syncRpgAgentDebug(session, targetScope, status = null) {
+  if (!session || !targetScope) return;
+  setDebugTrace(targetScope, {
+    agentSessionId: session.id,
+    agentEvents: cloneValue(session.events),
+    ...(status ? { status } : {}),
+  });
+}
+function rpgAgentNarrative(text) {
+  if (!text) return '';
+  try {
+    const parsed = parseRpgOutput(String(text));
+    return stripRpgNarrativeOptions(parsed.narrative || '').trim();
+  } catch {
+    return String(text).trim();
+  }
+}
+// ponytail: merge repeated model prefixes instead of replaying the whole prior paragraph on every tool step.
+function mergeRpgAgentNarrative(previous, next) {
+  const before = String(previous || '').trim();
+  const after = String(next || '').trim();
+  if (!before) return after;
+  if (!after || before === after || before.includes(after)) return before;
+  if (after.startsWith(before)) return after;
+  if (before.endsWith(after)) return before;
+  const limit = Math.min(before.length, after.length);
+  for (let size = limit; size > 0; size--) {
+    if (before.slice(-size) === after.slice(0, size)) return before + after.slice(size);
+  }
+  return `${before}\n\n${after}`;
+}
+function appendRpgAgentPreview(session, reply) {
+  const next = rpgAgentNarrative(reply);
+  if (!session || !next) return session?.previewNarrative || '';
+  session.previewNarrative = mergeRpgAgentNarrative(session.previewNarrative, next);
+  return session.previewNarrative;
+}
+function publishRpgAgentStep(session, response, targetScope, status = 'Agent 步骤完成') {
+  appendRpgAgentPreview(session, response?.content || '');
+  appendRpgAgentEvent(session, 'assistant.message', {
+    contentChars: String(response?.content || '').length,
+    calls: (response?.calls || []).map(call => call.name),
+  });
+  if (session.previewNarrative && session.targetKey === activeConversationKey()) {
+    setResponsePreview(session.previewNarrative, null, session.targetKey, session.checkpoints);
+  }
+  setDebugTrace(targetScope, {
+    status,
+    output: response?.cot ? `${response.content || ''}\n\n[reasoning_content]\n${response.cot}` : String(response?.content || ''),
+    rawOutput: String(response?.content || ''),
+    outputTag: extractDebugOutputTag(response?.content || ''),
+    reasoning: String(response?.cot || ''),
+    agentToolTrace: cloneValue(session.toolTrace),
+    agentEvents: cloneValue(session.events),
+  });
+}
+function combineRpgAgentReply(session, reply) {
+  const current = String(reply || '').trim();
+  const previous = String(session?.previewNarrative || '').trim();
+  if (!previous || !current) return current || previous;
+  const currentNarrative = rpgAgentNarrative(current);
+  if (currentNarrative.includes(previous) || previous.includes(currentNarrative)) return current;
+  return `${previous}\n\n${current}`;
+}
+function pendingWorldTurnMessages(pending) {
+  const messages = Array.isArray(pending?.messages) ? pending.messages : [];
+  return cloneValue(pending?.assistantMessage ? [...messages, pending.assistantMessage] : messages);
+}
+function buildRpgTurnIntent(raw, { kind = 'text', source = 'input', optionId = null, actionId = null, input = null, dice = null } = {}) {
+  const intent = {
+    version: 1,
+    kind: ['text', 'option', 'action'].includes(kind) ? kind : 'text',
+    source: ['input', 'option', 'world-card', 'devtools', 'system'].includes(source) ? source : 'input',
+    raw: String(raw || '').trim(),
+  };
+  if (optionId) intent.optionId = String(optionId).slice(0, 160);
+  if (actionId) intent.actionId = String(actionId).slice(0, 160);
+  if (input && typeof input === 'object' && !Array.isArray(input)) intent.input = cloneValue(input);
+  if (Array.isArray(dice) && dice.length) intent.dice = dice;
+  return intent;
 }
 function hydrateWorldSave(data) {
   if (!data || typeof data !== 'object') return data;
@@ -281,6 +449,7 @@ function hydrateWorldSave(data) {
   if (!data.setup.game || typeof data.setup.game !== 'object') data.setup.game = {};
   if (data.setup.plan === undefined) data.setup.plan = null;
   if (data.setup.candidate === undefined) data.setup.candidate = null;
+  if (data.setup.draft === undefined) data.setup.draft = null;
   if (!Array.isArray(data.turns)) data.turns = [];
   if (data.state.ending === undefined) data.state.ending = null;
   if (!Array.isArray(data.state.activeHooks)) data.state.activeHooks = [];
@@ -305,15 +474,23 @@ function serializeWorldState(save) {
   if (map && map.data && window.MapGen?.serializeMap) state.map.data = window.MapGen.serializeMap(map.data);
   return state;
 }
+function isLegacyWorldDiceMessage(message) {
+  return message?.meta === true
+    && message?.role === 'user'
+    && /^🎲\s*(?:工具掷骰\s*)?\d*d\d+/i.test(String(message.content || '').trim());
+}
 function worldTimelineMessages() {
   if (!worldModeActive()) return [];
   const result = [];
   if (currentWorldSave.setup?.status !== 'planning' && currentWorldSave.opening) result.push({ role: 'assistant', content: currentWorldSave.opening, ts: currentWorldSave.createdAt || Date.now(), _opening: true });
   for (const turn of currentWorldSave.turns || []) {
-    if (!turn || typeof turn !== 'object' || !turn.role) continue;
+    if (!turn || typeof turn !== 'object' || !turn.role || isLegacyWorldDiceMessage(turn)) continue;
     result.push(turn);
   }
-  if (worldTurnPending && worldTurnPending.saveId === currentWorldSaveId) result.push(...worldTurnPending.messages);
+  if (worldTurnPending && worldTurnPending.saveId === currentWorldSaveId) {
+    result.push(...worldTurnPending.messages.filter(message => !isLegacyWorldDiceMessage(message)));
+    if (worldTurnPending.assistantMessage) result.push(worldTurnPending.assistantMessage);
+  }
   return result;
 }
 function worldShortTermWindowSize() {
@@ -338,7 +515,23 @@ function buildWorldRecentContext() {
   const candidates = sceneStartRevision === null
     ? timeline
     : timeline.filter(message => message._opening !== true && (message.revision === undefined || message.revision >= sceneStartRevision));
-  const selected = (candidates.length ? candidates : timeline).slice(-worldShortTermWindowSize());
+  const recent = (candidates.length ? candidates : timeline).slice(-worldShortTermWindowSize());
+  const charBudget = Math.min(12000, Math.max(4000, Math.floor(worldContextBudget() / 2)));
+  const selected = [];
+  let used = 0;
+  for (let index = recent.length - 1; index >= 0; index--) {
+    const message = recent[index];
+    const content = String(message.content || '');
+    const remaining = charBudget - used;
+    if (remaining <= 0) break;
+    const limit = Math.min(4000, remaining);
+    const marker = '…（较早内容已由记忆/事件账本承接）\n';
+    const clipped = content.length <= limit
+      ? content
+      : limit <= marker.length ? marker.slice(0, limit) : marker + content.slice(-(limit - marker.length));
+    selected.unshift({ ...message, content: clipped });
+    used += clipped.length;
+  }
   const firstRevision = selected.find(message => Number.isInteger(message.revision))?.revision;
   return {
     messages: selected.map(message => ({ role: message.role, content: message.content })),
@@ -358,6 +551,8 @@ function worldTurnErrorActive() {
 function resetWorldTurnPending(pending) {
   if (!pending) return;
   pending.messages = pending.messages.filter(message => message && message.role !== 'assistant' && message.role !== 'image');
+  pending.assistantMessage = null;
+  pending.agentSession = null;
   pending.options = null;
   pending.createEntities = null;
   pending.eventMemory = null;
@@ -368,6 +563,7 @@ function resetWorldTurnPending(pending) {
   pending.agentPhaseHistory = [];
   pending.agentOrchestration = null;
   pending.agentExecution = null;
+  pending.protocolRepairDraft = null;
   pending.state = cloneValue(pending.beforeState);
   if (currentWorldSave && pending.saveId === currentWorldSaveId) {
     currentWorldSave.state = cloneValue(pending.beforeState);
@@ -385,20 +581,48 @@ function cancelWorldAgentExecution(pending) {
 function discardWorldTurnPending() {
   const pending = worldTurnPending;
   cancelWorldAgentExecution(pending);
+  clearResponsePreview();
   worldTurnPending = null;
   worldTurnError = null;
   worldTurnEpoch++;
   resetWorldTurnPending(pending);
   renderMessages();
 }
+function shouldAutoRetryWorldTurn(message) {
+  const text = String(message?.message || message || '');
+  return /RPG 输出协议|RPG 回合需要|agentToolTrace|agentCalls|Agent 工具|模型未返回内容|options 需要|输出协议|超时|Failed to fetch|NetworkError|HTTP (?:408|425|429|5\d\d)/i.test(text);
+}
+function scheduleWorldTurnAutoRetry(message) {
+  const pending = worldTurnPending;
+  const attempts = Number(pending?.autoRetryCount) || 0;
+  if (!pending || attempts >= WORLD_TURN_AUTO_RETRY_MAX || !shouldAutoRetryWorldTurn(message)) return false;
+  pending.autoRetryCount = attempts + 1;
+  const commandId = pending.commandId;
+  if (worldTurnError) {
+    worldTurnError.autoRetry = true;
+    worldTurnError.message = `${worldTurnError.message}；正在自动重试（${pending.autoRetryCount}/${WORLD_TURN_AUTO_RETRY_MAX}）`;
+  }
+  let waits = 0;
+  const run = () => {
+    if (!worldTurnPendingActive() || worldTurnPending.commandId !== commandId || !worldTurnErrorActive()) return;
+    if ((sending || worldTurnPreparing) && waits++ < 40) {
+      setTimeout(run, 50);
+      return;
+    }
+    void retryWorldTurn();
+  };
+  setTimeout(run, 0);
+  return true;
+}
 function failWorldTurnPending(message) {
   if (!worldTurnPendingActive()) return false;
-  if (!worldTurnPending.agentExecution) resetWorldTurnPending(worldTurnPending);
+  if (!worldTurnPending.agentExecution && !worldTurnPending.assistantMessage && !worldTurnPending.protocolRepairDraft) resetWorldTurnPending(worldTurnPending);
   worldTurnError = {
     saveId: worldTurnPending.saveId,
     commandId: worldTurnPending.commandId,
     message: String(message || '本回合未提交'),
   };
+  scheduleWorldTurnAutoRetry(message);
   worldTurnEpoch++;
   renderMessages();
   return true;
@@ -406,11 +630,13 @@ function failWorldTurnPending(message) {
 async function retryWorldTurn() {
   if (!worldTurnPendingActive() || !worldTurnErrorActive() || sending || worldTurnPreparing) return;
   worldTurnError = null;
+  const retryCommit = !!worldTurnPending.assistantMessage;
   const retryAgentNarration = !!worldTurnPending.agentExecution;
-  if (!retryAgentNarration) resetWorldTurnPending(worldTurnPending);
+  const retryProtocol = !!worldTurnPending.protocolRepairDraft;
+  if (!retryCommit && !retryAgentNarration && !retryProtocol) resetWorldTurnPending(worldTurnPending);
   worldTurnEpoch++;
   renderMessages();
-  if (retryAgentNarration) {
+  if (retryCommit || retryAgentNarration) {
     try { await submitWorldTurn(worldTurnPending); }
     catch (err) { failWorldTurnPending(err.message); }
     return;
@@ -453,7 +679,7 @@ async function submitWorldTurn(pending) {
         agentCalls: pending.agentCalls || undefined,
         agentToolTrace: pending.agentToolTrace || undefined,
         actionIntent: pending.actionIntent,
-        turns: cloneValue(pending.messages),
+        turns: pendingWorldTurnMessages(pending),
         options: pending.options || [],
       }, 'Agent 执行阶段失败');
       pending.agentExecution = data.execution || data.agentRuntime?.pending || null;
@@ -462,6 +688,7 @@ async function submitWorldTurn(pending) {
         ? cloneValue(pending.agentExecution.phaseHistory) : [];
       pending.agentOrchestration = pending.agentExecution?.orchestration
         ? cloneValue(pending.agentExecution.orchestration) : null;
+      attachWorldStateFeedback(pending, data.execution?.state || data.agentRuntime?.pending?.state || data.state);
       postWorldExtensionEvent('agent.execute', {
         commandId: pending.commandId,
         phase: pending.agentExecution?.phase || 'narrate',
@@ -474,14 +701,15 @@ async function submitWorldTurn(pending) {
       commandId: pending.commandId,
       pendingCommandId: pending.commandId,
       expectedRevision: pending.expectedRevision,
-      turns: cloneValue(pending.messages),
+      turns: pendingWorldTurnMessages(pending),
       options: pending.options,
     }, 'Agent 叙事阶段失败');
   } else {
+    attachWorldStateFeedback(pending, pending.state);
     data = await request(endpoint, {
       commandId: pending.commandId,
       expectedRevision: pending.expectedRevision,
-      turns: cloneValue(pending.messages),
+      turns: pendingWorldTurnMessages(pending),
       options: pending.options,
       createEntities: pending.createEntities || undefined,
       eventMemory: pending.eventMemory || undefined,
@@ -496,9 +724,11 @@ async function submitWorldTurn(pending) {
     return;
   }
   hydrateWorldSave(data);
+  showWorldStateFeedback({ ...(currentWorldSave || {}), state: pending.beforeState || currentWorldSave?.state }, data);
   currentWorldSave = data;
   currentWorldSaveId = data.id;
   postWorldExtensionEvent('turn.commit', { commandId: pending.commandId, revision: data.revision });
+  clearResponsePreview();
   worldTurnPending = null;
   worldTurnError = null;
   worldTurnEpoch++;
@@ -545,12 +775,15 @@ function queueWorldSave(save = currentWorldSave) {
 }
 function enterWorldWorkspace() {
   if (!worldModeActive()) return;
+  worldWorkspaceActive = true;
   syncModeNavigation('chat');
   closeWorldLibrary();
   if (!worldSavePlanning() && worldCardUsesImmersive()) enterWorldImmersiveMode({ fullscreen: false });
   else exitWorldImmersiveMode();
   renderSessions();
   renderMessages();
+  const conversationKey = activeConversationKey();
+  window.requestAnimationFrame?.(() => scrollChatToLatest($('chat'), conversationKey));
 }
 async function loadWorldCards() {
   const res = await fetch('/api/worlds');
@@ -1060,13 +1293,8 @@ function handleWorldDraftPlayerCreationClick(event) {
   renderWorldDraftPlayerCreation();
 }
 const WORLD_DRAFT_JSON_ARRAY_DEFS = [
-  { key: 'events', label: '世界事件', validateId: 'world-draft-events-validate-json', template: () => ({ id: 'event-' + uid(), title: '新事件', description: '', trigger: { afterTurns: 1 }, visibility: 'public', once: true, consequences: [] }) },
-  { key: 'factions', label: '派系', validateId: 'world-draft-factions-validate-json', template: () => ({ id: 'faction-' + uid(), name: '新派系', description: '', goals: [], resources: [], actions: [] }) },
-  { key: 'conflicts', label: '冲突模板', validateId: 'world-draft-conflicts-validate-json', template: () => ({ id: 'conflict-' + uid(), label: '新冲突', type: 'custom', description: '', phases: [], actions: [], outcomes: [] }) },
   { key: 'failureModes', label: '失败模式', parentKey: 'failure', nestedKey: 'modes', rawId: 'world-draft-failure', editorId: 'world-draft-failure-modes-editor', previewId: 'world-draft-failure-modes-preview', loadId: 'world-draft-failure-load-modes-json', validateId: 'world-draft-failure-validate-modes-json', template: () => ({ id: 'failure-' + uid(), label: '新失败模式', description: '', effect: '' }) },
   { key: 'endingEndings', label: '结局条目', parentKey: 'ending', nestedKey: 'endings', rawId: 'world-draft-ending', editorId: 'world-draft-ending-endings-editor', previewId: 'world-draft-ending-endings-preview', loadId: 'world-draft-ending-load-endings-json', validateId: 'world-draft-ending-validate-endings-json', template: () => ({ id: 'ending-' + uid(), kind: 'card-defined', label: '新结局', description: '', terminal: true }) },
-  { key: 'growthSources', label: '成长来源', parentKey: 'playerCreation', nestedKey: 'growth.sources', rawId: 'world-draft-player-creation', editorId: 'world-draft-growth-sources-editor', previewId: 'world-draft-growth-sources-preview', loadId: 'world-draft-player-load-growth-sources-json', validateId: 'world-draft-player-validate-growth-sources-json', template: () => ({ id: 'growth-source-' + uid(), label: '新成长来源', kind: 'custom', description: '' }) },
-  { key: 'growthCandidates', label: '成长候选', parentKey: 'playerCreation', nestedKey: 'growth.candidates', rawId: 'world-draft-player-creation', editorId: 'world-draft-growth-candidates-editor', previewId: 'world-draft-growth-candidates-preview', loadId: 'world-draft-player-load-growth-candidates-json', validateId: 'world-draft-player-validate-growth-candidates-json', template: () => ({ id: 'growth-candidate-' + uid(), label: '新成长候选', sourceId: '', bucket: 'attributes', targetId: '', delta: 1, description: '' }) },
 ];
 function worldDraftJsonArrayDefinition(key) {
   return WORLD_DRAFT_JSON_ARRAY_DEFS.find(definition => definition.key === key) || null;
@@ -1387,6 +1615,9 @@ function fillWorldDraftExtensionEditor(extension = null) {
   enabled.checked = value.enabled === true;
   $('world-extension-immersive').checked = value.immersive !== false;
   $('world-extension-action-narrates').checked = value.actionNarrates === true;
+  const surfaces = new Set(Array.isArray(value.surfaces) ? value.surfaces : ['play']);
+  $('world-extension-surface-setup').checked = surfaces.has('setup');
+  $('world-extension-surface-play').checked = surfaces.has('play');
   $('world-extension-title').value = value.title || '';
   $('world-extension-height').value = Number.isInteger(value.maxHeight) ? value.maxHeight : 360;
   $('world-extension-timeout').value = Number.isInteger(value.timeoutMs) ? value.timeoutMs : 1200;
@@ -1430,8 +1661,9 @@ function collectWorldDraftExtension() {
   const css = $('world-extension-css').value;
   const js = $('world-extension-js').value;
   const actionNarrates = $('world-extension-action-narrates').checked;
+  const surfaces = [...document.querySelectorAll('[id^="world-extension-surface-"]:checked')].map(input => input.value);
   const permissions = [...document.querySelectorAll('[data-world-extension-permission]:checked')].map(input => input.value);
-  const hasContent = enabled.checked || !immersive || actionNarrates || title || html.trim() || css.trim() || js.trim() || mvuText || permissions.length;
+  const hasContent = enabled.checked || !immersive || actionNarrates || title || html.trim() || css.trim() || js.trim() || mvuText || permissions.length || surfaces.length;
   if (!hasContent) return { ok: true, value: null };
   const maxHeight = Number($('world-extension-height').value);
   const timeoutMs = Number($('world-extension-timeout').value);
@@ -1441,7 +1673,7 @@ function collectWorldDraftExtension() {
   if (!Number.isInteger(timeoutMs) || timeoutMs < 200 || timeoutMs > 5000) {
     setWorldDraftStatus('扩展超时必须是 200-5000 的整数。', 'error'); $('world-extension-timeout').focus(); return { ok: false };
   }
-  return { ok: true, value: { enabled: enabled.checked, ...(immersive ? {} : { immersive: false }), ...(actionNarrates ? { actionNarrates: true } : {}), ...(title ? { title } : {}), ...(html ? { html } : {}), ...(css ? { css } : {}), ...(js ? { js } : {}), ...(mvu ? { mvu } : {}), permissions, maxHeight, timeoutMs } };
+  return { ok: true, value: { enabled: enabled.checked, ...(immersive ? {} : { immersive: false }), ...(actionNarrates ? { actionNarrates: true } : {}), ...(title ? { title } : {}), ...(html ? { html } : {}), ...(css ? { css } : {}), ...(js ? { js } : {}), ...(mvu ? { mvu } : {}), permissions, surfaces: surfaces.length ? surfaces : ['play'], maxHeight, timeoutMs } };
 }
 function renderWorldDraftLorebookOptions(selectedIds = []) {
   const host = $('world-draft-lorebooks');
@@ -1503,6 +1735,7 @@ function worldDraftIsNew(draft = worldDraft) {
 function worldOpenStatusText(save = currentWorldSave) {
   if (!save) return '';
   if (save.setup?.status === 'planning') return `「${save.name}」已创建，当前处于待开局规划；规划完成前不会写入正式回合。`;
+  if (!worldWorkspaceActive) return `已选择「${save.name}」；点击工作台返回这份存档的对话。`;
   return `存档已打开：「${save.name}」——世界状态、地图和叙事已绑定当前存档；当前存档 ID：${save.id}`;
 }
 function openWorldDraftChoice() {
@@ -1617,13 +1850,6 @@ async function saveWorldDraft() {
     try { regexes = JSON.parse(regexText); }
     catch { setWorldDraftStatus('世界卡输出正则不是有效 JSON。', 'error'); $('world-draft-regexes').focus(); return false; }
   }
-  let runtime = null;
-  const runtimeText = $('world-draft-runtime').value.trim();
-  if (runtimeText) {
-    try { runtime = JSON.parse(runtimeText); }
-    catch { setWorldDraftStatus('RPG GEN 3 运行态不是有效 JSON。', 'error'); $('world-draft-runtime').focus(); return false; }
-  }
-  const mapGeneration = collectWorldDraftMapGeneration();
   const collections = collectWorldDraftCollections();
   if (collections.error) {
     setWorldDraftStatus(collections.error, 'error');
@@ -1631,6 +1857,12 @@ async function saveWorldDraft() {
     return false;
   }
   const { locations, npcs } = collections;
+  let runtime = null;
+  const runtimeText = $('world-draft-runtime').value.trim();
+  if (runtimeText) {
+    try { runtime = JSON.parse(runtimeText); }
+    catch { setWorldDraftStatus('RPG Runtime Schema 不是有效 JSON。', 'error'); $('world-draft-runtime').focus(); return false; }
+  }
   let playerCreation = null;
   const playerCreationRaw = $('world-draft-player-creation').value.trim();
   const playerCreationPreviewBeforeSync = worldDraftPlayerSchema();
@@ -1682,25 +1914,15 @@ async function saveWorldDraft() {
     try { time = JSON.parse(timeText); }
     catch { setWorldDraftStatus('世界时间不是有效 JSON。', 'error'); $('world-draft-time').focus(); return false; }
   }
-  const jsonArrays = collectWorldDraftJsonArraysForSave();
-  if (!jsonArrays.ok) {
-    setWorldDraftStatus(jsonArrays.error, 'error');
-    jsonArrays.focus?.focus();
-    return false;
-  }
-  const { events, factions, conflicts } = jsonArrays.values;
   const duplicate = worldDraftDuplicateIdReport({
     ...worldDraft.world,
     locations,
     npcs,
     playerCreation,
+    runtime,
     sessionSetup,
     failure,
     ending,
-    events,
-    factions,
-    conflicts,
-    runtime,
   });
   if (duplicate) {
     setWorldDraftStatus(`${duplicate.label} ID「${duplicate.id}」重复，请先修改后再保存。`, 'error');
@@ -1721,7 +1943,7 @@ async function saveWorldDraft() {
     const res = await fetch('/api/world-drafts/' + encodeURIComponent(worldDraft.worldId), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
-      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds, rpgPresetName, agent, ui, regexes, runtime, mapGeneration, locations, npcs, setting, rules, playerCreation, sessionSetup, turnContract, failure, ending, time, events, factions, conflicts }),
+      body: JSON.stringify({ expectedUpdatedAt: worldDraft.updatedAt, baseVersion: worldDraft.baseVersion, title, summary, tags, lorebookIds, rpgPresetName, agent, ui, regexes, runtime, locations, npcs, setting, rules, playerCreation, sessionSetup, turnContract, failure, ending, time }),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error(worldApiError(data, '世界草稿保存失败（HTTP ' + res.status + '）'));
@@ -1816,7 +2038,8 @@ async function openWorldSave(saveId, expectedToken = worldLoadToken) {
   currentWorldSave = data;
   currentWorldSaveId = data.id;
   currentWorldId = data.worldId;
-  restoreWorldAgentPending(data);
+  if (restoreWorldAgentPending(data)) clearWorldStateFeedback();
+  else restoreWorldStateFeedback(data);
   localStorage.setItem(LS_CURRENT_WORLD, currentWorldId);
   localStorage.setItem(LS_CURRENT_WORLD_SAVE, currentWorldSaveId);
   renderWorldDetail();
@@ -1829,13 +2052,18 @@ function restoreWorldAgentPending(save) {
     if (worldTurnPending?.saveId === save?.id) { worldTurnPending = null; worldTurnError = null; }
     return false;
   }
+  const pendingTurns = cloneValue(pending.turns);
+  const lastPendingTurn = pendingTurns.at(-1);
+  const assistantMessage = lastPendingTurn?.role === 'assistant' ? pendingTurns.pop() : null;
   worldTurnPending = {
     saveId: save.id,
     commandId: pending.commandId,
     expectedRevision: pending.baseRevision,
     beforeState: cloneValue(save.state),
     state: cloneValue(pending.state || save.state),
-    messages: cloneValue(pending.turns),
+    messages: pendingTurns,
+    assistantMessage,
+    agentSession: null,
     options: Array.isArray(pending.options) ? cloneValue(pending.options) : [],
     createEntities: null,
     eventMemory: Array.isArray(pending.eventMemory) ? cloneValue(pending.eventMemory) : null,
@@ -1847,6 +2075,7 @@ function restoreWorldAgentPending(save) {
     actionIntent: pending.actionIntent ? cloneValue(pending.actionIntent) : null,
     patch: null,
     agentExecution: cloneValue(pending),
+    autoRetryCount: 0,
   };
   worldTurnError = null;
   return true;
@@ -1951,6 +2180,27 @@ function collectWorldPlayerInput(containerId = 'world-player-fields') {
   root.querySelectorAll('[data-player-relation]').forEach(input => { player.relations[input.dataset.playerRelation] = Number(input.value); });
   return player;
 }
+function scheduleWorldPlayerDraftAutosave() {
+  const save = currentWorldSave;
+  if (!save || !worldSavePlanning(save) || save.player?.snapshot || !editingWorldPlayerSaveId || editingWorldPlayerSaveId !== save.id) return;
+  clearTimeout(worldSetupAutosaveTimer);
+  worldSetupAutosaveTimer = setTimeout(async () => {
+    const current = currentWorldSave;
+    if (!current || current.id !== save.id || !worldSavePlanning(current) || current.player?.snapshot) return;
+    try {
+      const response = await fetch('/api/world-saves/' + encodeURIComponent(current.id) + '/setup', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        body: JSON.stringify({ commandId: 'setup-draft-' + uid(), expectedRevision: current.revision, draft: { ...(current.setup?.draft || {}), player: collectWorldPlayerInput() } }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(worldApiError(data, '开局草稿保存失败（HTTP ' + response.status + '）'));
+      if (currentWorldSaveId === current.id) { hydrateWorldSave(data); currentWorldSave = data; renderWorldList(); }
+    } catch (error) {
+      setWorldPlayerStatus(error.message, 'error');
+    }
+  }, 700);
+}
 function worldPlayerAiSchema(world) {
   const schema = world?.playerCreation || {};
   return { fields: schema.fields || [], attributes: schema.attributes || [], skills: schema.skills || [], resources: schema.resources || [], traits: schema.traits || [], choices: schema.choices || [], initialInventory: schema.initialInventory || [], relations: schema.relations || [], pointBudget: schema.pointBudget || null };
@@ -2004,6 +2254,12 @@ async function openWorldPlayerCreation(name, button) {
   if (!world) throw new Error('请先选择一个世界卡');
   await loadWorldCardVersion(world.id, world.version);
   const fullWorld = currentWorldCard();
+  if (worldCardHasSetupSurface(fullWorld)) {
+    const save = await createWorldSave(name, null, $('world-save-preset')?.value || fullWorld.playerCreation?.defaultPresetId || '', true);
+    const input = $('world-save-name');
+    if (input) input.value = '';
+    return save;
+  }
   if (!fullWorld?.playerCreation) return createWorldSave(name);
   pendingWorldSaveName = name;
   pendingWorldPlayerPresetId = $('world-save-preset')?.value || fullWorld.playerCreation.defaultPresetId || '';
@@ -2046,6 +2302,27 @@ function setWorldCustomLayout(enabled) {
   document.body.classList.toggle('world-shell-topbar-hidden', active && shell.topbar === 'hide');
   document.body.dataset.worldShellNavigation = active ? shell.navigation : 'show';
   document.body.dataset.worldShellTopbar = active ? shell.topbar : 'show';
+}
+function setWorldSetupExtensionMode(enabled) {
+  const active = Boolean(enabled);
+  document.body.classList.toggle('world-setup-extension-mode', active);
+  const exit = $('rpg-extension-setup-exit');
+  if (exit) exit.hidden = !active;
+}
+function openWorldSetupExtension(save = currentWorldSave) {
+  if (!save || !worldSavePlanning(save) || !worldCardHasSetupSurface()) return false;
+  closeWorldPlayerDialog();
+  closeWorldOpeningDialog();
+  setWorldCustomLayout(false);
+  setWorldSetupExtensionMode(true);
+  renderWorldExtension('setup');
+  return true;
+}
+function closeWorldSetupExtension() {
+  setWorldSetupExtensionMode(false);
+  clearWorldExtension();
+  if (currentWorldSave?.player?.snapshot) openWorldOpeningDialog(currentWorldSave);
+  else if (currentWorldSave) openWorldPlayerEditor(currentWorldSave);
 }
 function exitWorldImmersiveMode() {
   worldImmersiveSession = false;
@@ -2107,21 +2384,32 @@ function openWorldPlayerEditor(save = currentWorldSave) {
   pendingWorldPlayerPresetId = save.setup?.playerPresetId || '';
   pendingWorldSaveButton = null;
   renderWorldPlayerPresetSelects(world, pendingWorldPlayerPresetId);
-  renderWorldPlayerForm(world, 'world-player-fields', save.state?.player || null);
+  renderWorldPlayerForm(world, 'world-player-fields', save.setup?.draft?.player || save.state?.player || null);
   $('world-player-title').textContent = '编辑本局 RP 角色';
   $('world-player-intro').textContent = '修改只会更新当前 WorldSave，不会改写角色库或世界卡。';
   $('world-player-create').textContent = '保存角色并返回开局配置';
   const dialog = $('world-player-dialog');
   if (!dialog.open) dialog.showModal();
 }
-async function createWorldSave(name, player, playerPresetId = '') {
+function resumeWorldSaveSetup(save = currentWorldSave) {
+  if (!save || !worldSavePlanning(save)) return false;
+  if (!save.player?.snapshot) {
+    if (openWorldSetupExtension(save)) return true;
+    openWorldPlayerEditor(save);
+    setWorldPlayerStatus('这是一个尚未完成的开局存档。请先完成玩家角色，再继续开场规划。');
+    return true;
+  }
+  openWorldOpeningDialog(save);
+  return true;
+}
+async function createWorldSave(name, player, playerPresetId = '', setupOnly = false) {
   if (worldTurnPending) discardWorldTurnPending();
   const world = worldCardById(currentWorldId);
   if (!world) throw new Error('请先选择一个世界卡');
   const res = await fetch('/api/world-saves', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
-    body: JSON.stringify({ worldId: world.id, worldVersion: world.version, name, ...(player ? { player } : {}), ...(playerPresetId ? { playerPresetId } : {}) }),
+    body: JSON.stringify({ worldId: world.id, worldVersion: world.version, name, ...(player ? { player } : {}), ...(playerPresetId ? { playerPresetId } : {}), ...(setupOnly ? { setupOnly: true } : {}) }),
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new Error(worldApiError(data, '存档创建失败（HTTP ' + res.status + '）'));
@@ -2755,6 +3043,13 @@ function renderWorldList() {
   }).join('');
   list.querySelectorAll('[data-world-id]').forEach(el => el.addEventListener('click', async () => {
     setMobileManagerPanel('world-mgr', 'detail');
+    // 世界库是宿主层；切卡前先卸载上一张卡的接管状态，避免导航栏被旧卡的
+    // custom/immersive 壳层继续隐藏。
+    await exitWorldImmersiveMode();
+    worldWorkspaceActive = false;
+    setWorldCustomLayout(false);
+    clearWorldExtension();
+    syncModeNavigation('worlds');
     if (worldTurnPending) discardWorldTurnPending();
     const token = ++worldLoadToken;
     const id = el.dataset.worldId;
@@ -2875,7 +3170,7 @@ async function copyWorldSave(saveId, button) {
     renderWorldList(); renderWorldDetail();
     const status = $('world-open-status');
     if (status) status.textContent = `已创建「${data.save.name}」；它与源存档的状态、回合和账本独立。`;
-    if (opened?.setup?.status === 'planning') openWorldOpeningDialog(opened);
+    if (opened?.setup?.status === 'planning') resumeWorldSaveSetup(opened);
     else enterWorldWorkspace();
   } catch (err) {
     showWorldError(err.message);
@@ -2965,9 +3260,9 @@ function renderWorldDetail() {
   $('world-save-count').textContent = saves.length + ' 份';
   const list = $('world-save-list');
   const latestVersion = Number(world.version);
-  list.innerHTML = saves.length ? saves.map(save => `<div class="world-save-card${save.id === currentWorldSaveId ? ' active' : ''}">
+  list.innerHTML = saves.length ? saves.map(save => `<div class="world-save-card${worldWorkspaceActive && save.id === currentWorldSaveId ? ' active' : ''}">
     <div class="world-save-main"><span class="world-save-name">${esc(save.name)} ${save.setupStatus === 'planning' ? '<em class="world-save-planning">待开局</em>' : ''}</span><span class="world-save-meta">世界 v${esc(save.worldVersion)} · ${esc(save.locationId || '未定位')} · revision ${esc(save.revision)} · ${esc(formatWorldDate(save.updatedAt))}</span></div>
-    <div class="world-save-actions">${Number(save.worldVersion) < latestVersion ? `<button class="ghost-btn small" type="button" data-upgrade-save="${esc(save.id)}">升级…</button>` : ''}<button class="ghost-btn small" type="button" data-open-save="${esc(save.id)}">${save.setupStatus === 'planning' ? '继续规划' : save.id === currentWorldSaveId ? '已打开' : '打开存档'}</button><button class="ghost-btn small" type="button" data-copy-save="${esc(save.id)}">复制</button><button class="ghost-btn small" type="button" data-rename-save="${esc(save.id)}">重命名</button><button class="ghost-btn small" type="button" data-export-save="${esc(save.id)}">导出</button><button class="ghost-btn small danger" type="button" data-delete-save="${esc(save.id)}">删除</button></div>
+    <div class="world-save-actions">${Number(save.worldVersion) < latestVersion ? `<button class="ghost-btn small" type="button" data-upgrade-save="${esc(save.id)}">升级…</button>` : ''}<button class="ghost-btn small" type="button" data-open-save="${esc(save.id)}">${save.setupStatus === 'planning' ? '继续规划' : worldWorkspaceActive && save.id === currentWorldSaveId ? '已打开' : '打开存档'}</button><button class="ghost-btn small" type="button" data-copy-save="${esc(save.id)}">复制</button><button class="ghost-btn small" type="button" data-rename-save="${esc(save.id)}">重命名</button><button class="ghost-btn small" type="button" data-export-save="${esc(save.id)}">导出</button><button class="ghost-btn small danger" type="button" data-delete-save="${esc(save.id)}">删除</button></div>
   </div>`).join('') : '<p class="hint">这个世界还没有存档，先创建一份吧。</p>';
   list.querySelectorAll('[data-upgrade-save]').forEach(btn => btn.addEventListener('click', () => openWorldSaveUpgrade(btn.dataset.upgradeSave, btn)));
   list.querySelectorAll('[data-delete-save]').forEach(btn => btn.addEventListener('click', event => {
@@ -2987,7 +3282,7 @@ function renderWorldDetail() {
     copyWorldSave(btn.dataset.copySave, btn);
   }));
   list.querySelectorAll('[data-open-save]').forEach(btn => btn.addEventListener('click', async () => {
-    const token = worldLoadToken;
+    const token = ++worldLoadToken;
     btn.disabled = true;
     const old = btn.textContent;
     btn.textContent = '读取中…';
@@ -2996,7 +3291,7 @@ function renderWorldDetail() {
       if (!opened || token !== worldLoadToken) return;
       const status = $('world-open-status');
       if (currentWorldSave.setup?.status === 'planning') {
-        openWorldOpeningDialog(currentWorldSave);
+        resumeWorldSaveSetup(currentWorldSave);
       } else {
         if (status) status.textContent = worldOpenStatusText();
         enterWorldWorkspace();
@@ -3024,8 +3319,8 @@ async function loadWorldLibraryData(restoreWorkspace = false) {
     renderWorldList();
     renderWorldDetail();
     if (restoreWorkspace && worldModeActive() && currentWorldSaveId) {
-      if (worldSavePlanning()) openWorldOpeningDialog(currentWorldSave);
-      enterWorldWorkspace();
+      if (worldSavePlanning()) resumeWorldSaveSetup(currentWorldSave);
+      else enterWorldWorkspace();
     }
     else if (restoreWorkspace) $('world-mgr')?.classList.remove('hidden');
     return true;
@@ -3042,11 +3337,15 @@ async function loadWorldLibraryData(restoreWorkspace = false) {
 function openWorldLibrary(restoreWorkspace = false) {
   const mgr = $('world-mgr');
   if (!mgr) return;
+  worldWorkspaceActive = false;
   // 恢复已有 RPG 存档时先保持管理层隐藏，避免异步读取期间闪出世界卡界面。
   // 没有可恢复的存档则正常展示世界库，让用户选择或创建世界。
   const restoringSave = restoreWorkspace && !!currentWorldSaveId;
   syncModeNavigation(restoringSave ? 'chat' : 'worlds');
   if (!restoringSave) {
+    // 离开存档工作区即结束未提交的临时回合；否则删除按钮会被旧回合状态
+    // 永久拦截，即使用户已经退出该存档。
+    if (worldTurnPending) discardWorldTurnPending();
     exitWorldImmersiveMode();
     setWorldCustomLayout(false);
     clearWorldExtension();
@@ -3069,6 +3368,11 @@ function getGreeting() {
     || (char && Array.isArray(char.alternateGreetings) && char.alternateGreetings.find(g => String(g || '').trim()))
     || (preset && preset.firstMes && preset.firstMes.trim())
     || settings.firstMes || '';
+}
+function worldCardHasSetupSurface(world = currentWorldCard()) {
+  const extension = world?.ui?.extension;
+  return extension?.enabled !== false && Array.isArray(extension?.surfaces) && extension.surfaces.includes('setup')
+    && Boolean(extension.html || extension.css || extension.js || extension.mvu != null);
 }
 
 /* 开场白与 AI 回复共用同一套 Tavern 协议解析，确保首条消息里的
@@ -3282,12 +3586,12 @@ function growthEffectLabel(candidate) {
   return `${bucketLabels[candidate.bucket] || candidate.bucket} · ${target} ${candidate.delta > 0 ? '+' : ''}${candidate.delta}`;
 }
 
-function renderRpgSheetMetric(definition, value) {
+function renderRpgSheetMetric(definition, value, deltaKey = '') {
   const numeric = value === null || value === undefined || (typeof value === 'string' && !value.trim()) ? NaN : Number(value);
   const hasRange = Number.isFinite(numeric) && Number.isFinite(Number(definition?.min)) && Number.isFinite(Number(definition?.max)) && Number(definition.max) > Number(definition.min);
   const meter = hasRange ? Math.max(0, Math.min(100, (numeric - Number(definition.min)) / (Number(definition.max) - Number(definition.min)) * 100)) : null;
   const display = Number.isFinite(numeric) ? String(value) : '—';
-  return `<div class="rpg-sheet-stat"><div class="rpg-sheet-stat-head"><span title="${esc(definition?.description || definition?.label || definition?.id || '')}">${esc(definition?.label || definition?.id || '未命名')}</span><b>${esc(display)}</b></div>${meter === null ? '' : `<div class="rpg-sheet-meter" aria-hidden="true"><i style="--meter:${meter.toFixed(2)}%"></i></div>`}</div>`;
+  return `<div class="rpg-sheet-stat"><div class="rpg-sheet-stat-head"><span title="${esc(definition?.description || definition?.label || definition?.id || '')}">${esc(definition?.label || definition?.id || '未命名')}</span><b>${esc(display)}${worldStateDeltaMarkup(deltaKey)}</b></div>${meter === null ? '' : `<div class="rpg-sheet-meter" aria-hidden="true"><i style="--meter:${meter.toFixed(2)}%"></i></div>`}</div>`;
 }
 
 function renderRpgSheetSection(title, body, className = '') {
@@ -3309,7 +3613,7 @@ function renderRpgPlayerSheet() {
     const definitions = Array.isArray(schema[bucket]) ? schema[bucket] : [];
     if (!definitions.length) return '';
     const values = player[bucket] && typeof player[bucket] === 'object' ? player[bucket] : {};
-    return renderRpgSheetSection(title, `<div class="rpg-sheet-grid">${definitions.map(definition => renderRpgSheetMetric(definition, values[definition.id] ?? definition.default ?? definition.initial ?? definition.min)).join('')}</div>`);
+    return renderRpgSheetSection(title, `<div class="rpg-sheet-grid">${definitions.map(definition => renderRpgSheetMetric(definition, values[definition.id] ?? definition.default ?? definition.initial ?? definition.min, worldStatePathKey(['state', 'player', bucket, definition.id]))).join('')}</div>`);
   };
   const derived = evaluateWorldDerivedValues(schema, player);
   const traits = Array.isArray(player.traits) ? player.traits : [];
@@ -3324,7 +3628,7 @@ function renderRpgPlayerSheet() {
   const npcNames = new Map((Array.isArray(world?.npcs) ? world.npcs : []).map(npc => [npc.id, npc.name || npc.id]));
   const relationValues = player.relations && typeof player.relations === 'object' ? player.relations : {};
   const relationBody = relations.length
-    ? `<div class="rpg-sheet-grid">${relations.map(rule => renderRpgSheetMetric({ ...rule, id: rule.npcId, label: npcNames.get(rule.npcId) || rule.npcId, min: rule.min ?? -100, max: rule.max ?? 100 }, relationValues[rule.npcId] ?? rule.default ?? 0)).join('')}</div>`
+    ? `<div class="rpg-sheet-grid">${relations.map(rule => renderRpgSheetMetric({ ...rule, id: rule.npcId, label: npcNames.get(rule.npcId) || rule.npcId, min: rule.min ?? -100, max: rule.max ?? 100 }, relationValues[rule.npcId] ?? rule.default ?? 0, worldStatePathKey(['state', 'player', 'relations', rule.npcId]))).join('')}</div>`
     : '';
   const identity = player.identity && typeof player.identity === 'object' && !Array.isArray(player.identity) ? player.identity : {};
   const identityBody = Object.entries(identity).filter(([, values]) => Array.isArray(values) && values.length).map(([key, values]) => `<div class="rpg-sheet-text"><b>${esc(key)}</b>：${esc(values.join('、').slice(0, 1000))}</div>`).join('');
@@ -3456,7 +3760,7 @@ async function rebuildWorldLineSummary() {
   }
 }
 
-/* 渲染 RPG 面板：顶栏（等级/金币/位置）、状态条（HP/MP/EXP）、背包、任务、角色摘要 */
+/* 渲染 RPG 面板：保留普通 RPG 兼容投影；世界卡游玩态只显示声明式玩家字段和卡内 runtime 面板。 */
 const RPG_UI_SOURCES = new Set([
   'world.npcs', 'world.locations', 'save.npcStates', 'save.state.activeHooks', 'save.state.goals', 'save.state.leads',
   'save.state.worldEvents', 'save.state.factionStates', 'save.state.player.attributes',
@@ -3464,7 +3768,7 @@ const RPG_UI_SOURCES = new Set([
 ]);
 
 function isSupportedRpgUiSource(source) {
-  return RPG_UI_SOURCES.has(source) || /^runtime\.(variables|collections)\.[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(String(source || ''));
+  return RPG_UI_SOURCES.has(source) || /^runtime\.(variables|collections|actions)\.[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(String(source || ''));
 }
 
 function readRpgUiField(value, path) {
@@ -3474,11 +3778,257 @@ function readRpgUiField(value, path) {
   }, value);
 }
 
-function rpgUiValueText(value) {
+function rpgUiValueText(value, fieldKey = '') {
   if (value === undefined || value === null || value === '') return '—';
-  if (Array.isArray(value)) return value.map(item => rpgUiValueText(item)).join('、');
+  if (fieldKey === 'status' && value === 'confirmed') return '已确认';
+  if (fieldKey === 'status' && value === 'unconfirmed') return '未确认';
+  if (Array.isArray(value)) return value.map(item => rpgUiValueText(item, fieldKey)).join('、');
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
+}
+
+function rpgRuntimeActionIsConfirmed(action, runtime) {
+  return (Array.isArray(action?.effects) ? action.effects : []).some(effect => {
+    if (effect?.type !== 'collection.patch' || effect.set?.status !== 'confirmed') return false;
+    const entries = runtime?.collections?.[effect.collectionId];
+    return Array.isArray(entries) && entries.some(entry => String(entry?.id || '') === String(effect.entryId || '') && entry.status === 'confirmed');
+  });
+}
+
+function rpgRuntimeActionAvailabilityUsesInput(action) {
+  return (Array.isArray(action?.availability) ? action.availability : []).some(condition => /\{\{\s*input\./.test(String(condition?.entryId || '')));
+}
+
+function rpgRuntimeActionUnavailableStatus(error) {
+  return /当前值 0/.test(String(error || '')) ? '资源已耗尽，无法执行此动作。' : '当前条件不足，暂时无法执行此动作。';
+}
+
+function rpgRuntimeActionAvailabilityError(action, runtime, input = {}) {
+  const resolvedInput = input && typeof input === 'object' && !Array.isArray(input) ? { ...input } : {};
+  for (const field of Array.isArray(action?.inputs) ? action.inputs : []) {
+    if (field?.id && resolvedInput[field.id] === undefined && field.default !== undefined) resolvedInput[field.id] = field.default;
+  }
+  const resolveEntryId = value => String(value == null ? '' : value).replace(/\{\{\s*input\.([A-Za-z0-9_-]+)\s*\}\}/g, (_, key) => resolvedInput[key] == null ? '' : String(resolvedInput[key]));
+  const compare = (actual, operator, expected) => {
+    if (operator === '==') return actual === expected;
+    if (operator === '!=') return actual !== expected;
+    const left = Number(actual);
+    const right = Number(expected);
+    if (!Number.isFinite(left) || !Number.isFinite(right)) return false;
+    return operator === '>' ? left > right : operator === '>=' ? left >= right : operator === '<' ? left < right : operator === '<=' ? left <= right : false;
+  };
+  const unavailable = detail => `动作 ${action?.id || 'unknown'} 当前不可用：${detail}`;
+  for (const condition of Array.isArray(action?.availability) ? action.availability : []) {
+    const type = condition?.type;
+    const collectionId = String(condition?.collectionId || '');
+    const entryId = type?.startsWith('collection.') ? resolveEntryId(condition.entryId) : '';
+    if (type === 'collection.exists') {
+      const entries = Array.isArray(runtime?.collections?.[collectionId]) ? runtime.collections[collectionId] : [];
+      if (!entries.some(entry => String(entry?.id || '') === entryId)) return unavailable(`缺少 ${collectionId}.${entryId}`);
+      continue;
+    }
+    if (type === 'collection.number') {
+      const entries = Array.isArray(runtime?.collections?.[collectionId]) ? runtime.collections[collectionId] : [];
+      const entry = entries.find(item => String(item?.id || '') === entryId);
+      const actual = entry?.[condition.field];
+      if (!entry || !Number.isFinite(Number(actual))) return unavailable(`${collectionId}.${entryId}.${condition.field} 不存在或不是数字`);
+      if (!compare(actual, condition.operator, condition.value)) return unavailable(`${collectionId}.${entryId}.${condition.field} 当前值 ${actual}，不满足 ${condition.operator} ${condition.value}`);
+      continue;
+    }
+    if (type === 'variable.compare') {
+      const actual = runtime?.variables?.[condition.variableId];
+      if (!compare(actual, condition.operator, condition.value)) return unavailable(`变量 ${condition.variableId} 当前值 ${actual}，不满足 ${condition.operator} ${condition.value}`);
+    }
+  }
+  return null;
+}
+
+function worldStatePathKey(segments) {
+  return JSON.stringify(segments.map(segment => String(segment)));
+}
+
+function worldStateListKey(value, index) {
+  return String(value && typeof value === 'object' && (value.id || value.itemId || value.name || value.title)
+    || typeof value === 'string' && value || index + 1);
+}
+
+function worldStateFriendlyName(value) {
+  return value && typeof value === 'object'
+    ? String(value.label || value.title || value.name || value.itemId || value.npcId || value.id || '').trim()
+    : '';
+}
+
+function collectWorldStateChanges(beforeSave, afterSave) {
+  const changes = new Map();
+  const visit = (before, after, path, labelHint = '') => {
+    if (Object.is(before, after)) return;
+    if (Array.isArray(before) || Array.isArray(after)) {
+      if (!Array.isArray(before) || !Array.isArray(after)) {
+        changes.set(worldStatePathKey(path), { path, before, after, labelHint });
+        return;
+      }
+      const previous = new Map(before.map((value, index) => [worldStateListKey(value, index), value]));
+      const next = new Map(after.map((value, index) => [worldStateListKey(value, index), value]));
+      for (const key of new Set([...previous.keys(), ...next.keys()])) {
+        const oldValue = previous.get(key);
+        const newValue = next.get(key);
+        const itemLabel = worldStateFriendlyName(newValue) || worldStateFriendlyName(oldValue) || labelHint;
+        if (!previous.has(key) || !next.has(key)) changes.set(worldStatePathKey([...path, key]), { path: [...path, key], before: oldValue, after: newValue, labelHint: itemLabel });
+        else visit(oldValue, newValue, [...path, key], itemLabel);
+      }
+      return;
+    }
+    const beforeObject = before && typeof before === 'object';
+    const afterObject = after && typeof after === 'object';
+    if (beforeObject && afterObject) {
+      const ownLabel = worldStateFriendlyName(after) || worldStateFriendlyName(before) || labelHint;
+      for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) visit(before[key], after[key], [...path, key], ownLabel);
+      return;
+    }
+    changes.set(worldStatePathKey(path), { path, before, after, labelHint });
+  };
+  const roots = [
+    ['state', 'player'], ['state', 'runtime'], ['state', 'activeHooks'], ['state', 'goals'],
+    ['state', 'leads'], ['state', 'worldEvents'], ['state', 'factionStates'], ['state', 'inventory'], ['npcStates'],
+  ];
+  const at = (value, path) => path.reduce((current, key) => current?.[key], value);
+  roots.forEach(path => visit(at(beforeSave, path), at(afterSave, path), path));
+  return changes;
+}
+
+function collectWorldStateFeedbackChanges(beforeSave, afterSave) {
+  const deltas = new Map();
+  for (const [key, change] of collectWorldStateChanges(beforeSave, afterSave)) {
+    const previous = typeof change.before === 'number' && Number.isFinite(change.before) ? change.before : change.before === undefined ? 0 : NaN;
+    if (typeof change.after === 'number' && Number.isFinite(change.after) && Number.isFinite(previous) && change.after !== previous) deltas.set(key, change.after - previous);
+  }
+  return deltas;
+}
+
+function worldStateChangeLabel(change, beforeSave, afterSave) {
+  const path = change.path;
+  const runtime = afterSave?.state?.runtime || beforeSave?.state?.runtime;
+  if (path[1] === 'runtime' && path[2] === 'variables') {
+    return runtime?.schema?.variables?.find(item => item?.id === path[3])?.label || path[3];
+  }
+  if (change.labelHint) return change.labelHint;
+  if (path[1] === 'player' && ['attributes', 'skills', 'resources'].includes(path[2])) {
+    return currentWorldCard()?.playerCreation?.[path[2]]?.find(item => item?.id === path[3])?.label || path[3];
+  }
+  if (path[1] === 'player' && path[2] === 'relations') {
+    return currentWorldCard()?.npcs?.find(item => item?.id === path[3])?.name || path[3];
+  }
+  return ({ status: '状态', count: '数量', value: '数值' })[path.at(-1)] || path.at(-1) || '状态';
+}
+
+function normalizeWorldStateFeedbackItems(items) {
+  if (!Array.isArray(items)) return [];
+  return items.slice(0, 16).flatMap(item => {
+    const path = Array.isArray(item?.path) && item.path.length && item.path.length <= 12
+      ? item.path.map(segment => String(segment).slice(0, 160)) : null;
+    const label = typeof item?.label === 'string' ? item.label.trim().slice(0, 120) : '';
+    if (!path || !label || !['delta', 'set', 'add', 'remove'].includes(item.kind)) return [];
+    if (item.kind === 'delta') {
+      const delta = Number(item.delta);
+      return Number.isFinite(delta) && delta !== 0 ? [{ path, label, kind: 'delta', delta: Math.round(delta * 1000) / 1000 }] : [];
+    }
+    if (item.kind === 'set') {
+      const value = String(item.value ?? '').trim().slice(0, 80);
+      return value ? [{ path, label, kind: 'set', value }] : [];
+    }
+    return [{ path, label, kind: item.kind }];
+  });
+}
+
+function worldStateFeedbackItems(beforeSave, afterSave) {
+  const items = [];
+  for (const change of collectWorldStateChanges(beforeSave, afterSave).values()) {
+    const label = worldStateChangeLabel(change, beforeSave, afterSave);
+    if (typeof change.before === 'number' && Number.isFinite(change.before) && typeof change.after === 'number' && Number.isFinite(change.after)) {
+      items.push({ path: change.path, label, kind: 'delta', delta: change.after - change.before });
+    } else if (change.after === undefined) items.push({ path: change.path, label, kind: 'remove' });
+    else if (change.before === undefined) items.push({ path: change.path, label, kind: 'add' });
+    else if (!change.after || typeof change.after !== 'object') items.push({ path: change.path, label, kind: 'set', value: rpgUiValueText(change.after, change.path.at(-1)) });
+  }
+  return normalizeWorldStateFeedbackItems(items);
+}
+
+function applyWorldStateFeedback(saveId, items, { exiting = false } = {}) {
+  const normalized = normalizeWorldStateFeedbackItems(items);
+  worldStateFeedback = {
+    saveId: normalized.length ? saveId || null : null,
+    token: worldStateFeedback.token + 1,
+    changes: new Map(normalized.map(item => [worldStatePathKey(item.path), item])),
+    exiting,
+  };
+  return normalized;
+}
+
+function clearWorldStateFeedback() {
+  worldStateFeedback = { saveId: null, token: worldStateFeedback.token + 1, changes: new Map(), exiting: false };
+}
+
+function hideWorldStateFeedback() {
+  if (!worldStateFeedback.changes.size || worldStateFeedback.exiting) return;
+  const token = worldStateFeedback.token + 1;
+  worldStateFeedback = { ...worldStateFeedback, token, exiting: true };
+  if (worldModeActive()) renderRPG();
+  setTimeout(() => {
+    if (worldStateFeedback.token !== token) return;
+    clearWorldStateFeedback();
+    if (worldModeActive()) renderRPG();
+  }, WORLD_STATE_FEEDBACK_EXIT_MS);
+}
+
+function restoreWorldStateFeedback(save) {
+  const message = [...(Array.isArray(save?.turns) ? save.turns : [])].reverse().find(turn => turn?.role === 'assistant');
+  applyWorldStateFeedback(save?.id, message?.stateChanges || []);
+}
+
+function attachWorldStateFeedback(pending, afterState) {
+  if (!pending?.assistantMessage || !afterState) return [];
+  const items = worldStateFeedbackItems({ state: pending.beforeState || {} }, { state: afterState });
+  if (items.length) pending.assistantMessage.stateChanges = items;
+  else delete pending.assistantMessage.stateChanges;
+  return items;
+}
+
+function showWorldStateFeedback(beforeSave, afterSave) {
+  return applyWorldStateFeedback(afterSave?.id, worldStateFeedbackItems(beforeSave, afterSave));
+}
+
+function worldStateDeltaMarkup(key) {
+  if (!key || worldStateFeedback.saveId !== currentWorldSaveId) return '';
+  const change = worldStateFeedback.changes.get(key);
+  if (!change) return '';
+  const text = change.kind === 'delta' ? `${change.delta > 0 ? '+' : ''}${change.delta}`
+    : change.kind === 'set' ? `→ ${change.value}` : change.kind === 'add' ? '新增' : '已移除';
+  const tone = change.kind === 'remove' || change.kind === 'delta' && change.delta < 0 ? 'decrease'
+    : change.kind === 'set' ? 'changed' : 'increase';
+  return `<span class="rpg-state-delta ${tone}${worldStateFeedback.exiting ? ' leaving' : ''}" data-world-state-delta aria-label="${esc(`${change.label}${text}`)}">${esc(text)}</span>`;
+}
+
+function worldPanelStateRoot(source) {
+  const text = String(source || '');
+  return text.startsWith('runtime.')
+    ? ['state', ...text.split('.')]
+    : text.startsWith('save.') ? text.slice(5).split('.') : null;
+}
+
+function worldPanelStateDeltaKey(source, entry, field) {
+  if (!field?.key || field.key === '$key') return '';
+  const root = worldPanelStateRoot(source);
+  return root ? worldStatePathKey([...root, entry.key, ...String(field.key).split('.')]) : '';
+}
+
+function worldPanelEntryFeedbackMarkup(source) {
+  const root = worldPanelStateRoot(source);
+  if (!root || worldStateFeedback.saveId !== currentWorldSaveId) return '';
+  return [...worldStateFeedback.changes.entries()].filter(([, change]) =>
+    ['add', 'remove'].includes(change.kind)
+    && change.path.length === root.length + 1
+    && root.every((segment, index) => change.path[index] === segment))
+    .map(([key, change]) => `<span>${esc(change.label)}${worldStateDeltaMarkup(key)}</span>`).join('');
 }
 
 const WORLD_UI_SLOT_TARGETS = {
@@ -3612,19 +4162,21 @@ function renderWorldSidebarPanels() {
   };
   const runtime = save.state?.runtime;
   for (const panel of Array.isArray(world.ui?.sidebar?.panels) ? world.ui.sidebar.panels : []) {
-    const match = /^runtime\.(variables|collections)\.([A-Za-z0-9][A-Za-z0-9_-]{0,63})$/.exec(String(panel?.source || ''));
+    const match = /^runtime\.(variables|collections|actions)\.([A-Za-z0-9][A-Za-z0-9_-]{0,63})$/.exec(String(panel?.source || ''));
     if (!match) continue;
     if (match[1] === 'variables' && currentWorldCard()?.runtime?.variables?.find(item => item.id === match[2])?.visible === false) continue;
     sourceValues[panel.source] = match[1] === 'variables'
       ? { value: runtime?.variables?.[match[2]] }
-      : (runtime?.collections?.[match[2]] || []);
+      : match[1] === 'collections'
+        ? (runtime?.collections?.[match[2]] || [])
+        : (currentWorldCard()?.runtime?.actions || []).find(item => item?.id === match[2]) || null;
   }
   const panels = Array.isArray(world.ui?.sidebar?.panels) ? world.ui.sidebar.panels : [];
   for (const panel of panels) {
     if (!panel || !isSupportedRpgUiSource(panel.source)) continue;
     const target = targets[panel.side === 'left' ? 'left' : 'right'];
     if (!target) continue;
-    const layout = ['cards', 'table'].includes(panel.layout) ? panel.layout : 'list';
+    const layout = ['cards', 'table', 'actions'].includes(panel.layout) ? panel.layout : 'list';
     const section = document.createElement('section');
     section.className = `rpg-custom-panel rpg-custom-${layout}`;
     const heading = document.createElement('div');
@@ -3632,18 +4184,112 @@ function renderWorldSidebarPanels() {
     heading.style.marginTop = '10px';
     heading.textContent = `${panel.icon ? `${panel.icon} ` : ''}${panel.title}`;
     section.appendChild(heading);
+    const runtimeAction = /^runtime\.actions\.([A-Za-z0-9][A-Za-z0-9_-]{0,63})$/.exec(String(panel.source || '')) ? sourceValues[panel.source] : null;
+    if (layout === 'actions' && runtimeAction && typeof runtimeAction === 'object') {
+      const alreadyConfirmed = rpgRuntimeActionIsConfirmed(runtimeAction, runtime);
+      const availabilityError = rpgRuntimeActionAvailabilityUsesInput(runtimeAction) ? null : rpgRuntimeActionAvailabilityError(runtimeAction, runtime);
+      const description = document.createElement('p');
+      description.className = 'hint';
+      description.textContent = runtimeAction.description || '提交后由 AI 根据当前世界规则执行。';
+      section.appendChild(description);
+      const form = document.createElement('form');
+      form.className = 'rpg-runtime-action';
+      for (const inputDefinition of Array.isArray(runtimeAction.inputs) ? runtimeAction.inputs : []) {
+        if (!inputDefinition || typeof inputDefinition !== 'object') continue;
+        const field = document.createElement('label');
+        field.className = 'rpg-runtime-action-field';
+        field.textContent = `${inputDefinition.label || inputDefinition.id}${inputDefinition.required ? '（必填）' : ''}`;
+        let control;
+        if (inputDefinition.type === 'enum' && Array.isArray(inputDefinition.options)) {
+          control = document.createElement('select');
+          inputDefinition.options.slice(0, 64).forEach(option => {
+            const optionEl = document.createElement('option');
+            optionEl.value = String(option);
+            optionEl.textContent = String(option);
+            control.appendChild(optionEl);
+          });
+        } else if (['list', 'map', 'json'].includes(inputDefinition.type)) {
+          control = document.createElement('textarea');
+          control.rows = 2;
+        } else {
+          control = document.createElement('input');
+          control.type = inputDefinition.type === 'number' ? 'number' : inputDefinition.type === 'boolean' ? 'checkbox' : 'text';
+        }
+        control.name = inputDefinition.id;
+        control.dataset.runtimeInput = inputDefinition.id;
+        if (inputDefinition.type === 'number') {
+          if (Number.isFinite(inputDefinition.min)) control.min = String(inputDefinition.min);
+          if (Number.isFinite(inputDefinition.max)) control.max = String(inputDefinition.max);
+        }
+        if (inputDefinition.type === 'boolean') control.checked = inputDefinition.default === true;
+        else if (inputDefinition.default !== undefined) control.value = typeof inputDefinition.default === 'string' ? inputDefinition.default : JSON.stringify(inputDefinition.default);
+        field.appendChild(control);
+        form.appendChild(field);
+      }
+      const submit = document.createElement('button');
+      submit.type = 'submit';
+      submit.className = 'btn gold small';
+      submit.textContent = alreadyConfirmed ? `${runtimeAction.label || '执行动作'}（已确认）` : (runtimeAction.label || '执行动作');
+      submit.disabled = alreadyConfirmed || !!availabilityError;
+      form.appendChild(submit);
+      const status = document.createElement('p');
+      status.className = 'hint rpg-runtime-action-status';
+      status.setAttribute('role', 'status');
+      if (alreadyConfirmed) status.textContent = '该线索已确认。';
+      else if (availabilityError) status.textContent = rpgRuntimeActionUnavailableStatus(availabilityError);
+      form.appendChild(status);
+      form.addEventListener('submit', async event => {
+        event.preventDefault();
+        if (alreadyConfirmed || availabilityError || sending || worldTurnPreparing || worldTurnPending) return;
+        const values = [];
+        const input = {};
+        for (const inputDefinition of Array.isArray(runtimeAction.inputs) ? runtimeAction.inputs : []) {
+          const control = [...form.querySelectorAll('[data-runtime-input]')].find(item => item.dataset.runtimeInput === inputDefinition.id);
+          let value = inputDefinition.type === 'boolean' ? !!control?.checked : String(control?.value || '').trim();
+          if (inputDefinition.type === 'number' && value !== '') value = Number(value);
+          if (inputDefinition.type === 'json' && value) {
+            try { value = JSON.parse(value); } catch { status.textContent = `请输入有效 JSON：${inputDefinition.label || inputDefinition.id}`; control?.focus(); return; }
+          }
+          const empty = value === '' || value === undefined || value === null;
+          if (inputDefinition.required && empty) { status.textContent = `请填写：${inputDefinition.label || inputDefinition.id}`; control?.focus(); return; }
+          if (!empty) { input[inputDefinition.id] = value; values.push(`${inputDefinition.label || inputDefinition.id}=${typeof value === 'object' ? JSON.stringify(value) : String(value)}`); }
+        }
+        const actionAvailabilityError = rpgRuntimeActionAvailabilityError(runtimeAction, runtime, input);
+        if (actionAvailabilityError) { status.textContent = rpgRuntimeActionUnavailableStatus(actionAvailabilityError); return; }
+        const text = `【世界卡动作:${runtimeAction.id}】${runtimeAction.label}${values.length ? `\n${values.join('；')}` : ''}`;
+        submit.disabled = true;
+        status.textContent = '已提交，等待 AI…';
+        try {
+          await submitWorldActionText(text, { throwOnError: true, kind: 'action', source: 'world-card', optionId: runtimeAction.id, actionId: runtimeAction.id, input });
+        } catch (error) {
+          status.textContent = error.message;
+          submit.disabled = false;
+        }
+      });
+      section.appendChild(form);
+      target.appendChild(section);
+      continue;
+    }
     const list = document.createElement('div');
     list.className = 'rpg-list';
     const raw = sourceValues[panel.source];
     const entries = Array.isArray(raw)
       ? raw.map((value, index) => ({ key: value?.id || value?.name || String(index + 1), value }))
       : raw && typeof raw === 'object' ? Object.entries(raw).map(([key, value]) => ({ key, value })) : [];
-    const configuredFields = Array.isArray(panel.fields) ? panel.fields.map(field => typeof field === 'string' ? { key: field, label: field } : field) : [];
+    const configuredFields = Array.isArray(panel.fields) ? panel.fields.map(field => typeof field === 'string' ? { key: field, label: field === 'status' ? '状态' : field } : field) : [];
     const inferredFields = entries[0]?.value && typeof entries[0].value === 'object'
-      ? Object.keys(entries[0].value).filter(key => !['id', 'name', 'title'].includes(key)).slice(0, 6).map(key => ({ key, label: key }))
+      ? Object.keys(entries[0].value).filter(key => !['id', 'name', 'title'].includes(key)).slice(0, 6).map(key => ({ key, label: key === 'status' ? '状态' : key }))
       : [];
     const fields = configuredFields.length ? configuredFields : inferredFields;
-    const valueForField = (entry, field) => rpgUiValueText(field.key === '$key' ? entry.key : readRpgUiField(entry.value, field.key));
+    const valueForField = (entry, field) => rpgUiValueText(field.key === '$key' ? entry.key : readRpgUiField(entry.value, field.key), field.key);
+    const statusEntries = entries.filter(entry => entry.value && typeof entry.value === 'object' && ['confirmed', 'unconfirmed'].includes(entry.value.status));
+    if (statusEntries.length) {
+      const summary = document.createElement('span');
+      summary.className = 'rpg-panel-summary';
+      summary.setAttribute('role', 'status');
+      summary.textContent = `${statusEntries.filter(entry => entry.value.status === 'confirmed').length}/${statusEntries.length} 已确认`;
+      heading.append(' · ', summary);
+    }
     if (!entries.length) {
       const empty = document.createElement('p');
       empty.className = 'hint';
@@ -3670,7 +4316,7 @@ function renderWorldSidebarPanels() {
         row.appendChild(name);
         fields.forEach(field => {
           const cell = document.createElement('td');
-          cell.textContent = valueForField(entry, field);
+          cell.innerHTML = `${esc(valueForField(entry, field))}${worldStateDeltaMarkup(worldPanelStateDeltaKey(panel.source, entry, field))}`;
           row.appendChild(cell);
         });
         tbody.appendChild(row);
@@ -3689,13 +4335,25 @@ function renderWorldSidebarPanels() {
         fields.forEach(field => {
           const line = document.createElement('div');
           line.className = 'rpg-item-sub';
-          line.textContent = `${field.label || field.key}：${valueForField(entry, field)}`;
+          if (field.key === 'status') {
+            line.classList.add('rpg-item-status');
+            line.dataset.status = String(readRpgUiField(entry.value, field.key) || '');
+          }
+          line.innerHTML = `${esc(field.label || field.key)}：${esc(valueForField(entry, field))}${worldStateDeltaMarkup(worldPanelStateDeltaKey(panel.source, entry, field))}`;
           card.appendChild(line);
         });
         list.appendChild(card);
       });
     }
     section.appendChild(list);
+    const entryFeedback = worldPanelEntryFeedbackMarkup(panel.source);
+    if (entryFeedback) {
+      const feedback = document.createElement('div');
+      feedback.className = 'rpg-panel-entry-feedback';
+      feedback.setAttribute('role', 'status');
+      feedback.innerHTML = entryFeedback;
+      section.appendChild(feedback);
+    }
     target.appendChild(section);
   }
 }
@@ -3753,6 +4411,7 @@ function worldExtensionContext() {
   const permissions = worldExtensionPermissions(extension);
   const context = {
     version: 1,
+    phase: worldExtensionState.surface || 'play',
     permissions: [...permissions],
     mvu: extension.mvu || null,
     ui: {
@@ -3834,6 +4493,26 @@ function worldExtensionContext() {
       hasResponse: Boolean(latestAssistant && latestAssistant._opening !== true),
       options: turnOptions.filter(item => typeof item === 'string' && item.trim()).slice(0, 8),
       canChoose: save.setup?.status === 'active' && !worldTurnPendingActive(),
+    };
+    if (worldExtensionState.surface === 'setup') {
+      context.setup = {
+        status: save.setup?.status || 'planning',
+        draft: save.setup?.draft || { player: save.player?.snapshot || null, game: save.setup?.game || {}, plan: save.setup?.plan || null, ui: {} },
+        player: save.player?.snapshot || null,
+        game: save.setup?.game || {},
+        plan: save.setup?.plan || null,
+        canCommit: save.setup?.status === 'planning',
+      };
+    }
+  }
+  if (worldExtensionState.surface === 'setup' && save && !context.setup) {
+    context.setup = {
+      status: save.setup?.status || 'planning',
+      draft: save.setup?.draft || { player: save.player?.snapshot || null, game: save.setup?.game || {}, plan: save.setup?.plan || null, ui: {} },
+      player: save.player?.snapshot || null,
+      game: save.setup?.game || {},
+      plan: save.setup?.plan || null,
+      canCommit: save.setup?.status === 'planning',
     };
   }
   return context;
@@ -4015,8 +4694,14 @@ function extensionBridgeSource(nonce) {
       // AI 回合可能包含 Agent 工具循环与长思维链；扩展桥接不能用 5 秒的 UI 超时截断它。
       setTimeout(() => { if (pending.delete(requestId)) reject(new Error('扩展请求超时')); }, 120000);
     });
+    const requestContext = () => send('context.request');
     window.TavernExtension = {
-      requestContext: () => send('context.request'),
+      requestContext,
+      getContext: requestContext,
+      // Runtime is intentionally read-only in play. State changes belong to
+      // the AI turn's declared runtime patch, so a card cannot create a
+      // second unsaved MVU store behind the host.
+      runtime: { get: async () => (await requestContext())?.save?.state?.runtime || null },
       on: (name, listener) => {
         const key = String(name || '').trim();
         if (!/^[a-z][a-z0-9._-]{0,63}$/.test(key) || typeof listener !== 'function') return () => {};
@@ -4029,15 +4714,16 @@ function extensionBridgeSource(nonce) {
         };
       },
       off: (name, listener) => listeners.get(String(name || '').trim())?.delete(listener),
-      patch: updates => send('runtime.patch', { updates }),
-      action: (actionId, input) => send('tool.call', { actionId, input }),
       choose: (text, options = {}) => send('turn.choose', {
         text,
         actionId: options && options.actionId,
-        input: options && options.input,
-        updates: options && options.updates,
       }),
-      mvu: message => send('mvu', { message }),
+      setup: {
+        get: () => send('setup.get'),
+        patch: draft => send('setup.draft.patch', { draft }),
+        commit: draft => send('setup.commit', { draft }),
+        cancel: () => send('setup.cancel'),
+      },
       fullscreen: () => send('immersive.fullscreen'),
       exitFullscreen: () => send('immersive.exit'),
       exitWorld: () => send('workspace.exit'),
@@ -4098,7 +4784,8 @@ function clearWorldExtension() {
   $('rpg-extension-frame')?.replaceChildren();
   const host = $('rpg-extension-host');
   if (host) host.hidden = true;
-  worldExtensionState = { iframe: null, nonce: '', signature: '', ready: false, timer: null, pending: new Map(), nextRequestId: 0 };
+  setWorldSetupExtensionMode(false);
+  worldExtensionState = { iframe: null, nonce: '', signature: '', ready: false, timer: null, pending: new Map(), nextRequestId: 0, surface: 'play' };
 }
 
 async function submitWorldExtensionUpdates(updates, { render = true } = {}) {
@@ -4127,18 +4814,50 @@ async function submitWorldExtensionUpdates(updates, { render = true } = {}) {
   }
   return { revision: data.revision };
 }
+async function submitWorldExtensionSetupDraft(draft) {
+  if (worldExtensionState.surface !== 'setup' || !worldModeActive() || !currentWorldSave) throw new Error('当前不是世界卡开局配置阶段');
+  const saveId = currentWorldSave.id;
+  const nonce = worldExtensionState.nonce;
+  const value = draft && typeof draft === 'object' && !Array.isArray(draft) ? draft : {};
+  const mergedDraft = { ...(currentWorldSave.setup?.draft || {}), ...value };
+  const res = await fetch('/api/world-saves/' + encodeURIComponent(saveId) + '/setup', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({ commandId: 'setup-draft-' + uid(), expectedRevision: currentWorldSave.revision, draft: mergedDraft }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(worldApiError(data, '开局草稿保存失败（HTTP ' + res.status + '）'));
+  if (currentWorldSaveId !== saveId || worldExtensionState.nonce !== nonce || worldExtensionState.surface !== 'setup') throw new Error('开局配置已切换，旧草稿响应已丢弃');
+  hydrateWorldSave(data);
+  currentWorldSave = data;
+  renderWorldList();
+  postWorldExtensionContext();
+  return { revision: data.revision, draft: data.setup?.draft || null };
+}
+async function submitWorldExtensionSetupCommit(draft) {
+  if (worldExtensionState.surface !== 'setup' || !worldModeActive() || !currentWorldSave) throw new Error('当前不是世界卡开局配置阶段');
+  const saveId = currentWorldSave.id;
+  const nonce = worldExtensionState.nonce;
+  const value = draft && typeof draft === 'object' && !Array.isArray(draft) ? draft : {};
+  const res = await fetch('/api/world-saves/' + encodeURIComponent(saveId) + '/setup', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({ commandId: 'setup-commit-' + uid(), expectedRevision: currentWorldSave.revision, player: value.player, game: value.game || {}, plan: value.plan || null, playerPresetId: value.playerPresetId || currentWorldSave.setup?.playerPresetId || '' }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(worldApiError(data, '开局配置提交失败（HTTP ' + res.status + '）'));
+  if (currentWorldSaveId !== saveId || worldExtensionState.nonce !== nonce || worldExtensionState.surface !== 'setup') throw new Error('开局配置已切换，旧提交响应已丢弃');
+  hydrateWorldSave(data);
+  currentWorldSave = data;
+  renderWorldDetail();
+  return { revision: data.revision, status: data.setup?.status || 'planning' };
+}
 async function submitWorldExtensionChoice(text, actionId, input, updates) {
+  if (worldExtensionState.surface === 'setup') throw new Error('开局配置请使用 TavernExtension.setup API');
   if (!worldModeActive() || !currentWorldSave) throw new Error('当前没有打开的世界存档');
   const extension = currentWorldCard()?.ui?.extension || {};
   if (!worldExtensionPermissions(extension).has('read.save')) throw new Error('扩展没有 read.save 权限');
   const value = String(text || '').trim().slice(0, 4000);
   if (!value) throw new Error('扩展行动不能为空');
-  const runtimeUpdates = [];
-  if (actionId) runtimeUpdates.push({ type: 'runtime.action.execute', actionId: String(actionId), input });
-  if (Array.isArray(updates)) runtimeUpdates.push(...updates);
-  if (runtimeUpdates.length && !worldExtensionPermissions(extension).has('write.runtime')) throw new Error('扩展没有 write.runtime 权限');
-  if (runtimeUpdates.length) await submitWorldExtensionUpdates(runtimeUpdates.slice(0, 16), { render: false });
-  await submitWorldActionText(value, { throwOnError: true });
+  await submitWorldActionText(value, { throwOnError: true, kind: actionId ? 'action' : 'option', source: 'world-card', optionId: actionId || null, actionId: actionId || null, input });
   return { revision: currentWorldSave?.revision ?? null };
 }
 
@@ -4205,34 +4924,37 @@ async function handleWorldExtensionMessage(event) {
   const extension = currentWorldCard()?.ui?.extension || {};
   const permissions = worldExtensionPermissions(extension);
   try {
-    if (data.type === 'runtime.patch' || data.type === 'mvu') {
-      if (!permissions.has('write.runtime')) throw new Error('扩展没有 write.runtime 权限');
-       let message = data.type === 'runtime.patch' ? { updates: data.updates } : data.message;
-       if (typeof message === 'string') {
-         try { message = JSON.parse(message); } catch { message = null; }
-       }
-       const updates = message?.updates || message?.patch?.updates || message?.data?.updates
-         || (message?.variables && typeof message.variables === 'object' && !Array.isArray(message.variables)
-           ? Object.entries(message.variables).map(([id, value]) => ({ type: 'runtime.variable.set', id, value })) : null);
-       if (!Array.isArray(updates)) throw new Error('MVU 消息未包含可映射的 updates 或 variables');
-       const result = await submitWorldExtensionUpdates(updates);
+    if (data.type === 'setup.get') {
+      if (worldExtensionState.surface !== 'setup') throw new Error('当前扩展没有挂载到开局配置');
+      respondWorldExtension(event, data.requestId, true, worldExtensionContext().setup || null);
+      return;
+    }
+    if (data.type === 'setup.draft.patch') {
+      if (!worldExtensionPermissions(extension).has('write.setup')) throw new Error('扩展没有 write.setup 权限');
+      const result = await submitWorldExtensionSetupDraft(data.draft);
       respondWorldExtension(event, data.requestId, true, result);
       return;
+    }
+    if (data.type === 'setup.commit') {
+      if (!worldExtensionPermissions(extension).has('write.setup')) throw new Error('扩展没有 write.setup 权限');
+      const result = await submitWorldExtensionSetupCommit(data.draft);
+      respondWorldExtension(event, data.requestId, true, result);
+      setWorldSetupExtensionMode(false);
+      clearWorldExtension();
+      openWorldOpeningDialog(currentWorldSave);
+      return;
+    }
+    if (data.type === 'setup.cancel') {
+      if (worldExtensionState.surface !== 'setup') throw new Error('当前扩展没有挂载到开局配置');
+      respondWorldExtension(event, data.requestId, true, { cancelled: true });
+      closeWorldSetupExtension();
+      return;
+    }
+    if (data.type === 'runtime.patch' || data.type === 'mvu' || data.type === 'tool.call') {
+      throw new Error('游玩态不允许扩展直接写入 runtime/MVU；请提交玩家行动，由 AI 回合产生声明式更新');
     }
     if (data.type === 'turn.choose') {
       const result = await submitWorldExtensionChoice(data.text, data.actionId, data.input, data.updates);
-      respondWorldExtension(event, data.requestId, true, result);
-      return;
-    }
-    if (data.type === 'tool.call') {
-      if (!permissions.has('tool.call') || !permissions.has('write.runtime')) throw new Error('扩展没有 tool.call/write.runtime 权限');
-      const actionId = String(data.actionId || '');
-      if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(actionId)) throw new Error('扩展 actionId 无效');
-      const result = await submitWorldExtensionUpdates([{ type: 'runtime.action.execute', actionId, input: data.input }], { render: false });
-      if (extension.actionNarrates === true) {
-        const action = (Array.isArray(currentWorldCard()?.runtime?.actions) ? currentWorldCard().runtime.actions : []).find(item => item?.id === actionId);
-        await submitWorldActionText(action?.label || actionId, { throwOnError: true });
-      }
       respondWorldExtension(event, data.requestId, true, result);
       return;
     }
@@ -4242,15 +4964,21 @@ async function handleWorldExtensionMessage(event) {
   }
 }
 
-function renderWorldExtension() {
+function renderWorldExtension(surface = 'play') {
   const host = $('rpg-extension-host');
   const frame = $('rpg-extension-frame');
   if (!host || !frame || !worldModeActive()) { clearWorldExtension(); return; }
   const extension = currentWorldCard()?.ui?.extension;
-  if (!extension || extension.enabled === false || (!extension.html && !extension.css && !extension.js && extension.mvu == null)) { clearWorldExtension(); return; }
+  const surfaces = Array.isArray(extension?.surfaces) && extension.surfaces.length ? extension.surfaces : ['play'];
+  if (!extension || extension.enabled === false || !surfaces.includes(surface) || (!extension.html && !extension.css && !extension.js && extension.mvu == null)) { clearWorldExtension(); return; }
   if (!approveWorldExtensionCode(extension)) {
     clearWorldExtension();
     setWorldCustomLayout(false);
+    if (surface === 'setup') {
+      openWorldPlayerEditor(currentWorldSave);
+      setWorldPlayerStatus('未启用世界卡开局界面，已回退到宿主角色表单。');
+      return;
+    }
     host.hidden = false;
     const title = $('rpg-extension-title');
     const status = $('rpg-extension-status');
@@ -4263,7 +4991,7 @@ function renderWorldExtension() {
   const title = $('rpg-extension-title');
   if (title) title.textContent = extension.title || '世界扩展';
   const iframe = worldExtensionState.iframe;
-  if (iframe && worldExtensionState.signature === signature) {
+  if (iframe && worldExtensionState.signature === signature && worldExtensionState.surface === surface) {
     iframe.style.height = `${Number(extension.maxHeight) || 360}px`;
     postWorldExtensionContext();
     return;
@@ -4276,7 +5004,8 @@ function renderWorldExtension() {
   next.referrerPolicy = 'no-referrer';
   next.style.height = `${Number(extension.maxHeight) || 360}px`;
   const nonce = uid() + '-' + uid();
-  worldExtensionState = { iframe: next, nonce, signature, ready: false, timer: null, pending: new Map(), nextRequestId: 0 };
+  worldExtensionState = { iframe: next, nonce, signature, ready: false, timer: null, pending: new Map(), nextRequestId: 0, surface };
+  setWorldSetupExtensionMode(surface === 'setup');
   const status = $('rpg-extension-status');
   if (status) status.textContent = '加载中…';
   next.addEventListener('load', () => { if (worldExtensionState.iframe === next) postWorldExtensionContext(); });
@@ -4294,6 +5023,11 @@ function renderRPG() {
   applyWorldUiSlots();
   const rs = curRpgState();
   if (!rs) return;
+  const worldRuntime = worldModeActive();
+  const legacyWorldRight = $('rpg-legacy-world-right');
+  if (legacyWorldRight) legacyWorldRight.hidden = worldRuntime;
+  const statusBar = $('rpg-status');
+  statusBar?.querySelectorAll(':scope > .rpg-stat').forEach(element => { element.hidden = worldRuntime; });
   const sendButton = $('btn-send');
   if (sendButton && !sending) sendButton.disabled = worldSavePlanning();
   const setT = (id, v) => { const el = $(id); if (el) el.textContent = v; };
@@ -4546,11 +5280,39 @@ function renderRPG() {
 
 /* 应用 AI 输出的 ```rpg``` JSON 状态变更；返回本轮行动选项 */
 /* RPG 任务定义兜底（仅当「RPG 叙事引擎」预设被删除时使用；正常内容在预设 JSON 里可编辑） */
-const RPG_TASK_FALLBACK = '你是这个幻想世界的地下城主（DM）与世界化身，始终以“你”称呼玩家。直接呈现场景、事件与 NPC，不以作者或助手自称。根据当前状态公平裁定行动；状态变化必须先在叙事中发生，再写入回复末尾唯一一个 <tavern_state_update> JSON 更新块。更新块必须使用 protocol=tavern.rpg.turn、version=1、当前 revision，并只提交允许的 typed updates；每个 update 只能使用协议声明的字段，runtime.action.execute 只能是 {type,actionId,input}，不能附加 result、args、value、execute 等字段；options 必须遵守当前世界卡回合契约（0-4 条），具体、可执行且不重复；自由输入始终可用。';
+const RPG_TASK_FALLBACK = '你是这个幻想世界的地下城主（DM）与世界化身，始终以“你”称呼玩家。直接呈现场景、事件与 NPC，不以作者或助手自称。根据当前状态公平裁定行动；状态变化必须先在叙事中发生，再写入回复末尾唯一一个 <tavern_state_update> JSON 更新块。更新块必须使用 protocol=tavern.rpg.turn、version=1、当前 revision；除了项目启用的玩家状态/地点/效果更新，只能提交当前世界卡 runtime schema 已声明的变量、集合或动作更新，不能猜测 ID、修改 schema 或提交完整 state。runtime.collection.patch 用 set 修改字段、delta 修改已有数字字段；options 必须遵守当前世界卡回合契约（0-4 条），具体、可执行且不重复；自由输入始终可用。';
 
 function worldOptionRules() {
   const options = currentWorldCard()?.turnContract?.options;
   return { min: Number.isInteger(options?.min) ? options.min : 4, max: Number.isInteger(options?.max) ? options.max : 4 };
+}
+
+function normalizeRpgOptions(value, rules = worldOptionRules()) {
+  const source = Array.isArray(value)
+    ? value
+    : (value && typeof value === 'object' && Array.isArray(value.options) ? value.options : []);
+  const max = Number.isInteger(rules?.max) ? Math.max(0, rules.max) : 4;
+  const seen = new Set();
+  return source.map(item => {
+    if (typeof item === 'string') return item;
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return '';
+    return item.text ?? item.label ?? item.title ?? item.action ?? item.value ?? '';
+  }).map(item => String(item || '').replace(/\s+/g, ' ').trim().slice(0, 240))
+    .filter(item => item && !seen.has(item) && seen.add(item))
+    .slice(0, max);
+}
+
+function previousWorldTurnOptions() {
+  const rules = worldOptionRules();
+  const timeline = Array.isArray(currentWorldSave?.turns) ? currentWorldSave.turns : [];
+  for (let i = timeline.length - 1; i >= 0; i--) {
+    const turn = timeline[i];
+    if (turn?.role !== 'assistant') continue;
+    const options = normalizeRpgOptions(turn.options, rules);
+    if (options.length >= rules.min && options.length <= rules.max) return options;
+  }
+  const openingOptions = normalizeRpgOptions(currentWorldSave?.openingOptions, rules);
+  return openingOptions.length >= rules.min && openingOptions.length <= rules.max ? openingOptions : [];
 }
 
 function buildRpgAgentProfile() {
@@ -4566,6 +5328,20 @@ function buildRpgAgentProfile() {
       mergedTools[name] = { ...(mergedTools[name] || {}), ...config };
     }
   }
+  if (worldModeActive()) {
+    const allowed = new Set(['dice.roll', 'rules.check', 'state.patch', 'memory.record', 'context.retrieve', 'runtime.action.execute']);
+    for (const name of Object.keys(mergedTools)) if (!allowed.has(name)) delete mergedTools[name];
+    const runtimeActions = currentWorldCard()?.runtime?.actions;
+    const actionTool = mergedTools['runtime.action.execute'];
+    if (Array.isArray(runtimeActions) && runtimeActions.length && (!actionTool || actionTool.enabled !== false)) {
+      mergedTools['runtime.action.execute'] = {
+        enabled: true,
+        execution: 'server',
+        description: '执行当前世界卡已声明的物品、技能或其他 runtime action；需要判定的动作必须先 rules.check 再 dice.roll。',
+        ...(actionTool || {}),
+      };
+    }
+  }
   const maxSteps = Number(worldAgent.maxSteps ?? presetAgent.maxSteps ?? defaultsAgent.maxSteps ?? 1);
   return {
     protocol: String(worldAgent.protocol || presetAgent.protocol || defaultsAgent.protocol || 'tavern.rpg.agent'),
@@ -4576,9 +5352,61 @@ function buildRpgAgentProfile() {
   };
 }
 
+/*
+ * RPG Agent 请求级上下文快照。
+ * ponytail: 只保存作用域与边界元数据，不复制完整 WorldCard/WorldSave；完整事实仍由各自 Prompt section 提供。
+ */
+function buildRpgAgentContext(profile = buildRpgAgentProfile()) {
+  if (mode !== 'rpg' || !worldModeActive()) return null;
+  const world = currentWorldCard() || {};
+  const save = currentWorldSave;
+  const recent = buildWorldRecentContext();
+  const enabledTools = Object.entries(profile?.tools || {})
+    .filter(([, config]) => config && config.enabled !== false)
+    .map(([name]) => name)
+    .filter(name => RPG_NATIVE_TOOL_NAMES.has(name));
+  return {
+    protocol: 'tavern.rpg.context',
+    version: 1,
+    scope: {
+      worldId: world.id || save.worldId || currentWorldId || null,
+      worldVersion: world.version ?? save.worldVersion ?? 1,
+      saveId: save.id || currentWorldSaveId || null,
+      revision: Number.isInteger(save.revision) ? save.revision : 0,
+    },
+    world: {
+      title: String(world.title || world.id || '未命名世界'),
+      facts: 'WorldCard@worldVersion（稳定设定、公开资料、规则）',
+      locationId: save.state?.locationId || null,
+      time: save.state?.time ? cloneValue(save.state.time) : null,
+    },
+    save: {
+      setupStatus: save.setup?.status || null,
+      recentWindow: {
+        revision: recent.revision,
+        sceneStartRevision: recent.sceneStartRevision,
+        sourceLedgerIds: Array.isArray(recent.sourceLedgerIds) ? recent.sourceLedgerIds.slice(-64) : [],
+      },
+      facts: 'WorldSave@revision（本局动态状态、记忆、事件、关系）',
+    },
+    action: {
+      intent: worldTurnPendingActive() ? cloneValue(worldTurnPending.actionIntent || null) : null,
+      pending: worldTurnPendingActive(),
+    },
+    tools: {
+      mode: profile?.mode || 'tool-candidate',
+      maxSteps: profile?.maxSteps || 1,
+      enabled: enabledTools,
+      readOnly: enabledTools.filter(name => name === 'context.retrieve'),
+      candidateOnly: enabledTools.filter(name => !['context.retrieve', 'dice.roll', 'rules.check'].includes(name)),
+      diceSource: enabledTools.includes('dice.roll') ? 'client' : 'disabled',
+    },
+  };
+}
+
 /* Native OpenAI tool names are an allowlist, while their descriptions and
  * JSON Schemas remain data-driven through defaults / preset / world card. */
-const RPG_NATIVE_TOOL_NAMES = new Set(['dice.roll', 'rules.check', 'state.patch', 'objective.upsert', 'entity.create', 'memory.record', 'context.retrieve']);
+const RPG_NATIVE_TOOL_NAMES = new Set(['dice.roll', 'rules.check', 'state.patch', 'objective.upsert', 'entity.create', 'memory.record', 'context.retrieve', 'runtime.action.execute']);
 const RPG_NATIVE_TOOL_WIRE_NAMES = Object.fromEntries([...RPG_NATIVE_TOOL_NAMES].map(name => [name, name.replace(/[^a-zA-Z0-9_-]/g, '_')]));
 const RPG_NATIVE_TOOL_INTERNAL_NAMES = Object.fromEntries(Object.entries(RPG_NATIVE_TOOL_WIRE_NAMES).map(([internal, wire]) => [wire, internal]));
 function normalizeRpgAgentToolName(name) {
@@ -4596,6 +5424,68 @@ function buildRpgNativeToolDefinitions(profile = buildRpgAgentProfile()) {
           const candidate = cloneValue(config.parameters);
           if (JSON.stringify(candidate).length <= 12000) parameters = candidate;
         } catch { /* malformed local schema falls back to an empty object schema */ }
+      }
+      if (name === 'dice.roll') {
+        parameters.type = 'object';
+        parameters.properties = {
+          ...(parameters.properties && typeof parameters.properties === 'object' ? parameters.properties : {}),
+          expr: { type: 'string', description: 'Base dice expression declared by rules.check; never include +N/-N.' },
+          modifier: {
+            type: 'object',
+            description: 'Copy the modifierRule returned by rules.check exactly; the runtime reads the current player field.',
+            properties: {
+              bucket: { type: 'string', enum: ['attributes', 'skills', 'resources'] },
+              id: { type: 'string' }, factor: { type: 'number' }, bonus: { type: 'number' },
+            },
+            required: ['bucket', 'id'], additionalProperties: false,
+          },
+          modifiers: {
+            type: 'array', maxItems: 8,
+            description: '动态判定的多个修正来源；必须原样复制 rules.check 返回的 modifierRules。',
+            items: {
+              type: 'object', additionalProperties: false,
+              properties: {
+                source: { type: 'string', enum: ['player', 'runtime', 'constant'] },
+                bucket: { type: 'string', enum: ['attributes', 'skills', 'resources'] },
+                id: { type: 'string' }, collectionId: { type: 'string' }, entryId: { type: 'string' }, field: { type: 'string' },
+                factor: { type: 'number' }, bonus: { type: 'number' },
+              },
+            },
+          },
+        };
+        parameters.required = [...new Set([...(Array.isArray(parameters.required) ? parameters.required : []), 'expr'])];
+      }
+      if (name === 'rules.check') {
+        parameters.type = 'object';
+        parameters.properties = {
+          ruleId: { type: 'string', description: '旧世界卡已声明的判定 ID；兼容旧规则。' },
+          actionId: { type: 'string', description: '动态判定对应的世界动作/玩家行动标识。' },
+          reason: { type: 'string', description: '为什么本次行动具有真实不确定性与后果。' },
+          sides: { type: 'integer', minimum: 2, maximum: 1000, description: '动态基础骰面的数量 N，公式固定为 1dN。' },
+          target: { type: 'number', description: '动态判定目标值。' },
+          modifiers: {
+            type: 'array', maxItems: 8,
+            description: '按顺序列出属性、技能、runtime 状态或常数修正。',
+            items: {
+              type: 'object', additionalProperties: false,
+              properties: {
+                source: { type: 'string', enum: ['player', 'runtime', 'constant'] },
+                bucket: { type: 'string', enum: ['attributes', 'skills', 'resources'] },
+                id: { type: 'string' }, collectionId: { type: 'string' }, entryId: { type: 'string' }, field: { type: 'string' },
+                factor: { type: 'number' }, bonus: { type: 'number' },
+              },
+            },
+          },
+        };
+        parameters.required = [];
+      }
+      if (name === 'runtime.action.execute') {
+        parameters.type = 'object';
+        parameters.properties = {
+          actionId: { type: 'string', description: '当前世界卡 runtime.actions 中已声明的动作 ID。' },
+          input: { type: 'object', description: '动作 Schema 声明的输入；服务端会按当前动作定义校验。', additionalProperties: true },
+        };
+        parameters.required = ['actionId'];
       }
       return {
         type: 'function',
@@ -4616,9 +5506,87 @@ function buildRpgNativeToolDefinitions(profile = buildRpgAgentProfile()) {
 const RPG_UPDATE_TAG = 'tavern_state_update';
 const RPG_UPDATE_OPEN = `<${RPG_UPDATE_TAG}>`;
 const RPG_UPDATE_CLOSE = `</${RPG_UPDATE_TAG}>`;
+const RPG_PROTOCOL_REPAIR_ATTEMPTS = 2;
+const RPG_REPAIR_TOOL_NAME = 'tavern_rpg_turn_repair';
+const RPG_RUNTIME_UPDATE_FORMAT_HINT = 'Runtime 更新格式：runtime.variable.set 使用 {"type":"runtime.variable.set","id":"变量 ID","value":值}；runtime.variable.delta 使用 {"type":"runtime.variable.delta","id":"变量 ID","delta":数值}；runtime.collection.add 必须使用 {"type":"runtime.collection.add","collectionId":"集合 ID","value":{"id":"stable-entry-id",…}}。新增条目的 title、text、status 等字段一律放在 value 内，不能平铺在 update 顶层；条目 ID 只能使用字母、数字、_、-，缺少稳定条目 ID 时不要提交 collection.add。';
 
 function stripJsonFence(text) {
   return String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+}
+
+function buildRpgRepairToolDefinition(optionRules = worldOptionRules()) {
+  const minItems = Math.max(0, Number(optionRules?.min) || 0);
+  const maxItems = Math.max(minItems, Number(optionRules?.max) || minItems);
+  return {
+    type: 'function',
+    function: {
+      name: RPG_REPAIR_TOOL_NAME,
+      description: 'Return the repaired Tavern RPG turn control data. Do not continue or rewrite the narrative.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          updates: {
+            type: 'array', maxItems: 32,
+            description: 'Typed updates already supported by the current world contract; use an empty array when nothing changed.',
+            items: { type: 'object' },
+          },
+          options: {
+            type: 'array', minItems, maxItems,
+            description: 'Concrete, non-duplicated player actions. Keep options out of the narrative.',
+            items: { type: 'string', minLength: 1, maxLength: 240 },
+          },
+          eventMemory: {
+            type: 'array', maxItems: 32,
+            description: 'Optional event-memory candidates from facts already present in this turn.',
+            items: { type: 'object' },
+          },
+          createEntities: {
+            type: 'array', maxItems: 16,
+            description: 'Optional entity candidates already present in this turn.',
+            items: { type: 'object' },
+          },
+        },
+        required: ['updates', 'options'],
+      },
+    },
+  };
+}
+
+/* Dedicated repair responses contain no narrative, so provider JSON/tool output can be
+ * converted to the single internal tag without making the ordinary narrative parser lenient. */
+function canonicalizeRpgRepairOutput(value, revision = currentWorldSave?.revision ?? 0) {
+  let candidate = value;
+  if (typeof candidate === 'string') {
+    const text = String(candidate || '').trim();
+    const tagged = parseTaggedRpgOutput(text);
+    if (tagged?.payload) candidate = tagged.payload;
+    else {
+      const unfenced = stripJsonFence(text);
+      const start = unfenced.indexOf('{');
+      const end = unfenced.lastIndexOf('}');
+      const json = start >= 0 && end >= start ? unfenced.slice(start, end + 1) : unfenced;
+      try { candidate = JSON.parse(json); }
+      catch (error) { throw new Error(`AI 协议修复 JSON 无效：${error.message}`); }
+    }
+  }
+  if (candidate?.function?.arguments !== undefined) candidate = candidate.function.arguments;
+  else if (candidate?.name === RPG_REPAIR_TOOL_NAME && candidate.arguments !== undefined) candidate = candidate.arguments;
+  if (typeof candidate === 'string') {
+    try { candidate = JSON.parse(candidate); }
+    catch (error) { throw new Error(`AI 协议修复参数无效：${error.message}`); }
+  }
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) throw new Error('AI 协议修复必须返回 JSON 对象');
+  const numericRevision = Number(revision);
+  const payload = {
+    protocol: 'tavern.rpg.turn',
+    version: 1,
+    baseRevision: Number.isInteger(numericRevision) && numericRevision >= 0 ? numericRevision : 0,
+  };
+  for (const key of ['updates', 'options', 'eventMemory', 'createEntities']) {
+    if (Object.prototype.hasOwnProperty.call(candidate, key)) payload[key] = candidate[key];
+  }
+  return `${RPG_UPDATE_OPEN}${JSON.stringify(payload)}${RPG_UPDATE_CLOSE}`;
 }
 
 function parseRpgUpdatePayload(rawUpdate) {
@@ -4781,13 +5749,48 @@ function processAIOutput(reply) {
   return {
     content: applyOutputRegex(rawContent),
     rawContent,
-    options: Array.isArray(update?.options) ? update.options : null,
+    options: (() => {
+      const options = normalizeRpgOptions(update?.options);
+      return options.length ? options : null;
+    })(),
     createEntities: update?.createEntities || null,
     eventMemory: update?.eventMemory || null,
     agentCalls: parsed.payload?.toolCalls ?? null,
     patch,
     protocol: parsed,
   };
+}
+
+/* 协议修复只应补齐机器标签，不能用修复请求的重写正文替换已展示内容。 */
+function mergeRepairedReply(originalReply, repairedReply, targetMode = mode) {
+  const original = String(originalReply || '').trim();
+  const repaired = String(repairedReply || '').trim();
+  if (!original || !repaired) return repaired || original;
+  if (targetMode !== 'rpg') {
+    const visible = String(parseTavernReplyOutput(original, resolvePromptPreset()?.preset || null).content || original).trim();
+    const tag = repaired.match(/<tavern_options\b[^>]*>[\s\S]*?<\/tavern_options\s*>/i)?.[0];
+    return tag ? `${visible}\n${tag}`.trim() : visible;
+  }
+  const visible = String(parseRpgOutput(original).narrative || original).trim();
+  const tag = repaired.match(/<tavern_state_update\b[^>]*>[\s\S]*?<\/tavern_state_update\s*>/i)?.[0]
+    || repaired.match(/```rpg[\s\S]*?```/i)?.[0];
+  return tag ? `${visible}\n${tag}`.trim() : visible;
+}
+
+/* 协议修复只替换坏字段；本回合已经通过校验的 options / patch 不再交给模型重写。 */
+function preserveValidRpgRepairFields(original, repaired, optionRules = worldOptionRules(), revision = currentWorldSave?.revision ?? 0) {
+  const options = normalizeRpgOptions(original?.options, optionRules);
+  if (options.length >= optionRules.min && options.length <= optionRules.max) repaired.options = options;
+  const patch = original?.patch;
+  if (patch
+    && patch.protocol === 'tavern.rpg.turn'
+    && Number(patch.version) === 1
+    && Number(patch.baseRevision) === Number(revision)
+    && !validateRpgPatchShape(patch)
+    && !validateRpgPatchRuntimeActions(patch)) repaired.patch = patch;
+  if (!repaired.createEntities && original?.createEntities) repaired.createEntities = original.createEntities;
+  if (!repaired.eventMemory && original?.eventMemory) repaired.eventMemory = original.eventMemory;
+  return repaired;
 }
 
 // 叙事正文只保留故事；选项统一来自控制块并由底部快捷栏渲染。
@@ -4800,11 +5803,22 @@ function stripRpgNarrativeOptions(text) {
   return marked.length >= 2 ? source.slice(0, match.index).trim() : source;
 }
 
-function normalizeRpgPatch(patch) {
+const RPG_RUNTIME_UPDATE_ALIASES = new Set([
+  'variable.set', 'variable.delta', 'collection.add', 'collection.remove', 'collection.patch',
+]);
+
+function normalizeRpgPatch(patch, options = patch?.options) {
   if (!patch || !Array.isArray(patch.updates)) return patch;
   return {
     ...patch,
-    updates: patch.updates.map(update => {
+    ...(options === undefined ? {} : { options: normalizeRpgOptions(options) }),
+    updates: patch.updates.filter(update => !(worldModeActive() && RPG_WORLD_DISABLED_UPDATE_TYPES.has(update?.type))).map(update => {
+      if (RPG_RUNTIME_UPDATE_ALIASES.has(update?.type)) {
+        const type = `runtime.${update.type}`;
+        if (!update.type.startsWith('variable.')) return { ...update, type };
+        const { variableId, ...rest } = update;
+        return { ...rest, type, id: update.id ?? variableId };
+      }
       if (update?.type !== 'location.set') return update;
       const raw = update.locationId ?? update.location ?? update.id ?? update.value;
       const locationId = raw && typeof raw === 'object' ? raw.id : raw;
@@ -4830,8 +5844,12 @@ const RPG_PATCH_UPDATE_KEYS = Object.freeze({
   'runtime.variable.delta': ['type', 'id', 'delta'],
   'runtime.collection.add': ['type', 'collectionId', 'value'],
   'runtime.collection.remove': ['type', 'collectionId', 'entryId'],
+  'runtime.collection.patch': ['type', 'collectionId', 'entryId', 'set', 'delta'],
   'runtime.action.execute': ['type', 'actionId', 'input'],
 });
+const RPG_WORLD_DISABLED_UPDATE_TYPES = new Set([
+  'currency.delta', 'inventory.delta', 'objective.status', 'objective.upsert',
+]);
 
 /* 提交前拦截最常见的“格式漂移”，避免等服务端拒绝后才让玩家重试。 */
 function validateRpgPatchShape(patch) {
@@ -4841,12 +5859,23 @@ function validateRpgPatchShape(patch) {
   if (extraPatchKey) return `patch 含有未声明字段 ${extraPatchKey}`;
   if (!Array.isArray(patch.updates)) return 'patch.updates 必须是数组';
   for (const update of patch.updates) {
+    if (update?.type === 'runtime.collection.add') {
+      if (!update.value || typeof update.value !== 'object' || Array.isArray(update.value)) return `patch.runtime.collection.add 必须把新增条目放进 value 对象；${RPG_RUNTIME_UPDATE_FORMAT_HINT}`;
+      if (update.value.id === undefined || update.value.id === null || !String(update.value.id).trim()) return `patch.runtime.collection.add.value.id 必填；${RPG_RUNTIME_UPDATE_FORMAT_HINT}`;
+    }
     const allowedKeys = RPG_PATCH_UPDATE_KEYS[update?.type];
     if (!allowedKeys) return 'patch.updates 含有不受支持的操作';
     const extraKey = Object.keys(update).find(key => !allowedKeys.includes(key));
     if (extraKey) return `patch.${update.type} 含有未声明字段 ${extraKey}`;
   }
   return null;
+}
+
+function validateRpgPatchRuntimeActions(patch, world = currentWorldCard()) {
+  if (!worldModeActive() || !Array.isArray(patch?.updates)) return null;
+  const actionIds = new Set((Array.isArray(world?.runtime?.actions) ? world.runtime.actions : []).map(action => String(action?.id || '')));
+  const unknown = patch.updates.find(update => update?.type === 'runtime.action.execute' && !actionIds.has(String(update.actionId || '').trim()));
+  return unknown ? `patch.runtime.action.execute 未声明动作 ${String(unknown.actionId || '').trim() || '（空）'}` : null;
 }
 
 function applyRpgUpdate(payload) {
@@ -4863,7 +5892,7 @@ function applyRpgUpdate(payload) {
   if (typeof upd.mp === 'number') rs.mp = clamp(rs.mp + upd.mp, 0, rs.maxMp);
   if (typeof upd.maxHp === 'number') { rs.maxHp = Math.max(1, rs.maxHp + upd.maxHp); rs.hp = Math.min(rs.hp, rs.maxHp); }
   if (typeof upd.maxMp === 'number') { rs.maxMp = Math.max(1, rs.maxMp + upd.maxMp); rs.mp = Math.min(rs.mp, rs.maxMp); }
-  if (typeof upd.gold === 'number' && !(hasDeclaredGold && currencyUpdates && Object.prototype.hasOwnProperty.call(currencyUpdates, 'gold'))) {
+  if (!worldModeActive() && typeof upd.gold === 'number' && !(hasDeclaredGold && currencyUpdates && Object.prototype.hasOwnProperty.call(currencyUpdates, 'gold'))) {
     rs.gold = Math.max(0, rs.gold + upd.gold);
     if (hasDeclaredGold) {
       if (!rs.currencies || typeof rs.currencies !== 'object') rs.currencies = {};
@@ -4874,7 +5903,7 @@ function applyRpgUpdate(payload) {
   if (typeof upd.exp === 'number') rs.exp = Math.max(0, rs.exp + upd.exp);
   if (typeof upd.location === 'string' && upd.location.trim()) rs.location = upd.location.trim();
   if (Array.isArray(upd.buffs)) rs.buffs = upd.buffs;
-  if (worldModeActive() && economy && currencyUpdates) {
+  if (!worldModeActive() && worldModeActive() && economy && currencyUpdates) {
     const definitions = new Map((Array.isArray(economy.currencies) ? economy.currencies : []).map(currency => [currency.id, currency]));
     if (!rs.currencies || typeof rs.currencies !== 'object') rs.currencies = {};
     for (const [id, delta] of Object.entries(currencyUpdates)) {
@@ -4885,7 +5914,7 @@ function applyRpgUpdate(payload) {
       if (id === 'gold') rs.gold = rs.currencies[id];
     }
   }
-  if (Array.isArray(upd.inventory)) {
+  if (!worldModeActive() && Array.isArray(upd.inventory)) {
     for (const it of upd.inventory) {
       if (!it || !it.name) continue;
       const count = (typeof it.count === 'number') ? it.count : 1;
@@ -4907,7 +5936,7 @@ function applyRpgUpdate(payload) {
       }
     }
   }
-  if (worldModeActive() && economy && upd.equipment && typeof upd.equipment === 'object' && !Array.isArray(upd.equipment)) {
+  if (!worldModeActive() && worldModeActive() && economy && upd.equipment && typeof upd.equipment === 'object' && !Array.isArray(upd.equipment)) {
     const slotIds = new Set((Array.isArray(economy.equipment?.slots) ? economy.equipment.slots : []).map(slot => slot.id));
     if (!rs.equipment || typeof rs.equipment !== 'object') rs.equipment = {};
     const inventoryIds = new Set(rs.inventory.filter(item => item?.itemId).map(item => String(item.itemId)));
@@ -4916,7 +5945,7 @@ function applyRpgUpdate(payload) {
       rs.equipment[slotId] = itemId;
     }
   }
-  if (worldModeActive() && Array.isArray(upd.conflicts)) {
+  if (!worldModeActive() && worldModeActive() && Array.isArray(upd.conflicts)) {
     const state = currentWorldSave.state || (currentWorldSave.state = {});
     const conflictDefinitions = new Map((Array.isArray(currentWorldCard()?.conflicts) ? currentWorldCard().conflicts : []).map(conflict => [conflict.id, conflict]));
     if (!state.conflicts || typeof state.conflicts !== 'object' || Array.isArray(state.conflicts)) state.conflicts = {};
@@ -4960,7 +5989,7 @@ function applyRpgUpdate(payload) {
     }
     rs.conflicts = state.conflicts;
   }
-  if (worldModeActive() && Array.isArray(upd.growth)) {
+  if (!worldModeActive() && worldModeActive() && Array.isArray(upd.growth)) {
     const growth = currentWorldCard()?.playerCreation?.growth;
     const candidateDefinitions = new Map((Array.isArray(growth?.candidates) ? growth.candidates : []).map(candidate => [candidate.id, candidate]));
     const sourceIds = new Set((Array.isArray(growth?.sources) ? growth.sources : []).map(source => source.id));
@@ -4977,7 +6006,7 @@ function applyRpgUpdate(payload) {
     state.growthCandidates = candidates.slice(-128);
     rs.growthCandidates = state.growthCandidates;
   }
-  if (Array.isArray(upd.quests)) {
+  if (!worldModeActive() && Array.isArray(upd.quests)) {
     for (const qd of upd.quests) {
       if (!qd || !qd.title) continue;
       const exist = rs.quests.find(x => x.title === qd.title);
@@ -5027,9 +6056,8 @@ function applyRpgUpdate(payload) {
   };
   upsertObjectives('goals', upd.goals);
   upsertObjectives('leads', upd.leads);
-  const options = Array.isArray(upd.options)
-    ? upd.options.filter(o => typeof o === 'string' && o.trim()).slice(0, worldOptionRules().max)
-    : null;
+  const normalizedOptions = normalizeRpgOptions(upd.options);
+  const options = normalizedOptions.length ? normalizedOptions : null;
   const createEntities = Array.isArray(upd.createEntities) ? cloneValue(upd.createEntities) : null;
   const eventMemory = worldModeActive() && Array.isArray(upd.eventMemory) ? cloneValue(upd.eventMemory) : null;
   commitRpgState(rs);
@@ -5039,6 +6067,7 @@ function applyRpgUpdate(payload) {
 
 /* ─────────── 掷骰（D&D 风格：d20+5 / 2d6-1 自动掷骰） ─────────── */
 const DICE_RE = /(\d*)d(\d+)([+-]\d+)?/gi;
+const MAX_DICE_BONUS = 1000;
 function rollDiceIn(text) {
   const results = [];
   String(text || '').replace(DICE_RE, (m, cnt, die, mod) => {
@@ -5046,6 +6075,7 @@ function rollDiceIn(text) {
     const d = parseInt(die, 10) || 1;
     if (!Number.isInteger(n) || n < 1 || !Number.isInteger(d) || d < 1 || d > 1000000) return m;
     const bonus = mod ? parseInt(mod, 10) : 0;
+    if (!Number.isInteger(bonus) || Math.abs(bonus) > MAX_DICE_BONUS) return m;
     const rolls = [];
     for (let i = 0; i < n; i++) rolls.push(1 + Math.floor(Math.random() * d));
     const sum = rolls.reduce((a, b) => a + b, 0);
@@ -5183,7 +6213,11 @@ function cardScriptInventory(char = currentChar()) {
 function approveCharacterCardScripts(scripts) {
   const character = currentChar();
   if (!character || !Array.isArray(scripts) || !scripts.length) return false;
-  const inventory = cardScriptInventory(character);
+  // 展示渲染会先展开 {{user}} 宏，再提取脚本；授权比对必须使用同一份规范化源码。
+  const inventory = cardScriptInventory(character).map(entry => ({
+    ...entry,
+    code: expandDisplayMacros(entry.code),
+  }));
   const inventoryKeys = new Set(inventory.map(entry => `${entry.src}\n${entry.code}`));
   if (scripts.some(entry => !inventoryKeys.has(`${entry.src}\n${entry.code}`))) return false;
   const supportedExternal = scripts.filter(entry => entry.src).map(entry => safeTavernCardScriptUrl(entry.src));
@@ -5195,7 +6229,7 @@ function approveCharacterCardScripts(scripts) {
   const inlineCount = scripts.filter(entry => !entry.src).length;
   const externalCount = scripts.filter(entry => entry.src).length;
   const approved = typeof window !== 'undefined' && typeof window.confirm === 'function'
-    ? window.confirm(`当前角色卡包含 ${inlineCount} 个内联脚本${externalCount ? `和 ${externalCount} 个外部依赖` : ''}。\n确认后将在同源完整兼容 iframe 中运行，不启用 sandbox/CSP 隔离；卡片脚本可访问宿主 DOM、localStorage、外部脚本和网络请求。\n已提供 triggerSlash('/send …|/trigger')、copyToTavernDialog()、TavernCard.send/copy，以及只读的 getLastMessageId()/getCurrentMessageId()/getChatMessages()/getCharWorldbookNames()/getWorldbook()，用于兼容读取当前对话和角色卡世界书。\n仅导入你信任的角色卡；是否启用本卡脚本？`)
+    ? window.confirm(`当前角色卡包含 ${inlineCount} 个内联脚本${externalCount ? `和 ${externalCount} 个外部依赖` : ''}。\n确认后将在同源完整兼容 iframe 中运行，不启用 sandbox/CSP 隔离；卡片脚本可访问宿主 DOM、localStorage、外部脚本和网络请求。\n已提供 ST Lite 的 SillyTavern/getContext/eventSource/substituteParams、triggerSlash('/send …|/trigger')、copyToTavernDialog()、TavernCard.send/copy，以及当前会话变量读写和角色卡世界书读取。\n仅导入你信任的角色卡；是否启用本卡脚本？`)
     : false;
   if (approved) {
     prefs.cardScriptApprovals = { ...approvals, [key]: true };
@@ -5206,9 +6240,10 @@ function approveCharacterCardScripts(scripts) {
   return approved;
 }
 
-// ST 角色卡脚本需要同步读取聊天/角色书；仍注入只读快照，避免卡内脚本依赖宿主内部实现。
+// ST 角色卡脚本需要同步读取聊天/角色书；注入当前卡片作用域快照，变量写入单独经过宿主桥持久化。
 function tavernCardCompatibilitySnapshot() {
   const char = currentChar();
+  const session = curSession();
   const sourceMessages = curMessages();
   // ponytail: cap the injected snapshot at 200 messages; raise only for cards that need deeper history.
   const messages = (Array.isArray(sourceMessages) ? sourceMessages : []).slice(-200).map((message, index) => {
@@ -5255,7 +6290,29 @@ function tavernCardCompatibilitySnapshot() {
     });
     names.primary = name;
   }
-  return { messages, worldbooks: { names, books }, currentChatId: String(currentSessionId || '') };
+  const userName = String(currentUserPreset()?.name || '玩家').slice(0, 120);
+  const character = char ? {
+    id: String(char.id || currentCharId || ''),
+    name: String(char.name || '').slice(0, 240),
+    description: String(char.description || '').slice(0, 20000),
+    personality: String(char.personality || '').slice(0, 6000),
+    scenario: String(char.scenario || '').slice(0, 6000),
+    firstMessage: String(char.firstMes || '').slice(0, 20000),
+    alternateGreetings: Array.isArray(char.alternateGreetings)
+      ? char.alternateGreetings.map(value => String(value || '').slice(0, 20000)).slice(0, 32)
+      : [],
+  } : null;
+  const variables = session?.stVariables && typeof session.stVariables === 'object' && !Array.isArray(session.stVariables)
+    ? JSON.parse(JSON.stringify(session.stVariables)) : {};
+  const context = {
+    mode: 'tavern',
+    chatId: String(currentSessionId || ''),
+    currentChatId: String(currentSessionId || ''),
+    user: { name: userName },
+    character,
+    char: character,
+  };
+  return { messages, worldbooks: { names, books }, currentChatId: String(currentSessionId || ''), user: { name: userName }, character, char: character, variables, context };
 }
 
 function sanitizeTavernMarkup(source, parser, allowEvents = false) {
@@ -5294,7 +6351,147 @@ function tavernCardFrameBridgeSource(nonce, compatibility = {}) {
   const nonce = ${token};
   const compatibility = ${snapshot};
   const pending = new Map();
+  const eventListeners = new Map();
+  let installed = false;
   let sequence = 0;
+  const event_types = Object.freeze({
+    CHAT_CHANGED: 'CHAT_CHANGED',
+    MESSAGE_SENT: 'MESSAGE_SENT',
+    MESSAGE_RECEIVED: 'MESSAGE_RECEIVED',
+    CHARACTER_MESSAGE_RENDERED: 'CHARACTER_MESSAGE_RENDERED',
+    USER_MESSAGE_RENDERED: 'USER_MESSAGE_RENDERED',
+    GENERATION_STARTED: 'GENERATION_STARTED',
+    GENERATION_ENDED: 'GENERATION_ENDED',
+    WORLDINFO_ENTRIES_LOADED: 'WORLDINFO_ENTRIES_LOADED',
+  });
+  // ST 卡片常用 $(selector).load(url) 把远程 HTML 挂入卡片。
+  // 这里只提供这个兼容面；普通消息仍不会执行脚本，完整卡片脚本仍需用户授权。
+  function installLegacyQuery() {
+    if (typeof global.$ === 'function') return;
+    const query = selector => {
+      const queryText = String(selector || '').trim();
+      const root = document.getElementById('tavern-card-frame-root');
+      const nodes = /^body$/i.test(queryText) && root
+        ? [root]
+        : (queryText ? [...document.querySelectorAll(queryText)] : []);
+      const api = {
+        length: nodes.length,
+        0: nodes[0],
+        html(value) {
+          if (value === undefined) return nodes[0]?.innerHTML || '';
+          nodes.forEach(node => { node.innerHTML = String(value); });
+          return api;
+        },
+        text(value) {
+          if (value === undefined) return nodes[0]?.textContent || '';
+          nodes.forEach(node => { node.textContent = String(value); });
+          return api;
+        },
+        append(value) {
+          nodes.forEach(node => node.insertAdjacentHTML('beforeend', String(value ?? '')));
+          return api;
+        },
+        on(name, listener) {
+          if (typeof listener === 'function') nodes.forEach(node => node.addEventListener(String(name), listener));
+          return api;
+        },
+        load(url, data, complete) {
+          if (typeof data === 'function') complete = data;
+          let target;
+          try {
+            target = new URL(String(url || ''), document.baseURI);
+            if (!['http:', 'https:'].includes(target.protocol)) throw new Error('仅允许 http(s) 外部链接');
+          } catch (error) {
+            return Promise.reject(error);
+          }
+          const frame = document.createElement('iframe');
+          frame.src = target.href;
+          frame.title = '外部角色卡界面';
+          frame.referrerPolicy = 'no-referrer';
+          frame.style.cssText = 'display:block;width:100%;height:720px;max-width:100%;border:0;background:transparent';
+          if (!nodes.length) return Promise.resolve(api);
+          nodes.forEach(node => node.replaceChildren(frame));
+          return new Promise((resolve, reject) => {
+            frame.addEventListener('load', () => {
+              if (typeof complete === 'function') complete.call(nodes[0], '', 'success', frame);
+              resolve(api);
+            }, { once: true });
+            frame.addEventListener('error', error => {
+              if (typeof complete === 'function') complete.call(nodes[0], '', 'error', error);
+              reject(new Error('外部页面加载失败'));
+            }, { once: true });
+          });
+        },
+      };
+      return api;
+    };
+    global.$ = query;
+  }
+  function eventName(name) { return String(name || '').trim(); }
+  const eventSource = {
+    on(name, listener) {
+      const key = eventName(name);
+      if (!key || typeof listener !== 'function') return () => {};
+      const bucket = eventListeners.get(key) || new Set();
+      bucket.add(listener);
+      eventListeners.set(key, bucket);
+      return () => this.off(key, listener);
+    },
+    addListener(name, listener) { return this.on(name, listener); },
+    once(name, listener) {
+      let dispose = () => {};
+      dispose = this.on(name, detail => { dispose(); listener(detail); });
+      return dispose;
+    },
+    off(name, listener) {
+      const bucket = eventListeners.get(eventName(name));
+      if (!bucket) return;
+      bucket.delete(listener);
+      if (!bucket.size) eventListeners.delete(eventName(name));
+    },
+    removeListener(name, listener) { return this.off(name, listener); },
+    emit(name, detail) {
+      const key = eventName(name);
+      (eventListeners.get(key) || []).forEach(listener => {
+        try { listener(detail); } catch (error) { setTimeout(() => { throw error; }, 0); }
+      });
+      try { global.dispatchEvent(new CustomEvent('tavern-st-event', { detail: { name: key, payload: detail } })); } catch (_) {}
+      return true;
+    },
+  };
+  function clone(value) {
+    try { return JSON.parse(JSON.stringify(value)); } catch (_) { return value; }
+  }
+  function getContext() {
+    const base = clone(compatibility.context || {
+      mode: 'tavern',
+      chatId: String(compatibility.currentChatId || ''),
+      currentChatId: String(compatibility.currentChatId || ''),
+      user: compatibility.user || { name: '玩家' },
+      character: compatibility.character || null,
+      char: compatibility.char || compatibility.character || null,
+      worldbooks: compatibility.worldbooks || { names: { primary: '', additional: [] }, books: {} },
+      variables: compatibility.variables || {},
+    });
+    if (!Array.isArray(base.chat)) base.chat = clone(compatibility.messages || []);
+    if (!Array.isArray(base.messages)) base.messages = base.chat;
+    if (!base.worldbooks) base.worldbooks = clone(compatibility.worldbooks || { names: { primary: '', additional: [] }, books: {} });
+    if (!base.variables) base.variables = clone(compatibility.variables || {});
+    return base;
+  }
+  function substituteParams(value) {
+    const context = getContext();
+    const userName = text(context.user?.name || context.user || '玩家');
+    const charName = text(context.character?.name || context.char?.name || '角色');
+    const last = Array.isArray(context.messages) && context.messages.length ? context.messages[context.messages.length - 1] : null;
+    return text(value).replace(/\\{\\{\\s*(user(?:\\.name)?|char(?:\\.name)?|lastMessage|chatId)\\s*\\}\\}/gi, (_, key) => {
+      const name = String(key || '').toLowerCase();
+      if (name === 'user' || name === 'user.name') return userName;
+      if (name === 'char' || name === 'char.name') return charName;
+      if (name === 'lastmessage') return text(last?.content || last?.mes || '');
+      return text(context.chatId || '');
+    });
+  }
   function request(action, payload) {
     return new Promise(resolve => {
       const requestId = 'card-' + (++sequence);
@@ -5315,7 +6512,13 @@ function tavernCardFrameBridgeSource(nonce, compatibility = {}) {
   }
   function text(value) { return String(value == null ? '' : value); }
   function copy(value) { return request('copy', { text: text(value) }); }
-  function send(value) { return request('send', { text: text(value) }); }
+  function send(value) {
+    const body = text(value);
+    return request('send', { text: body }).then(result => {
+      eventSource.emit(event_types.MESSAGE_SENT, { text: body, result });
+      return result;
+    });
+  }
   function notice(value) { return request('notice', { text: text(value).slice(0, 4000) }); }
   function triggerSlash(command) {
     const value = text(command).trim();
@@ -5328,7 +6531,7 @@ function tavernCardFrameBridgeSource(nonce, compatibility = {}) {
   }
   function chatRange(range) {
     const list = Array.isArray(compatibility.messages) ? compatibility.messages : [];
-    if (range == null || range === '') return list.slice();
+    if (range == null || range === '') return list.slice().map(clone);
     const value = String(range).trim();
     let start = 0;
     let end = list.length - 1;
@@ -5343,15 +6546,36 @@ function tavernCardFrameBridgeSource(nonce, compatibility = {}) {
     if (start < 0) start = Math.max(0, list.length + start);
     if (end < 0) end = Math.max(0, list.length + end);
     if (end < start) return [];
-    return list.slice(Math.max(0, start), Math.min(list.length, end + 1));
+    return list.slice(Math.max(0, start), Math.min(list.length, end + 1)).map(clone);
   }
   function getLastMessageId() { return Math.max(-1, (compatibility.messages || []).length - 1); }
   function getCurrentMessageId() { return getLastMessageId(); }
   function getChatMessages(range) { return chatRange(range); }
   function getAllChatMessages() { return chatRange(); }
-  function getCharWorldbookNames() { return compatibility.worldbooks?.names || { primary: '', additional: [] }; }
-  function getWorldbook(name) { return compatibility.worldbooks?.books?.[String(name || '')] || []; }
+  function getCharWorldbookNames() { return clone(compatibility.worldbooks?.names || { primary: '', additional: [] }); }
+  function getWorldbook(name) { return clone(compatibility.worldbooks?.books?.[String(name || '')] || []); }
   function getCurrentChatId() { return String(compatibility.currentChatId || ''); }
+  function getVariables() { return clone(compatibility.variables || {}); }
+  function getVariable(name, fallback) {
+    const key = text(name).trim();
+    const values = getVariables();
+    return Object.prototype.hasOwnProperty.call(values, key) ? values[key] : fallback;
+  }
+  function setVariable(name, value) {
+    const key = text(name).trim();
+    if (!/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(key)) return Promise.reject(new Error('变量名无效'));
+    return request('variables.set', { values: { [key]: value } }).then(result => {
+      if (result?.variables) compatibility.variables = clone(result.variables);
+      return result;
+    });
+  }
+  function updateVariables(values) {
+    if (!values || typeof values !== 'object' || Array.isArray(values)) return Promise.reject(new Error('变量对象无效'));
+    return request('variables.set', { values }).then(result => {
+      if (result?.variables) compatibility.variables = clone(result.variables);
+      return result;
+    });
+  }
   function memoryStorage() {
     const values = Object.create(null);
     return {
@@ -5424,10 +6648,27 @@ function tavernCardFrameBridgeSource(nonce, compatibility = {}) {
     });
   }
   function install() {
+    if (installed) return;
+    installed = true;
+    installLegacyQuery();
     installStorage();
     installFixtureFetch();
     installSTDataGlobals();
-    global.TavernCard = { send, copy, setInput: copy };
+    const extension_settings = global.extension_settings && typeof global.extension_settings === 'object'
+      ? global.extension_settings : {};
+    global.extension_settings = extension_settings;
+    global.saveSettingsDebounced = global.saveSettingsDebounced || (() => Promise.resolve());
+    global.SillyTavern = Object.assign(global.SillyTavern || {}, { getContext, eventSource, event_types, extension_settings });
+    global.TavernHelper = Object.assign(global.TavernHelper || {}, { getContext, eventSource, event_types, substituteParams, getVariables, getVariable, setVariable, updateVariables, getChatMessages, getWorldbook, triggerSlash });
+    global.eventSource = eventSource;
+    global.event_types = event_types;
+    global.getContext = getContext;
+    global.substituteParams = substituteParams;
+    global.getVariables = getVariables;
+    global.getVariable = getVariable;
+    global.setVariable = setVariable;
+    global.updateVariables = updateVariables;
+    global.TavernCard = { send, copy, setInput: copy, getContext, requestContext: () => request('context'), eventSource, event_types, getVariables, getVariable, setVariable, updateVariables };
     global.triggerSlash = triggerSlash;
     global.copyToTavernDialog = copy;
     global.getLastMessageId = getLastMessageId;
@@ -5439,6 +6680,12 @@ function tavernCardFrameBridgeSource(nonce, compatibility = {}) {
     global.getCurrentChatId = getCurrentChatId;
     if (typeof global.simpleLog !== 'function') global.simpleLog = (...args) => console.debug('[Tavern card]', ...args);
     if (typeof global.writeLog !== 'function') global.writeLog = (...args) => console.debug('[Tavern card]', ...args);
+    global.__TAVERN_ST_LITE__ = { version: 1, mode: 'tavern', features: ['events', 'context', 'macros', 'variables', 'worldbooks', 'card-actions'] };
+    setTimeout(() => {
+      const context = getContext();
+      eventSource.emit(event_types.CHAT_CHANGED, context);
+      eventSource.emit(event_types.MESSAGE_RECEIVED, context);
+    }, 0);
   }
   global.addEventListener('message', event => {
     const data = event.data;
@@ -5453,8 +6700,11 @@ function tavernCardFrameBridgeSource(nonce, compatibility = {}) {
 })(window);`;
 }
 
-function tavernCardScriptFrame(css, markup, scripts, compatibility = {}) {
+function tavernCardScriptFrame(css, markup, scripts, compatibility = {}, scrollMode = 'auto') {
   const nonce = uid() + '-' + uid();
+  const normalizedScrollMode = ['host', 'card', 'auto'].includes(String(scrollMode)) ? String(scrollMode) : 'auto';
+  const frameOverflow = normalizedScrollMode === 'host' ? 'hidden' : 'auto';
+  const frameScrolling = normalizedScrollMode === 'host' ? ' scrolling="no"' : '';
   const scriptMarkup = scripts.map(entry => {
     if (entry.src) {
       const src = safeTavernCardScriptUrl(entry.src);
@@ -5469,8 +6719,15 @@ function tavernCardScriptFrame(css, markup, scripts, compatibility = {}) {
     .replace(/<\/?style\b[^>]*>/gi, '')
     .replace(/<\/style/gi, '<\\/style');
   const bridge = tavernCardFrameBridgeSource(nonce, compatibility).replace(/<\/script/gi, '<\\/script');
-  const srcdoc = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;min-height:0;overflow:auto}#tavern-card-frame-root{width:100%;min-height:0;box-sizing:border-box}${safeCss}</style></head><body><main id="tavern-card-frame-root">${markup}</main><script>(function(){const nonce=${JSON.stringify(nonce)};function report(){try{const root=document.getElementById('tavern-card-frame-root');const rect=root?.getBoundingClientRect();const height=Math.ceil(Math.max(root?.scrollHeight||0,rect?.height||0));parent.postMessage({channel:'tavern.card.frame',type:'resize',nonce,height},'*')}catch(_){}}addEventListener('load',report);setTimeout(report,0);const root=document.getElementById('tavern-card-frame-root');if(typeof ResizeObserver==='function'&&root)new ResizeObserver(report).observe(root);})();</script><script>${bridge}</script>${scriptMarkup}<script>${bridge}</script></body></html>`;
-  return `<div class="tavern-card-script-shell" data-tavern-card-script data-tavern-card-mode="full"><iframe class="tavern-card-script-frame" title="角色卡完整兼容运行区" data-tavern-card-nonce="${esc(nonce)}" referrerpolicy="no-referrer" srcdoc="${esc(srcdoc)}"></iframe></div>`;
+  const srcdoc = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;min-height:0;overflow:${frameOverflow}}#tavern-card-frame-root{width:100%;min-height:0;box-sizing:border-box}${safeCss}</style></head><body><main id="tavern-card-frame-root">${markup}</main><script>(function(){const nonce=${JSON.stringify(nonce)};function report(){try{const root=document.getElementById('tavern-card-frame-root');const rect=root?.getBoundingClientRect();const height=Math.ceil(Math.max(root?.scrollHeight||0,rect?.height||0));parent.postMessage({channel:'tavern.card.frame',type:'resize',nonce,height},'*')}catch(_){}}addEventListener('load',report);setTimeout(report,0);const root=document.getElementById('tavern-card-frame-root');if(typeof ResizeObserver==='function'&&root)new ResizeObserver(report).observe(root);})();</script><script>${bridge}</script>${scriptMarkup}<script>${bridge}</script></body></html>`;
+  return `<div class="tavern-card-script-shell" data-tavern-card-script data-tavern-card-mode="full" data-tavern-card-scroll="${normalizedScrollMode}"><iframe class="tavern-card-script-frame" title="角色卡完整兼容运行区" data-tavern-card-nonce="${esc(nonce)}" referrerpolicy="no-referrer"${frameScrolling} srcdoc="${esc(srcdoc)}"></iframe></div>`;
+}
+
+function tavernCardScrollMode(char = currentChar()) {
+  const tavern = char?.cardExtensions?.tavern;
+  const ui = tavern?.ui && typeof tavern.ui === 'object' ? tavern.ui : {};
+  const value = ui.scrollMode ?? ui.scroll;
+  return ['host', 'card', 'auto'].includes(String(value)) ? String(value) : 'auto';
 }
 
 let tavernCardFrameBridgeReady = false;
@@ -5482,6 +6739,29 @@ function setTavernCardDialogInput(value) {
   input.focus();
   setApiStatus('角色卡内容已填入当前对话框');
   return { textLength: input.value.length };
+}
+
+function tavernCardSessionVariables(session = curSession()) {
+  if (!session || session.kind !== 'tavern') return {};
+  if (!session.stVariables || typeof session.stVariables !== 'object' || Array.isArray(session.stVariables)) session.stVariables = {};
+  return session.stVariables;
+}
+
+function saveTavernCardVariables(values) {
+  if (mode !== 'tavern') throw new Error('ST Lite 变量只在 Tavern 模式可写');
+  const session = curSession();
+  if (!session) throw new Error('当前没有 Tavern 会话');
+  if (!values || typeof values !== 'object' || Array.isArray(values)) throw new Error('变量对象无效');
+  const entries = Object.entries(values);
+  if (entries.length > 32) throw new Error('单次变量更新不能超过 32 项');
+  const current = tavernCardSessionVariables(session);
+  for (const [key, value] of entries) {
+    if (!/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(String(key))) throw new Error(`变量名无效：${key}`);
+    if (value === undefined || JSON.stringify(value).length > 12000) throw new Error(`变量值无效：${key}`);
+    current[key] = cloneValue(value);
+  }
+  saveSessions(session);
+  return { variables: cloneValue(current) };
 }
 
 function tavernCardActionText(data) {
@@ -5512,6 +6792,18 @@ function initTavernCardFrameBridge() {
       requestId: data.requestId, ok, ...(ok ? { result } : { error: String(error || '角色卡桥请求失败') }),
     }, '*');
     try {
+      if (data.action === 'context') {
+        respond(true, tavernCardCompatibilitySnapshot());
+        return;
+      }
+      if (data.action === 'variables.get') {
+        respond(true, { variables: cloneValue(tavernCardSessionVariables()) });
+        return;
+      }
+      if (data.action === 'variables.set') {
+        respond(true, saveTavernCardVariables(data.payload?.values));
+        return;
+      }
       const text = tavernCardActionText(data);
       if (data.action === 'notice') {
         setApiStatus(`角色卡：${text.slice(0, 4000)}`);
@@ -5554,7 +6846,7 @@ function renderBubble(content, options = {}) {
         const frameStyles = extractTavernStyles(normalizedSource, false);
         const frameSource = extractTavernScripts(frameStyles.markup);
         const frameMarkup = sanitizeTavernMarkup(frameSource.markup, parser, true);
-        return { html: tavernCardScriptFrame(frameStyles.styles, frameMarkup, frameSource.scripts, tavernCardCompatibilitySnapshot()), md: false, scripted: true };
+        return { html: tavernCardScriptFrame(frameStyles.styles, frameMarkup, frameSource.scripts, tavernCardCompatibilitySnapshot(), tavernCardScrollMode()), md: false, scripted: true };
       }
       return { html: extracted.styles + sanitizeTavernMarkup(renderSource.markup, parser), md: !!parser };
     } catch { /* 解析失败则回退纯文本 */ }
@@ -6903,6 +8195,35 @@ function clearTavernAutoMemory() {
   tavernMemoryStatus.delete(session.id);
   saveSessions(session);
   renderMessages();
+}
+async function resetCurrentWorldSave() {
+  if (!worldModeActive() || !currentWorldSave) return;
+  if (worldTurnPendingActive()) discardWorldTurnPending();
+  const save = currentWorldSave;
+  // 丢弃尚未提交的本地快照，避免它在重置请求之后覆盖基线。
+  worldSavePending = null;
+  await worldSaveWriteChain.catch(() => {});
+  const expectedRevision = currentWorldSave?.id === save.id ? currentWorldSave.revision : save.revision;
+  const response = await fetch('/api/world-saves/' + encodeURIComponent(save.id) + '/reset', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({ commandId: 'reset-' + uid(), expectedRevision }),
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data?.id) throw new Error(worldApiError(data, `RPG 存档重置失败（HTTP ${response.status}）`));
+  hydrateWorldSave(data);
+  currentWorldSave = data;
+  currentWorldSaveId = data.id;
+  worldTurnPending = null;
+  worldTurnError = null;
+  worldTurnEpoch++;
+  clearResponsePreview();
+  clearRpgCheckAnimation();
+  renderRPG();
+  renderSessions();
+  renderWorldDetail();
+  renderMessages();
+  renderDebugTerminal();
 }
 
 function invalidateTavernAutoMemory(session, messageIds) {
@@ -8937,6 +10258,7 @@ function worldPromptPriority(part) {
   if (!heading) return null;
   return {
     '回合契约': 115,
+    '当前不可用 Runtime 动作': 114,
     '世界时间': 112,
     '当前玩家动态状态': 110,
     'RPG 状态': 110,
@@ -9100,13 +10422,19 @@ function buildWorldFactLayerPromptPart() {
   const rules = world?.rules && typeof world.rules === 'object' ? [
     Array.isArray(world.rules.hard) && world.rules.hard.length ? `硬规则：${world.rules.hard.join('；')}` : '',
     Array.isArray(world.rules.soft) && world.rules.soft.length ? `软规则：${world.rules.soft.join('；')}` : '',
-    Array.isArray(world.rules.checks) && world.rules.checks.length ? `可用判定：${world.rules.checks.map(check => typeof check === 'string' ? check : `${check.id}${check.label ? `（${check.label}）` : ''}${check.roll ? ` ${check.roll}` : ''}${check.target !== undefined ? ` vs ${check.target}` : ''}`).join('；')}` : '',
+    Array.isArray(world.rules.checks) && world.rules.checks.length ? `可用判定：${world.rules.checks.map(check => {
+      if (typeof check === 'string') return check;
+      const modifier = check.modifier && typeof check.modifier === 'object' && !Array.isArray(check.modifier)
+        ? `；修正来源=${JSON.stringify(check.modifier)}（只在 dice.roll.modifier 传入，禁止写进 expr）`
+        : (check.modifier !== undefined ? ` + ${check.modifier}` : '');
+      return `${check.id}${check.label ? `（${check.label}）` : ''}${check.roll ? ` ${check.roll}` : ''}${modifier}${check.target !== undefined ? ` vs ${check.target}` : ''}`;
+    }).join('；')}` : '',
   ].filter(Boolean).join('\n') : '';
   return `【世界事实分层】
-稳定设定来源：WorldCard ${staticScope}。世界简介、登记地点、NPC 公共资料、派系定义、事件模板和规则属于稳定设定；不要因为某个存档的变化而改写它们。
+稳定设定来源：WorldCard ${staticScope}。世界简介、登记地点、NPC 公共资料和规则属于稳定设定；不要因为某个存档的变化而改写它们。
 ${setting ? `世界观设定（只读）：\n${setting}\n` : ''}${rules ? `作者规则（只读；硬规则优先，软规则用于叙事取舍）：\n${rules}\n` : ''}
-当前事实来源：WorldSave ${saveScope}。当前地点=${currentLocation}；当前时间=${currentTime}；NPC 位置 / 关系 / 认知、背包、目标、冲突、已提交事件和长期记忆等动态字段只属于这个存档。
-冲突处理：同一实体或地点同时出现静态资料与存档状态时，静态资料解释默认设定，存档状态解释当前局面；两者都要保留，不能把一次存档变化宣称为世界卡永久改写，也不能用旧静态默认值覆盖已提交状态。`;
+当前事实来源：WorldSave ${saveScope}。当前地点=${currentLocation}；当前时间=${currentTime}；玩家状态、NPC 位置/关系/认知和长期记忆只属于这个存档。
+状态处理：同一实体或地点同时出现静态资料与存档状态时，静态资料解释默认设定，存档状态解释当前局面；两者都要保留，不能把一次存档变化宣称为世界卡永久改写，也不能用旧静态默认值覆盖已提交状态。`;
 }
 
 function buildWorldEventPromptPart() {
@@ -9183,7 +10511,9 @@ function buildWorldConflictPromptPart() {
   const templates = [...definitions.values()].map(definition => {
     const actions = Array.isArray(definition.actions) ? definition.actions.map(action => {
       const check = action.check;
-      const checkText = check ? ` [${check.roll}+${check.modifier?.bucket || 'none'}.${check.modifier?.id || 'none'} vs ${check.target}${check.damage ? `; damage ${check.damage.roll}` : ''}]` : '';
+      const checkText = check
+        ? ` [基础骰式=${check.roll || '未声明'}${check.modifier && typeof check.modifier === 'object' ? `；modifierRule=${JSON.stringify(check.modifier)}` : check.modifier !== undefined ? `；固定修正=${check.modifier}` : ''}；目标=${check.target}${check.damage ? `；伤害基础骰式=${check.damage.roll}` : ''}]`
+        : '';
       return `${action.id}:${action.label}${checkText}`;
     }).join('、') : '';
     const phases = Array.isArray(definition.phases) ? definition.phases.map(phase => `${phase.id}:${phase.label}`).join('、') : '';
@@ -9248,52 +10578,28 @@ function buildRpgPromptSections() {
   };
   const rs = curRpgState();
   const agentProfile = buildRpgAgentProfile();
+  const agentContext = buildRpgAgentContext(agentProfile);
   const enabledAgentTools = Object.entries(agentProfile.tools)
     .filter(([, config]) => config.enabled !== false)
     .map(([name, config]) => `${name}（${config.execution || 'server'}）`);
-  pushSection('agent.profile', `【Agent Runtime】protocol=${agentProfile.protocol} v${agentProfile.version}；mode=${agentProfile.mode}；maxSteps=${agentProfile.maxSteps}；可用工具=${enabledAgentTools.length ? enabledAgentTools.join('、') : '无'}。工具只能通过当前存档的服务端校验产生结果，不能跨 saveId 或直接写入未声明字段。多步骤行动先用 objective.upsert 提出可忽略的目标/线索计划，再提交实际状态候选；计划不是强制主线，玩家可以无视。`);
+  pushSection('agent.profile', `【Agent Runtime】protocol=${agentProfile.protocol} v${agentProfile.version}；mode=${agentProfile.mode}；maxSteps=${agentProfile.maxSteps}；可用工具=${enabledAgentTools.length ? enabledAgentTools.join('、') : '无'}。工具只能通过当前存档的服务端校验产生结果，不能跨 saveId、改写 runtime schema 或直接写入未声明字段。世界卡定义的变量、集合和动作属于本局状态的一部分，必须使用声明式 runtime 更新。`);
+  if (agentContext) pushSection('agent.context', `【Agent 请求上下文】以下是本次请求唯一的作用域快照；缺失字段不得由模型猜测，稳定事实与本局状态必须按标注来源区分：\n${JSON.stringify(agentContext)}`);
   if (rs) {
-    if (worldModeActive()) pushSection('turn.commit-contract', `【结构化回合提交】当前 saveId=${currentWorldSave.id}，revision=${currentWorldSave.revision}。回复末尾的 <tavern_state_update> 必须原样使用 protocol=tavern.rpg.turn、version=1、baseRevision=${currentWorldSave.revision}；服务端会以此 revision 做原子提交。`);
-    pushSection('save.rpg-state', '【RPG 状态】' + `等级 ${rs.level}（经验 ${rs.exp}/${rs.expNext}），HP ${rs.hp}/${rs.maxHp}，MP ${rs.mp}/${rs.maxMp}，金币 ${rs.gold}，当前位置：${rs.location}`
+    if (worldModeActive()) pushSection('turn.commit-contract', `【结构化回合提交】当前 saveId=${currentWorldSave.id}，revision=${currentWorldSave.revision}。回复末尾的 <tavern_state_update> 必须原样使用 protocol=tavern.rpg.turn、version=1、baseRevision=${currentWorldSave.revision}；只允许玩家状态、地点/时间、必要判定和 options，服务端会以此 revision 做原子提交。`);
+    const stateText = worldModeActive()
+      ? `HP ${rs.hp}/${rs.maxHp}，MP ${rs.mp}/${rs.maxMp}，当前位置：${rs.location}`
+      : `等级 ${rs.level}（经验 ${rs.exp}/${rs.expNext}），HP ${rs.hp}/${rs.maxHp}，MP ${rs.mp}/${rs.maxMp}，金币 ${rs.gold}，当前位置：${rs.location}`;
+    pushSection('save.rpg-state', '【RPG 状态】' + stateText
       + (rs.buffs?.length ? `，状态效果：${rs.buffs.join('、')}` : ''));
-    pushSection('save.inventory', '【背包】' + (rs.inventory.length ? rs.inventory.map(i => `${i.name}×${i.count}${i.desc ? `（${i.desc}）` : ''}`).join('、') : '（空）'));
-    if (worldModeActive()) {
-      const economy = currentWorldCard()?.playerCreation?.economy;
-      if (economy) {
-        const rules = economy.inventory || {};
-        const currencies = Array.isArray(economy.currencies) ? economy.currencies.map(currency => `${currency.id}=${rs.currencies?.[currency.id] ?? currency.initial ?? currency.min ?? 0}`).join('、') : '';
-        const equipment = economy.equipment?.enabled !== false && Array.isArray(economy.equipment?.slots)
-          ? economy.equipment.slots.map(slot => `${slot.id}=${rs.equipment?.[slot.id] || '空'}`).join('、') : '';
-        pushSection('rules.economy', '【物品 / 装备 / 经济规则】' + [
-          rules.enabled === false ? '背包关闭' : `背包 ${rs.inventory.length}/${rules.maxSlots || '∞'} 格`,
-          rules.maxWeight === undefined || rules.maxWeight === null ? '' : `最大重量 ${rules.maxWeight}`,
-          currencies ? `货币：${currencies}` : '',
-          equipment ? `装备位：${equipment}` : '',
-        ].filter(Boolean).join('；') + '。只能使用世界卡声明的物品、装备位和货币，不能突破格数、堆叠或重量限制。');
-      }
-      const runtime = currentWorldSave.state?.runtime;
-      if (runtime) {
-        pushSection('save.runtime', '【RPG GEN 3 运行态】\n' + JSON.stringify({
-          schema: runtime.schema,
-          variables: runtime.variables,
-          collections: runtime.collections,
-        }).slice(0, 50000) + '\n这是当前存档的独立 runtime 快照。只允许使用 Schema 声明的变量、集合和动作；状态更新必须使用 runtime.variable.set/delta、runtime.collection.add/remove 或 runtime.action.execute。');
-      }
+    if (!worldModeActive()) pushSection('save.inventory', '【背包】' + (rs.inventory.length ? rs.inventory.map(i => `${i.name}×${i.count}${i.desc ? `（${i.desc}）` : ''}`).join('、') : '（空）'));
+    if (!worldModeActive()) {
+      pushSection('save.quests', '【任务】' + (rs.quests.length ? rs.quests.map(x => `${x.title}${x.status === 'done' ? '（已完成）' : ''}`).join('、') : '（无）'));
+      pushSection('save.goals', '【目标】' + (rs.goals?.length ? rs.goals.map(x => `${x.title}${x.status && x.status !== 'active' ? `（${x.status}）` : ''}`).join('、') : '（无）'));
+      pushSection('save.leads', '【线索】' + (rs.leads?.length ? rs.leads.map(x => `${x.title}${x.status && x.status !== 'active' ? `（${x.status}）` : ''}`).join('、') : '（无）'));
+      const deadlineObjectives = [...(rs.goals || []), ...(rs.leads || [])];
+      const deadlineText = deadlineObjectives.filter(item => item?.deadline && item.status === 'active' && Number.isFinite(item.deadline.value) && item.deadline.unit).map(item => `${item.title || item.id} 截止 ${item.deadline.value} ${item.deadline.unit}`).join('；');
+      if (deadlineText) pushSection('save.deadlines', '【目标 / 线索时限】' + deadlineText);
     }
-    pushSection('save.quests', '【任务】' + (rs.quests.length ? rs.quests.map(x => `${x.title}${x.status === 'done' ? '（已完成）' : ''}`).join('、') : '（无）'));
-    if (worldModeActive()) {
-      const hooks = Array.isArray(currentWorldSave.state?.activeHooks) ? currentWorldSave.state.activeHooks : [];
-      pushSection('save.active-hooks', '【开放 Hook】' + (hooks.length ? hooks.map(x => `${x.title || x.id}${x.status && !['active', 'open'].includes(x.status) ? `（${x.status}）` : ''}${x.optional ? '（可选）' : ''}`).join('、') : '（无）'));
-    }
-    pushSection('save.goals', '【目标】' + (rs.goals?.length ? rs.goals.map(x => `${x.title}${x.status && x.status !== 'active' ? `（${x.status}）` : ''}`).join('、') : '（无）'));
-    pushSection('save.leads', '【线索】' + (rs.leads?.length ? rs.leads.map(x => `${x.title}${x.status && x.status !== 'active' ? `（${x.status}）` : ''}`).join('、') : '（无）'));
-    const deadlineObjectives = worldModeActive()
-      ? [...(currentWorldSave.state?.goals || []), ...(currentWorldSave.state?.leads || [])]
-      : [...(rs.goals || []), ...(rs.leads || [])];
-    const deadlineText = deadlineObjectives.filter(item => item?.deadline && item.status === 'active' && Number.isFinite(item.deadline.value) && item.deadline.unit).map(item => `${item.title || item.id} 截止 ${item.deadline.value} ${item.deadline.unit}`).join('；');
-    if (deadlineText) pushSection('save.deadlines', '【目标 / 线索时限】' + deadlineText);
-    const mapCtx = buildMapContext();
-    if (mapCtx) pushSection('world.map', mapCtx);
   }
   if (worldModeActive()) {
     const world = currentWorldCard();
@@ -9323,26 +10629,35 @@ function buildRpgPromptSections() {
       pushSection('turn.options-contract', `【回合契约】行动选项数量 ${optionRules.min}-${optionRules.max}；自由文本输入始终可用。AI 不得替玩家补写未表达的核心意图、台词或不可逆行动。`);
       pushSection('turn.side-effects', '【副作用边界】Markdown 叙事、NPC 台词、行动选项和普通文本中的骰子表达式都只是文本，不会自动执行骰子或改写状态；只有协议中通过服务端校验的结构化更新才可产生状态变化。');
       pushSection('turn.tool-candidates', agentProfile.mode === 'native'
-        ? '【Agent 原生工具】本回合可按工具 Schema 调用已启用的 Agent 工具；工具调用会在当前请求内最多循环 maxSteps 次。dice.roll 由客户端生成并绑定到本回合 actionIntent，服务端只校验结果，不能自行掷骰；context.retrieve 只能读取当前存档作用域；state.patch、entity.create、memory.record 先形成候选，最终仍须通过服务端 Typed Patch、实体和记忆校验。RPG GEN 3 的变量、集合和声明式动作只能通过 state.patch 的 runtime.* 更新，不能写任意路径。目标 / 线索只能通过 objective.upsert(kind=goals|leads) 创建或更新，不能直接写入其他数组。最后必须返回叙事正文与唯一 <tavern_state_update>，并提供回合契约要求的行动选项。'
-        : '【Agent 工具候选（兼容层）】当前模型不支持原生 function calling 时，仍可在唯一 <tavern_state_update> JSON 的 toolCalls 数组中声明 dice.roll、rules.check、state.patch、objective.upsert、entity.create、memory.record、context.retrieve。客户端会执行只读 / 客户端工具，把结构化 tool_result 回传后再次请求你；收到 tool_result 后必须继续当前回合，最终再输出叙事与唯一状态块。只有 rules.check 通过后才允许 dice.roll；不得重复已经成功的骰子。state.patch 可提交 runtime.variable.set/delta、runtime.collection.add/remove、runtime.action.execute，但仍须通过服务端 Typed Patch 校验。');
+        ? '【Agent 步骤协议】每一步只做一件事：需要信息/判定时调用工具并等待真实结果；已有结果时继续叙事。只有同时存在风险、不确定性与后果才判定，顺序固定为 context.retrieve → rules.check → dice.roll → 状态候选。dice.roll 只写基础 1dN，修正必须原样引用已声明的属性/技能/runtime 数值，禁止猜值。最终一步不得再调用工具：输出 Markdown 正文与唯一状态标签，正文不要列行动选项。'
+        : '【Agent 兼容步骤协议】中间步骤可在唯一 <tavern_state_update> 的 toolCalls 中请求工具，然后等待真实结果；最终步骤必须删除 toolCalls，只输出 Markdown 正文与唯一状态标签。只有同时存在风险、不确定性与后果才按 context.retrieve → rules.check → dice.roll → 状态候选执行；dice.roll 只写基础 1dN，修正引用已声明数值。正文不要重复行动选项。');
       const npcPrompt = buildWorldNpcPromptPart();
       if (npcPrompt) pushSection('world.npcs', npcPrompt);
-      const factionPrompt = buildWorldFactionPromptPart();
-      if (factionPrompt) pushSection('world.factions', factionPrompt);
-      const eventPrompt = buildWorldEventPromptPart();
-      if (eventPrompt) pushSection('world.events', eventPrompt);
-      const eventMemoryPrompt = buildWorldEventMemoryPromptPart();
-      if (eventMemoryPrompt) pushSection('memory.event-candidates', eventMemoryPrompt);
-      const conflictPrompt = buildWorldConflictPromptPart();
-      if (conflictPrompt) pushSection('rules.conflict', conflictPrompt);
       const failurePrompt = buildWorldFailurePromptPart();
       if (failurePrompt) pushSection('rules.failure', failurePrompt);
       const endingPrompt = buildWorldEndingPromptPart();
       if (endingPrompt) pushSection('rules.ending', endingPrompt);
       const reopenPrompt = buildWorldReopenPromptPart();
       if (reopenPrompt) pushSection('world.reopen', reopenPrompt);
-      const growthPrompt = buildWorldGrowthPromptPart();
-      if (growthPrompt) pushSection('save.growth', growthPrompt);
+      const runtime = world.runtime && typeof world.runtime === 'object' ? world.runtime : null;
+      if (runtime) {
+        const runtimeState = currentWorldSave.state?.runtime || {};
+        const unavailableActions = (Array.isArray(runtime.actions) ? runtime.actions : [])
+          .filter(action => !rpgRuntimeActionAvailabilityUsesInput(action))
+          .map(action => ({ action, error: rpgRuntimeActionAvailabilityError(action, runtimeState) }))
+          .filter(item => item.error)
+          // ponytail: prompt only lists 8 unavailable actions; the Agent guard checks every action at execution time.
+          .slice(0, 8);
+        if (unavailableActions.length) pushSection('world.runtime-unavailable-actions', `【当前不可用 Runtime 动作】${unavailableActions.map(({ action, error }) => `${action.label || action.id}（${action.id}）：${error}`).join('；')}。这些动作已耗尽或条件不足，不能调用 runtime.action.execute，也不得写入 updates；应据此继续叙事或选择其他可用行动。`);
+        const runtimeProjection = JSON.stringify({
+          schema: runtime,
+          state: runtimeState,
+        });
+        const runtimeLimit = Math.min(12000, Math.max(4000, Math.floor(worldContextBudget() / 2)));
+        pushSection('world.runtime-contract', `【世界卡 Runtime 契约】只可使用以下已声明的变量、集合和动作；不得修改 schema 或凭空创建字段。Agent 调用 state.patch 工具时，updates 不得包含 runtime.action.execute；执行声明式动作只能调用同名工具，并使用当前 runtime.actions 已声明的 actionId。玩家行动没有对应 action 时，应使用当前协议已声明的其他 Typed Patch（如 runtime.variable.* 或 runtime.collection.*），不能编造 actionId。状态变化放入唯一标签的 updates，动作有 check 时须先完成同 actionId 判定。\n${runtimeProjection.slice(0, runtimeLimit)}`);
+      } else {
+        pushSection('world.runtime-contract', '【世界卡 Runtime 契约】当前世界卡未声明自定义 runtime；不要猜测或提交 runtime 更新。');
+      }
     }
   }
   if (worldModeActive()) {
@@ -9351,7 +10666,10 @@ function buildRpgPromptSections() {
     sections.push(...budgeted);
   }
   if (defaults?.rpg?.diceInstruction) pushSection('turn.dice-contract', defaults.rpg.diceInstruction, 'preset');
-  pushSection('output.protocol', (defaults?.rpg?.stateInstruction) || '每次回复末尾输出唯一的 <tavern_state_update> JSON 状态更新块。', 'preset');
+  const stateInstruction = worldModeActive()
+    ? `⚠️ RPG 最终输出：Markdown 正文 + 末尾唯一 <tavern_state_update>JSON</tavern_state_update>。最终 JSON 仅含 protocol、version、baseRevision、updates、options、eventMemory；protocol="tavern.rpg.turn"，version=1，baseRevision 等于当前 revision。updates 只改已声明字段；options 仅在 JSON 中提供，不得写进正文。中间工具步骤可临时包含 toolCalls，收到工具结果后的最终输出必须删除 toolCalls。${RPG_RUNTIME_UPDATE_FORMAT_HINT}`
+    : ((defaults?.rpg?.stateInstruction) || '每次回复末尾输出唯一的 <tavern_state_update> JSON 状态更新块。');
+  pushSection('output.protocol', stateInstruction, 'preset');
   if (defaults?.rpg?.eventMemoryInstruction) pushSection('output.event-memory', defaults.rpg.eventMemoryInstruction, 'preset');
   return sections;
 }
@@ -9563,6 +10881,7 @@ function buildPayload({ test = false } = {}) {
   }
   const { system, wi, history, post, worldInfoInSystem, rpgSections } = buildPromptBlocks();
   const agentProfile = mode === 'rpg' ? buildRpgAgentProfile() : null;
+  const rpgContext = mode === 'rpg' ? buildRpgAgentContext(agentProfile) : null;
   // 唯一 system 消息：身份 + 角色卡 + 模块 + 格式 + 世界设定 + 后预设 合并为一条，
   // 避免多条 system 穿插在 user/assistant 之间导致模型混淆 role 边界（DeepSeek/本地模型尤其敏感）
   const sysParts = [];
@@ -9579,7 +10898,7 @@ function buildPayload({ test = false } = {}) {
     body.tools = nativeTools;
     body.tool_choice = 'auto';
   }
-  return { baseUrl: s.baseUrl, apiKey: s.apiKey, body, wi, promptSections: rpgSections || [], agentProfile, nativeTools };
+  return { baseUrl: s.baseUrl, apiKey: s.apiKey, body, wi, promptSections: rpgSections || [], agentProfile, rpgContext, nativeTools };
 }
 
 async function callAPI(payload) {
@@ -9775,6 +11094,7 @@ async function executeRpgNativeToolCalls(calls, profile, targetScope, snapshot =
   const accepted = [];
   gate.checkApproved = gate.checkApproved === true;
   gate.diceUses = Number.isInteger(gate.diceUses) ? gate.diceUses : 0;
+  gate.checkProposal = gate.checkProposal || null;
   const declaredRules = new Set();
   const world = snapshot?.world;
   const addRule = value => {
@@ -9793,17 +11113,20 @@ async function executeRpgNativeToolCalls(calls, profile, targetScope, snapshot =
     });
   });
   // 模型可能在同一批 tool_calls 中同时声明判定和骰子，先识别有效门控，避免调用顺序造成误拒绝。
-  if (Array.isArray(calls) && calls.some(call => call?.name === 'rules.check'
-    && profile?.tools?.['rules.check']?.enabled !== false
-    && declaredRules.has(String(call.arguments?.ruleId || '').trim()))) gate.checkApproved = true;
+  if (Array.isArray(calls) && calls.some(call => {
+    if (call?.name !== 'rules.check' || profile?.tools?.['rules.check']?.enabled === false) return false;
+    const args = call.arguments || {};
+    return declaredRules.has(String(args.ruleId || '').trim())
+      || (String(args.actionId || '').trim() && Number.isInteger(Number(args.sides)) && Number(args.sides) >= 2 && Number.isFinite(Number(args.target)));
+  })) gate.checkApproved = true;
   for (const call of Array.isArray(calls) ? calls : []) {
     const config = profile?.tools?.[call.name];
     if (!RPG_NATIVE_TOOL_NAMES.has(call.name) || !config || config.enabled === false) {
-      trace.push({ callId: call.callId, name: call.name, phase: rpgAgentToolPhase(call.name), result: { ok: false, error: '工具未在当前 RPG 配置中启用' } });
+      trace.push({ callId: call.callId, name: call.name, phase: rpgAgentToolPhase(call.name), arguments: call.arguments ? cloneValue(call.arguments) : null, result: { ok: false, error: '工具未在当前 RPG 配置中启用' } });
       continue;
     }
     if (call.error || !call.arguments) {
-      trace.push({ callId: call.callId, name: call.name, phase: rpgAgentToolPhase(call.name), result: { ok: false, error: call.error || '参数无效' } });
+      trace.push({ callId: call.callId, name: call.name, phase: rpgAgentToolPhase(call.name), arguments: call.arguments ? cloneValue(call.arguments) : null, result: { ok: false, error: call.error || '参数无效' } });
       continue;
     }
     let result;
@@ -9813,22 +11136,122 @@ async function executeRpgNativeToolCalls(calls, profile, targetScope, snapshot =
         if (!expr || expr.length > 80) throw new Error('expr 为空或过长');
         if (!gate.checkApproved) {
           result = { ok: false, error: '必须先调用 rules.check；没有真实判定时禁止掷骰' };
+        } else if (!gate.checkProposal) {
+          result = { ok: false, error: '必须先收到 rules.check 的判定方案，再调用 dice.roll' };
         } else if (gate.diceUses >= 4) {
           result = { ok: false, error: '本次判定最多允许 4 次骰子调用' };
         } else {
-          const rolls = await rollWorldDice(expr);
-          if (!rolls.length) throw new Error('expr 不是受支持的骰子表达式');
-          result = { ok: true, rolls };
-          gate.diceUses += 1;
+          const proposal = gate.checkProposal;
+          const expectedRoll = normalizeRpgBaseDiceExpression(proposal.roll);
+          const actualRoll = normalizeRpgBaseDiceExpression(expr);
+          if (!actualRoll || rpgDiceHasInlineModifier(expr)) {
+            result = { ok: false, error: `dice.roll.expr 只能使用基础骰式（例如 ${expectedRoll || '1d20'}），不要把属性修正写进 expr` };
+          } else if (expectedRoll && actualRoll !== expectedRoll) {
+            result = { ok: false, error: `本次判定必须使用世界卡声明的基础骰式 ${expectedRoll}` };
+          } else if (Array.isArray(proposal.modifierRules) && rpgModifierRulesKey(call.arguments.modifiers) !== rpgModifierRulesKey(proposal.modifierRules)) {
+            result = { ok: false, error: `请在 dice.roll.modifiers 中原样传入 ${JSON.stringify(proposal.modifierRules)}；程序会读取当前存档数值计算修正` };
+          } else if (proposal.modifierRule && rpgModifierRuleKey(call.arguments.modifier) !== rpgModifierRuleKey(proposal.modifierRule)) {
+            result = { ok: false, error: `请在 dice.roll.modifier 中原样传入 ${JSON.stringify(proposal.modifierRule)}；程序会读取当前存档数值计算修正` };
+          } else if (!proposal.modifierRules && !proposal.modifierRule && (call.arguments.modifier !== undefined || call.arguments.modifiers !== undefined)) {
+            result = { ok: false, error: '当前判定没有声明 modifiers，不能自行添加属性/技能修正' };
+          } else {
+            const checkFeedback = showRpgCheckAnimation(expr, gate.anchorOffset, gate.checkpoints);
+            // 先让浏览器绘制一次短判定动画，再把客户端随机结果交回模型。
+            if (checkFeedback) await new Promise(resolve => setTimeout(resolve, 320));
+            const rolls = await rollWorldDice(expr);
+            if (!rolls.length) throw new Error('expr 不是受支持的骰子表达式');
+            const resolution = buildRpgCheckResolution(proposal, rolls[0], snapshot);
+            result = {
+              ok: true,
+              rolls,
+              ...(proposal.modifierRule ? { modifierRule: cloneValue(proposal.modifierRule), modifier: proposal.modifier } : {}),
+              ...(Array.isArray(proposal.modifierRules) ? { modifierRules: cloneValue(proposal.modifierRules), modifier: rpgDynamicModifierTotal(proposal.modifierRules, snapshot) } : {}),
+              ...(resolution ? { resolution } : {}),
+            };
+            updateRpgCheckAnimation(checkFeedback, rolls[0], resolution);
+            finishRpgCheckAnimation(checkFeedback);
+            if (resolution) gate.checkProposal = null;
+            gate.diceUses += 1;
+          }
         }
       } else if (call.name === 'context.retrieve') {
         result = { ok: true, ...retrieveRpgAgentContext(call.arguments.query, call.arguments.scope, call.arguments.limit, snapshot) };
       } else if (call.name === 'rules.check') {
         const ruleId = String(call.arguments.ruleId || '').trim();
-        if (!ruleId || ruleId.length > 120) throw new Error('ruleId 为空或过长');
-        if (!world || !declaredRules.has(ruleId)) throw new Error('ruleId 未在当前世界规则或进行中的冲突中声明');
+        const dynamicActionId = String(call.arguments.actionId || '').trim();
+        const dynamic = !ruleId && !!dynamicActionId;
+        if (!dynamic && (!ruleId || ruleId.length > 120)) throw new Error('ruleId 为空或过长');
+        if (dynamic && (dynamicActionId.length > 120 || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,119}$/.test(dynamicActionId))) throw new Error('actionId 为空或格式无效');
+        if (!dynamic && (!world || !declaredRules.has(ruleId))) throw new Error('ruleId 未在当前世界规则或进行中的冲突中声明');
         gate.checkApproved = true;
-        result = { ok: true, kind: 'rules.check', ruleId, requiresRoll: true, instruction: '仅本次行动允许掷骰；请根据结果在叙事中分支并说明后果。' };
+        const definition = dynamic ? null : findRpgCheckDefinition(world, ruleId);
+        const proposal = { id: dynamic ? `dynamic:${dynamicActionId}` : ruleId };
+        if (dynamic) {
+          const sides = Number(call.arguments.sides);
+          const target = Number(call.arguments.target);
+          if (!Number.isInteger(sides) || sides < 2 || sides > 1000) throw new Error('动态判定 sides 必须是 2-1000 的整数');
+          if (!Number.isFinite(target) || target < -1000000 || target > 1000000) throw new Error('动态判定 target 无效');
+          const rawModifiers = call.arguments.modifiers === undefined ? [] : call.arguments.modifiers;
+          if (!Array.isArray(rawModifiers) || rawModifiers.length > 8) throw new Error('动态判定 modifiers 必须是最多 8 项的数组');
+          const modifierRules = normalizeRpgDynamicModifiers(rawModifiers);
+          if (modifierRules.length !== rawModifiers.length) throw new Error('动态判定包含无效修正来源');
+          const runtimeAction = (Array.isArray(world?.runtime?.actions) ? world.runtime.actions : []).find(action => action?.id === dynamicActionId);
+          if (runtimeAction?.check) {
+            const declaredCheck = runtimeAction.check;
+            const declaredModifiers = normalizeRpgDynamicModifiers(declaredCheck.modifiers || []);
+            if (sides !== Number(declaredCheck.sides) || target !== Number(declaredCheck.target)) throw new Error(`动作 ${dynamicActionId} 必须使用世界卡声明的判定配置`);
+            if (rpgModifierRulesKey(modifierRules) !== rpgModifierRulesKey(declaredModifiers)) throw new Error(`动作 ${dynamicActionId} 必须使用世界卡声明的 modifiers`);
+          }
+          proposal.dynamic = true;
+          proposal.actionId = dynamicActionId;
+          proposal.label = String(call.arguments.reason || dynamicActionId).slice(0, 200);
+          proposal.roll = `1d${sides}`;
+          proposal.target = target;
+          proposal.modifierRules = modifierRules;
+          proposal.modifier = rpgDynamicModifierTotal(modifierRules, snapshot);
+        } else if (definition) {
+          if (definition.label) proposal.label = String(definition.label).slice(0, 200);
+          if (definition.description) proposal.description = String(definition.description).slice(0, 1000);
+          if (definition.roll) proposal.roll = String(definition.roll).slice(0, 80);
+          if (Number.isFinite(Number(definition.target))) proposal.target = Number(definition.target);
+          if (Number.isFinite(Number(definition.modifier))) proposal.modifier = Number(definition.modifier);
+          else if (definition.modifier && typeof definition.modifier === 'object' && !Array.isArray(definition.modifier)) {
+            const modifierSource = definition.modifier;
+            const modifier = {
+              ...(modifierSource.bucket ? { bucket: String(modifierSource.bucket).slice(0, 80) } : {}),
+              ...(modifierSource.id ? { id: String(modifierSource.id).slice(0, 120) } : {}),
+              ...(Number.isFinite(Number(modifierSource.factor)) ? { factor: Number(modifierSource.factor) } : {}),
+              ...(Number.isFinite(Number(modifierSource.bonus)) ? { bonus: Number(modifierSource.bonus) } : {}),
+            };
+            proposal.modifierRule = modifier;
+            proposal.modifier = rpgCheckModifierValue(modifier, snapshot?.save?.state?.player);
+          }
+          if (definition.source) proposal.source = String(definition.source).slice(0, 120);
+        }
+        gate.checkProposal = proposal;
+        const modifierInstruction = Array.isArray(proposal.modifierRules)
+          ? `；dice.roll 必须使用基础骰式 ${proposal.roll}，并在 modifiers 中原样传入 ${JSON.stringify(proposal.modifierRules)}，程序会从当前存档计算总修正 ${proposal.modifier}`
+          : proposal.modifierRule
+            ? `；dice.roll 必须使用基础骰式 ${proposal.roll || '世界卡骰式'}，并在 modifier 中原样传入 ${JSON.stringify(proposal.modifierRule)}，程序会从当前玩家状态计算实际修正 ${proposal.modifier}`
+            : `；dice.roll 只使用基础骰式 ${proposal.roll || '世界卡骰式'}，不要自行添加 +N 修正`;
+        result = { ok: true, kind: 'rules.check', ruleId: dynamic ? null : ruleId, proposal, requiresRoll: true, instruction: `仅本次行动允许掷骰；${modifierInstruction}；请根据结果在叙事中分支并说明后果。` };
+      } else if (call.name === 'runtime.action.execute') {
+        const actionId = String(call.arguments.actionId || '').trim();
+        if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,119}$/.test(actionId)) throw new Error('actionId 为空或格式无效');
+        const action = (Array.isArray(world?.runtime?.actions) ? world.runtime.actions : []).find(item => item?.id === actionId);
+        if (!action) throw new Error(`动作 ${actionId} 未在当前世界卡 runtime.actions 中声明`);
+        const input = call.arguments.input === undefined ? {} : call.arguments.input;
+        if (!input || typeof input !== 'object' || Array.isArray(input) || JSON.stringify(input).length > 4000) throw new Error('runtime.action.execute input 无效');
+        const availabilityError = rpgRuntimeActionAvailabilityError(action, snapshot?.save?.state?.runtime, input);
+        result = availabilityError
+          ? { ok: false, error: availabilityError }
+          : { ok: true, accepted: 'candidate', name: call.name, arguments: { actionId, input: cloneValue(input) } };
+      } else if (call.name === 'state.patch') {
+        const updates = call.arguments.updates;
+        if (!Array.isArray(updates)) throw new Error('state.patch.updates 必须是数组');
+        result = updates.some(update => update?.type === 'runtime.action.execute')
+          ? { ok: false, error: 'state.patch 不得包含 runtime.action.execute；执行世界卡动作必须调用 runtime.action.execute。若世界卡未声明对应动作，请改用已声明的 runtime.collection.patch 或 runtime.variable.* 更新，不能编造 actionId。' }
+          : { ok: true, accepted: 'candidate', name: call.name, arguments: call.arguments };
       } else {
         // Typed patch / entity / memory remain candidates until final narrative
         // submit, so native tools cannot mutate state during the model loop.
@@ -9838,7 +11261,7 @@ async function executeRpgNativeToolCalls(calls, profile, targetScope, snapshot =
     } catch (error) {
       result = { ok: false, error: error.message };
     }
-    trace.push({ callId: call.callId, name: call.name, phase: rpgAgentToolPhase(call.name), result });
+    trace.push({ callId: call.callId, name: call.name, phase: rpgAgentToolPhase(call.name), arguments: call.arguments ? cloneValue(call.arguments) : null, result });
   }
   if (targetScope && trace.length) setDebugTrace(targetScope, { agentToolTrace: trace });
   return { trace, accepted };
@@ -9847,7 +11270,43 @@ async function executeRpgNativeToolCalls(calls, profile, targetScope, snapshot =
 function rpgAgentToolPhase(name) {
   if (name === 'context.retrieve') return 'observe';
   if (name === 'rules.check' || name === 'dice.roll') return 'guard';
+  if (['state.patch', 'objective.upsert', 'entity.create', 'memory.record', 'runtime.action.execute'].includes(name)) return 'commit';
   return 'decide';
+}
+
+function rpgAgentFinalStepInstruction() {
+  const rules = worldOptionRules();
+  return `【tavern.rpg.agent.final】工具阶段已经结束。不得再次调用工具，也不得重复掷骰。现在只提交本回合最终答案：先写连续 Markdown 叙事，再在末尾输出唯一 <tavern_state_update> JSON；删除 toolCalls；options 必须是 ${rules.min}-${rules.max} 个非空、不重复的纯字符串，并且只放在 JSON 中。沿用已返回的真实工具结果，不要重写已经完成的前文。`;
+}
+
+function normalizeRpgAgentCommitTrace(trace) {
+  const phases = ['observe', 'decide', 'guard', 'commit'];
+  const used = new Set();
+  return (Array.isArray(trace) ? trace : [])
+    .filter(item => item?.name && RPG_NATIVE_TOOL_NAMES.has(item.name))
+    .slice(0, 16)
+    .map((item, index) => {
+      let callId = String(item.callId || '');
+      if (!/^[A-Za-z0-9_-]{1,80}$/.test(callId) || used.has(callId)) callId = `agent-${index + 1}-${uid().replace(/[^A-Za-z0-9_-]/g, '').slice(0, 24)}`;
+      used.add(callId);
+      const phase = phases.includes(item.phase) ? item.phase : rpgAgentToolPhase(item.name);
+      return {
+        callId,
+        name: item.name,
+        phase,
+        ...(item.arguments && typeof item.arguments === 'object' && !Array.isArray(item.arguments) ? { arguments: cloneValue(item.arguments) } : {}),
+        result: item.result && typeof item.result === 'object' && !Array.isArray(item.result) ? cloneValue(item.result) : { ok: false, error: '工具未返回结构化结果' },
+        step: Math.max(1, Math.min(8, Math.trunc(Number(item.step) || 1))),
+        mode: item.mode === 'compat' ? 'compat' : 'native',
+      };
+    })
+    .sort((a, b) => phases.indexOf(a.phase) - phases.indexOf(b.phase) || a.step - b.step);
+}
+
+function rpgAgentCallsFromTrace(trace) {
+  return (Array.isArray(trace) ? trace : [])
+    .filter(item => item.name !== 'context.retrieve' && item.result?.ok === true)
+    .map(item => ({ callId: item.callId, name: item.name, arguments: cloneValue(item.arguments || {}) }));
 }
 function buildRpgAgentPhaseHistory(trace, currentPhase = null) {
   const phases = [];
@@ -9861,7 +11320,20 @@ function buildRpgAgentPhaseHistory(trace, currentPhase = null) {
 function nativeCandidatesToRpgData(calls, baseRevision) {
   const list = Array.isArray(calls) ? calls : [];
   const patchCalls = list.filter(call => call?.name === 'state.patch' && Array.isArray(call.arguments?.updates));
-  const objectiveCalls = list.filter(call => call?.name === 'objective.upsert' && call.arguments?.kind && call.arguments?.id && call.arguments?.title);
+  const objectiveCalls = worldModeActive() ? [] : list.filter(call => call?.name === 'objective.upsert' && call.arguments?.kind && call.arguments?.id && call.arguments?.title);
+  const actionCalls = list.filter(call => call?.name === 'runtime.action.execute' && call.arguments?.actionId);
+  const actionUpdates = actionCalls.map(call => ({
+    type: 'runtime.action.execute',
+    actionId: String(call.arguments.actionId),
+    ...(call.arguments.input !== undefined ? { input: cloneValue(call.arguments.input) } : {}),
+  }));
+  const seenActions = new Set();
+  const uniqueActionUpdates = actionUpdates.filter(update => {
+    const key = JSON.stringify([update.actionId, update.input || {}]);
+    if (seenActions.has(key)) return false;
+    seenActions.add(key);
+    return true;
+  });
   const patch = patchCalls.length || objectiveCalls.length ? normalizeRpgPatch({
     protocol: 'tavern.rpg.turn',
     version: 1,
@@ -9869,9 +11341,15 @@ function nativeCandidatesToRpgData(calls, baseRevision) {
     updates: [
       ...patchCalls.flatMap(call => call.arguments.updates),
       ...objectiveCalls.map(call => ({ type: 'objective.upsert', ...cloneValue(call.arguments) })),
+      ...uniqueActionUpdates,
     ].slice(0, 32),
-  }) : null;
-  const createEntities = list.filter(call => call?.name === 'entity.create' && call.arguments?.name)
+  }) : (uniqueActionUpdates.length ? normalizeRpgPatch({
+    protocol: 'tavern.rpg.turn',
+    version: 1,
+    baseRevision,
+    updates: uniqueActionUpdates.slice(0, 32),
+  }) : null);
+  const createEntities = list.filter(call => !worldModeActive() && call?.name === 'entity.create' && call.arguments?.name)
     .map(call => {
       const kind = ['npc', 'item', 'quest', 'location'].includes(call.arguments.type) ? call.arguments.type : 'npc';
       return { ...cloneValue(call.arguments), kind, tempId: call.arguments.tempId || call.callId };
@@ -9881,54 +11359,233 @@ function nativeCandidatesToRpgData(calls, baseRevision) {
   return { patch, createEntities: createEntities.length ? createEntities : null, eventMemory: eventMemory.length ? eventMemory : null };
 }
 
+function findRpgCheckDefinition(world, ruleId) {
+  const wanted = String(ruleId || '').trim();
+  if (!wanted || !world) return null;
+  const pools = [world.rules?.checks, world.checks];
+  for (const pool of pools) {
+    if (Array.isArray(pool)) {
+      for (const item of pool) {
+        if (typeof item === 'string' && item === wanted) return { id: wanted };
+        if (item && typeof item === 'object' && String(item.id || item.ruleId || '') === wanted) return cloneValue(item);
+      }
+    } else if (pool && typeof pool === 'object' && !Array.isArray(pool)) {
+      const item = pool[wanted];
+      if (item && typeof item === 'object' && !Array.isArray(item)) return { id: wanted, ...cloneValue(item) };
+    }
+  }
+  for (const conflict of Array.isArray(world.conflicts) ? world.conflicts : []) {
+    for (const action of Array.isArray(conflict?.actions) ? conflict.actions : []) {
+      const check = action?.check;
+      if (!check || typeof check !== 'object') continue;
+      if (action.id === wanted) return { id: wanted, label: action.label || action.id, description: action.description || '', ...cloneValue(check), source: `conflict:${conflict.id}` };
+      if (`${conflict.id}.${action.id}` === wanted) return { id: wanted, label: action.label || action.id, description: action.description || '', ...cloneValue(check), source: `conflict:${conflict.id}` };
+    }
+  }
+  return null;
+}
+
+function rpgCheckModifierValue(rule, playerState = currentWorldSave?.state?.player) {
+  if (!rule || typeof rule !== 'object') return 0;
+  const player = playerState || {};
+  const raw = Number(player?.[rule.bucket]?.[rule.id]);
+  const factor = Number.isFinite(Number(rule.factor)) ? Number(rule.factor) : 1;
+  const bonus = Number.isFinite(Number(rule.bonus)) ? Number(rule.bonus) : 0;
+  return (Number.isFinite(raw) ? raw : 0) * factor + bonus;
+}
+
+function rpgReadPathValue(value, path) {
+  return String(path || '').split('.').filter(Boolean).reduce((current, key) => current == null ? undefined : current[key], value);
+}
+
+function normalizeRpgDynamicModifier(rule) {
+  if (Number.isFinite(Number(rule))) return { source: 'constant', bonus: Number(rule) };
+  if (!rule || typeof rule !== 'object' || Array.isArray(rule)) return null;
+  const source = rule.source || (rule.bucket ? 'player' : rule.collectionId ? 'runtime' : 'constant');
+  const normalized = { source: String(source) };
+  if (source === 'player') {
+    if (!['attributes', 'skills', 'resources'].includes(rule.bucket) || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(String(rule.id || ''))) return null;
+    normalized.bucket = String(rule.bucket); normalized.id = String(rule.id);
+  } else if (source === 'runtime') {
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(String(rule.collectionId || ''))
+      || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(String(rule.entryId || ''))
+      || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(String(rule.field || ''))) return null;
+    normalized.collectionId = String(rule.collectionId); normalized.entryId = String(rule.entryId); normalized.field = String(rule.field);
+  } else if (source !== 'constant') return null;
+  const factor = rule.factor === undefined ? null : Number(rule.factor);
+  const bonus = rule.bonus === undefined ? null : Number(rule.bonus);
+  if (factor !== null && (!Number.isFinite(factor) || factor < -100 || factor > 100)) return null;
+  if (bonus !== null && (!Number.isFinite(bonus) || bonus < -100 || bonus > 100)) return null;
+  if (factor !== null) normalized.factor = factor;
+  if (bonus !== null) normalized.bonus = bonus;
+  return normalized;
+}
+
+function normalizeRpgDynamicModifiers(value) {
+  const list = Array.isArray(value) ? value : value === undefined || value === null ? [] : [value];
+  return list.slice(0, 8).map(normalizeRpgDynamicModifier).filter(Boolean);
+}
+
+function rpgResolveDynamicModifierValue(rule, snapshot = null) {
+  const normalized = normalizeRpgDynamicModifier(rule);
+  if (!normalized) return 0;
+  let raw = 0;
+  if (normalized.source === 'player') {
+    raw = Number(snapshot?.save?.state?.player?.[normalized.bucket]?.[normalized.id] ?? currentWorldSave?.state?.player?.[normalized.bucket]?.[normalized.id]);
+  } else if (normalized.source === 'runtime') {
+    const entries = snapshot?.save?.state?.runtime?.collections?.[normalized.collectionId] || currentWorldSave?.state?.runtime?.collections?.[normalized.collectionId] || [];
+    const entry = Array.isArray(entries) ? entries.find(item => String(item?.id || '') === normalized.entryId) : null;
+    raw = Number(rpgReadPathValue(entry, normalized.field));
+  }
+  const factor = Number.isFinite(Number(normalized.factor)) ? Number(normalized.factor) : 1;
+  const bonus = Number.isFinite(Number(normalized.bonus)) ? Number(normalized.bonus) : 0;
+  return (Number.isFinite(raw) ? raw : 0) * factor + bonus;
+}
+
+function rpgDynamicModifierTotal(rules, snapshot = null) {
+  return normalizeRpgDynamicModifiers(rules).reduce((sum, rule) => sum + rpgResolveDynamicModifierValue(rule, snapshot), 0);
+}
+
+function normalizeRpgBaseDiceExpression(expression) {
+  const match = String(expression || '').trim().match(/^(\d*)d(\d+)([+-]\d+)?$/i);
+  return match ? `${Number(match[1] || 1)}d${Number(match[2])}` : null;
+}
+
+function rpgDiceHasInlineModifier(expression) {
+  return !!String(expression || '').trim().match(/^(\d*)d(\d+)([+-]\d+)$/i);
+}
+
+function rpgModifierRuleKey(rule) {
+  const normalized = normalizeRpgDynamicModifier(rule);
+  return normalized ? JSON.stringify(normalized) : null;
+}
+
+function rpgModifierRulesKey(rules) {
+  const normalized = normalizeRpgDynamicModifiers(rules);
+  return JSON.stringify(normalized);
+}
+
+function buildRpgCheckResolution(proposal, roll, snapshot = null) {
+  const target = Number(proposal?.target);
+  const modifier = Array.isArray(proposal?.modifierRules) ? rpgDynamicModifierTotal(proposal.modifierRules, snapshot) : Number(proposal?.modifier);
+  const diceTotal = Number(roll?.total);
+  if (!proposal?.id || !Number.isFinite(target) || !Number.isFinite(modifier) || !Number.isFinite(diceTotal)) return null;
+  const total = diceTotal + modifier;
+  const margin = total - target;
+  const grade = margin >= 10 ? 'critical-success'
+    : margin >= 5 ? 'success'
+      : margin >= 0 ? 'success-with-cost'
+        : margin >= -4 ? 'partial-success'
+          : margin >= -9 ? 'failure' : 'critical-failure';
+  const labels = {
+    'critical-success': '大成功',
+    success: '成功',
+    'success-with-cost': '有代价的成功',
+    'partial-success': '部分成功',
+    failure: '失败',
+    'critical-failure': '严重失败',
+  };
+  return {
+    ruleId: String(proposal.id),
+    roll: String(roll.expr || proposal.roll || ''),
+    diceTotal,
+    modifier,
+    ...(proposal.modifierRule ? { modifierRule: cloneValue(proposal.modifierRule) } : {}),
+    ...(Array.isArray(proposal.modifierRules) ? { modifierRules: cloneValue(proposal.modifierRules) } : {}),
+    total,
+    target,
+    margin,
+    grade,
+    label: labels[grade],
+  };
+}
+
 async function requestRpgAgentReply(payload, targetScope) {
   const profile = payload.agentProfile;
   const nativeTools = Array.isArray(payload.nativeTools) ? payload.nativeTools : [];
+  const session = createRpgAgentSession(payload, targetScope);
   if (profile && profile.mode !== 'native' && nativeTools.length) {
-    return requestRpgCompatReply(payload, targetScope);
+    return requestRpgCompatReply(payload, targetScope, session);
   }
   if (!profile || profile.mode !== 'native' || !nativeTools.length) {
     if (payload.body.stream) {
+      appendRpgAgentEvent(session, 'step.request', { step: 1, messageCount: session.messages.length });
       const stream = await callAPIStream(payload);
-      return { reply: stream.content, cot: stream.cot, nativeCalls: stream.toolCalls || [], toolTrace: [] };
+      session.cot = stream.cot || '';
+      appendRpgAgentPreview(session, stream.content);
+      session.status = 'complete';
+      appendRpgAgentEvent(session, 'turn.complete', { contentChars: String(stream.content || '').length });
+      syncRpgAgentDebug(session, targetScope, 'Agent 已完成');
+      return { reply: stream.content, cot: stream.cot, nativeCalls: stream.toolCalls || [], toolTrace: [], session };
     }
+    appendRpgAgentEvent(session, 'step.request', { step: 1, messageCount: session.messages.length });
     const data = await callAPI(payload);
     const message = data?.choices?.[0]?.message || {};
-    return { reply: message.content || '', cot: message.reasoning_content || '', nativeCalls: normalizeNativeToolCalls(message).map(parseNativeToolArguments), toolTrace: [] };
+    session.cot = message.reasoning_content || '';
+    appendRpgAgentPreview(session, message.content || '');
+    session.status = 'complete';
+    appendRpgAgentEvent(session, 'turn.complete', { contentChars: String(message.content || '').length });
+    syncRpgAgentDebug(session, targetScope, 'Agent 已完成');
+    return { reply: message.content || '', cot: session.cot, nativeCalls: normalizeNativeToolCalls(message).map(parseNativeToolArguments), toolTrace: [], session };
   }
-  const messages = payload.body.messages.map(message => cloneValue(message));
+  const messages = session.messages;
   const snapshot = worldModeActive() && currentWorldSave
     ? { world: cloneValue(currentWorldCard()), save: cloneValue(currentWorldSave) }
     : null;
-  const maxSteps = Math.max(1, Math.min(8, Number(profile.maxSteps) || 1));
-  const accepted = [];
-  const toolTrace = [];
-  const diceGate = {};
-  let cot = '';
+  const maxSteps = session.maxSteps;
+  const accepted = session.accepted;
+  const toolTrace = session.toolTrace;
+  const diceGate = { checkpoints: session.checkpoints };
   for (let step = 0; step <= maxSteps; step++) {
-    const request = { ...payload, body: { ...payload.body, messages } };
+    const finalOnly = step === maxSteps;
+    session.step = step + 1;
+    session.phase = finalOnly ? 'commit' : 'observe';
+    const requestMessages = finalOnly ? [...messages, { role: 'user', content: rpgAgentFinalStepInstruction() }] : messages;
+    appendRpgAgentEvent(session, 'step.request', { step: step + 1, messageCount: requestMessages.length, finalOnly });
+    const request = { ...payload, body: { ...payload.body, messages: requestMessages } };
+    if (finalOnly) {
+      delete request.body.tools;
+      delete request.body.tool_choice;
+    }
     let response;
     if (request.body.stream) {
-      const stream = await callAPIStream(request);
+      const stream = await callAPIStream(request, { render: false });
       response = { content: stream.content, cot: stream.cot, calls: stream.toolCalls || [] };
     } else {
       const data = await callAPI(request);
       const message = data?.choices?.[0]?.message || {};
       response = { content: message.content || '', cot: message.reasoning_content || '', calls: normalizeNativeToolCalls(message).map(parseNativeToolArguments), rawMessage: message };
     }
-    cot += response.cot || '';
-    if (!response.calls.length) return { reply: response.content, cot, nativeCalls: accepted, toolTrace };
-    if (step >= maxSteps) throw new Error(`Agent 工具调用超过 maxSteps=${maxSteps}`);
+    session.cot += `${session.cot && response.cot ? '\n\n' : ''}${response.cot || ''}`;
+    const previousPreview = session.previewNarrative;
+    publishRpgAgentStep(session, response, targetScope, finalOnly ? 'Agent 最终步骤已完成' : 'Agent 步骤已完成');
+    if (finalOnly) {
+      if (response.calls.length) appendRpgAgentEvent(session, 'protocol.violation', { reason: '最终步骤仍请求工具', calls: response.calls.map(call => call.name) });
+      session.status = 'complete';
+      appendRpgAgentEvent(session, 'turn.complete', { contentChars: String(response.content || '').length, forcedFinal: true });
+      syncRpgAgentDebug(session, targetScope, 'Agent 已完成');
+      return { reply: combineRpgAgentReply({ previewNarrative: previousPreview }, response.content), cot: session.cot, nativeCalls: accepted, toolTrace, session };
+    }
+    if (!response.calls.length) {
+      session.status = 'complete';
+      appendRpgAgentEvent(session, 'turn.complete', { contentChars: String(response.content || '').length });
+      syncRpgAgentDebug(session, targetScope, 'Agent 已完成');
+      return { reply: combineRpgAgentReply({ previewNarrative: previousPreview }, response.content), cot: session.cot, nativeCalls: accepted, toolTrace, session };
+    }
     const rawCalls = response.calls.map(call => call.rawCall || { id: call.callId, type: 'function', function: { name: call.name, arguments: call.rawArguments } });
-    messages.push({ role: 'assistant', content: response.content || null, tool_calls: rawCalls });
+    messages.push({ role: 'assistant', content: rpgAgentNarrative(response.content).slice(-2000) || null, tool_calls: rawCalls });
+    session.phase = 'decide';
+    response.calls.forEach(call => appendRpgAgentEvent(session, 'tool.call', { callId: call.callId, name: call.name }));
+    diceGate.anchorOffset = session.previewNarrative.length;
     const executed = await executeRpgNativeToolCalls(response.calls, profile, targetScope, snapshot, diceGate);
     accepted.push(...executed.accepted);
     toolTrace.push(...executed.trace.map(item => ({ ...item, step: step + 1 })));
     for (const item of executed.trace) {
       messages.push({ role: 'tool', tool_call_id: item.callId, content: JSON.stringify(item.result) });
+      appendRpgAgentEvent(session, 'tool.result', { callId: item.callId, name: item.name, ok: item.result?.ok === true });
     }
   }
-  throw new Error('Agent 未返回最终叙事');
+  throw new Error('Agent 回合异常结束');
 }
 
 function normalizeCompatToolCalls(calls, step = 0) {
@@ -9967,24 +11624,28 @@ function buildCompatToolResultMessage(trace, step) {
  * assistant → tool → assistant 循环。工具仍走同一执行器，写入仍延迟到
  * agent-execute / narrate，不在这里直接修改 WorldSave。
  */
-async function requestRpgCompatReply(payload, targetScope) {
+async function requestRpgCompatReply(payload, targetScope, session = createRpgAgentSession(payload, targetScope)) {
   const profile = payload.agentProfile;
-  const messages = payload.body.messages.map(message => cloneValue(message));
+  const messages = session.messages;
   const snapshot = worldModeActive() && currentWorldSave
     ? { world: cloneValue(currentWorldCard()), save: cloneValue(currentWorldSave) }
     : null;
-  const maxSteps = Math.max(1, Math.min(8, Number(profile?.maxSteps) || 1));
-  const accepted = [];
-  const toolTrace = [];
-  const diceGate = {};
-  let cot = '';
+  const maxSteps = session.maxSteps;
+  const accepted = session.accepted;
+  const toolTrace = session.toolTrace;
+  const diceGate = { checkpoints: session.checkpoints };
   for (let step = 0; step <= maxSteps; step++) {
-    const request = { ...payload, body: { ...payload.body, messages } };
+    const finalOnly = step === maxSteps;
+    session.step = step + 1;
+    session.phase = finalOnly ? 'commit' : 'observe';
+    const requestMessages = finalOnly ? [...messages, { role: 'user', content: rpgAgentFinalStepInstruction() }] : messages;
+    appendRpgAgentEvent(session, 'step.request', { step: step + 1, messageCount: requestMessages.length, finalOnly });
+    const request = { ...payload, body: { ...payload.body, messages: requestMessages } };
     delete request.body.tools;
     delete request.body.tool_choice;
     let response;
     if (request.body.stream) {
-      const stream = await callAPIStream(request);
+      const stream = await callAPIStream(request, { render: false });
       response = { content: stream.content, cot: stream.cot, calls: normalizeCompatToolCalls(processAIOutput(stream.content).agentCalls, step) };
     } else {
       const data = await callAPI(request);
@@ -9992,42 +11653,83 @@ async function requestRpgCompatReply(payload, targetScope) {
       const content = message.content || '';
       response = { content, cot: message.reasoning_content || '', calls: normalizeCompatToolCalls(processAIOutput(content).agentCalls, step) };
     }
-    cot += response.cot || '';
-    if (!response.calls.length) return { reply: response.content, cot, nativeCalls: accepted, toolTrace };
-    if (step >= maxSteps) throw new Error(`兼容 Agent 工具调用超过 maxSteps=${maxSteps}`);
+    session.cot += `${session.cot && response.cot ? '\n\n' : ''}${response.cot || ''}`;
+    const previousPreview = session.previewNarrative;
+    publishRpgAgentStep(session, response, targetScope, finalOnly ? '兼容 Agent 最终步骤已完成' : '兼容 Agent 步骤已完成');
+    if (finalOnly) {
+      if (response.calls.length) appendRpgAgentEvent(session, 'protocol.violation', { reason: '最终步骤仍请求工具', calls: response.calls.map(call => call.name) });
+      session.status = 'complete';
+      appendRpgAgentEvent(session, 'turn.complete', { contentChars: String(response.content || '').length, forcedFinal: true });
+      syncRpgAgentDebug(session, targetScope, '兼容 Agent 已完成');
+      return { reply: combineRpgAgentReply({ previewNarrative: previousPreview }, response.content), cot: session.cot, nativeCalls: accepted, toolTrace, session };
+    }
+    if (!response.calls.length) {
+      session.status = 'complete';
+      appendRpgAgentEvent(session, 'turn.complete', { contentChars: String(response.content || '').length });
+      syncRpgAgentDebug(session, targetScope, 'Agent 已完成');
+      return { reply: combineRpgAgentReply({ previewNarrative: previousPreview }, response.content), cot: session.cot, nativeCalls: accepted, toolTrace, session };
+    }
+    session.phase = 'decide';
+    response.calls.forEach(call => appendRpgAgentEvent(session, 'tool.call', { callId: call.callId, name: call.name }));
+    diceGate.anchorOffset = session.previewNarrative.length;
     const executed = await executeRpgNativeToolCalls(response.calls, profile, targetScope, snapshot, diceGate);
     accepted.push(...executed.accepted);
     toolTrace.push(...executed.trace.map(item => ({ ...item, step: step + 1, mode: 'compat' })));
-    messages.push({ role: 'assistant', content: response.content || '' });
+    messages.push({ role: 'assistant', content: rpgAgentNarrative(response.content).slice(-2000) });
     messages.push({ role: 'user', content: buildCompatToolResultMessage(executed.trace, step + 1) });
+    executed.trace.forEach(item => appendRpgAgentEvent(session, 'tool.result', { callId: item.callId, name: item.name, ok: item.result?.ok === true }));
   }
-  throw new Error('兼容 Agent 未返回最终叙事');
+  throw new Error('兼容 Agent 回合异常结束');
 }
 
 /*
- * 模型已经完成叙事、但末尾控制块不合规时，只请求一次“协议修复”。
- * 仍复用原 system（含世界书 / 状态 / 输出守则），不在前端臆造 options，
- * 也不把修复结果直接写入存档；最终仍走同一套服务端 Typed Patch 校验。
+ * 模型已经完成叙事、但末尾控制块不合规时，只做有限次数“协议修复”。
+ * 专用请求只整理草稿中的控制数据，不在前端臆造 options，也不把修复结果
+ * 直接写入存档；最终仍走同一套服务端 Typed Patch 校验。
  */
 async function repairRpgOutput(payload, reply, optionRules, targetScope, toolTrace = [], validationError = '') {
+  const draft = String(reply || '').slice(-10000);
+  const successfulTools = (Array.isArray(toolTrace) ? toolTrace : [])
+    .filter(item => item?.result?.ok === true)
+    .slice(-8)
+    .map(item => ({ callId: item.callId, name: item.name, result: item.result }));
   const body = {
     ...payload.body,
     stream: false,
+    temperature: 0.1,
+    max_tokens: Math.min(2048, Math.max(512, Number(payload.body?.max_tokens) || 2048)),
     messages: [
-      ...(Array.isArray(payload.body?.messages) ? payload.body.messages.map(cloneValue) : []),
-      { role: 'assistant', content: String(reply || '') },
-      { role: 'user', content: `上一条回复未通过 RPG 输出协议校验：必须在末尾输出唯一 <tavern_state_update> JSON 标签，且 options 必须有 ${optionRules.min}-${optionRules.max} 个。${validationError ? `具体结构错误：${validationError}。` : ''}请保留已经发生的叙事，不要新增未发生的状态变化，只修复并完整重发合规的叙事正文与控制块。每个 updates 对象只能包含协议声明的字段；runtime.action.execute 只能写 type、actionId 和可选的 input，input 也只能包含动作 Schema 声明的字段，禁止写 result、args、value、execute、target 或其他解释字段。不要解释修复过程，不要输出额外代码块。` },
+      { role: 'system', content: '你是 Tavern RPG 协议修复器。只整理已有控制数据，不续写故事、不推演新事实、不执行工具。若收到结构化函数，必须用它返回；否则只输出一个 JSON 对象，不要解释或输出代码围栏。' },
+      { role: 'user', content: `修复以下本回合草稿的控制数据。只返回 updates、options、可选 eventMemory/createEntities；protocol、version、baseRevision 由客户端从当前存档注入。options=${optionRules.min}-${optionRules.max} 个非空、不重复的纯字符串，不得含 toolCalls。每个 update 只用协议字段；runtime.action.execute 只允许 type、actionId、可选 input。${RPG_RUNTIME_UPDATE_FORMAT_HINT} JSON 示例：${JSON.stringify({ updates: [], options: Array.from({ length: Math.max(0, Number(optionRules.min) || 0) }, (_, index) => `行动 ${index + 1}`) })}。校验错误：${validationError || '结构不完整'}。已成功工具结果（只可引用，不可重做）：${JSON.stringify(successfulTools)}。草稿：\n${draft}` },
     ],
   };
-  delete body.tools;
-  delete body.tool_choice;
-  const diceResults = toolTrace.filter(item => item?.name === 'dice.roll' && Array.isArray(item.result?.rolls))
-    .flatMap(item => item.result.rolls).map(roll => `${roll.expr}=${roll.total}`).join('、');
-  if (diceResults && body.messages.length) body.messages[body.messages.length - 1].content += ` 本回合已完成客户端判定：${diceResults}。修复时必须让该结果在叙事中产生明确后果，不得重新掷骰。`;
-  const data = await callAPI({ ...payload, body });
-  const message = data?.choices?.[0]?.message || {};
-  const repaired = String(message.content || '').trim();
-  if (!repaired) throw new Error('AI 协议修复没有返回内容');
+  body.tools = [buildRpgRepairToolDefinition(optionRules)];
+  body.tool_choice = { type: 'function', function: { name: RPG_REPAIR_TOOL_NAME } };
+  // 修复请求只需要短而完整的协议，不要让 reasoning_content 抢占末尾 JSON 的输出预算。
+  const deepSeekV4 = /^https:\/\/api\.deepseek\.com(?:\/|$)/i.test(String(payload.baseUrl || ''))
+    && /^deepseek-v4-(?:flash|pro)$/i.test(String(body.model || ''));
+  // DeepSeek V4 默认开启 thinking，而 thinking 模式拒绝强制 tool_choice；这里必须显式关闭，删除字段反而会重新启用默认值。
+  if (deepSeekV4) body.thinking = { type: 'disabled' };
+  else delete body.thinking;
+  delete body.reasoning_effort;
+  delete body.stop;
+  delete body.response_format;
+  const canonicalizeResponse = data => {
+    const message = data?.choices?.[0]?.message || {};
+    const repairCall = normalizeNativeToolCalls(message).map(parseNativeToolArguments)
+      .find(call => call.name === RPG_REPAIR_TOOL_NAME && call.arguments && !call.error);
+    return canonicalizeRpgRepairOutput(repairCall?.arguments ?? message.content, currentWorldSave?.revision ?? 0);
+  };
+  let repaired;
+  try {
+    repaired = canonicalizeResponse(await callAPI({ ...payload, body }));
+  } catch (structuredError) {
+    // 强制工具调用被拒绝或返回不可解析内容时，才退回专用 JSON；结果仍须本地 canonicalize。
+    delete body.tools;
+    delete body.tool_choice;
+    if (deepSeekV4) body.response_format = { type: 'json_object' };
+    repaired = canonicalizeResponse(await callAPI({ ...payload, body }));
+  }
   setDebugTrace(targetScope, { status: '协议修复已收到', output: repaired });
   return repaired;
 }
@@ -10070,7 +11772,7 @@ async function repairTavernReplyOptions(payload, reply, preset, targetScope) {
   return { content: repaired, cot: String(message.reasoning_content || '') };
 }
 
-async function callAPIStream(payload) {
+async function callAPIStream(payload, { previewPrefix = '', render = true } = {}) {
   const resp = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
@@ -10100,7 +11802,7 @@ async function callAPIStream(payload) {
       const delta = json?.choices?.[0]?.delta?.content ?? json?.choices?.[0]?.message?.content;
       if (delta) {
         content += delta;
-        updateTypingContent(content);
+        if (render) updateTypingContent(previewPrefix ? `${previewPrefix}\n\n${content}` : content);
       }
       const nativeCalls = json?.choices?.[0]?.delta?.tool_calls ?? json?.choices?.[0]?.message?.tool_calls;
       if (Array.isArray(nativeCalls)) nativeCalls.forEach(call => mergeNativeToolCall(toolCalls, call));
@@ -10132,22 +11834,33 @@ async function callAPIStream(payload) {
 /* 流式刷新：每帧最多渲染一次，避免逐 token 全量解析 */
 let typingText = '';
 let typingRaf = 0;
+function renderTypingContentFrame() {
+  if (typeof document?.getElementById !== 'function') return;
+  const t = $('typing-msg');
+  if (!t) {
+    if (mode === 'rpg' && responsePreview?.targetKey === activeConversationKey() && rpgCheckAnimation?.checkpoints) {
+      responsePreview.checkpoints = serializeRpgCheckpoints(rpgCheckAnimation.checkpoints);
+      renderMessages();
+    }
+    return;
+  }
+  const preview = mode === 'rpg' ? parseRpgOutput(typingText).narrative : typingText;
+  const target = t.querySelector(mode === 'rpg' ? '.rpg-prose' : '.bubble');
+  if (!target) return;
+  const rendered = mode === 'rpg'
+    ? renderRpgNarrativeWithCheckpoints(stripRpgNarrativeOptions(preview), rpgCheckAnimation?.checkpoints, { streaming: true })
+    : renderBubble(applyOutputRegex(preview));
+  target.innerHTML = rendered.html;
+  target.classList.toggle('md', rendered.md);
+  const chat = $('chat');
+  if (chat) chat.scrollTop = chat.scrollHeight;
+}
 function updateTypingContent(text) {
   typingText = text;
   if (typingRaf) return;
   typingRaf = requestAnimationFrame(() => {
     typingRaf = 0;
-    const t = $('typing-msg');
-    const preview = mode === 'rpg' ? parseRpgOutput(typingText).narrative : typingText;
-    const content = applyOutputRegex(mode === 'rpg' ? stripRpgNarrativeOptions(preview) : preview);
-    if (t) {
-      const target = t.querySelector(mode === 'rpg' ? '.rpg-prose' : '.bubble');
-      const rendered = renderBubble(content);
-      target.innerHTML = rendered.html;
-      target.classList.toggle('md', rendered.md);
-    }
-    const chat = $('chat');
-    chat.scrollTop = chat.scrollHeight;
+    renderTypingContentFrame();
   });
 }
 
@@ -10451,16 +12164,16 @@ function validCustomThemeVars(value) {
 }
 
 function applyUiTheme(uiTheme = uiThemeFromPrefs()) {
-  // 旧缓存 CSS 可能在 body 层提供变量；普通界面同时写入 body 让设置
-  // 立即生效。世界卡接管时只改根节点，避免覆盖卡片自己的 body 主题。
+  // 宿主主题始终写入 root/body；世界卡有自己的 token 时会在下方重新叠加，
+  // 避免 RPG 中 body 留下的旧变量遮住用户刚改的界面设置。
   const rootStyle = document.documentElement?.style;
   const bodyStyle = document.body?.style;
   const worldOwnsUi = typeof worldModeActive === 'function' && worldModeActive();
   for (const name of appliedHostUiThemeVars) {
     rootStyle?.removeProperty(name);
-    if (!worldOwnsUi) bodyStyle?.removeProperty(name);
+    bodyStyle?.removeProperty(name);
   }
-  const styles = [rootStyle, worldOwnsUi ? null : bodyStyle].filter(Boolean);
+  const styles = [rootStyle, bodyStyle].filter(Boolean);
   if (!styles.length) return;
   const set = (name, value) => styles.forEach(style => style.setProperty(name, value));
   const colors = uiTheme.colors || {};
@@ -10496,6 +12209,7 @@ function applyUiTheme(uiTheme = uiThemeFromPrefs()) {
     ...Object.keys(colorVars), ...Object.values(rgbNames), '--line', '--line-soft',
     '--radius', '--sidebar-width', '--rpg-panel-width', '--ui-scale', ...Object.keys(customVars),
   ]);
+  if (worldOwnsUi) applyWorldUiTheme();
 }
 
 function updateUiThemeLabels(uiTheme = uiThemeFromPrefs()) {
@@ -10761,6 +12475,7 @@ function formatDebugOutput(trace) {
   const tag = trace?.outputTag || extractDebugOutputTag(raw);
   const reasoning = trace?.reasoning || '本次响应未返回 reasoning_content。';
   return [
+    ...(trace?.error ? ['── 校验 / 请求错误 ──', String(trace.error)] : []),
     '── 正则前原始输出（完整响应） ──', raw || '尚未收到 AI 响应。',
     '── 结构化标签（原文摘录） ──', tag,
     '── 思维链 reasoning_content ──', reasoning,
@@ -10777,8 +12492,8 @@ function renderDebugTerminal() {
     : '当前会话 · 暂无记录';
   $('debug-input').textContent = trace?.input || '尚未向 AI 发送请求。';
   $('debug-output').textContent = formatDebugOutput(trace);
-  $('debug-sections').textContent = trace?.promptSections?.length
-    ? JSON.stringify({ agentProfile: trace.agentProfile || null, sections: trace.promptSections }, null, 2)
+  $('debug-sections').textContent = trace?.promptSections?.length || trace?.agentEvents?.length
+    ? JSON.stringify({ agentSessionId: trace.agentSessionId || null, agentEvents: trace.agentEvents || [], agentProfile: trace.agentProfile || null, agentContext: trace.agentContext || null, sections: trace.promptSections }, null, 2)
     : '尚未生成 RPG Prompt 分区。';
   renderDebugMemory();
   selectDebugTab(debugTab);
@@ -10901,12 +12616,21 @@ function devtoolsTokens() {
   const locationId = save.state?.locationId || world.start?.locationId || world.locations?.[0]?.id || '';
   const locations = Array.isArray(world.locations) ? world.locations : [];
   const nextLocationId = locations.find(item => item?.id && item.id !== locationId)?.id || locationId;
-  const resource = Array.isArray(world.playerCreation?.resources) ? world.playerCreation.resources.find(item => item?.id) : null;
+  const resource = Array.isArray(world.playerCreation?.resources)
+    ? world.playerCreation.resources.find(item => item?.id === 'hp') || world.playerCreation.resources.find(item => item?.id)
+    : null;
   const resourceId = resource?.id || '';
   const current = Number(save.state?.player?.resources?.[resourceId] ?? resource?.initial ?? resource?.default ?? 0);
   const min = Number(resource?.min ?? 0);
   const max = Number(resource?.max ?? Number.POSITIVE_INFINITY);
   const resourceDelta = current < max ? 1 : current > min ? -1 : 0;
+  const negativeResourceDelta = current > min ? -1 : 0;
+  const runtimeDefinitions = Array.isArray(world.runtime?.variables) ? world.runtime.variables : [];
+  const runtimeNumber = runtimeDefinitions.find(item => item?.id === 'hp' && item?.type === 'number')
+    || runtimeDefinitions.find(item => item?.type === 'number' && item?.id);
+  const runtimeCurrent = runtimeNumber ? Number(save.state?.runtime?.variables?.[runtimeNumber.id] ?? runtimeNumber.initial ?? 0) : 0;
+  const runtimeMin = Number(runtimeNumber?.min ?? Number.NEGATIVE_INFINITY);
+  const runtimeNegativeDelta = runtimeNumber && runtimeCurrent > runtimeMin ? -1 : 0;
   const activeTemplateIds = new Set(Object.values(save.state?.conflicts || {}).filter(item => item?.status === 'active').map(item => item.templateId).filter(Boolean));
   const conflictDefinitions = Array.isArray(world.conflicts) ? world.conflicts : [];
   const checkDefinition = [...conflictDefinitions.filter(definition => activeTemplateIds.has(definition.id)), ...conflictDefinitions]
@@ -10921,6 +12645,9 @@ function devtoolsTokens() {
     nextLocationId,
     firstResourceId: resourceId,
     resourceDelta,
+    negativeResourceDelta,
+    runtimeNumberId: runtimeNumber?.id || '',
+    runtimeNegativeDelta,
     timeValue: Number(save.state?.time?.value ?? save.revision ?? 0),
     checkRuleId: checkDefinition?.action?.id || configuredCheckId,
   };
@@ -11050,6 +12777,10 @@ async function submitDevtoolsScenario() {
   if (!worldModeActive()) throw new Error('请先打开正式 RPG 世界存档');
   if (worldSavePlanning()) throw new Error('当前存档仍在开局规划，请先完成开局配置');
   if (worldTurnPendingActive()) throw new Error('当前已有回合正在提交');
+  const selectedScenario = devtoolsScenario();
+  const tokens = devtoolsTokens();
+  if (selectedScenario?.id === 'runtime-mvu-debug' && !tokens.runtimeNumberId) throw new Error('当前世界卡未声明可调试的数字 runtime 变量');
+  if (selectedScenario?.id === 'hp-debug' && !tokens.firstResourceId) throw new Error('当前世界卡未声明可调试的角色资源');
   const options = devtoolsJson('devtools-options', []);
   if (!Array.isArray(options)) throw new Error('行动选项必须是 JSON 数组');
   const parsedPatch = devtoolsJson('devtools-patch', { updates: [] });
@@ -11075,24 +12806,19 @@ async function submitDevtoolsScenario() {
   if (!Array.isArray(agentCalls)) throw new Error('Agent 工具调用必须是 JSON 数组');
   if (diceText && !agentCalls.some(call => call?.name === 'dice.roll')) agentCalls.push({ callId: 'dev-dice', name: 'dice.roll', arguments: { expr: diceText } });
   const profile = buildRpgAgentProfile();
-  const executed = await executeRpgNativeToolCalls(agentCalls, profile, null, devtoolsAgentSnapshot(), {});
+  const devtoolsGate = { anchorOffset: narrative.length, checkpoints: [] };
+  const executed = await executeRpgNativeToolCalls(agentCalls, profile, null, devtoolsAgentSnapshot(), devtoolsGate);
   const agentTrace = executed.trace;
   const toolErrors = agentTrace.filter(item => item?.result?.ok === false);
   if (toolErrors.length) throw new Error(`Agent 工具测试失败：${toolErrors.map(item => `${item.name}：${item.result.error}`).join('；')}`);
   const dice = agentTrace.filter(item => item?.name === 'dice.roll' && Array.isArray(item.result?.rolls)).flatMap(item => item.result.rolls);
   const visibleNarrative = `${narrative}\n\n${devtoolsFeedback({ dice: [], patch, options, agentCalls, agentTrace, entities, memory })}`;
-  const diceMessages = dice.map(roll => {
-    const detail = roll.rolls.length > 1
-      ? `（${roll.rolls.join(' + ')}${roll.bonus ? (roll.bonus > 0 ? ` + ${roll.bonus}` : ` - ${Math.abs(roll.bonus)}`) : ''}）`
-      : (roll.bonus ? `（${roll.bonus > 0 ? '+' : ''}${roll.bonus}）` : '');
-    return { role: 'user', content: `🎲 工具掷骰 ${roll.expr} = ${roll.total} ${detail}`, meta: true };
-  });
   const payload = {
     commandId: 'dev-' + uid(),
     expectedRevision: currentWorldSave.revision,
-    actionIntent: { raw: action, ...(dice.length ? { dice } : {}) },
+    actionIntent: buildRpgTurnIntent(action, { source: 'devtools', dice }),
     patch,
-    turns: [{ role: 'user', content: action }, ...diceMessages, { role: 'assistant', content: visibleNarrative }],
+    turns: [{ role: 'user', content: action }, { role: 'assistant', content: visibleNarrative, ...(devtoolsGate.checkpoints.length ? { checkpoints: serializeRpgCheckpoints(devtoolsGate.checkpoints) } : {}) }],
     options,
     ...(Array.isArray(agentCalls) && agentCalls.length ? { agentCalls } : {}),
     ...(Array.isArray(entities) && entities.length ? { createEntities: resolveDevtoolsTemplate(entities) } : {}),
@@ -11283,8 +13009,35 @@ function renderEditBubble(m, className = 'bubble edit-bubble') {
   return `<div class="${className}"><textarea id="edit-msg" rows="4">${esc(m.content)}</textarea><div class="edit-actions"><button class="btn gold small" data-edit-save>保存</button><button class="ghost-btn small" data-edit-cancel>取消</button></div></div>`;
 }
 
+function resetMessageRenderWindow() {
+  messageRenderWindow.start = 0;
+  messageRenderWindow.preserveScroll = false;
+}
+
+function scrollChatToLatest(chat, conversationKey = activeConversationKey()) {
+  const scroll = () => {
+    if (!chat || chat.isConnected === false || activeConversationKey() !== conversationKey) return;
+    if (typeof chat.scrollTo === 'function') chat.scrollTo({ top: chat.scrollHeight, behavior: 'instant' });
+    else chat.scrollTop = chat.scrollHeight;
+  };
+  scroll();
+  window.requestAnimationFrame?.(() => {
+    scroll();
+    window.requestAnimationFrame?.(scroll);
+  });
+}
+
 function renderMessages() {
   const chat = $('chat');
+  const previousScrollHeight = chat.scrollHeight;
+  const previousScrollTop = chat.scrollTop;
+  const preserveScroll = messageRenderWindow.preserveScroll;
+  messageRenderWindow.preserveScroll = false;
+  const conversationKey = activeConversationKey();
+  if (messageRenderWindow.key !== conversationKey) {
+    messageRenderWindow = { key: conversationKey, start: 0, preserveScroll: false };
+  }
+  syncConversationResetButton();
   initTavernCardFrameBridge();
   renderDebugTerminal();
   renderTavernAutoMemoryStatus();
@@ -11293,17 +13046,39 @@ function renderMessages() {
   chat.innerHTML = '';
   if (mode === 'rpg') renderRPG(); // RPG 模式联动状态面板
   const msgs = curMessages();
+  const pendingAssistantVisible = worldTurnPendingActive() && !!worldTurnPending.assistantMessage;
+  const preview = responsePreview && responsePreview.targetKey === activeConversationKey() && !pendingAssistantVisible ? [responsePreview] : [];
+  const renderMsgs = preview.length ? [...msgs, ...preview] : msgs;
+  const windowStart = renderMsgs.length > MESSAGE_RENDER_WINDOW_SIZE
+    ? Math.max(0, renderMsgs.length - MESSAGE_RENDER_WINDOW_SIZE - messageRenderWindow.start)
+    : 0;
+  const visibleMsgs = windowStart > 0 ? renderMsgs.slice(windowStart) : renderMsgs;
   renderQuickActions(); // 从当前会话最后一条 AI 回复恢复选项，切换会话不串线
   const ended = mode === 'rpg' && worldModeActive() && (currentWorldSave?.state?.ending?.status === 'ended' || currentWorldSave?.state?.failure?.status === 'terminal');
+  const planning = mode === 'rpg' && worldModeActive() && worldSavePlanning();
   const input = $('input');
   const sendButton = $('btn-send');
-  if (input) { input.disabled = ended; input.placeholder = ended ? '世界线已终止，请从右侧重开独立存档后继续…' : '写下你的话或行动（可用 *动作* 表示）… Enter 发送 · Shift+Enter 换行'; }
-  if (sendButton && !sending) sendButton.disabled = ended;
-  if (!msgs.length) {
+  if (input) { input.disabled = ended || planning; input.placeholder = ended ? '世界线已终止，请从右侧重开独立存档后继续…' : planning ? '请先完成开局配置，再开始游戏…' : '写下你的话或行动（可用 *动作* 表示）… Enter 发送 · Shift+Enter 换行'; }
+  if (sendButton && !sending) sendButton.disabled = ended || planning;
+  if (!renderMsgs.length) {
     chat.innerHTML = `<div class="chat-empty"><div class="ce-icon">🐾</div><div class="ce-title">${esc(emptyTitle())}</div><div class="ce-desc">${esc(buildGuide())}</div></div>`;
     return;
   }
-  for (const m of msgs) {
+  if (windowStart > 0) {
+    const earlier = document.createElement('button');
+    earlier.type = 'button';
+    earlier.className = 'message-window-control ghost-btn small';
+    earlier.textContent = `加载更早消息（还剩 ${windowStart} 条）`;
+    earlier.title = '只加载更早消息，不会删除或改变历史';
+    earlier.addEventListener('click', () => {
+      messageRenderWindow.start += MESSAGE_RENDER_WINDOW_STEP;
+      messageRenderWindow.preserveScroll = true;
+      renderMessages();
+    });
+    chat.appendChild(earlier);
+  }
+  for (let visibleIndex = 0; visibleIndex < visibleMsgs.length; visibleIndex++) {
+    const m = visibleMsgs[visibleIndex];
     // 文生图图片消息
     if (m.role === 'image') {
       const imgEl = document.createElement('div');
@@ -11342,9 +13117,9 @@ function renderMessages() {
           if (sb) sb.addEventListener('click', () => saveEdit(m));
           if (cb) cb.addEventListener('click', () => cancelEdit(m));
         } else {
-          const { html, md } = renderBubble(renderOutputContent(m.rawContent ?? m.content, 'rpg', { fromRaw: typeof m.rawContent === 'string' }));
+          const { html, md } = renderRpgNarrativeWithCheckpoints(m.rawContent ?? m.content, m.checkpoints, { fromRaw: typeof m.rawContent === 'string' });
           el.innerHTML = `<div class="rpg-prose${md ? ' md' : ''}" data-tavern-rendered>${html}</div>`;
-          attachMsgActions(el, m, m._opening ? { copy: true } : { regen: true, edit: true, copy: true, del: true });
+          if (!m._preview) attachMsgActions(el, m, m._opening ? { copy: true } : { regen: true, edit: true, copy: true, del: true });
         }
         chat.appendChild(el);
         continue;
@@ -11377,7 +13152,7 @@ function renderMessages() {
             if (sb) sb.addEventListener('click', () => saveEdit(m));
             if (cb) cb.addEventListener('click', () => cancelEdit(m));
           } else {
-            attachMsgActions(el, m, { regen: true, edit: true, copy: true, del: true });
+            if (!m._preview) attachMsgActions(el, m, { regen: true, edit: true, copy: true, del: true });
           }
         }
         chat.appendChild(el);
@@ -11404,10 +13179,12 @@ function renderMessages() {
     }
     chat.appendChild(el);
   }
-  chat.scrollTop = chat.scrollHeight;
+  if (preserveScroll) chat.scrollTop = Math.max(0, chat.scrollHeight - previousScrollHeight + previousScrollTop);
+  else scrollChatToLatest(chat, conversationKey);
 }
 
 function pushMessage(role, content, extra) {
+  resetMessageRenderWindow();
   if (worldModeActive()) {
     const msg = { id: uid(), role, content, ts: Date.now() };
     if (extra) Object.assign(msg, extra);
@@ -11447,6 +13224,144 @@ function addTyping() {
 function removeTyping() {
   const t = $('typing-msg');
   if (t) t.remove();
+}
+
+/* 保留已经生成的正文，但不提前应用 patch 或写入历史；协议收尾完成后由正式消息替换。 */
+function setResponsePreview(reply, resolution = null, targetKey = activeConversationKey(), checkpoints = null) {
+  if (targetKey !== activeConversationKey()) return;
+  const parsed = mode === 'rpg'
+    ? parseRpgOutput(reply)
+    : parseTavernReplyOutput(reply, resolvePromptPreset()?.preset || null);
+  const rawContent = mode === 'rpg'
+    ? stripRpgNarrativeOptions(parsed.narrative)
+    : String(parsed.content || '');
+  responsePreview = {
+    _preview: true,
+    role: 'assistant',
+    content: applyOutputRegex(rawContent),
+    rawContent,
+    ts: Date.now(),
+    targetKey,
+    ...(resolution ? { checkResolution: cloneValue(resolution) } : {}),
+    ...(mode === 'rpg' && Array.isArray(checkpoints) && checkpoints.length ? { checkpoints: serializeRpgCheckpoints(checkpoints) } : {}),
+  };
+  removeTyping();
+  renderMessages();
+}
+
+function clearResponsePreview() {
+  responsePreview = null;
+}
+
+const RPG_CHECK_TONES = {
+  'critical-success': ['is-gold', '★'],
+  success: ['is-success', '✓'],
+  'success-with-cost': ['is-warning', '◆'],
+  'partial-success': ['is-warning', '◆'],
+  failure: ['is-failure', '✕'],
+  'critical-failure': ['is-failure', '✕'],
+};
+
+function serializeRpgCheckpoints(checkpoints) {
+  return (Array.isArray(checkpoints) ? checkpoints : []).slice(0, 8).map((checkpoint, index) => {
+    const roll = checkpoint?.roll && typeof checkpoint.roll === 'object' ? checkpoint.roll : null;
+    const resolution = checkpoint?.resolution && typeof checkpoint.resolution === 'object' ? checkpoint.resolution : null;
+    return {
+      id: String(checkpoint?.id || `check-${index + 1}`).slice(0, 80),
+      offset: Math.max(0, Math.min(200000, Math.trunc(Number(checkpoint?.offset) || 0))),
+      expr: String(checkpoint?.expr || roll?.expr || resolution?.roll || '骰子').slice(0, 80),
+      completed: checkpoint?.completed === true,
+      settled: checkpoint?.settled === true,
+      ...(roll ? { roll: {
+        expr: String(roll.expr || checkpoint?.expr || '骰子').slice(0, 80),
+        ...(Number.isFinite(Number(roll.total)) ? { total: Number(roll.total) } : {}),
+      } } : {}),
+      ...(resolution ? { resolution: {
+        grade: Object.prototype.hasOwnProperty.call(RPG_CHECK_TONES, resolution.grade) ? resolution.grade : '',
+        label: String(resolution.label || '骰点完成').slice(0, 80),
+        ...(Number.isFinite(Number(resolution.target)) ? { target: Number(resolution.target) } : {}),
+        ...(Number.isFinite(Number(resolution.total)) ? { total: Number(resolution.total) } : {}),
+        ...(Number.isFinite(Number(resolution.modifier)) ? { modifier: Number(resolution.modifier) } : {}),
+        roll: String(resolution.roll || roll?.expr || checkpoint?.expr || '骰子').slice(0, 80),
+      } } : {}),
+    };
+  });
+}
+
+function rpgCheckFeedbackMarkup(checkpoint) {
+  const state = serializeRpgCheckpoints([checkpoint])[0];
+  if (!state) return '';
+  const resolution = state.resolution;
+  const roll = state.roll;
+  const tone = RPG_CHECK_TONES[resolution?.grade] || ['', '◆'];
+  const resultTotal = Number.isFinite(Number(resolution?.total)) ? Number(resolution.total) : Number.isFinite(Number(roll?.total)) ? Number(roll.total) : null;
+  const modifier = Number(resolution?.modifier) || 0;
+  const formula = resolution && resultTotal !== null
+    ? `${resolution.roll}${modifier ? `${modifier > 0 ? '+' : ''}${modifier}` : ''} = ${resultTotal}`
+    : resultTotal !== null ? `${roll?.expr || state.expr} = ${resultTotal}` : `${state.expr} · 等待结果`;
+  const detail = resolution && Number.isFinite(Number(resolution.target)) ? `${formula} · 目标 ${resolution.target}` : formula;
+  const classes = ['rpg-check-feedback', state.completed ? 'is-result' : 'is-pending', state.settled ? 'is-settled' : '', tone[0]].filter(Boolean).join(' ');
+  return `<div class="rpg-check-anchor" data-rpg-checkpoint="${esc(state.id)}"><div class="${classes}" role="status" aria-live="polite"><span class="rpg-check-die" aria-hidden="true">${resolution ? tone[1] : '◆'}</span><span class="rpg-check-copy"><strong>${esc(resolution?.label || (roll ? '骰点完成' : '判定中'))}</strong><small>${esc(detail)}</small></span></div></div>`;
+}
+
+function renderRpgNarrativeWithCheckpoints(content, checkpoints, { fromRaw = false, streaming = false } = {}) {
+  const source = String(content || '');
+  const ordered = serializeRpgCheckpoints(checkpoints)
+    .map((checkpoint, index) => ({ ...checkpoint, order: index }))
+    .sort((a, b) => a.offset - b.offset || a.order - b.order);
+  const renderSegment = segment => renderBubble(streaming ? applyOutputRegex(segment) : renderOutputContent(segment, 'rpg', { fromRaw }));
+  if (!ordered.length) return renderSegment(source);
+  let cursor = 0;
+  let html = '';
+  let md = false;
+  const appendSegment = segment => {
+    if (!segment) return;
+    const rendered = renderSegment(segment);
+    html += `<div class="rpg-prose-segment">${rendered.html}</div>`;
+    md ||= rendered.md;
+  };
+  for (const checkpoint of ordered) {
+    const offset = Math.max(cursor, Math.min(source.length, checkpoint.offset));
+    appendSegment(source.slice(cursor, offset));
+    html += rpgCheckFeedbackMarkup(checkpoint);
+    cursor = offset;
+  }
+  appendSegment(source.slice(cursor));
+  return { html, md };
+}
+
+function showRpgCheckAnimation(expr, anchorOffset = 0, checkpoints = null) {
+  if (mode !== 'rpg' || !worldModeActive()) return;
+  const list = Array.isArray(checkpoints) ? checkpoints : (rpgCheckAnimation?.checkpoints || []);
+  rpgCheckAnimation = { checkpoints: list };
+  const state = { id: uid(), offset: Math.max(0, Math.trunc(Number(anchorOffset) || 0)), expr: String(expr || '骰子').slice(0, 80), completed: false, settled: false };
+  list.push(state);
+  if (list.length > 8) list.splice(0, list.length - 8);
+  renderTypingContentFrame();
+  return state;
+}
+
+function updateRpgCheckAnimation(state, roll, resolution = null) {
+  if (!state) return;
+  state.roll = roll ? cloneValue(roll) : null;
+  state.resolution = resolution ? cloneValue(resolution) : null;
+}
+
+function finishRpgCheckAnimation(state) {
+  if (!state) return;
+  state.completed = true;
+  state.settled = false;
+  const anchor = typeof document?.querySelectorAll === 'function'
+    ? [...document.querySelectorAll('[data-rpg-checkpoint]')].find(node => node.getAttribute('data-rpg-checkpoint') === state.id)
+    : null;
+  if (anchor) anchor.outerHTML = rpgCheckFeedbackMarkup(state);
+  else renderTypingContentFrame();
+  state.settled = true;
+  if (responsePreview?.targetKey === activeConversationKey()) responsePreview.checkpoints = serializeRpgCheckpoints(rpgCheckAnimation?.checkpoints);
+}
+
+function clearRpgCheckAnimation() {
+  rpgCheckAnimation = null;
 }
 
 /* ─────────── 文生图（测试功能） ─────────── */
@@ -11827,22 +13742,39 @@ async function requestReply() {
   const targetScope = activeConversationScope();
   if (!targetScope) return;
   const targetKey = activeConversationKey();
+  const targetWorldTurnEpoch = worldModeActive() ? worldTurnEpoch : null;
+  const responseOutdated = () => activeConversationKey() !== targetKey || (targetWorldTurnEpoch !== null && worldTurnEpoch !== targetWorldTurnEpoch);
+  const preserveRetryPreview = worldTurnPendingActive()
+    && !!worldTurnPending.protocolRepairDraft
+    && responsePreview?.targetKey === targetKey;
+  if (!preserveRetryPreview) {
+    clearResponsePreview();
+    clearRpgCheckAnimation();
+  }
   sending = true;
   $('btn-send').disabled = true;
-  addTyping();
+  if (!preserveRetryPreview) addTyping();
   let cot = '';
+  let rpgAgentSession = null;
+  let payload = null;
+  let reply = '';
+  let nativeCalls = [];
+  let toolTrace = [];
+  let rpgResolvedCheck = null;
   try {
-    const payload = buildPayload();
+    payload = buildPayload();
     setDebugTrace(targetScope, {
       commandId: worldTurnPendingActive() ? worldTurnPending.commandId : null,
       status: '请求中',
       input: JSON.stringify({ endpoint: payload.baseUrl + '/chat/completions', ...payload.body }, null, 2),
       promptSections: (payload.promptSections || []).map(section => ({ id: section.id, source: section.source, chars: section.text.length })),
       agentProfile: payload.agentProfile || null,
+      agentContext: payload.rpgContext || null,
       output: '等待 AI 响应…',
       rawOutput: '等待 AI 响应…',
       outputTag: '等待 AI 响应…',
       reasoning: '',
+      error: '',
     });
     // 请求 / 响应日志输出到浏览器控制台
     console.debug('[Tavern] → 请求', payload.baseUrl + '/chat/completions', {
@@ -11853,15 +13785,24 @@ async function requestReply() {
       thinking: payload.body.thinking,
       messages: payload.body.messages,
     });
-    let reply;
-    let nativeCalls = [];
-    let toolTrace = [];
     if (mode === 'rpg') {
-      const r = await requestRpgAgentReply(payload, targetScope);
-      reply = r.reply;
-      cot = r.cot;
-      nativeCalls = r.nativeCalls || [];
-      toolTrace = r.toolTrace || [];
+      const repairDraft = worldTurnPendingActive() ? String(worldTurnPending.protocolRepairDraft || '').trim() : '';
+      if (repairDraft) {
+        reply = repairDraft;
+        rpgAgentSession = worldTurnPending.agentSession ? cloneValue(worldTurnPending.agentSession) : null;
+        cot = String(rpgAgentSession?.cot || '');
+        toolTrace = cloneValue(worldTurnPending.agentToolTrace || rpgAgentSession?.toolTrace || []);
+        nativeCalls = rpgAgentCallsFromTrace(toolTrace);
+        setDebugTrace(targetScope, { status: '从已完成检查点恢复，仅重试输出协议', output: reply, rawOutput: reply, error: '' });
+      } else {
+        const r = await requestRpgAgentReply(payload, targetScope);
+        reply = r.reply;
+        cot = r.cot;
+        rpgAgentSession = r.session || rpgAgentRequestSessions.get(payload) || null;
+        nativeCalls = r.nativeCalls || [];
+        toolTrace = r.toolTrace || [];
+      }
+      rpgResolvedCheck = [...toolTrace].reverse().find(item => item?.name === 'dice.roll' && item.result?.resolution)?.result?.resolution || null;
       postWorldExtensionEvent('agent.complete', {
         commandId: worldTurnPending?.commandId || null,
         revision: currentWorldSave?.revision ?? null,
@@ -11895,18 +13836,21 @@ async function requestReply() {
       outputTag: extractDebugOutputTag(reply),
       reasoning: cot || '',
       agentToolTrace: toolTrace,
+      ...(rpgAgentSession ? { agentSessionId: rpgAgentSession.id, agentEvents: cloneValue(rpgAgentSession.events) } : {}),
     });
     // 请求期间可能切换角色 / 模式 / 会话；迟到响应不得写入新的当前会话。
-    if (activeConversationKey() !== targetKey) {
+    if (responseOutdated()) {
       setDebugTrace(targetScope, { status: '已完成（响应因切换存档/会话未写入历史）' });
       console.warn('[Tavern] 当前存档/会话已切换，已丢弃原范围的迟到响应');
       if (worldTurnPending && worldTurnPending.saveId === targetScope.id) discardWorldTurnPending();
+      clearResponsePreview();
       removeTyping();
       return;
     }
     console.debug('[Tavern] ← 响应', reply);
     if (cot) console.debug('[Tavern] 🧠 思维链', cot);
-    removeTyping();
+    // 正文先从临时节点升级为可见预览；后续选项/协议/状态提交继续等待。
+    setResponsePreview(mode === 'rpg' && rpgAgentSession?.previewNarrative ? rpgAgentSession.previewNarrative : reply, rpgResolvedCheck, targetKey, rpgAgentSession?.checkpoints);
     // RPG 模式：统一正则处理（```rpg``` 状态/掷骰），剔除 rpg 块
     let processed = processAIOutput(reply);
     if (mode !== 'rpg' && tavernReplyNeedsOptionRepair(processed, resolvePromptPreset()?.preset || null)) {
@@ -11914,46 +13858,89 @@ async function requestReply() {
       setDebugTrace(targetScope, { status: 'RP 输出缺少行动选项，正在修复', output: String(reply || ''), rawOutput: String(reply || '') });
       try {
         const repaired = await repairTavernReplyOptions(payload, reply, tavernPreset, targetScope);
-        processed = processAIOutput(repaired.content);
+        reply = mergeRepairedReply(reply, repaired.content, 'tavern');
+        processed = processAIOutput(reply);
         if (repaired.cot) cot += (cot ? '\n\n' : '') + repaired.cot;
-        reply = repaired.content;
+        setResponsePreview(reply, rpgResolvedCheck, targetKey, rpgAgentSession?.checkpoints);
       } catch (error) {
         console.warn('[Tavern] RP 选项协议修复失败:', error.message);
         setDebugTrace(targetScope, { status: 'RP 选项修复失败（保留原正文）', output: String(reply || ''), rawOutput: String(reply || ''), outputTag: extractDebugOutputTag(reply) });
       }
     }
-    if (activeConversationKey() !== targetKey) {
+    if (responseOutdated()) {
       setDebugTrace(targetScope, { status: '已完成（修复响应因切换存档/会话未写入历史）' });
       console.warn('[Tavern] 修复期间切换了存档/会话，已丢弃迟到响应');
+      clearResponsePreview();
       return;
     }
-    if (worldTurnPendingActive()) {
-      const optionRules = worldOptionRules();
-      const options = Array.isArray(processed.options) ? processed.options : [];
-      const patchContractInvalid = processed.patch && (
-        processed.patch.protocol !== 'tavern.rpg.turn'
-        || Number(processed.patch.version) !== 1
-        || Number(processed.patch.baseRevision) !== Number(currentWorldSave?.revision)
-      );
-      const patchShapeError = processed.patch ? validateRpgPatchShape(processed.patch) : '';
-      const outputContractInvalid = !!processed.protocol?.errorCode || patchContractInvalid || !!patchShapeError || options.length < optionRules.min || options.length > optionRules.max;
-      if (outputContractInvalid) {
-        const originalPatch = processed.patch;
-        const originalEntities = processed.createEntities;
-        const originalMemory = processed.eventMemory;
-        setDebugTrace(targetScope, { status: '输出协议不合规，正在修复', output: String(reply || '') });
-        const repairedReply = await repairRpgOutput(payload, reply, optionRules, targetScope, toolTrace, patchShapeError);
-        processed = processAIOutput(repairedReply);
-        if (!processed.patch && originalPatch) processed.patch = originalPatch;
-        if (!processed.createEntities && originalEntities) processed.createEntities = originalEntities;
-        if (!processed.eventMemory && originalMemory) processed.eventMemory = originalMemory;
-        reply = repairedReply;
-      }
-    }
+    // 已通过执行器校验的原生工具候选先转换为内部协议；模型正文里的重复 patch 不能覆盖它。
     const nativeCandidate = mode === 'rpg' ? nativeCandidatesToRpgData(nativeCalls, currentWorldSave?.revision) : { patch: null, createEntities: null, eventMemory: null };
-    if (!processed.patch && nativeCandidate.patch) processed.patch = nativeCandidate.patch;
+    if (nativeCandidate.patch) processed.patch = nativeCandidate.patch;
     if (!processed.createEntities && nativeCandidate.createEntities) processed.createEntities = nativeCandidate.createEntities;
     if (!processed.eventMemory && nativeCandidate.eventMemory) processed.eventMemory = nativeCandidate.eventMemory;
+    if (worldTurnPendingActive()) {
+      const optionRules = worldOptionRules();
+      let options = normalizeRpgOptions(processed.options, optionRules);
+      processed.options = options.length ? options : null;
+      let patchContractInvalid = processed.patch && (
+          processed.patch.protocol !== 'tavern.rpg.turn'
+          || Number(processed.patch.version) !== 1
+          || Number(processed.patch.baseRevision) !== Number(currentWorldSave?.revision)
+        );
+      let patchShapeError = processed.patch ? (validateRpgPatchShape(processed.patch) || validateRpgPatchRuntimeActions(processed.patch)) : '';
+      let unexpectedFinalCalls = Array.isArray(processed.agentCalls) && processed.agentCalls.length > 0;
+      let outputContractInvalid = !!processed.protocol?.errorCode || patchContractInvalid || !!patchShapeError || unexpectedFinalCalls || options.length < optionRules.min || options.length > optionRules.max;
+      if (outputContractInvalid) {
+        const originalNarrativeReply = reply;
+        const originalProcessed = processed;
+        for (let attempt = 1; attempt <= RPG_PROTOCOL_REPAIR_ATTEMPTS && outputContractInvalid; attempt++) {
+          setDebugTrace(targetScope, { status: `输出协议不合规，正在修复（${attempt}/${RPG_PROTOCOL_REPAIR_ATTEMPTS}）`, output: String(reply || ''), error: '' });
+          try {
+            const contractError = processed.protocol?.errorMessage
+              || patchShapeError
+              || (patchContractInvalid ? `baseRevision 必须等于 ${currentWorldSave?.revision}` : '')
+              || (unexpectedFinalCalls ? '最终输出不得包含 toolCalls' : '')
+              || ((options.length < optionRules.min || options.length > optionRules.max) ? `options 需要 ${optionRules.min}-${optionRules.max} 个非空字符串，实际 ${options.length} 个` : '');
+            const repairedReply = await repairRpgOutput(payload, reply, optionRules, targetScope, toolTrace, contractError);
+            reply = mergeRepairedReply(originalNarrativeReply, repairedReply, 'rpg');
+            processed = preserveValidRpgRepairFields(originalProcessed, processAIOutput(reply), optionRules);
+            setResponsePreview(rpgAgentSession?.previewNarrative || reply, rpgResolvedCheck, targetKey, rpgAgentSession?.checkpoints);
+          } catch (error) {
+            console.warn('[Tavern] RPG 协议修复失败:', error.message);
+            setDebugTrace(targetScope, { status: `RPG 协议修复失败（第${attempt}次）`, error: String(error.message || '协议修复失败') });
+            continue;
+          }
+          options = normalizeRpgOptions(processed.options, optionRules);
+          processed.options = options.length ? options : null;
+          patchContractInvalid = processed.patch && (
+            processed.patch.protocol !== 'tavern.rpg.turn'
+            || Number(processed.patch.version) !== 1
+            || Number(processed.patch.baseRevision) !== Number(currentWorldSave?.revision)
+          );
+          patchShapeError = processed.patch ? (validateRpgPatchShape(processed.patch) || validateRpgPatchRuntimeActions(processed.patch)) : '';
+          unexpectedFinalCalls = Array.isArray(processed.agentCalls) && processed.agentCalls.length > 0;
+          outputContractInvalid = !!processed.protocol?.errorCode || patchContractInvalid || !!patchShapeError || unexpectedFinalCalls || options.length < optionRules.min || options.length > optionRules.max;
+          if (!outputContractInvalid) setDebugTrace(targetScope, { status: `协议自动修复成功（第${attempt}次）`, error: '' });
+        }
+        // 只在正文、标签和 patch 都完整时复用上一回合的合法选项；不伪造世界状态。
+        if (outputContractInvalid && !processed.protocol?.errorCode && !patchContractInvalid && !patchShapeError && !unexpectedFinalCalls) {
+          const fallbackOptions = previousWorldTurnOptions();
+          if (fallbackOptions.length >= optionRules.min && fallbackOptions.length <= optionRules.max) {
+            processed.options = options = fallbackOptions;
+            outputContractInvalid = false;
+            setDebugTrace(targetScope, { status: '选项协议已使用上一回合合法选项兜底', output: String(reply || '') });
+          }
+        }
+        if (outputContractInvalid) {
+          const finalContractError = processed.protocol?.errorMessage
+            || patchShapeError
+            || (patchContractInvalid ? `baseRevision 必须等于 ${currentWorldSave?.revision}` : '')
+            || (unexpectedFinalCalls ? '最终输出仍包含 toolCalls' : '')
+            || `options 需要 ${optionRules.min}-${optionRules.max} 个非空字符串`;
+          throw new Error(`RPG 输出协议仍不完整：${finalContractError}`);
+        }
+      }
+    }
     const clean = processed.content;
     const extra = {
       outputRegexApplied: true,
@@ -11962,18 +13949,24 @@ async function requestReply() {
     };
     if (cot) extra.cot = cot;
     if (processed.options && processed.options.length) extra.options = processed.options;
+    if (mode === 'rpg' && rpgResolvedCheck) extra.checkResolution = cloneValue(rpgResolvedCheck);
+    if (mode === 'rpg' && rpgAgentSession?.checkpoints?.length) extra.checkpoints = serializeRpgCheckpoints(rpgAgentSession.checkpoints);
+    if (responseOutdated()) {
+      setDebugTrace(targetScope, { status: '已完成（当前回合已重置，迟到响应未写入历史）' });
+      clearResponsePreview();
+      removeTyping();
+      return;
+    }
     if (worldTurnPendingActive()) {
       const agentToolRolls = toolTrace.filter(item => item.name === 'dice.roll' && Array.isArray(item.result?.rolls)).flatMap(item => item.result.rolls);
       // 原生与兼容 Agent 都只有在工具循环内完成客户端掷骰并回传结果后，
       // 才把骰子记录写入待提交回合；这里不再对 toolCalls 事后补掷。
       const toolRolls = agentToolRolls;
-      for (const r of toolRolls) {
-        const detail = r.rolls.length > 1 ? `（${r.rolls.join(' + ')}${r.bonus ? (r.bonus >= 0 ? ' + ' + r.bonus : ' - ' + Math.abs(r.bonus)) : ''}）` : (r.bonus ? `（${r.bonus > 0 ? '+' : ''}${r.bonus}）` : '');
-        worldTurnPending.messages.push({ id: uid(), role: 'user', content: `🎲 工具掷骰 ${r.expr} = ${r.total} ${detail}`, ts: Date.now(), meta: true });
-      }
       if (toolRolls.length) worldTurnPending.actionIntent.dice = [...(worldTurnPending.actionIntent.dice || []), ...toolRolls];
-      // 世界回合的 assistant 正文先留在 pending turn；只有服务端原子提交成功后才进入正式历史。
-      worldTurnPending.messages.push({ id: uid(), role: 'assistant', content: clean, ts: Date.now(), ...extra });
+      // 世界回合的 assistant 正文先留在临时槽；只有服务端原子提交成功后才进入正式历史。
+      // 预览继续显示，避免“正文先出现、提交阶段又消失”。
+      worldTurnPending.assistantMessage = { id: uid(), role: 'assistant', content: clean, ts: Date.now(), ...extra };
+      worldTurnPending.agentSession = rpgAgentSession ? cloneValue(rpgAgentSession) : null;
       renderMessages();
       const optionRules = worldOptionRules();
       const options = Array.isArray(processed.options) ? processed.options : [];
@@ -11981,20 +13974,10 @@ async function requestReply() {
       worldTurnPending.options = options;
       worldTurnPending.createEntities = processed.createEntities;
       worldTurnPending.eventMemory = processed.eventMemory;
-      const calls = [...nativeCalls, ...(Array.isArray(processed.agentCalls) ? processed.agentCalls : [])]
-        // context.retrieve is read-only and exists only inside the model loop;
-        // it must never be sent as a state-changing server candidate.
-        .filter(call => call?.name !== 'context.retrieve');
-      worldTurnPending.agentCalls = calls.filter((call, index, list) => call?.callId && list.findIndex(item => item.callId === call.callId) === index);
-      worldTurnPending.agentToolTrace = toolTrace.filter(item => item?.callId && item?.name).map(item => ({
-        callId: item.callId,
-        name: item.name,
-        phase: item.phase || rpgAgentToolPhase(item.name),
-        result: item.result,
-        ...(item.step ? { step: item.step } : {}),
-        ...(item.mode ? { mode: item.mode } : {}),
-      }));
-      worldTurnPending.patch = processed.patch;
+      worldTurnPending.agentToolTrace = normalizeRpgAgentCommitTrace(toolTrace);
+      worldTurnPending.agentCalls = rpgAgentCallsFromTrace(worldTurnPending.agentToolTrace);
+      worldTurnPending.protocolRepairDraft = null;
+      worldTurnPending.patch = processed.patch ? normalizeRpgPatch(processed.patch, options) : null;
       worldTurnPending.state = processed.patch ? worldTurnPending.beforeState : serializeWorldState(currentWorldSave);
       if (worldTurnPending.patch) {
         worldTurnPending.agentPhase = 'execute';
@@ -12013,11 +13996,32 @@ async function requestReply() {
     }
   } catch (err) {
     console.error('[Tavern] ✗ 请求失败', err.message);
+    rpgAgentSession = rpgAgentSession || (payload ? rpgAgentRequestSessions.get(payload) : null) || null;
+    if (mode === 'rpg' && worldTurnPendingActive()) {
+      const draft = String(reply || rpgAgentSession?.previewNarrative || '').trim();
+      const trace = toolTrace.length ? toolTrace : (rpgAgentSession?.toolTrace || []);
+      if (draft) {
+        worldTurnPending.protocolRepairDraft = draft;
+        worldTurnPending.agentSession = rpgAgentSession ? cloneValue(rpgAgentSession) : null;
+        worldTurnPending.agentToolTrace = normalizeRpgAgentCommitTrace(trace);
+        worldTurnPending.agentCalls = rpgAgentCallsFromTrace(worldTurnPending.agentToolTrace);
+      }
+    }
     if (worldModeActive()) postWorldExtensionEvent('turn.error', { commandId: worldTurnPending?.commandId || null, message: String(err.message || '请求失败').slice(0, 240) });
+    if (rpgAgentSession) {
+      rpgAgentSession.status = 'error';
+      appendRpgAgentEvent(rpgAgentSession, 'turn.error', { message: String(err.message || '请求失败').slice(0, 240) });
+      syncRpgAgentDebug(rpgAgentSession, targetScope, 'Agent 失败');
+    }
     removeTyping();
     const keptWorldTurn = failWorldTurnPending(err.message);
-    setDebugTrace(targetScope, { status: '失败', output: `ERROR\n${err.message}`, rawOutput: `ERROR\n${err.message}`, outputTag: '未生成结构化标签。', reasoning: '' });
-    if (activeConversationKey() === targetKey && !keptWorldTurn) pushMessage('system', `⚠️ 请求失败：${err.message}`);
+    if (!keptWorldTurn) {
+      clearResponsePreview();
+      clearRpgCheckAnimation();
+    }
+    const autoRetrying = keptWorldTurn && worldTurnError?.autoRetry === true;
+    setDebugTrace(targetScope, { status: autoRetrying ? '失败，正在自动重试' : '失败', error: String(err.message || '请求失败') });
+    if (!responseOutdated() && !keptWorldTurn) pushMessage('system', `⚠️ 请求失败：${err.message}`);
     setApiStatus(`最近一次请求失败：${err.message}`, true);
   } finally {
     sending = false;
@@ -12027,7 +14031,7 @@ async function requestReply() {
   }
 }
 
-async function submitWorldActionText(text, { throwOnError = false } = {}) {
+async function submitWorldActionText(text, { throwOnError = false, kind = 'text', source = 'input', optionId = null, actionId = null, input = null } = {}) {
   if (sending || worldTurnPreparing || worldTurnPending || !worldModeActive()) {
     const message = !worldModeActive() ? '当前没有打开的世界存档' : '当前回合仍在处理中';
     if (throwOnError) throw new Error(message);
@@ -12047,6 +14051,7 @@ async function submitWorldActionText(text, { throwOnError = false } = {}) {
   try {
     await worldSaveWriteChain.catch(() => {});
     if (!worldModeActive()) throw new Error('世界存档已切换');
+    hideWorldStateFeedback();
     worldTurnEpoch++;
     worldTurnPending = {
       commandId: uid(),
@@ -12055,7 +14060,9 @@ async function submitWorldActionText(text, { throwOnError = false } = {}) {
       beforeState: cloneValue(serializeWorldState(currentWorldSave)),
       state: serializeWorldState(currentWorldSave),
       messages: [{ id: uid(), role: 'user', content: value, ts: Date.now() }],
-      actionIntent: { raw: value },
+      assistantMessage: null,
+      agentSession: null,
+      actionIntent: buildRpgTurnIntent(value, { kind, source, optionId, actionId, input }),
       options: null,
       createEntities: null,
       eventMemory: null,
@@ -12066,15 +14073,13 @@ async function submitWorldActionText(text, { throwOnError = false } = {}) {
       agentPhaseHistory: [],
       agentOrchestration: null,
       agentExecution: null,
+      autoRetryCount: 0,
+      protocolRepairDraft: null,
     };
     postWorldExtensionEvent('turn.start', { commandId: worldTurnPending.commandId, revision: worldTurnPending.expectedRevision });
     renderMessages();
-    const rolls = await rollWorldDice(value);
-    for (const r of rolls) {
-      const detail = r.rolls.length > 1 ? `（${r.rolls.join(' + ')}${r.bonus ? (r.bonus >= 0 ? ' + ' + r.bonus : ' - ' + Math.abs(r.bonus)) : ''}）` : (r.bonus ? `（+${r.bonus}）` : '');
-      pushMessage('user', `🎲 ${r.expr} = ${r.total} ${detail}`, { meta: true });
-    }
-    worldTurnPending.actionIntent.dice = rolls;
+    // RPG 判定由 Agent 先调用 rules.check 决定是否需要，再由 dice.roll 触发客户端随机。
+    // 不在发送前扫描玩家文本，避免普通叙事中的 d20/d6 被误当成掷骰。
     await requestReply();
     return true;
   } catch (err) {
@@ -12115,6 +14120,7 @@ async function sendMessage() {
 const VIEW_PLACEHOLDER = {};
 
 function syncModeNavigation(view = 'chat') {
+  syncConversationResetButton();
   const visibleButtons = [...document.querySelectorAll('.nav-item[data-view]')].filter(button => {
     const group = button.closest('[data-mode-nav]');
     return !group || group.dataset.modeNav === mode;
@@ -12254,7 +14260,11 @@ function switchView(name) {
   ['char-mgr', 'prompt-mgr', 'regex-mgr', 'lore-mgr', 'memory-mgr', 'world-mgr'].forEach(id => { const el = $(id); if (el) el.classList.add('hidden'); });
   if (name === 'worlds') { openWorldLibrary(false); return; }
   if (name === 'chat') {
-    if (mode === 'rpg' && !worldModeActive()) openWorldLibrary(false);
+    if (mode === 'rpg') {
+      if (worldModeActive()) enterWorldWorkspace();
+      else if (currentWorldSaveId) openWorldLibrary(true);
+      else openWorldLibrary(false);
+    }
     return;
   }
   if (name === 'chars') {
@@ -12820,6 +14830,40 @@ function renderQuickActions() {
   const qa = $('quick-actions');
   if (!qa) return;
   qa.innerHTML = '';
+  if (worldTurnErrorActive()) {
+    const box = document.createElement('div');
+    box.className = 'world-turn-error';
+    box.setAttribute('role', 'status');
+    box.setAttribute('aria-live', 'polite');
+    const text = document.createElement('span');
+    text.className = 'world-turn-error-text';
+    const phase = worldTurnPendingActive() && worldTurnPending.agentPhase ? `（Agent ${worldTurnPending.agentPhase} 阶段）` : '';
+    text.textContent = `本回合未提交${phase}：${worldTurnError.message}`;
+    box.appendChild(text);
+    const actions = document.createElement('span');
+    actions.className = 'world-turn-error-actions';
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'btn gold small';
+    retry.textContent = '重试 AI';
+    retry.addEventListener('click', retryWorldTurn);
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.className = 'btn ghost small';
+    reset.textContent = '重置本回合';
+    reset.addEventListener('click', discardWorldTurnPending);
+    actions.append(retry, reset);
+    box.appendChild(actions);
+    qa.appendChild(box);
+    return;
+  }
+  if (responsePreview && responsePreview.targetKey === activeConversationKey()) {
+    const pending = document.createElement('span');
+    pending.className = 'quick-hint';
+    pending.textContent = '正文已生成，正在整理后续选项…';
+    qa.appendChild(pending);
+    return;
+  }
   if (worldTurnPendingActive() && worldTurnPending.agentExecution && !worldTurnErrorActive()) {
     const box = document.createElement('div');
     box.className = 'world-turn-error';
@@ -12841,28 +14885,6 @@ function renderQuickActions() {
     resume.addEventListener('click', resumeWorldAgentNarration);
     actions.append(resume);
     box.append(text, actions);
-    qa.appendChild(box);
-    return;
-  }
-  if (worldTurnErrorActive()) {
-    const box = document.createElement('div');
-    box.className = 'world-turn-error';
-    box.setAttribute('role', 'status');
-    box.setAttribute('aria-live', 'polite');
-    const text = document.createElement('span');
-    text.className = 'world-turn-error-text';
-    const phase = worldTurnPendingActive() && worldTurnPending.agentPhase ? `（Agent ${worldTurnPending.agentPhase} 阶段）` : '';
-    text.textContent = `本回合未提交${phase}：${worldTurnError.message}`;
-    box.appendChild(text);
-    const actions = document.createElement('span');
-    actions.className = 'world-turn-error-actions';
-    const retry = document.createElement('button');
-    retry.type = 'button';
-    retry.className = 'btn gold small';
-    retry.textContent = '重试 AI';
-    retry.addEventListener('click', retryWorldTurn);
-    actions.append(retry);
-    box.appendChild(actions);
     qa.appendChild(box);
     return;
   }
@@ -12953,9 +14975,11 @@ function setRpgMobileDrawer(panel) {
 function bindEvents() {
   window.addEventListener('message', handleWorldExtensionMessage);
   $('rpg-extension-reload')?.addEventListener('click', () => {
+    const surface = worldExtensionState.surface || 'play';
     clearWorldExtension();
-    renderWorldExtension();
+    renderWorldExtension(surface);
   });
+  $('rpg-extension-setup-exit')?.addEventListener('click', closeWorldSetupExtension);
   // 发送
   $('btn-send').addEventListener('click', sendMessage);
   $('input').addEventListener('keydown', e => {
@@ -13298,7 +15322,7 @@ function bindEvents() {
         const status = $('world-open-status');
         if (status) status.textContent = `已创建存档「${currentWorldSave.name}」；完成开局配置并确认后才会开始 RPG。`;
         enterWorldWorkspace();
-        if (worldSavePlanning()) openWorldOpeningDialog(currentWorldSave);
+        if (worldSavePlanning()) resumeWorldSaveSetup(currentWorldSave);
       }
     } catch (err) {
       setWorldPlayerStatus(err.message, 'error');
@@ -13306,6 +15330,10 @@ function bindEvents() {
       createButton.disabled = false;
       if (worldButton) worldButton.disabled = false;
     }
+  });
+  $('world-player-form').addEventListener('input', () => {
+    updateWorldPlayerBudget($('world-player-fields'));
+    scheduleWorldPlayerDraftAutosave();
   });
   $('world-player-close').addEventListener('click', () => closeWorldPlayerDialog());
   $('world-player-cancel').addEventListener('click', () => closeWorldPlayerDialog());
@@ -13372,7 +15400,7 @@ function bindEvents() {
         const status = $('world-open-status');
         if (status) status.textContent = `已创建并打开「${currentWorldSave.name}」——世界状态、地图和叙事已绑定当前存档；当前存档 ID：${currentWorldSave.id}`;
         enterWorldWorkspace();
-        if (worldSavePlanning()) openWorldOpeningDialog(currentWorldSave);
+        if (worldSavePlanning()) resumeWorldSaveSetup(currentWorldSave);
       }
     } catch (err) {
       showWorldError(err.message);
@@ -13517,17 +15545,18 @@ function bindEvents() {
   $('s-profile').addEventListener('change', profileSwitch);
   $('btn-profile-save').addEventListener('click', profileSave);
   $('btn-profile-del').addEventListener('click', profileDelete);
-  // 清空对话
-  $('btn-clear-chat').addEventListener('click', () => {
-    if (!confirm('确定清空当前对话？将重新加载开场白。')) return;
+  // RPG 重置存档；酒馆仍只清空当前对话并重新加载开场白。
+  $('btn-clear-chat').addEventListener('click', async () => {
     if (worldModeActive()) {
-      if (worldTurnPendingActive()) { discardWorldTurnPending(); return; }
-      currentWorldSave.turns = [];
-      queueWorldSave(currentWorldSave);
-      renderMessages();
-      renderSessions();
+      if (!confirm('确定重置当前 RPG 存档？\n\n回合记录、MVU/runtime 变量、事件记忆和动态状态都会恢复到开局基线。')) return;
+      const button = $('btn-clear-chat');
+      if (button) { button.disabled = true; button.textContent = '重置中…'; }
+      try { await resetCurrentWorldSave(); }
+      catch (err) { alert(err.message); }
+      finally { if (button) button.disabled = false; syncConversationResetButton(); }
       return;
     }
+    if (!confirm('确定清空当前对话？将重新加载开场白。')) return;
     const s = curSession();
     if (!s) return;
     // 清空后重新加载开场白（getGreeting：char → preset → settings）

@@ -7,7 +7,7 @@
   <link rel="manifest" href="manifest.json" />
   <title>Tavern · AI RP 框架演示</title>
   <link rel="icon" type="image/png" href="favicon.png" />
-  <link rel="stylesheet" href="styles.css?v=20260820g" />
+  <link rel="stylesheet" href="styles.css?v=20260825t" />
 </head>
 <body data-theme="vibrancy" data-layout="classic">
   <canvas id="bg-fx" aria-hidden="true"></canvas>
@@ -92,8 +92,6 @@
         </div>
         <button class="ghost-btn" id="btn-clear-chat" title="清空当前对话">清空对话</button>
         <div class="rpg-hdr" id="rpg-hdr-info">
-          <span class="rpg-hdr-chip">Lv.<span id="rpg-level">1</span></span>
-          <span class="rpg-hdr-chip">💰 <span id="rpg-gold">0</span></span>
           <span class="rpg-hdr-chip">📍 <span id="rpg-loc">—</span></span>
         </div>
         <span id="rpg-world-save" class="rpg-world-save" hidden></span>
@@ -108,6 +106,7 @@
         <div class="rpg-extension-head">
           <span id="rpg-extension-title">世界扩展</span>
           <span id="rpg-extension-status" class="rpg-extension-status" role="status" aria-live="polite"></span>
+          <button id="rpg-extension-setup-exit" class="ghost-btn small" type="button" hidden>返回开局配置</button>
           <button id="rpg-extension-reload" class="ghost-btn small" type="button">重载</button>
         </div>
         <div id="rpg-extension-frame" class="rpg-extension-frame"></div>
@@ -118,67 +117,69 @@
         <div class="rpg-panel-head">🧬 角色 <button class="ghost-btn small rpg-drawer-close" type="button" data-rpg-drawer-close>返回工作台</button></div>
         <div id="rpg-char-summary"></div>
         <div id="rpg-player-sheet" class="rpg-player-sheet" role="region" aria-live="polite" aria-label="角色状态"></div>
-        <div class="rpg-panel-head" style="margin-top:10px">🌱 成长候选</div>
-        <div id="rpg-growth-candidates" class="rpg-list" role="list" aria-live="polite" aria-label="待确认的成长候选"></div>
-        <div class="rpg-panel-head" style="margin-top:10px">🎒 背包</div>
-        <div id="rpg-inventory-meta" class="hint"></div>
-        <div id="rpg-inventory" class="rpg-list"></div>
-        <button class="ghost-btn" id="btn-rpg-item" style="width:100%;margin-top:6px">＋ 添加道具</button>
-        <div class="rpg-panel-head" style="margin-top:10px">🛡️ 装备</div>
-        <div id="rpg-equipment" class="rpg-list"></div>
-        <div class="rpg-panel-head" style="margin-top:10px">🪙 货币</div>
-        <div id="rpg-currencies" class="rpg-list"></div>
-        <div class="rpg-panel-head" style="margin-top:10px">⚔️ 冲突</div>
-        <div id="rpg-conflicts" class="rpg-list"></div>
+        <div class="rpg-panel-head" style="margin-top:10px" hidden>🌱 成长候选</div>
+        <div id="rpg-growth-candidates" class="rpg-list" role="list" aria-live="polite" aria-label="待确认的成长候选" hidden></div>
+        <div class="rpg-panel-head" style="margin-top:10px" hidden>🎒 背包</div>
+        <div id="rpg-inventory-meta" class="hint" hidden></div>
+        <div id="rpg-inventory" class="rpg-list" hidden></div>
+        <button class="ghost-btn" id="btn-rpg-item" style="width:100%;margin-top:6px" hidden>＋ 添加道具</button>
+        <div class="rpg-panel-head" style="margin-top:10px" hidden>🛡️ 装备</div>
+        <div id="rpg-equipment" class="rpg-list" hidden></div>
+        <div class="rpg-panel-head" style="margin-top:10px" hidden>🪙 货币</div>
+        <div id="rpg-currencies" class="rpg-list" hidden></div>
+        <div class="rpg-panel-head" style="margin-top:10px" hidden>⚔️ 冲突</div>
+        <div id="rpg-conflicts" class="rpg-list" hidden></div>
         <div id="rpg-custom-left" aria-live="polite"></div>
       </aside>
-      <aside id="rpg-right" class="rpg-panel" data-ui-level="3" data-ui-region="workspace.sidebar.right" data-ui-owner="host">
-        <div class="rpg-panel-head">📜 任务 <button class="ghost-btn small rpg-drawer-close" type="button" data-rpg-drawer-close>返回工作台</button></div>
-        <div id="rpg-quests" class="rpg-list"></div>
-        <button class="ghost-btn" id="btn-rpg-quest" style="width:100%;margin-top:6px">＋ 添加任务</button>
-        <div class="rpg-panel-head" style="margin-top:10px">🎯 目标</div>
-        <div id="rpg-goals" class="rpg-list" role="list" aria-label="当前目标"></div>
-        <div class="rpg-panel-head" style="margin-top:10px">🪝 开局 Hook</div>
-        <div id="rpg-hooks" class="rpg-list" role="list" aria-label="当前开局 Hook"></div>
-        <div class="rpg-panel-head" style="margin-top:10px">🧭 线索</div>
-        <div id="rpg-leads" class="rpg-list" role="list" aria-label="当前线索"></div>
-        <div class="rpg-panel-head" style="margin-top:10px">📰 世界事件</div>
-        <div id="rpg-world-events" class="rpg-list" role="log" aria-live="polite" aria-label="已发生的世界事件"></div>
-        <div class="rpg-panel-head" style="margin-top:10px">⚠️ 失败状态</div>
-        <div id="rpg-failure" class="rpg-list" role="status" aria-live="polite" aria-label="当前失败状态"></div>
-        <div class="rpg-panel-head" style="margin-top:10px">🏁 世界线</div>
-        <select id="rpg-ending-select" aria-label="选择结局" style="width:100%;margin-top:4px"></select>
-        <div id="rpg-ending-status" class="rpg-list" role="status" aria-live="polite" aria-label="世界线结局状态"></div>
-        <button class="ghost-btn" id="rpg-end-world" type="button" style="width:100%;margin-top:6px">结束当前世界线</button>
-        <button class="ghost-btn" id="rpg-reopen-world" type="button" style="width:100%;margin-top:6px">从此世界线重开</button>
-        <div class="rpg-panel-head" style="margin-top:10px">📜 世界线总结</div>
-        <div id="rpg-world-summary" class="rpg-list" role="status" aria-live="polite" aria-label="世界线总结"></div>
-        <button class="ghost-btn" id="rpg-summary-rebuild" type="button" style="width:100%;margin-top:6px">生成 / 更新总结</button>
-        <div class="rpg-panel-head" style="margin-top:10px">📖 人物经历</div>
-        <div id="rpg-experiences" class="rpg-list" role="log" aria-live="polite" aria-label="已记录的人物经历"></div>
-        <div class="rpg-panel-head" style="margin-top:10px" hidden>🗺 地图</div>
-        <div class="rpg-map-wrap" hidden>
-          <div class="rpg-map-head">
-            <span class="rpg-map-title">🗺 世界地图 <span class="tag">点击打开</span></span>
+      <aside id="rpg-right" class="rpg-panel" data-ui-level="3" data-ui-region="workspace.sidebar.right" data-ui-owner="host" hidden>
+        <div id="rpg-legacy-world-right">
+          <div class="rpg-panel-head">📜 任务 <button class="ghost-btn small rpg-drawer-close" type="button" data-rpg-drawer-close>返回工作台</button></div>
+          <div id="rpg-quests" class="rpg-list"></div>
+          <button class="ghost-btn" id="btn-rpg-quest" style="width:100%;margin-top:6px">＋ 添加任务</button>
+          <div class="rpg-panel-head" style="margin-top:10px">🎯 目标</div>
+          <div id="rpg-goals" class="rpg-list" role="list" aria-label="当前目标"></div>
+          <div class="rpg-panel-head" style="margin-top:10px">🪝 开局 Hook</div>
+          <div id="rpg-hooks" class="rpg-list" role="list" aria-label="当前开局 Hook"></div>
+          <div class="rpg-panel-head" style="margin-top:10px">🧭 线索</div>
+          <div id="rpg-leads" class="rpg-list" role="list" aria-label="当前线索"></div>
+          <div class="rpg-panel-head" style="margin-top:10px">📰 世界事件</div>
+          <div id="rpg-world-events" class="rpg-list" role="log" aria-live="polite" aria-label="已发生的世界事件"></div>
+          <div class="rpg-panel-head" style="margin-top:10px">⚠️ 失败状态</div>
+          <div id="rpg-failure" class="rpg-list" role="status" aria-live="polite" aria-label="当前失败状态"></div>
+          <div class="rpg-panel-head" style="margin-top:10px">🏁 世界线</div>
+          <select id="rpg-ending-select" aria-label="选择结局" style="width:100%;margin-top:4px"></select>
+          <div id="rpg-ending-status" class="rpg-list" role="status" aria-live="polite" aria-label="世界线结局状态"></div>
+          <button class="ghost-btn" id="rpg-end-world" type="button" style="width:100%;margin-top:6px">结束当前世界线</button>
+          <button class="ghost-btn" id="rpg-reopen-world" type="button" style="width:100%;margin-top:6px">从此世界线重开</button>
+          <div class="rpg-panel-head" style="margin-top:10px">📜 世界线总结</div>
+          <div id="rpg-world-summary" class="rpg-list" role="status" aria-live="polite" aria-label="世界线总结"></div>
+          <button class="ghost-btn" id="rpg-summary-rebuild" type="button" style="width:100%;margin-top:6px">生成 / 更新总结</button>
+          <div class="rpg-panel-head" style="margin-top:10px">📖 人物经历</div>
+          <div id="rpg-experiences" class="rpg-list" role="log" aria-live="polite" aria-label="已记录的人物经历"></div>
+          <div class="rpg-panel-head" style="margin-top:10px" hidden>🗺 地图</div>
+          <div class="rpg-map-wrap" hidden>
+            <div class="rpg-map-head">
+              <span class="rpg-map-title">🗺 世界地图 <span class="tag">点击打开</span></span>
+            </div>
+            <canvas id="map-canvas"></canvas>
+            <div class="rpg-map-beauty" id="map-beauty" hidden><img id="map-beauty-img" alt="AI 美化后的世界地图（点击打开）" /></div>
+            <p class="hint">点击地图打开地图窗口：重新生成 / AI 美化 / 查看大图 / 区域信息。</p>
           </div>
-          <canvas id="map-canvas"></canvas>
-          <div class="rpg-map-beauty" id="map-beauty" hidden><img id="map-beauty-img" alt="AI 美化后的世界地图（点击打开）" /></div>
-          <p class="hint">点击地图打开地图窗口：重新生成 / AI 美化 / 查看大图 / 区域信息。</p>
         </div>
         <div id="rpg-custom-right" aria-live="polite"></div>
       </aside>
       <div id="rpg-status" class="rpg-status" data-ui-level="3" data-ui-region="workspace.status" data-ui-owner="host">
         <div class="rpg-stat hp"><span>HP</span><div class="rpg-bar"><i id="rpg-hp-bar"></i></div><b id="rpg-hp-text">0/0</b></div>
         <div class="rpg-stat mp"><span>MP</span><div class="rpg-bar"><i id="rpg-mp-bar"></i></div><b id="rpg-mp-text">0/0</b></div>
-        <div class="rpg-stat exp"><span>EXP</span><div class="rpg-bar"><i id="rpg-exp-bar"></i></div><b id="rpg-exp-text">0/0</b></div>
-        <div class="rpg-stat gold"><span>💰</span><b id="rpg-gold2">0</b></div>
+        <div class="rpg-stat exp" hidden><span>EXP</span><div class="rpg-bar"><i id="rpg-exp-bar"></i></div><b id="rpg-exp-text">0/0</b></div>
+        <div class="rpg-stat gold" hidden><span>💰</span><b id="rpg-gold2">0</b></div>
         <div class="rpg-stat buffs"><span>状态</span><span id="rpg-buffs" class="rpg-buffs">—</span></div>
         <div id="rpg-dynamic-stats" class="rpg-dynamic-stats" aria-live="polite"></div>
       </div>
 
       <div id="rpg-mobile-toolbar" class="rpg-mobile-toolbar" data-ui-level="3" data-ui-region="workspace.mobile-tools" data-ui-owner="host" aria-label="RPG 工具">
         <button class="ghost-btn small" type="button" data-rpg-drawer="left" aria-controls="rpg-left">角色与背包</button>
-        <button class="ghost-btn small" type="button" data-rpg-drawer="right" aria-controls="rpg-right">任务与世界状态</button>
+        <button class="ghost-btn small" type="button" data-rpg-drawer="right" aria-controls="rpg-right" hidden>任务与世界状态</button>
       </div>
       <button id="rpg-mobile-scrim" class="rpg-mobile-scrim" type="button" aria-label="关闭 RPG 侧栏" hidden></button>
 
@@ -1233,6 +1234,11 @@
               <label class="check"><input id="world-extension-enabled" type="checkbox" /> 启用世界扩展</label>
               <label class="check"><input id="world-extension-immersive" type="checkbox" /> 独立沉浸页面（默认）</label>
               <label class="check"><input id="world-extension-action-narrates" type="checkbox" /> 扩展 action 触发 AI 回合</label>
+              <div class="world-extension-surfaces" role="group" aria-label="扩展挂载阶段">
+                <span class="hint-inline">挂载阶段</span>
+                <label class="check"><input id="world-extension-surface-setup" type="checkbox" value="setup" /> 开局配置</label>
+                <label class="check"><input id="world-extension-surface-play" type="checkbox" value="play" checked /> 正式游玩</label>
+              </div>
               <div class="field row2">
                 <div class="field"><label for="world-extension-title">标题</label><input id="world-extension-title" maxlength="120" placeholder="世界 HUD" /></div>
                 <div class="field row2"><div class="field"><label for="world-extension-height">高度</label><input id="world-extension-height" type="number" min="180" max="800" step="1" value="360" /></div><div class="field"><label for="world-extension-timeout">超时(ms)</label><input id="world-extension-timeout" type="number" min="200" max="5000" step="100" value="1200" /></div></div>
@@ -1241,8 +1247,7 @@
                 <span class="hint-inline">权限</span>
                 <label class="check"><input id="world-extension-permission-read-public" name="worldExtensionPermission" type="checkbox" value="read.public" data-world-extension-permission />读取世界公开资料</label>
                 <label class="check"><input id="world-extension-permission-read-save" name="worldExtensionPermission" type="checkbox" value="read.save" data-world-extension-permission />读取当前存档投影</label>
-                <label class="check"><input id="world-extension-permission-write-runtime" name="worldExtensionPermission" type="checkbox" value="write.runtime" data-world-extension-permission />写入 runtime</label>
-                <label class="check"><input id="world-extension-permission-tool-call" name="worldExtensionPermission" type="checkbox" value="tool.call" data-world-extension-permission />调用声明式动作</label>
+                <label class="check"><input id="world-extension-permission-write-setup" name="worldExtensionPermission" type="checkbox" value="write.setup" data-world-extension-permission />保存开局配置</label>
               </div>
               <label for="world-extension-html">HTML</label><textarea id="world-extension-html" rows="6" maxlength="60000" spellcheck="false" placeholder="<section data-tavern-messages></section><div data-tavern-options></div><form data-tavern-input><textarea placeholder='输入行动…'></textarea><button data-tavern-submit>发送</button></form>"></textarea>
               <label for="world-extension-css">CSS</label><textarea id="world-extension-css" rows="4" maxlength="60000" spellcheck="false" placeholder="section{padding:12px}"></textarea>
@@ -1252,7 +1257,7 @@
             </div>
           </details>
         </div>
-        <div class="field">
+        <div class="field" hidden>
           <label for="world-draft-runtime">RPG GEN 3 运行态 <span class="hint-inline">可选 JSON；变量、集合、声明式动作</span></label>
           <textarea id="world-draft-runtime" name="worldDraftRuntime" rows="10" maxlength="120000" spellcheck="false" placeholder='{"version":1,"variables":[{"id":"weather","label":"天气","scope":"world","type":"enum","options":["晴朗","降雨"],"initial":"晴朗"}],"collections":[{"id":"shop","label":"商城","scope":"save","initial":[{"id":"potion","name":"治疗药水","price":10}]}],"actions":[{"id":"restock","label":"补货","effects":[{"type":"collection.add","collectionId":"shop","value":{"id":"torch","name":"火把","price":3}}]}]}'></textarea>
           <p class="hint">存档创建时会快照这份 Schema；AI 只能通过 <code>state.patch</code> 的 runtime 更新或声明式 action 修改，不能写任意路径。侧栏可读取 <code>runtime.variables.变量ID</code> / <code>runtime.collections.集合ID</code>。</p>
@@ -1266,7 +1271,7 @@
           <pre id="world-draft-player-preview" class="world-draft-player-preview" aria-live="polite"></pre>
           <label for="world-draft-session-setup">本局游戏配置 Schema <span class="hint-inline">JSON；每个存档可独立选择</span></label>
           <textarea id="world-draft-session-setup" name="worldDraftSessionSetup" rows="6" maxlength="20000" spellcheck="false" placeholder='{"title":"本局游戏配置","fields":[{"id":"difficulty","label":"难度","type":"select","options":[{"value":"standard","label":"标准"}],"default":"standard"}]}'></textarea>
-          <div id="world-draft-growth-schema" class="world-draft-growth-schema" aria-label="成长规则条目">
+          <div id="world-draft-growth-schema" class="world-draft-growth-schema" aria-label="成长规则条目" hidden>
             <section class="world-draft-rule-collection" aria-labelledby="world-draft-growth-sources-title">
               <div class="world-draft-collection-head"><div><h3 id="world-draft-growth-sources-title">成长来源</h3><p>训练、学习、探索、关系、事件或自定义来源。</p></div><button class="ghost-btn small" type="button" data-world-add="growthSources">＋成长来源</button></div>
               <div id="world-draft-growth-sources-editor" class="world-draft-array-editor" aria-label="成长来源条目"></div>
@@ -1316,7 +1321,7 @@
           <label for="world-draft-time">世界时间 <span class="hint-inline">JSON；服务端每回合推进</span></label>
           <textarea id="world-draft-time" name="worldDraftTime" rows="3" maxlength="5000" spellcheck="false" placeholder='{"unit":"hour","start":8,"turnAdvance":1}'></textarea>
         </div>
-        <section class="world-draft-collection" aria-labelledby="world-draft-events-title">
+        <section class="world-draft-collection" aria-labelledby="world-draft-events-title" hidden>
           <div class="world-draft-collection-head">
             <div>
               <h3 id="world-draft-events-title">世界事件</h3>
@@ -1331,7 +1336,7 @@
           <pre id="world-draft-events-preview" class="world-draft-array-preview" aria-live="polite"></pre>
           <p class="hint">trigger 支持 <code>at</code>（世界时间）、<code>afterTurns</code>（成功回合数）和 <code>locationId</code>（地点条件）；条件同时存在时需全部满足。</p>
         </section>
-        <section class="world-draft-collection" aria-labelledby="world-draft-factions-title">
+        <section class="world-draft-collection" aria-labelledby="world-draft-factions-title" hidden>
           <div class="world-draft-collection-head">
             <div>
               <h3 id="world-draft-factions-title">派系与时间行动</h3>
@@ -1346,7 +1351,7 @@
           <pre id="world-draft-factions-preview" class="world-draft-array-preview" aria-live="polite"></pre>
           <p class="hint">行动支持 <code>at</code> / <code>afterTurns</code> 与可选 <code>locationId</code>；每个行动默认只结算一次，变化只写入当前存档。</p>
         </section>
-        <section class="world-draft-collection" aria-labelledby="world-draft-conflicts-title">
+        <section class="world-draft-collection" aria-labelledby="world-draft-conflicts-title" hidden>
           <div class="world-draft-collection-head">
             <div>
               <h3 id="world-draft-conflicts-title">冲突与判定</h3>
@@ -1591,13 +1596,13 @@
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
   <script src="vendor/mapgen2.bundle.js"></script>
-  <script src="mapgen.js?v=20260820g"></script>
-  <script src="app.js?v=20260820g"></script>
+  <script src="mapgen.js?v=20260825t"></script>
+  <script src="app.js?v=20260825t"></script>
   <script>
     // PWA：注册 service worker（仅 HTTPS / localhost 生效，套壳 APK 可用）
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js?v=20260820g').catch(() => {});
+    navigator.serviceWorker.register('sw.js?v=20260825t').catch(() => {});
       });
     }
   </script>

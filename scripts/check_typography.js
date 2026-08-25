@@ -87,7 +87,7 @@ const varLineHeightCount = (css.match(/line-height: var\(--chat-line-height\)/g)
 assert.ok(varLineHeightCount >= 3, '变量行距应同时覆盖三层正文，实际 ' + varLineHeightCount + ' 处');
 assert.ok(css.includes('padding: 22px var(--chat-side-pad)'), '聊天列左右留白应 1:1 使用设置值');
 assert.ok(!css.includes('968px'), '不应残留居中列与滑块的耦合常量（保证线性）');
-assert.ok(css.includes('.msg.tavern-prose .msg-actions { right: 0; top: 4px; transform: none; }'), '全宽正文的操作按钮应收进消息内部，小左右间距时不被推出屏幕');
+assert.match(css, /\.msg-actions\s*\{[^}]*position:\s*static;[^}]*flex:\s*0 0 100%;[^}]*width:\s*100%;/s, '消息操作按钮应独占文末一行，不能覆盖正文或被窄屏推出');
 const html = fs.readFileSync('public/index.html', 'utf8');
 assert.ok(html.includes('id="st-panel-typo"'), '设置应有排版面板');
 assert.ok(html.includes('value="2em"'), '缩进选项应包含空两格');

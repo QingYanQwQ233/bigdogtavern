@@ -101,8 +101,11 @@ async function api(method, url, body) {
   assert.ok(final.deletedIds.includes('s2'), '删除墓碑应保留');
 
   // 7) 落盘内容与 API 一致（换浏览器加载即从此文件恢复）
-  const onDisk = JSON.parse(fs.readFileSync(sessionsFile, 'utf8'));
+  const rawOnDisk = fs.readFileSync(sessionsFile, 'utf8');
+  const onDisk = JSON.parse(rawOnDisk);
   assert.deepStrictEqual(onDisk, final);
+  assert.ok(rawOnDisk.endsWith('\n'), '数据文件应通过统一原子 JSON 写入器落盘');
+  assert.deepStrictEqual(fs.readdirSync(tempDir).filter(name => name.endsWith('.tmp')), [], '原子写入不应遗留临时文件');
 
   console.log('✓ 会话服务端同步通过（404 迁移信号 / 包校验 / 并集 / 墓碑防复活）');
 

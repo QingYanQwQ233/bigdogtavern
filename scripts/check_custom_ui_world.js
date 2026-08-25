@@ -7,6 +7,7 @@ const pkg = JSON.parse(fs.readFileSync('docs/demo-custom-ui-world.tavern-world.j
 const appSource = fs.readFileSync('public/app.js', 'utf8');
 const world = pkg.content.world;
 const extension = world.ui.extension;
+const gameplay = JSON.parse(fs.readFileSync('docs/demo-gameplay-fog-harbor.tavern-world.json', 'utf8')).content.world;
 assert.strictEqual(pkg.spec, 'tavern_world_package');
 assert.strictEqual(world.id, 'world-custom-ui-lab');
 assert.strictEqual(world.ui.layout, 'custom');
@@ -37,4 +38,13 @@ assert.doesNotMatch(extension.js, /\}\)\(\)\(\(\)=>/);
 assert.match(extension.css, /custom-message-stream/);
 assert.match(extension.css, /max-height:none/);
 assert.strictEqual(world.runtime.actions[0].effects[0].variableId, 'signal');
+assert.deepStrictEqual(gameplay.ui.sidebar.panels.filter(panel => panel.layout === 'actions').map(panel => panel.source), [
+  'runtime.actions.record-evidence',
+  'runtime.actions.use-field-ration',
+  'runtime.actions.read-tide-signal',
+  'runtime.actions.make-contract',
+]);
+assert.match(appSource, /runtime\\\.actions/);
+assert.match(appSource, /rpg-runtime-action/);
+assert.match(appSource, /\['cards', 'table', 'actions'\]/);
 console.log('check_custom_ui_world: ok');

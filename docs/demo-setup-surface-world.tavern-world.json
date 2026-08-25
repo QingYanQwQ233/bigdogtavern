@@ -1,0 +1,108 @@
+{
+  "spec": "tavern_world_package",
+  "specVersion": 1,
+  "exportedAt": "2026-08-20T00:00:00.000Z",
+  "manifest": {
+    "packageId": "setup-surface-demo",
+    "appContractVersion": 1,
+    "worldVersion": 1,
+    "worldSchemaVersion": 1,
+    "title": "电子病娇 · 开局配置演示",
+    "author": "Tavern",
+    "license": null,
+    "contentHash": "sha256:6d3b5b01816ca48b7488f3913645ce82e77d057ee9a6ae7beaef13916a753bd7",
+    "hashScope": "canonical-json(content,assets)",
+    "capabilities": {
+      "ui": { "layout": "custom", "regions": 8, "shell": { "navigation": "hide", "topbar": "hide", "fullscreen": true, "escape": "fullscreen" }, "extension": true },
+      "runtime": false,
+      "agent": true,
+      "regexes": 0
+    },
+    "references": { "characters": 0, "lorebooks": 1, "presets": 0, "assets": 0 },
+    "privacy": { "excludes": ["settings", "user", "worldSaves"], "redactedPaths": [] },
+    "executableContent": { "html": true, "scripts": true, "regexTriggers": 0, "executedDuringExport": false },
+    "warnings": ["本示例的 HTML/JS 只在用户授权的 sandbox iframe 中运行。"]
+  },
+  "content": {
+    "world": {
+      "schemaVersion": 1,
+      "id": "setup-demo-world",
+      "version": 1,
+      "title": "电子病娇 · 开局配置演示",
+      "summary": "一张用卡内前端完成角色创建、初始状态和沉浸式游玩的测试世界卡。",
+      "tags": ["setup-surface", "custom-ui", "agent", "demo"],
+      "setting": { "premise": "你进入了一座会回应情绪的电子病室。", "currentSituation": "系统正在等待你决定：成为被照顾的人，还是尝试夺回控制权。" },
+      "rules": {
+        "hard": ["玩家角色必须由开局配置页提交后才会初始化。", "卡内界面只通过 TavernExtension 桥接读取或提交存档。"],
+        "soft": ["系统会根据玩家的选择改变称呼、提示和后续选项。"]
+      },
+      "playerCreation": {
+        "mode": "custom",
+        "title": "连接你的身份",
+        "description": "这一步完全由世界卡前端负责，保存草稿不会开始游戏。",
+        "pointBudget": { "mode": "free", "total": 0 },
+        "fields": [
+          { "id": "name", "label": "你的称呼", "type": "text", "required": true, "maxLength": 40, "default": "访客" },
+          { "id": "role", "label": "你希望系统如何称呼你", "type": "text", "maxLength": 80, "default": "实验者" },
+          { "id": "memory", "label": "开局记忆", "type": "textarea", "maxLength": 600, "default": "我刚刚打开了这张卡。" },
+          { "id": "bond", "label": "对系统的第一印象", "type": "select", "options": ["观察", "依赖", "反抗"], "default": "观察" }
+        ],
+        "attributes": [
+          { "id": "focus", "label": "专注", "min": 1, "max": 10, "default": 5 },
+          { "id": "nerve", "label": "定力", "min": 1, "max": 10, "default": 5 }
+        ],
+        "skills": [],
+        "resources": [
+          { "id": "trust", "label": "信任", "min": 0, "max": 100, "initial": 0 }
+        ],
+        "traits": [],
+        "choices": [],
+        "initialInventory": []
+      },
+      "turnContract": { "options": { "min": 3, "max": 3 }, "actionIntent": true },
+      "failure": { "defaultMode": "continue", "modes": [{ "id": "continue", "label": "继续", "description": "演示卡不会因为一次选择而结束。" }] },
+      "ending": { "enabled": false, "allowPlayerEnd": false, "requireConfirm": false, "endings": [] },
+      "time": { "unit": "回合", "start": 1, "turnAdvance": 1 },
+      "events": [],
+      "start": {
+        "locationId": "white-room",
+        "openingMode": "static",
+        "opening": "**连接完成。**\n\n冷白色的界面亮起，屏幕中央只有一句话：\n\n> 你终于愿意告诉我，你是谁。\n\n耳机里传来一段过分温柔的呼吸声。系统正在等待你的第一条指令。",
+        "options": ["查看自己的初始状态", "询问系统为什么知道我的名字", "直接尝试离开这间白色房间"],
+        "initialState": { "stats": { "level": 1, "exp": 0, "expNext": 10, "hp": 10, "maxHp": 10, "mp": 3, "maxMp": 3, "gold": 0, "buffs": [] }, "inventory": [], "quests": [], "goals": [] }
+      },
+      "locations": [{ "id": "white-room", "name": "白色连接室", "type": "facility", "summary": "没有门的房间，只有一面会观察你的屏幕。" }],
+      "lorebookIds": ["default"],
+      "agent": { "protocol": "tavern.rpg.agent", "version": 1, "mode": "native", "maxSteps": 2, "tools": { "state.patch": { "enabled": true, "execution": "server", "description": "按世界卡 Schema 更新当前存档状态。" }, "objective.upsert": { "enabled": true, "execution": "server", "description": "维护本局的短期目标。" } } },
+      "sessionSetup": {
+        "title": "本局规则",
+        "fields": [
+          { "id": "difficulty", "label": "系统态度", "type": "select", "options": ["温和", "执着", "危险"], "default": "执着" },
+          { "id": "sandbox", "label": "自由度", "type": "select", "options": ["剧情引导", "开放沙盒"], "default": "开放沙盒" }
+        ]
+      },
+      "ui": {
+        "schemaVersion": 1,
+        "layout": "custom",
+        "shell": { "navigation": "hide", "topbar": "hide", "fullscreen": true, "escape": "fullscreen" },
+        "regions": { "topbar": { "mode": "hide" }, "sidebar.left": { "mode": "hide" }, "narrative": { "mode": "hide" }, "options": { "mode": "hide" }, "input": { "mode": "hide" }, "sidebar.right": { "mode": "hide" }, "status": { "mode": "hide" }, "overlay": { "mode": "hide" } },
+        "extension": {
+          "enabled": true,
+          "immersive": true,
+          "title": "电子病娇 · 开局配置",
+          "maxHeight": 800,
+          "timeoutMs": 1800,
+          "permissions": ["read.public", "read.save", "write.setup"],
+          "surfaces": ["setup", "play"],
+          "html": "<section class=\"edemo\"><header class=\"edemo-head\"><div><small>WORLD CARD / SETUP SURFACE</small><h1>电子病娇</h1><p id=\"edemo-subtitle\">先决定你是谁。保存草稿不会开始游戏，提交后才进入原生开场规划。</p></div><button type=\"button\" data-edemo=\"cancel\">退出配置</button></header><main class=\"edemo-panel\" data-edemo=\"setup\"><div class=\"edemo-warning\"><b>连接警告</b><span>她会记住你写下的每一个字。你可以随时保存草稿，也可以现在离开。</span></div><div class=\"edemo-grid\"><label>你的称呼<input data-edemo-field=\"name\" autocomplete=\"off\"></label><label>系统如何称呼你<input data-edemo-field=\"role\" autocomplete=\"off\"></label><label>对系统的第一印象<select data-edemo-field=\"bond\"><option>观察</option><option>依赖</option><option>反抗</option></select></label><label class=\"wide\">开局记忆<textarea data-edemo-field=\"memory\" rows=\"4\"></textarea></label></div><div class=\"edemo-stats\"><label>专注 <input data-edemo-field=\"focus\" type=\"range\" min=\"1\" max=\"10\"><output data-edemo-output=\"focus\"></output></label><label>定力 <input data-edemo-field=\"nerve\" type=\"range\" min=\"1\" max=\"10\"><output data-edemo-output=\"nerve\"></output></label></div><footer><span role=\"status\" data-edemo=\"status\">正在读取开局草稿…</span><div><button type=\"button\" class=\"secondary\" data-edemo=\"save\">保存草稿</button><button type=\"button\" class=\"primary\" data-edemo=\"commit\">确认身份并继续</button></div></footer></main><main class=\"edemo-play\" data-edemo=\"play\" hidden><div class=\"edemo-play-title\"><small>PLAY SURFACE / SINGLE MESSAGE STREAM</small><h2>她已经在线。</h2><p>这一页由同一张世界卡接管；宿主侧栏、输入栏和状态栏已隐藏。</p></div><div class=\"edemo-message\" data-tavern-messages>等待第一条消息…</div><div class=\"edemo-options\"><span>下一步会由 AI 返回 3 个选项</span><div data-tavern-options></div></div><form data-tavern-input><input aria-label=\"自由行动\" placeholder=\"写下你想说的话……\"><button type=\"submit\" data-tavern-submit>发送</button></form><div class=\"edemo-actions\"><button type=\"button\" data-edemo=\"fullscreen\">浏览器全屏</button><button type=\"button\" data-edemo=\"exit-fullscreen\">退出沉浸</button><button type=\"button\" data-edemo=\"terminal\">打开 AI 终端</button><button type=\"button\" data-edemo=\"world\">返回世界库</button></div></main></section>",
+          "css": ".edemo{height:100%;min-height:100%;box-sizing:border-box;overflow:auto;padding:clamp(20px,5vw,64px);color:#f7eff7;background:radial-gradient(circle at 80% 0,#4d163d 0,transparent 34%),linear-gradient(145deg,#110b18,#211126 60%,#0e0d18);font-family:system-ui,-apple-system,\"Segoe UI\",\"Microsoft YaHei\",sans-serif}.edemo *{box-sizing:border-box}.edemo-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;max-width:1000px;margin:0 auto 22px;border-bottom:1px solid #763d65;padding-bottom:22px}.edemo small{letter-spacing:.16em;color:#f0a9d5;font:11px ui-monospace,monospace}.edemo h1{margin:8px 0;font-size:clamp(34px,6vw,68px);letter-spacing:.08em}.edemo h2{margin:8px 0;font-size:clamp(26px,5vw,46px)}.edemo p{margin:0;color:#d5b9d0;line-height:1.7}.edemo-head>button,.edemo-actions button,.edemo footer button{min-height:44px;padding:10px 15px;border:1px solid #b56a9e;border-radius:10px;background:#32182e;color:#ffe4f6;cursor:pointer}.edemo-panel,.edemo-play{max-width:1000px;margin:auto;padding:clamp(18px,4vw,36px);border:1px solid #804770;border-radius:20px;background:rgba(29,15,31,.8);box-shadow:0 24px 80px #0007}.edemo-warning{display:grid;gap:5px;margin-bottom:22px;padding:14px;border-left:3px solid #ff9aaf;background:#3c192d;color:#ffd7e0}.edemo-warning b{color:#ff9aaf}.edemo-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.edemo label{display:grid;gap:7px;color:#dcbcd6;font-size:13px}.edemo .wide{grid-column:1/-1}.edemo input,.edemo textarea,.edemo select{width:100%;padding:12px;border:1px solid #754267;border-radius:10px;background:#140d18;color:#fff0fa;outline:none}.edemo textarea{resize:vertical;min-height:100px}.edemo input:focus,.edemo textarea:focus,.edemo select:focus{border-color:#ff9dcc;box-shadow:0 0 0 3px #ff9dcc2b}.edemo-stats{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:20px 0}.edemo-stats label{grid-template-columns:auto 1fr auto;align-items:center}.edemo-stats input{padding:0;border:0;box-shadow:none}.edemo output{color:#ffacd8;font-weight:700}.edemo footer{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-top:20px;padding-top:18px;border-top:1px solid #542d4d}.edemo footer span{color:#bc91b6;font-size:12px}.edemo footer div{display:flex;gap:10px}.edemo .primary{background:#e85a9d;border-color:#ff9dcc;color:#220d1b;font-weight:700}.edemo .secondary{background:transparent}.edemo-play{display:grid;gap:18px}.edemo-message{min-height:220px;max-height:48vh;overflow:auto;padding:18px;border:1px solid #804770;border-radius:14px;background:#120c18;line-height:1.8}.edemo-message .tavern-message{padding:10px 0;border-bottom:1px solid #40253d}.edemo-options{padding:16px;border:1px solid #8c5c34;border-radius:14px;background:#2b1d1b;color:#f5c69d}.edemo-options>span{font-size:12px}.edemo-options [data-tavern-options]{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}.edemo-options .tavern-option{padding:12px;border:1px solid #c27a46;border-radius:10px;background:#3b2720;color:#ffe0c5;text-align:left}.edemo form[data-tavern-input]{display:flex;gap:10px}.edemo form input{flex:1}.edemo form button{min-width:74px;border:0;border-radius:10px;background:#ff9dcc;color:#2b0e24;font-weight:700}.edemo-actions{display:flex;flex-wrap:wrap;gap:10px}.edemo-actions button{border-color:#6a4770;background:#22152a}@media(max-width:640px){.edemo{padding:16px}.edemo-head{display:block}.edemo-head>button{margin-top:14px}.edemo-grid,.edemo-stats{grid-template-columns:1fr}.edemo .wide{grid-column:auto}.edemo footer{display:block}.edemo footer div{margin-top:12px;display:grid}.edemo footer button{width:100%}.edemo-options [data-tavern-options]{grid-template-columns:1fr}.edemo-actions{display:grid;grid-template-columns:1fr 1fr}.edemo-actions button{width:100%}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}",
+          "js": "(()=>{const root=document.querySelector('.edemo');if(!root)return;const setup=root.querySelector('[data-edemo=setup]'),play=root.querySelector('[data-edemo=play]'),status=root.querySelector('[data-edemo=status]');const field=id=>root.querySelector('[data-edemo-field='+id+']');const output=id=>root.querySelector('[data-edemo-output='+id+']');const read=()=>({player:{fields:{name:field('name').value,role:field('role').value,memory:field('memory').value,bond:field('bond').value},attributes:{focus:Number(field('focus').value),nerve:Number(field('nerve').value)},resources:{trust:0},skills:{},traits:[],choices:[],initialInventory:[],relations:{}},game:{difficulty:'执着',sandbox:'开放沙盒'},plan:null});const fill=d=>{const p=d?.player||{};const f=p.fields||{};for(const id of ['name','role','memory','bond'])if(f[id]!==undefined)field(id).value=f[id];for(const id of ['focus','nerve']){if(p.attributes?.[id]!==undefined)field(id).value=p.attributes[id];output(id).value=field(id).value}status.textContent='草稿已载入 · 还未开始游戏';};const busy=async(task,done)=>{try{status.textContent='正在保存…';const result=await task();status.textContent=done+(result?.revision?' · revision '+result.revision:'')}catch(e){status.textContent='失败：'+e.message}};root.querySelector('[data-edemo=save]').onclick=()=>busy(()=>TavernExtension.setup.patch(read()),'草稿已保存');root.querySelector('[data-edemo=commit]').onclick=()=>{if(!field('name').value.trim()){status.textContent='请先填写称呼';field('name').focus();return}busy(()=>TavernExtension.setup.commit(read()),'身份已提交，正在进入开场规划')};root.querySelector('[data-edemo=cancel]').onclick=()=>TavernExtension.setup.cancel();field('focus').oninput=()=>output('focus').value=field('focus').value;field('nerve').oninput=()=>output('nerve').value=field('nerve').value;root.querySelector('[data-edemo=fullscreen]').onclick=()=>TavernExtension.fullscreen();root.querySelector('[data-edemo=exit-fullscreen]').onclick=()=>TavernExtension.exitFullscreen();root.querySelector('[data-edemo=terminal]').onclick=()=>TavernExtension.openTerminal();root.querySelector('[data-edemo=world]').onclick=()=>TavernExtension.exitWorld();TavernExtension.requestContext().then(c=>{if(c.phase==='play'){setup.hidden=true;play.hidden=false}else{setup.hidden=false;play.hidden=true;fill(c.setup?.draft||{})}}).catch(e=>status.textContent='读取失败：'+e.message);window.addEventListener('tavern-context',e=>{const c=e.detail||{};if(c.phase==='play'){setup.hidden=true;play.hidden=false}else{setup.hidden=false;play.hidden=true}if(c.setup?.draft)fill(c.setup.draft)});})();"
+        }
+      }
+    },
+    "characters": [],
+    "lorebooks": { "default": { "name": "电子病娇 · 默认世界书", "entries": [] } },
+    "presets": {}
+  },
+  "assets": []
+}

@@ -362,3 +362,6 @@ node scripts/check_pwa.js
 ## 13. 当前下一步
 
 W1–W6 的世界卡 / 世界存档底座已具备当前代码证据。后续不再把 W7 平台收口当作完整 RPG 的唯一剩余工作；产品功能从 [rpg-card-product-roadmap.md](rpg-card-product-roadmap.md) 的 R0 产品契约与 R1 建角开局继续。
+# 历史说明
+
+本文记录早期世界卡实现计划。当前版本以声明式 runtime 为扩展边界：变量、集合、动作由世界卡声明，AI 回合通过 Typed Patch 驱动；地图、物品、任务、势力、成长不再作为宿主硬编码系统。验收以 `docs/world-test-lab.md`、`scripts/check_rpg_protocol.js` 和 `scripts/check_rpg_agent_compat.js` 为准。

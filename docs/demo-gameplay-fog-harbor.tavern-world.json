@@ -1,0 +1,406 @@
+{
+  "spec": "tavern_world_package",
+  "specVersion": 1,
+  "exportedAt": "2026-08-21T00:00:00.000Z",
+  "manifest": {
+    "packageId": "demo-gameplay-fog-harbor",
+    "worldVersion": 1,
+    "worldSchemaVersion": 1,
+    "appContractVersion": 1,
+    "title": "雾港灯塔：红潮来信",
+    "author": "Tavern",
+    "license": null,
+    "contentHash": "sha256:f94871869addba5eacf66a3e320fff16dec026262d0aada5a6db1a2b9f23afc1",
+    "hashScope": "canonical-json(content,assets)",
+    "capabilities": {
+      "ui": { "layout": "world-desk", "extension": false, "fullscreen": true, "escape": "fullscreen" },
+      "runtime": true,
+      "agent": true,
+      "regexes": 0
+    },
+    "references": { "characters": 0, "lorebooks": 1, "presets": 1, "assets": 0 },
+    "privacy": { "excludes": ["settings", "user", "worldSaves"], "redactedPaths": [] },
+    "executableContent": { "html": false, "scripts": false, "regexTriggers": 0, "executedDuringExport": false },
+    "warnings": []
+  },
+  "content": {
+    "world": {
+      "schemaVersion": 1,
+      "id": "world-fog-harbor",
+      "version": 1,
+      "title": "雾港灯塔：红潮来信",
+      "summary": "一个以调查、探索、交涉和轻量战斗为核心的港口冒险世界。每条线索都能改变路线，初始目标只是抓手而不是强制主线。",
+      "coverImage": "",
+      "tags": ["调查", "探索", "交涉", "战斗", "多路线", "成长"],
+      "setting": {
+        "premise": "白潮港收到一封来自失踪测绘队的红色潮纸信。信上只有一句话：不要让第十三声钟响起。",
+        "history": "旧王国曾用灯塔群锁住海底的潮汐炉心。三十年前灯塔熄灭，港口把这段历史改写成了海难传说。",
+        "geography": "白潮港、雾林旧路、断崖灯塔和潮汐地窖构成一条可以往返的调查路线。",
+        "culture": "港民按潮汐钟安排生活，证据和信誉比武力更能打开港口的门。",
+        "currentSituation": "红潮比预期提前两天，灯塔正在逐座亮起；议会想封锁消息，雾林守望者想让所有人离开。"
+      },
+      "rules": {
+        "hard": [
+          "玩家可以无视当前目标，任何行动都必须留下可追踪的世界后果。",
+          "需要判定时由客户端掷骰；AI只能提出判定并叙述结果，不能伪造骰面。",
+          "世界真实信息、玩家已知信息和 NPC 私密信息分开处理。",
+          "地点、NPC、势力、线索使用本卡稳定 ID；新增实体必须有明确来源。"
+        ],
+        "soft": [
+          "优先让调查产生新问题，而不是用单一正确答案结束场景。",
+          "失败不回档：可以负伤、失去资源、被监视或换一条路继续。",
+          "玩家可以自己提出不在选项里的行动，选项只提供当前可见抓手。"
+        ],
+        "checks": [
+          { "id": "inspect-clue", "label": "调查线索", "description": "理解现场、地图和物证。", "roll": "1d20", "target": 11, "modifier": { "bucket": "attributes", "id": "insight", "factor": 1 } },
+          { "id": "negotiate-faction", "label": "势力交涉", "description": "争取通行、档案或援助。", "roll": "1d20", "target": 12, "modifier": 1 },
+          { "id": "survive-fog", "label": "雾林求生", "description": "在潮雾、旧路和追踪者之间保持方向。", "roll": "1d20", "target": 13, "modifier": 1 }
+        ]
+      },
+      "playerCreation": {
+        "mode": "custom",
+        "title": "建立雾港旅者",
+        "description": "选择一个出身预设即可开始；也可以自由分配 16 点属性点。不同出身只提供倾向，不锁死路线。",
+        "pointBudget": { "label": "属性点", "total": 16, "min": 1, "mode": "pool", "cost": "above-min" },
+        "defaultPresetId": "dock-investigator",
+        "buildPresets": [
+          {
+            "id": "dock-investigator",
+            "label": "码头调查员",
+            "description": "擅长观察和交涉，适合先走港口档案线。",
+            "values": { "attributes": { "might": 3, "agility": 4, "insight": 6, "nerve": 4 }, "skills": { "investigate": 4, "negotiate": 3, "survival": 1 }, "traits": ["ledger-eye"] }
+          },
+          {
+            "id": "fog-runner",
+            "label": "雾林信使",
+            "description": "速度和求生优先，适合绕开封锁直奔灯塔。",
+            "values": { "attributes": { "might": 3, "agility": 6, "insight": 4, "nerve": 4 }, "skills": { "investigate": 2, "negotiate": 1, "survival": 5 }, "traits": ["fog-memory"] }
+          },
+          {
+            "id": "salvage-guard",
+            "label": "打捞护卫",
+            "description": "更能承受战斗风险，适合测试冲突和资源代价。",
+            "values": { "attributes": { "might": 6, "agility": 3, "insight": 3, "nerve": 5 }, "skills": { "investigate": 1, "negotiate": 2, "survival": 4 }, "traits": ["brine-guard"] }
+          }
+        ],
+        "fields": [
+          { "id": "name", "label": "角色名", "type": "text", "required": true, "maxLength": 80 },
+          { "id": "origin", "label": "出身", "type": "select", "required": true, "options": [{ "value": "白潮港", "label": "白潮港" }, { "value": "雾林边民", "label": "雾林边民" }, { "value": "外海漂泊者", "label": "外海漂泊者" }], "default": "白潮港" },
+          { "id": "identity", "label": "当前身份", "type": "textarea", "required": true, "maxLength": 1000 },
+          { "id": "appearance", "label": "外貌", "type": "textarea", "maxLength": 1200 },
+          { "id": "personality", "label": "性格", "type": "textarea", "maxLength": 1200 },
+          { "id": "customNotes", "label": "自定义补充", "type": "textarea", "maxLength": 2400 }
+        ],
+        "attributes": [
+          { "id": "might", "label": "力量", "min": 1, "max": 8, "default": 3, "step": 1 },
+          { "id": "agility", "label": "灵巧", "min": 1, "max": 8, "default": 3, "step": 1 },
+          { "id": "insight", "label": "洞察", "min": 1, "max": 8, "default": 3, "step": 1 },
+          { "id": "nerve", "label": "胆识", "min": 1, "max": 8, "default": 3, "step": 1 }
+        ],
+        "skills": [
+          { "id": "investigate", "label": "调查", "description": "阅读物证、地图和口供。", "min": 0, "max": 10, "default": 1, "step": 1 },
+          { "id": "negotiate", "label": "交涉", "description": "在不同势力之间交换承诺。", "min": 0, "max": 10, "default": 1, "step": 1 },
+          { "id": "survival", "label": "求生", "description": "处理潮雾、旧路和危险地形。", "min": 0, "max": 10, "default": 1, "step": 1 }
+        ],
+        "resources": [
+          { "id": "hp", "label": "生命", "type": "number", "min": 1, "max": 100, "initial": 20 },
+          { "id": "focus", "label": "专注", "type": "number", "min": 0, "max": 30, "initial": 8 },
+          { "id": "shells", "label": "潮贝", "type": "number", "min": 0, "max": 9999, "initial": 35 }
+        ],
+        "derived": [
+          { "id": "field-readiness", "label": "野外准备", "formula": "attributes.agility + skills.survival", "description": "长途移动和撤退的基础准备度。" },
+          { "id": "case-leverage", "label": "案情筹码", "formula": "attributes.insight + skills.negotiate", "description": "在听证、交易和逼问中的基础筹码。" }
+        ],
+        "traits": [
+          { "id": "ledger-eye", "label": "账册眼", "description": "能从货单和账册里发现不一致。" },
+          { "id": "fog-memory", "label": "雾中记路", "description": "曾在潮雾里走过很远，迷路后仍能留下退路。" },
+          { "id": "brine-guard", "label": "盐潮护身", "description": "在海上打捞事故中活下来，第一次受伤时额外保留 2 点生命。" },
+          { "id": "bell-debt", "label": "钟债", "description": "你曾向灯塔借过一次庇护，旧债可能在关键时刻找上门。" }
+        ],
+        "choiceBudget": { "label": "特质选择数", "total": 2, "min": 0 },
+        "choices": [
+          { "id": "ledger-eye", "label": "账册眼", "kind": "trait", "cost": 1, "description": "调查港口记录时获得额外线索。" },
+          { "id": "fog-memory", "label": "雾中记路", "kind": "trait", "cost": 1, "description": "雾林追踪失败时保留一条退路。" },
+          { "id": "brine-guard", "label": "盐潮护身", "kind": "trait", "cost": 1, "description": "战斗失败时减少一次资源损失。" },
+          { "id": "bell-debt", "label": "钟债", "kind": "flaw", "cost": 0, "description": "灯塔相关 NPC 更容易认出你，但会提出额外要求。" }
+        ],
+        "relations": [
+          { "npcId": "npc-mira", "min": -100, "max": 100, "default": 10 },
+          { "npcId": "npc-oren", "min": -100, "max": 100, "default": 0 },
+          { "npcId": "npc-sable", "min": -100, "max": 100, "default": -5 }
+        ],
+        "initialInventory": [{ "itemId": "tide-compass", "count": 1 }, { "itemId": "field-rations", "count": 2 }, { "itemId": "lantern-oil", "count": 1 }],
+        "economy": {
+          "inventory": { "enabled": true, "maxSlots": 12, "maxWeight": 24, "items": [
+            { "id": "tide-compass", "label": "潮汐罗盘", "weight": 0.6, "maxStack": 1 },
+            { "id": "field-rations", "label": "野外口粮", "weight": 0.5, "maxStack": 10 },
+            { "id": "lantern-oil", "label": "灯油", "weight": 0.4, "maxStack": 10 },
+            { "id": "red-letter", "label": "红潮来信", "weight": 0.1, "maxStack": 1 }
+          ] },
+          "equipment": { "enabled": true, "slots": [{ "id": "hand", "label": "手持" }, { "id": "body", "label": "身体" }] },
+          "currencies": [{ "id": "shells", "label": "潮贝", "min": 0, "max": 9999, "initial": 35 }]
+        },
+        "growth": {
+          "sources": [
+            { "id": "casework", "label": "案件推进", "kind": "exploration", "description": "确认关键事实后获得成长。" },
+            { "id": "alliances", "label": "势力关系", "kind": "relationship", "description": "用行动改变势力态度。" }
+          ],
+          "candidates": [
+            { "id": "read-the-tide", "label": "读潮", "sourceId": "casework", "bucket": "skills", "targetId": "investigate", "delta": 1, "description": "解开第一份灯塔记录后提升调查。" },
+            { "id": "trusted-witness", "label": "可靠证人", "sourceId": "alliances", "bucket": "identity", "targetId": "calling", "value": "红潮见证者", "description": "至少两方势力承认你的证词。" }
+          ]
+        }
+      },
+      "turnContract": { "options": { "min": 3, "max": 4 }, "actionIntent": true },
+      "failure": {
+        "defaultMode": "continue",
+        "onZeroHp": "injured",
+        "onConflictDefeat": "resource-loss",
+        "modes": [
+          { "id": "continue", "label": "带着代价继续", "description": "失败改变局面，但不替玩家结束故事。" },
+          { "id": "injured", "label": "负伤", "description": "保留世界线并附加负伤状态。", "hpRatio": 0.25, "effect": "负伤" },
+          { "id": "resource-loss", "label": "资源损失", "description": "失去潮贝、口粮或线索位置，换取继续行动。", "resourceLoss": { "shells": 8 } },
+          { "id": "captured", "label": "被扣留", "description": "被某一方暂时控制，后续仍可脱身。", "effect": "被扣留" }
+        ]
+      },
+      "ending": {
+        "enabled": true,
+        "allowPlayerEnd": true,
+        "requireConfirm": true,
+        "defaultEndingId": "player-choice",
+        "endings": [
+          { "id": "player-choice", "kind": "player-choice", "label": "玩家主动结束", "description": "保留当前存档并结束本次航线。", "terminal": true },
+          { "id": "lighthouse-silent", "kind": "card-defined", "label": "灯塔沉默", "description": "你让潮汐炉心重新沉睡，港口付出了代价。", "terminal": true },
+          { "id": "lighthouse-open", "kind": "card-defined", "label": "灯塔开放", "description": "你公开真相，让雾港进入新的航海时代。", "terminal": true }
+        ]
+      },
+      "conflicts": [
+        {
+          "id": "reef-ambush",
+          "label": "礁滩伏击",
+          "type": "combat",
+          "description": "潮雾中的拾荒者被某种发光的礁兽逼到退潮线。",
+          "maxRounds": 5,
+          "phases": [{ "id": "warning", "label": "预警" }, { "id": "clash", "label": "交锋" }],
+          "actions": [
+            { "id": "hold-line", "label": "守住退潮线", "description": "以力量稳住阵脚。", "check": { "roll": "1d20", "modifier": { "bucket": "attributes", "id": "might", "factor": 1 }, "target": 12, "damage": { "roll": "1d6", "modifier": { "bucket": "skills", "id": "survival", "factor": 1 } } } },
+            { "id": "signal-lighthouse", "label": "用灯油发信号", "description": "消耗灯油，让灯塔短暂照亮礁滩。" },
+            { "id": "retreat", "label": "撤向仓库", "description": "放弃一部分物资，先保住行动机会。" }
+          ],
+          "outcomes": [
+            { "id": "driven-off", "label": "击退礁兽", "consequences": ["获得一块会发光的黑珊瑚。", "萨布尔暂时相信你的实力。"] },
+            { "id": "costly-retreat", "label": "带着损失撤退", "consequences": ["失去一份口粮，礁兽仍留在退潮线。"] }
+          ]
+        },
+        {
+          "id": "council-hearing",
+          "label": "议会听证",
+          "type": "social",
+          "description": "港口议会要求你交出红潮来信，并说明为何不该立刻封港。",
+          "maxRounds": 4,
+          "phases": [{ "id": "question", "label": "质询" }, { "id": "verdict", "label": "裁定" }],
+          "actions": [
+            { "id": "present-ledger", "label": "出示账册矛盾", "description": "以调查和证据争取米拉。", "check": { "roll": "1d20", "modifier": { "bucket": "skills", "id": "negotiate", "factor": 1 }, "target": 12 } },
+            { "id": "name-the-risk", "label": "公开第十三声钟", "description": "让恐惧成为谈判筹码。" },
+            { "id": "leave-hearing", "label": "拒绝回答", "description": "保留秘密，但会被议会标记。" }
+          ],
+          "outcomes": [
+            { "id": "archive-access", "label": "开放档案", "consequences": ["获得潮汐档案室通行。", "港口议会关系提高。"] },
+            { "id": "watched", "label": "受到监视", "consequences": ["港口行动难度提高，但封锁消息提前暴露。"] }
+          ]
+        },
+        {
+          "id": "fogwood-crossing",
+          "label": "雾林过境",
+          "type": "stealth",
+          "description": "守望者的巡逻线切断了通往灯塔的旧路。",
+          "maxRounds": 5,
+          "phases": [{ "id": "track", "label": "找路" }, { "id": "cross", "label": "过境" }],
+          "actions": [
+            { "id": "read-old-road", "label": "辨认旧路", "description": "用罗盘和地图判断哪条雾带会回到灯塔。", "check": { "roll": "1d20", "modifier": { "bucket": "skills", "id": "investigate", "factor": 1 }, "target": 13 } },
+            { "id": "talk-to-oren", "label": "向奥伦表明来意", "description": "以承诺换取安全通行。" },
+            { "id": "wait-for-bell", "label": "等钟声引路", "description": "浪费时间，但减少迷路风险。" }
+          ],
+          "outcomes": [
+            { "id": "shortcut", "label": "找到捷径", "consequences": ["提前抵达断崖灯塔。", "发现一处被隐藏的旧路标。"] },
+            { "id": "turned-around", "label": "被雾带回入口", "consequences": ["时间推进一格，守望者开始追问你的目的。"] }
+          ]
+        }
+      ],
+      "time": { "unit": "潮汐时", "start": 5, "turnAdvance": 1 },
+      "events": [
+        { "id": "red-tide-rises", "title": "红潮提前上涨", "description": "海面变成暗红色，第一座灯塔亮起。", "trigger": { "at": 7 }, "visibility": "public", "once": true, "consequences": ["断崖灯塔开放一条隐藏入口。"] },
+        { "id": "thirteenth-bell", "title": "第十三声钟", "description": "港口钟楼多响了一声，所有 NPC 对同一段历史产生不同说法。", "trigger": { "afterTurns": 3 }, "visibility": "public", "once": true, "consequences": ["议会开始封存档案，雾林巡逻增加。"] },
+        { "id": "harbor-lockdown", "title": "白潮港封锁", "description": "议会暂时关闭码头，离港需要交出一条线索。", "trigger": { "locationId": "brine-quay" }, "visibility": "public", "once": true, "consequences": ["港口进入紧张状态。"] }
+      ],
+      "factions": [
+        {
+          "id": "faction-council",
+          "name": "白潮港议会",
+          "description": "控制码头、档案和港口封锁令。",
+          "goals": ["维持航运秩序", "阻止潮汐炉心消息外泄"],
+          "resources": [{ "id": "authority", "label": "行政权", "min": 0, "max": 100, "initial": 58 }],
+          "actions": [{ "id": "seal-quay", "title": "封锁码头", "description": "红潮上涨后限制出入。", "trigger": { "at": 7, "locationId": "brine-quay" }, "changes": { "authority": 3 }, "consequences": ["码头检查变严。"] }],
+          "initialState": { "relation": 10, "influence": 58, "resources": { "authority": 58 } }
+        },
+        {
+          "id": "faction-keepers",
+          "name": "雾林守望者",
+          "description": "保护旧路和口述记忆，不相信议会的封港理由。",
+          "goals": ["阻止炉心被再次唤醒", "保护失踪者记录"],
+          "resources": [{ "id": "trust", "label": "部族信任", "min": 0, "max": 100, "initial": 36 }],
+          "actions": [{ "id": "move-patrols", "title": "调动巡逻", "description": "玩家公开炉心线索后加强雾林巡逻。", "trigger": { "afterTurns": 3, "locationId": "fogwood-gate" }, "changes": { "trust": -2 }, "consequences": ["旧路更难穿过。"] }],
+          "initialState": { "relation": 0, "influence": 36, "resources": { "trust": 36 } }
+        },
+        {
+          "id": "faction-salvagers",
+          "name": "潮痕打捞行",
+          "description": "靠回收遗迹碎片生存的松散行会，愿意交换危险情报。",
+          "goals": ["找到黑珊瑚钥匙", "在封港前装满一条船"],
+          "resources": [{ "id": "stock", "label": "遗物库存", "min": 0, "max": 100, "initial": 42 }],
+          "actions": [{ "id": "move-stock", "title": "转移遗物", "description": "看到红潮后把库存移向灯塔。", "trigger": { "at": 7, "locationId": "brine-quay" }, "changes": { "stock": -4 }, "consequences": ["黑市交易变得活跃。"] }],
+          "initialState": { "relation": -5, "influence": 20, "resources": { "stock": 42 } }
+        }
+      ],
+      "start": {
+        "locationId": "brine-quay",
+        "openingMode": "ai",
+        "opening": "你在潮汐钟响起第五声时抵达白潮港，怀里只有一封湿透的红潮来信。",
+        "playerTemplate": { "name": "未命名旅者", "race": "人类", "role": "雾港调查者", "profileFields": [] },
+        "initialState": {
+          "stats": { "level": 1, "exp": 0, "expNext": 100, "hp": 20, "maxHp": 20, "mp": 8, "maxMp": 8, "gold": 35, "buffs": [] },
+          "inventory": [{ "name": "潮汐罗盘", "count": 1, "desc": "指向最近的异常潮声。" }, { "name": "野外口粮", "count": 2 }, { "name": "灯油", "count": 1 }, { "name": "红潮来信", "count": 1, "desc": "写着不要让第十三声钟响起。" }],
+          "quests": [{ "id": "trace-red-letter", "title": "追查红潮来信", "desc": "确认来信是谁留下的，以及第十三声钟意味着什么。", "status": "active" }],
+          "goals": [{ "id": "choose-first-lead", "title": "决定先查哪条线", "desc": "去档案室、雾林入口或打捞行打听消息。", "status": "active" }],
+          "leads": [
+            { "id": "archive-lead", "title": "港口档案", "desc": "米拉可能知道测绘队最后一次登记。", "status": "active", "locationId": "archive-house" },
+            { "id": "fogwood-lead", "title": "雾林旧路", "desc": "奥伦掌握一条不经过议会的旧路。", "status": "active", "locationId": "fogwood-gate" },
+            { "id": "salvage-lead", "title": "黑珊瑚碎片", "desc": "萨布尔愿意用遗迹地图换取安全承诺。", "status": "active", "locationId": "brine-quay" }
+          ]
+        }
+      },
+      "lorebookIds": ["fogharbor-lore"],
+      "rpgPresetName": "RPG 雾港航线",
+      "sessionSetup": {
+        "title": "本局航线配置",
+        "fields": [
+          { "id": "difficulty", "label": "潮汐压力", "type": "select", "options": [{ "value": "story", "label": "故事：失败代价较轻" }, { "value": "standard", "label": "标准：线索和资源并重" }, { "value": "storm", "label": "风暴：世界推进更快" }], "default": "standard" },
+          { "id": "route", "label": "首个抓手", "type": "select", "options": [{ "value": "archive", "label": "先查港口档案" }, { "value": "fogwood", "label": "先走雾林旧路" }, { "value": "salvage", "label": "先找打捞行" }], "default": "archive" },
+          { "id": "worldAdvance", "label": "世界主动推进", "type": "boolean", "default": true },
+          { "id": "allowNewEntities", "label": "允许 AI 创建新 NPC/地点", "type": "boolean", "default": false },
+          { "id": "tone", "label": "叙事气质", "type": "select", "options": [{ "value": "adventure", "label": "冒险调查" }, { "value": "quiet", "label": "低烈度悬疑" }, { "value": "storm", "label": "紧迫灾变" }], "default": "adventure" }
+        ]
+      },
+      "runtime": {
+        "version": 1,
+        "variables": [
+          { "id": "tideClock", "label": "潮汐时钟", "scope": "save", "type": "number", "initial": 5, "min": 0, "max": 24, "visible": true },
+          { "id": "evidence", "label": "已确认证据", "scope": "save", "type": "number", "initial": 0, "min": 0, "max": 12, "visible": true },
+          { "id": "alarm", "label": "港口警戒", "scope": "save", "type": "enum", "options": ["calm", "watch", "lockdown"], "initial": "calm", "visible": true },
+          { "id": "harborFavor", "label": "港口信任", "scope": "save", "type": "number", "initial": 0, "min": -10, "max": 10, "visible": true }
+        ],
+        "collections": [
+          { "id": "clues", "label": "线索板", "scope": "save", "entrySchema": { "title": "string", "text": "string", "source": "string", "status": "string" }, "initial": [{ "id": "clue-red-letter", "title": "红潮来信", "text": "第十三声钟响起前，不要让灯塔同时点亮。", "source": "start", "status": "confirmed" }] },
+          { "id": "contracts", "label": "承诺", "scope": "save", "entrySchema": { "title": "string", "with": "string", "price": "string" }, "initial": [] },
+          { "id": "inventory", "label": "随身物品", "scope": "save", "entrySchema": { "itemId": "string", "label": "string", "count": "number" }, "initial": [{ "id": "field-rations", "itemId": "field-rations", "label": "野外口粮", "count": 2 }, { "id": "lantern-oil", "itemId": "lantern-oil", "label": "灯油", "count": 1 }] }
+        ],
+        "actions": [
+          { "id": "record-evidence", "label": "记录已确认线索", "description": "把一条已经核实的事实放入线索板。", "inputs": [{ "id": "title", "label": "标题", "type": "string", "required": true }, { "id": "text", "label": "事实", "type": "string", "required": true }], "effects": [{ "type": "variable.delta", "variableId": "evidence", "delta": 1 }] },
+          { "id": "use-field-ration", "label": "食用野外口粮", "description": "消耗一份口粮并记录一次补给；没有口粮时动作不可用。", "availability": [{ "type": "collection.number", "collectionId": "inventory", "entryId": "field-rations", "field": "count", "operator": ">", "value": 0 }], "effects": [{ "type": "collection.patch", "collectionId": "inventory", "entryId": "field-rations", "delta": { "count": -1 } }] },
+          { "id": "read-tide-signal", "label": "解读潮汐信号", "description": "用求生技能判断灯塔与潮汐的关系；需要先通过一次技能判定。", "check": { "sides": 20, "target": 12, "modifiers": [{ "source": "player", "bucket": "skills", "id": "survival" }] }, "effects": [{ "type": "variable.delta", "variableId": "evidence", "delta": 1 }] },
+          { "id": "raise-watch", "label": "提高港口警戒", "description": "公开危险消息后让港口进入戒备。", "effects": [{ "type": "variable.set", "variableId": "alarm", "value": "watch" }] },
+          { "id": "rest-at-inn", "label": "在港口休整", "description": "用时间换取专注恢复。", "effects": [{ "type": "variable.delta", "variableId": "tideClock", "delta": 1 }] },
+          { "id": "make-contract", "label": "登记一项承诺", "description": "把与 NPC 的交换条件固定为存档事实。", "inputs": [{ "id": "id", "label": "承诺 ID（安全短横线格式）", "type": "string", "required": true }, { "id": "title", "label": "承诺", "type": "string", "required": true }, { "id": "with", "label": "对象", "type": "string", "required": true }, { "id": "price", "label": "代价", "type": "string", "required": true }], "effects": [{ "type": "collection.add", "collectionId": "contracts", "value": { "id": "{{input.id}}", "title": "{{input.title}}", "with": "{{input.with}}", "price": "{{input.price}}" } }] }
+        ]
+      },
+      "agent": {
+        "protocol": "tavern.rpg.agent",
+        "version": 1,
+        "mode": "native",
+        "maxSteps": 4,
+        "tools": {
+          "dice.roll": { "enabled": true, "execution": "client", "description": "只在需要判定时请求客户端骰子。" },
+          "rules.check": { "enabled": true, "execution": "client-readonly", "description": "根据世界卡规则和客户端骰子判断成功、代价或失败。" },
+          "state.patch": { "enabled": true, "execution": "server", "description": "提交经过校验的状态变化。" },
+          "objective.upsert": { "enabled": true, "execution": "server", "description": "新增、推进或关闭目标与线索。" },
+          "memory.record": { "enabled": true, "execution": "server", "description": "记录玩家已知的稳定事实。" },
+          "context.retrieve": { "enabled": true, "execution": "server", "description": "只检索当前地点和权限范围内的信息。" },
+          "entity.create": { "enabled": false, "execution": "server", "description": "本示例先关闭动态建实体，避免测试时污染世界卡。" }
+        }
+      },
+      "map": {
+        "strategy": "worldCard",
+        "baseMapId": null,
+        "data": {
+          "size": 4,
+          "seed": 51001,
+          "engine": "sample",
+          "regions": [{ "id": 0, "name": "白潮港" }, { "id": 1, "name": "雾林" }, { "id": 2, "name": "断崖" }, { "id": 3, "name": "潮汐地窖" }],
+          "points": [{ "id": "brine-quay", "regionId": 0, "label": "盐沫码头" }, { "id": "archive-house", "regionId": 0, "label": "潮汐档案室" }, { "id": "fogwood-gate", "regionId": 1, "label": "雾林旧门" }, { "id": "cliff-lighthouse", "regionId": 2, "label": "断崖灯塔" }, { "id": "tide-vault", "regionId": 3, "label": "潮汐地窖" }],
+          "adjacency": [[0, 1], [1, 2], [2, 3]],
+          "grid": [0, 0, 1, 1, 0, 1, 1, 2, 1, 1, 2, 2, 1, 2, 3, 3]
+        },
+        "generation": { "seed": 51001, "size": 64, "regionCount": 4, "landRatio": 0.62, "mapgenSize": "tiny" }
+      },
+      "locations": [
+        { "id": "brine-quay", "name": "盐沫码头", "type": "port", "summary": "起点，仓库、酒馆和打捞行都在这里。", "tags": ["起点", "安全区", "势力交汇"] },
+        { "id": "archive-house", "name": "潮汐档案室", "type": "archive", "summary": "米拉工作的地方，保存港口登记和旧灯塔图。", "tags": ["调查", "NPC"] },
+        { "id": "fogwood-gate", "name": "雾林旧门", "type": "forest", "summary": "守望者控制的旧路入口。", "tags": ["求生", "隐蔽"] },
+        { "id": "cliff-lighthouse", "name": "断崖灯塔", "type": "lighthouse", "summary": "失踪测绘队最后一次发送信号的地方。", "tags": ["主线", "危险"] },
+        { "id": "tide-vault", "name": "潮汐地窖", "type": "ruins", "summary": "灯塔下面的旧王国炉心室。", "tags": ["终局", "遗迹"] }
+      ],
+      "npcs": [
+        { "id": "npc-mira", "name": "米拉·潮针", "role": "港口档案员", "description": "她把每一条潮汐都写进账册，唯独漏掉了第十三声。", "persona": "谨慎、务实，愿意帮助能拿出证据的人。", "publicFacts": ["掌管潮汐档案", "认识失踪测绘队"], "publicGoals": ["找回被拿走的灯塔图"], "secrets": [{ "id": "mira-kept-page", "content": "她藏起了一页显示测绘队主动进入地窖的记录。" }], "locationId": "archive-house", "homeLocationId": "archive-house" },
+        { "id": "npc-oren", "name": "奥伦·雾枝", "role": "雾林守望者", "description": "他不阻止外来者，但会阻止外来者把遗迹带回港口。", "persona": "沉默、戒备，先看行动再听承诺。", "publicFacts": ["知道旧路", "不信任议会"], "publicGoals": ["让炉心继续沉睡"], "secrets": [{ "id": "oren-echo", "content": "他听见失踪队中有人已经成为潮汐回声。" }], "locationId": "fogwood-gate", "homeLocationId": "fogwood-gate" },
+        { "id": "npc-sable", "name": "萨布尔", "role": "潮痕打捞者", "description": "他出售地图碎片，也出售半真半假的安全承诺。", "persona": "机敏、贪财，但遵守交换规则。", "publicFacts": ["在码头和灯塔之间活动", "持有黑珊瑚碎片"], "publicGoals": ["找到能打开地窖的钥匙"], "secrets": [{ "id": "sable-former-lead", "content": "他曾是失踪测绘队的领队，知道信是谁写的。" }], "locationId": "brine-quay", "homeLocationId": "brine-quay" }
+      ],
+      "npcIds": ["npc-mira", "npc-oren", "npc-sable"],
+      "lorebookIds": ["fogharbor-lore"],
+      "rpgPresetName": "RPG 雾港航线",
+      "ui": {
+        "schemaVersion": 1,
+        "layout": "world-desk",
+        "theme": { "tokens": { "accent": "#7dd3c7", "accent-strong": "#38bdf8", "panel": "#10242b", "panel-strong": "#0b171d", "text": "#e6fffb", "muted": "#9cc7c2" } },
+        "shell": { "navigation": "show", "topbar": "show", "fullscreen": true, "escape": "fullscreen" },
+        "sidebar": { "panels": [
+          { "id": "fogharbor-locations", "title": "航线地点", "icon": "⌖", "side": "left", "source": "world.locations", "layout": "list", "fields": ["name", "type", "summary"], "emptyText": "暂无已登记地点" },
+          { "id": "fogharbor-goals", "title": "当前目标", "icon": "◎", "side": "right", "source": "save.state.goals", "layout": "cards", "fields": ["title", "desc", "status"], "emptyText": "暂时没有强制目标" },
+          { "id": "fogharbor-leads", "title": "线索板", "icon": "⌕", "side": "right", "source": "runtime.collections.clues", "layout": "cards", "fields": ["title", "text", "source", "status"], "emptyText": "还没有确认线索" },
+          { "id": "fogharbor-inventory", "title": "随身物品", "icon": "◇", "side": "left", "source": "runtime.collections.inventory", "layout": "cards", "fields": ["label", "count"], "emptyText": "没有可用物品" },
+          { "id": "fogharbor-tide", "title": "潮汐状态", "icon": "≈", "side": "right", "source": "runtime.variables.tideClock", "layout": "list", "fields": ["$key"], "emptyText": "潮汐时钟未初始化" },
+          { "id": "fogharbor-evidence-action", "title": "记录线索", "icon": "+", "side": "left", "source": "runtime.actions.record-evidence", "layout": "actions" },
+          { "id": "fogharbor-ration-action", "title": "使用物品", "icon": "◇", "side": "left", "source": "runtime.actions.use-field-ration", "layout": "actions" },
+          { "id": "fogharbor-skill-action", "title": "使用技能", "icon": "⌁", "side": "left", "source": "runtime.actions.read-tide-signal", "layout": "actions" },
+          { "id": "fogharbor-contract-action", "title": "登记承诺", "icon": "§", "side": "left", "source": "runtime.actions.make-contract", "layout": "actions" }
+        ] }
+      },
+      "source": { "format": "native", "rawAssetRef": null }
+    },
+    "characters": [],
+    "lorebooks": {
+      "fogharbor-lore": {
+        "name": "雾港灯塔：红潮来信",
+        "entries": [
+          { "title": "红潮与第十三声钟", "keys": "红潮,第十三声钟,灯塔", "content": "红潮提前上涨时，灯塔会按旧王国顺序亮起。第十三声钟不是正常潮汐报时，而是炉心开始回应的信号。", "enabled": true, "constant": false, "order": 100 },
+          { "title": "白潮港议会", "keys": "白潮港议会,议会,封港", "content": "议会公开目标是维持秩序，隐藏目标是让潮汐炉心的存在继续成为海难传说。米拉掌握被删改的档案。", "enabled": true, "constant": false, "order": 90 },
+          { "title": "雾林守望者", "keys": "雾林,守望者,奥伦", "content": "守望者不把旧路交给没有承诺的人。他们保存口述记忆，认为炉心应该沉睡而不是被研究。", "enabled": true, "constant": false, "order": 80 },
+          { "title": "潮汐地窖", "keys": "潮汐地窖,炉心,黑珊瑚", "content": "地窖需要黑珊瑚钥匙或三方势力共同承认的通行理由。进入后，玩家必须在公开真相、沉默或改写契约之间选择。", "enabled": true, "constant": false, "order": 70 }
+        ]
+      }
+    },
+    "presets": {
+      "RPG 雾港航线": {
+        "systemPrompt": "你是《雾港灯塔：红潮来信》的世界叙事者。玩家拥有完整行动权；你只根据已初始化的存档、世界书和本轮工具结果推进世界。",
+        "postHistory": "每轮先判断玩家行动是否需要判定。需要时先调用 dice.roll/rules.check，等待客户端结果，再把成功、部分成功或失败的后果写进叙事。不要在正文中伪造骰面。正文之外追加 3-4 个具体可选行动；选项只是建议，不能替玩家行动。",
+        "firstMes": "红潮比预期早了两天。你在第五声潮汐钟后抵达盐沫码头，怀里是一封湿透的红色来信。",
+        "modules": [
+          { "id": "agency", "name": "玩家主权", "enabled": true, "content": "不替玩家说话、思考、选择或完成关键行动；允许输入未列出的自由行动。" },
+          { "id": "investigation", "name": "调查循环", "enabled": true, "content": "线索必须落到稳定 ID 和存档事实；矛盾、误导和未知信息要保留，不要一次解释完。" },
+          { "id": "consequence", "name": "后果循环", "enabled": true, "content": "成功打开新路线，部分成功带代价，失败改变资源、关系、时间或警戒状态。" },
+          { "id": "narrative", "name": "叙事格式", "enabled": true, "content": "使用 Markdown 组织正文；不要把选项写进正文；需要工具时用合法工具候选格式。" }
+        ]
+      }
+    }
+  },
+  "assets": []
+}

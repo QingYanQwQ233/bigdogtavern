@@ -17,8 +17,36 @@ node server.js
 
 打开 <http://localhost:3000>，然后在「设置 → 连接」中填写 OpenAI 兼容接口的 Base URL、API Key 和模型。支持 OpenAI、DeepSeek、OpenRouter、Ollama、LM Studio 以及其他 `/chat/completions` 兼容服务。
 
+## Android APK
+
+推送到 `main` 会触发 [Build Tavern APK](.github/workflows/android-apk.yml)。构建完成后，在对应的 GitHub Actions 运行页下载 `tavern-apk` artifact；当前产物是已签名的 Debug APK，不会自动发布为 GitHub Release。
+
+本地构建需要 JDK 17、Android SDK 与 Gradle 8.7。构建前只复制前端资源和默认模板，不会把本地 API Key、存档或其他运行时数据打进 APK：
+
+```powershell
+$assets = 'android\app\src\main\assets'
+New-Item -ItemType Directory -Force "$assets\data" | Out-Null
+Copy-Item public\index.html, public\styles.css, public\app.js, public\mapgen.js, public\manifest.json, public\sw.js, public\favicon.png -Destination $assets -Force
+Copy-Item public\vendor -Destination $assets -Recurse -Force
+Copy-Item public\icons -Destination $assets -Recurse -Force
+Copy-Item public\data\_defaults.json "$assets\data\_defaults.json" -Force
+Push-Location android
+gradle assembleDebug --no-daemon -Pvc=1 -Pvn=alpha-local
+Pop-Location
+```
+
+APK 输出路径：`android/app/build/outputs/apk/debug/app-debug.apk`。
+
+## 本次更新 · 2026-08-26
+
+- RPG 回合的 `runtime.collection.add` 统一要求使用 `value: { id: "stable-entry-id", ... }`；字段平铺或漏掉条目 ID 会在提交前触发精确的协议修复，不再直接落到服务端报错。
+- Runtime 动作会在零库存或条件不足时禁用，Agent 同步收到不可用上下文，避免继续尝试无效动作。
+- RPG 继承「设置 → 排版 / 界面」配置；消息窗口在发送、点击选项和回合提交后保持当前位置，回合内状态增减会以轻微动画保留到下一行动。
+- Android 构建会携带当前 `mapgen.js`，并为每次 APK 生成独立的前端资源版本，避免覆盖安装后 WebView 命中旧 Service Worker 缓存。
+
 ## 本次更新 · 2026-08-20
 
+- RPG Agent 判定增加短促的客户端反馈动画：掷骰时显示判定中，收到结果后收束为骰点/结果状态；失败和减少动态效果时会自动清理或降级。
 - 修复消息操作按钮在窄屏或长正文上覆盖内容、跑出聊天区域的问题；操作栏现在独立占用消息底部一行，手机端也保持在消息容器内。
 - 移除宿主头像和 RPG 回合中的“放弃本回合”入口，减少与世界卡自定义界面的视觉冲突。
 - 酒馆开场白与 AI 回复共用 `<tavern_options>` 解析协议，开场白中的快捷选项也会进入底部选项栏。
@@ -46,13 +74,20 @@ GitHub Release 提供 `tavern-*-portable-win-x64.zip`。解压后双击「启动
 常用检查：
 
 ```bash
+node scripts/run_checks.js
+
+# 也可以只运行当前改动涉及的检查
 node --check server.js
 node --check public/app.js
 node scripts/check_rpg_protocol.js
+node scripts/check_runtime_roundtrip.js
+node scripts/check_frontend_state_guards.js
+node scripts/check_player_creation.js
+node scripts/check_session_sync.js
 node scripts/check_android_api.js
 ```
 
-完整回归脚本位于 `scripts/check_*.js`。
+`node scripts/run_checks.js` 会先检查核心与脚本 JavaScript 语法，再顺序执行全部 `scripts/check_*.js`；GitHub Actions 在 main 和 Pull Request 上运行同一入口。
 
 ## 数据所有权
 
@@ -65,6 +100,7 @@ _defaults.json
   ├─ lorebooks.json        世界书
   ├─ settings.json         连接与运行设置
   ├─ user.json             玩家设定与酒馆手动记忆
+  ├─ gen.json              AI 辅助生成字段与提示模板
   ├─ sessions.json         酒馆会话库（含删除墓碑，首次保存时创建）
   └─ worlds.json            世界卡目录
 
@@ -90,8 +126,8 @@ world-deleted.json         已删除世界卡 ID（防止默认模板重新出�
 - 玩家设定、手动记忆、消息编辑/删除/复制/重生成；可在「记忆」页开启 RP 自动滚动记忆：每 20 个完整对话轮次把最早 15 轮压缩为约 100 字摘要，也可随时手动触发总结；原始消息仍保留在当前会话；窗口、总结轮数和摘要字数均可调整；
 - 可选旁白/对白拆分：默认整条回复作为连续正文，按需在「设置 → 格式」开启对白气泡；
 - AI 回复选项：RP 与 RPG 都由模型生成结构化快捷行动，点击后直接发送；RP 缺少标签时最多自动修复一次；选项标签不会进入正文，也不再使用写死的快捷按钮；
-- 「设置 → 排版」热调整聊天正文：字体、字号、行间距、段间距、段首缩进（空两格）与左右间距，拖动即时预览、自动保存；
-- 「设置 → 界面」可即时调整 Tavern 的颜色 token、边框透明度、圆角、应用侧栏/RPG 两侧栏宽度和界面缩放；支持受校验的高级 CSS 变量 JSON，并可一键恢复默认，刷新后自动恢复；
+- 「设置 → 排版」热调整聊天正文：字体、字号、行间距、段间距、段首缩进（空两格）与左右间距，拖动即时预览、自动保存；RPG 默认工作区同样继承这些设置；
+- 「设置 → 界面」可即时调整 Tavern 的颜色 token、边框透明度、圆角、应用侧栏/RPG 两侧栏宽度和界面缩放；RPG 默认工作区同样继承，世界卡显式声明的同名 token 才会覆盖对应项；支持受校验的高级 CSS 变量 JSON，并可一键恢复默认，刷新后自动恢复；
 - 「设置 → 界面」内置 macOS 深色、Nord、Dracula、Catppuccin Mocha、Tokyo Night 五套界面预设；预设来自公开主题调色板，套用后仍可继续微调并自动保存；
 - AI 消息完整 GFM Markdown 渲染与安全清洗：标题、列表/任务列表、表格、引用、代码块、行内代码、链接、图片、删除线、键盘标记和分隔线；
 - 文生图消息（OpenAI 兼容或 Stable Diffusion），图片保存后可持久化。
@@ -121,6 +157,8 @@ RPG 不再把普通角色卡当作世界入口。流程是：
 - 世界书、RPG Preset、难度、时间、战斗/死亡规则；
 - 开场时间、地点、NPC、事件、前置事实、知识权限和 Initial Hook。
 
+> 当前 RPG 世界卡采用“可声明契约”：角色字段、地点与时间、叙事、行动选项、必要判定，以及由世界卡自行声明的 runtime 变量/集合/动作是正式能力。旧版硬编码物品、任务、派系、世界事件、冲突和成长投影不再作为通用系统；需要这些玩法时请在卡内声明 schema，由 AI 通过 Typed Patch 驱动。
+
 ### 可信回合内核
 
 AI 输出的结构化控制块是：
@@ -131,7 +169,11 @@ AI 输出的结构化控制块是：
 
 服务端会校验 `protocol`、`version`、`baseRevision`、typed updates、行动选项、地点 ID、玩家状态和存档 revision，再执行原子提交。旧版 `rpg` 控制块只作为兼容输入，不绕过新校验。
 
-支持的状态更新包括资源、属性、技能、货币、背包、地点、效果和目标状态。正式回合还会推进世界时间、结算世界事件、派系行动、截止时间、冲突、失败、结局和成长记录。
+提交成功后，RPG 侧栏会保留本回合的数值、状态和条目增减提示；开始下一行动时以轻微动画淡出。
+
+当前世界卡回合只接受资源、属性、技能、地点和效果等核心更新，以及当前世界卡声明的 runtime 更新，并按存档 revision 原子提交；物品/任务/关系等玩法请通过 runtime schema + Typed Patch 定义。
+
+runtime 动作 effect 支持 `{{input.field}}` 绑定本回合输入；服务端解析后仍按世界卡 schema 校验，示例卡因此可以把 AI 提交的承诺标题、对象和代价保存为独立存档事实。
 
 ### 客户端骰子
 
@@ -147,25 +189,28 @@ AI 或叙事文本不能直接产生权威骰子结果。缺少客户端结果�
 
 RPG 支持声明式 OpenAI-compatible tools：
 
-- `dice.roll`：仅在同一回合先通过 `rules.check` 后由客户端执行，并绑定本回合结果；
+- `dice.roll`：仅在同一回合先通过 `rules.check` 后由客户端执行，并绑定本回合结果；动态判定统一使用 `1dN + Σ(modifiers)`，修正只读取当前玩家/Runtime 快照；
 - `context.retrieve`：当前世界存档范围内的只读检索；
-- `state.patch`、`entity.create`、`memory.record`：候选操作；
-- `rules.check`：本回合判定门控，不改写存档；没有真实不确定性时禁止继续掷骰。
+- `runtime.action.execute`：世界卡声明的物品/技能动作候选；含 `runtime.actions` 的世界卡会自动开放，服务端复核输入、可用性与判定后才提交；
+- `state.patch`、`entity.create`、`memory.record`：候选操作；`state.patch.updates` 不得伪装成 `runtime.action.execute`，没有对应声明动作时应改用当前协议已声明的其他 Typed Patch；
+- `rules.check`：本回合判定门控，不改写存档；可引用固定 `ruleId`，也可提交 `actionId/sides/target/modifiers` 动态判定；没有真实不确定性时禁止继续掷骰。
 
 Agent 回合采用 `agent-execute → narrate` 两阶段提交。正式状态仍由 WorldSave 服务端校验，Agent 不能直接改写存档。
+
+RPG 顶栏按钮显示为“重置对话”：它会把当前存档的 `turns`、MVU/runtime、NPC 动态状态、事件记忆和 Agent 临时态恢复到该存档的开局基线；酒馆模式仍保留“清空对话”。
 
 不支持原生 function calling 的模型可使用兼容 Agent 模式：模型在唯一状态块的 `toolCalls` 中声明工具，客户端执行受控工具后以 `tavern.rpg.agent.tool_result` 回传，并在 `maxSteps` 内继续请求模型；原生与兼容模式共用工具白名单、客户端骰子和存档提交链。
 
 Agent 模式、最大步骤数和工具开关可在世界卡编辑器中按卡配置；留空时继承 RPG 预设 / 全局默认。
 
-世界卡还可以通过声明式 `ui.sidebar.panels[]` 增加关系、事件、资源等侧栏投影；数据源使用白名单路径，动态内容始终读取当前存档。
-RPG GEN 3 增加受限 `runtime` DSL：世界卡可声明变量、集合（例如商城）和动作；创建存档时快照到 `state.runtime`，AI 只能通过 Typed Patch 的 `runtime.*` 更新，侧栏可读取 `runtime.variables.<id>` / `runtime.collections.<id>`。
-GEN 3.1 支持世界卡 `ui.extension`：HTML/CSS/JS 在 `sandbox="allow-scripts"` 的隔离 iframe 中运行，CSP 禁止网络、表单、嵌套 frame 和主页面访问；通过 `TavernExtension.requestContext()`、`patch()`、`action()`、`choose()`、`mvu()`、`fullscreen()` 和 `exitFullscreen()` 走白名单消息协议。`TavernExtension.on/off()` 可监听 `turn.start`、`agent.execute`、`agent.complete`、`turn.commit`、`turn.error` 脱敏事件，让卡内 HUD 跟随 Agent 生命周期变化，但不会收到隐藏状态或工具结果。`choose(text, { actionId, input, updates })` 会把扩展按钮当作普通 RPG 玩家行动送入现有 Agent 回合（需要 `read.save`）；有 `actionId/updates` 时仍需 `write.runtime`，纯文本选择不需要额外运行时权限。`context.turn.options` 与底部快捷回复读取同一份结构化选项，`context.turn.narrative/hasResponse` 提供最新 AI 正文，`context.messages` 提供当前存档最近 40 条用户 / AI 消息。卡内 HTML 可用 `data-tavern-narrative`（最新叙事）、`data-tavern-messages`（消息历史）、`data-tavern-options`（AI 选项）、`data-tavern-bind` / `data-tavern-show`（白名单状态绑定）和 `data-tavern-input` / `data-tavern-submit`（自定义输入）接入；按钮和表单提交会复用当前 Agent 回合，卡可以自行决定结构与 CSS。沉浸扩展没有这些标记时不会被框架偷偷补第二个叙事框或输入框。扩展桥为长思维链和 Agent 工具循环保留 120 秒等待时间。只要世界卡存在扩展，默认独立接管页面；扩展设置 `immersive:false` 才嵌回宿主 RPG 布局（草稿页有对应勾选项），`ui.layout: "immersive"` 仍可作为显式标记。沉浸布局会隐藏主应用侧栏、顶栏、RPG 状态栏和底部输入框，只保留世界卡自己的前端与退出按钮。世界草稿页提供扩展字段可视化编辑器，也保留高级 JSON 入口；点击“从高级 JSON 载入扩展”后再保存即可合并两种视图。写入统一提交 `/api/world-saves/:id/runtime`，前后端都强制检查 `write.runtime`，仍受存档 revision、runtime Schema 和 Typed Patch 校验，不执行主页面脚本。Agent 两阶段回合的 pending 还会保存受限的待叙事消息和选项，页面刷新后可继续提交或放弃，正式状态仍只在 narrate 阶段写入。
-世界卡还可以声明 `ui.entryGate`，在“建立新存档”真正创建前显示卡片自定义的内容警告；取消会回到世界库，确认后才进入玩家建角。`fullscreen: true` 会在确认点击的用户手势内请求浏览器全屏，权限被浏览器拒绝时自动降级为普通沉浸布局。默认种子新增 `world-electronic-yandere`「电子病娇 · 由依协议」，用于验收入口门禁、隔离前端、runtime action 和 Agent 回合：扩展会提出“你爱我吗？”，选择“不爱”后把可见选项锁成“爱”并弹出二次询问。
-Agent 回合还会保存受限的工具 Guard trace，并在 receipt 中记录每个工具的通过 / 拒绝结果；服务端会校验工具阶段顺序（`observe → decide → guard`），成功的 `dice.roll` 必须先有同回合通过的 `rules.check`。trace 只用于诊断，不能绕过服务端 Typed Patch、规则和 CAS 校验。
+世界卡仍可通过 `ui.extension` 声明自己的前端，但新卡不再依赖宿主的物品、任务等侧栏面板；`ui.sidebar` 可读取当前存档的 runtime 投影，runtime 变量/集合/动作由世界卡声明并进入新的最小回合契约。`runtime.actions.<id>` 配合 `layout: "actions"` 可直接生成卡内动作表单，输入会作为世界回合的 action intent 交给 AI 决定并提交效果；动作的 `availability` 会在动作表单和 Agent 工具候选阶段先行检查，零库存等条件不足时按钮会禁用、AI 会收到不可用结果；服务端仍作原子校验，不存在或当前不可用的物品/技能不会被执行。动作还可声明 `check: { sides, target, modifiers }`：技能/物品等有风险动作必须先以同一 `actionId` 完成客户端掷骰并由服务端复核，判定失败不产生状态变化；无 `check` 的日常动作直接执行。
+世界卡可通过 `ui.extension` 声明自己的 HTML/CSS/JS 前端，消息、选项和输入仍复用当前 Agent 回合；`TavernExtension.choose()` 提交玩家行动，卡内前端可只读读取 runtime，状态统一由 AI 回合通过世界卡声明的 Typed Patch 更新，避免出现第二套未保存 MVU 状态。`data-tavern-messages`、`data-tavern-options`、`data-tavern-input` 等标记仍可用于自定义界面，沉浸布局仍支持全屏、Esc 和返回世界库。
+GEN 3.2 增加 `ui.extension.surfaces:['setup','play']`：创建存档时可由卡自己的 HTML/CSS/JS 接管开局配置，服务端先建立 `planning` 存档，再通过 `TavernExtension.setup.get/patch/commit/cancel` 保存草稿、提交 Schema 校验后的玩家快照并进入原生开场规划；需显式声明 `write.setup`，草稿与最终状态只属于当前 WorldSave。旧卡未声明 `setup` 时继续使用宿主建角表单。
+世界卡还可以声明 `ui.entryGate`，在“建立新存档”真正创建前显示卡片自定义的内容警告；取消会回到世界库，确认后才进入玩家建角。`fullscreen: true` 会在确认点击的用户手势内请求浏览器全屏，权限被浏览器拒绝时自动降级为普通沉浸布局。
+Agent 回合还会保存受限的工具 Guard trace，并在 receipt 中记录每个工具的通过 / 拒绝结果；服务端会校验工具阶段顺序（`observe → decide → guard → commit`），成功的 `dice.roll` 必须先有同回合通过的 `rules.check`，状态/记忆候选只能在判定阶段之后提交。trace 只用于诊断，不能绕过服务端 Typed Patch、规则和 CAS 校验。
 Agent 执行摘要还会绑定候选 `agentCalls` 与 trace 的 `callId/name`，并保存候选、观察、通过、拒绝计数；只读 `context.retrieve` 不进入状态候选。
-多步骤行动可把 `objective.upsert` 作为可忽略的计划步骤；计划会随 orchestration 摘要进入 pending/receipt，不会自动变成强制主线。
-工具 trace 同时标注 `observe / decide / guard`，两阶段提交标注 `execute / narrate`；待叙事 pending 还会保存 `phase/phaseHistory`，刷新后可显示并恢复当前阶段，便于在终端追踪 Agent 回合阶段。
+回合只保留玩家行动、叙事和必要判定；不再生成任务/目标计划。
+工具 trace 同时标注 `observe / decide / guard / commit`，两阶段提交标注 `execute / narrate`；待叙事 pending 还会保存 `phase/phaseHistory`，刷新后可显示并恢复当前阶段，便于在终端追踪 Agent 回合阶段。
 世界卡也可绑定自己的 `regexes[]`，在该世界的 RPG 预设和模式自定义规则之前执行；正则仅做输出替换，不执行脚本。
 
 ## RPG 记忆与上下文
@@ -199,10 +244,12 @@ RPG 记忆不是一段模糊的 AI 摘要，而是几层结构化事实：
 
 ### RPG 开发者实验台
 
-启动页面时追加 `?dev=1`，顶栏会显示「🧪 开发者」。选择一个外置测试场景后直接点击「运行所选测试」即可；场景内部自动填充 `rules.check → dice.roll → tool 回传`、Typed Patch、实体候选和事件记忆，不需要填写 JSON。测试反馈会写入本次 RPG 叙事，选项会恢复为叙事栏下方的快捷按钮。没有完成开局规划的存档不会允许提交。它直接复用正式 `/api/world-saves/:id` 回合协议，不会创建第二套状态路径。
-GEN 3 服务端闭环可用 `node scripts/check_rpg_gen3.js` 快速验收；扩展沙箱和 runtime action 可用 `node scripts/check_rpg_extension.js` 验收；电子病娇世界卡可用 `node scripts/check_world_electronic_yandere.js` 验收。
+启动页面时追加 `?dev=1`，顶栏会显示「🧪 开发者」。选择一个外置测试场景后直接点击「运行所选测试」即可；场景内部自动填充 `rules.check → dice.roll → tool 回传`、Typed Patch、实体候选和事件记忆，不需要填写 JSON。另有“生命值 -1”和“runtime 数值 -1”调试场景，可快速验证角色资源及 MVU 式 runtime 变量是否写入存档。测试反馈会写入本次 RPG 叙事，选项会恢复为叙事栏下方的快捷按钮。没有完成开局规划的存档不会允许提交。它直接复用正式 `/api/world-saves/:id` 回合协议，不会创建第二套状态路径。
+RPG 世界卡当前验收 AI 回合闭环、客户端骰子、Agent 阶段顺序和声明式 runtime Typed Patch；历史硬编码系统不再作为统一 API，复杂玩法应由卡内 schema + action 自己定义。
+开局扩展面板的 planning 存档、草稿修订和提交可用 `node scripts/check_world_setup_surface.js` 验收。
 脚本兼容实验室示例见 `docs/demo-script-compat-world.tavern-world.json`：导入后可直接点击 EJS、MVU、JS 三个面板验收，说明见同名 `.md` 文件。
 自定义 UI 演示卡见 `docs/demo-custom-ui-world.tavern-world.json`：导入后由 `ui.layout:"custom"` + `ui.shell` 接管宿主 RPG 区域、应用导航和顶栏，并提供唯一消息流、自定义选项/输入、MVU/Action、AI 终端、回合状态回执、浏览器全屏、Esc 和返回世界库按钮，说明见 `docs/demo-custom-ui-world.md`。
+开局配置演示卡见 `docs/demo-setup-surface-world.tavern-world.json`：导入后直接体验卡内角色创建、草稿保存、提交后进入原生开场规划，以及正式游玩页的自定义消息/选项/输入；说明见 `docs/demo-setup-surface-world.md`。
 手机端管理页采用父子钻取：先进入角色/预设/正则/世界书/记忆/世界库列表，再进入详情；列表和详情顶部都保留返回条，详情返回只回到上一级，预设条目和世界书条目也有独立的二级返回，不再把两个层级并列堆在小屏幕上。
 
 ## 项目结构
@@ -247,7 +294,7 @@ docs/                          数据结构、世界卡与 Android 文档
   → 叙事、选项、侧栏和记忆同步
 ```
 
-本版本重点补齐了 RPG 的可玩基础设施：世界卡可以携带自己的规则、正则、侧栏投影、GEN 3 runtime 变量/集合/动作和受限 UI 扩展；Agent 的工具阶段、候选绑定、计划摘要、pending 恢复和回执诊断均进入同一套存档协议。酒馆与 RPG 仍使用各自的角色/世界/会话/存档边界，删除和刷新不会把数据重新串回默认模板。
+本版本把 RPG 运行面收敛到一个可扩展核心：世界卡声明 runtime 变量/集合/动作，AI 负责观察、决策、判定并提交 Typed Patch；宿主只负责校验、持久化和绑定当前存档。旧硬编码投影不再进入新协议，酒馆与 RPG 仍使用各自的角色/世界/会话/存档边界，删除和刷新不会把数据重新串回默认模板。
 
 ### 当前限制
 
@@ -258,7 +305,7 @@ docs/                          数据结构、世界卡与 Android 文档
 - Agent 兼容模式不会在模型回复后补掷骰；需要把结果回传给模型时使用原生 Agent 工具模式；
 - 队伍管理和部分作者工作台仍需完善；
 - 服务端默认无鉴权和 SSRF 防护，只适合本地开发/演示；
-- 扩展事件是只读前端通知，不是服务端 Hook；世界卡 `ui.extension` 仍通过 sandbox Bridge、runtime Schema 或 Agent 工具表达行为。绑定角色卡中明确存在的 HTML/CSS/JS 可在显示前经用户确认后进入同源完整兼容 iframe；角色卡脚本可访问宿主 DOM、localStorage、外部脚本和网络，并提供 `triggerSlash('/send …|/trigger')`、`copyToTavernDialog(text)`、`TavernCard.send/copy` 以及注入当前会话/角色书快照的只读 `getLastMessageId()`、`getCurrentMessageId()`、`getChatMessages()`、`getCharWorldbookNames()`、`getWorldbook()` 和 `getCurrentChatId()`，用于兼容“加载本卡设置”等 ST 卡内脚本。预设中的 EJS、MVU 和脚本仍保留并标记为不执行；完整兼容模式只对用户明确授权的角色卡开启，请勿导入不可信卡；
+- 扩展事件是只读前端通知，不是服务端 Hook；世界卡 `ui.extension` 仍通过 sandbox Bridge、runtime Schema 或 Agent 工具表达行为。绑定角色卡中明确存在的 HTML/CSS/JS 可在显示前经用户确认后进入同源完整兼容 iframe；角色卡脚本可访问宿主 DOM、localStorage、外部脚本和网络，并提供 `triggerSlash('/send …|/trigger')`、`copyToTavernDialog(text)`、`TavernCard.send/copy` 以及注入当前会话/角色书快照的只读 `getLastMessageId()`、`getCurrentMessageId()`、`getChatMessages()`、`getCharWorldbookNames()`、`getWorldbook()` 和 `getCurrentChatId()`，并兼容常见的 `$(selector).load('https://…')` 外部界面加载写法。预设中的 EJS、MVU 和脚本仍保留并标记为不执行；完整兼容模式只对用户明确授权的角色卡开启，请勿导入不可信卡；
 - Android 需要在真实设备上继续验收。
 
 ### 未来规划（未完成内容）

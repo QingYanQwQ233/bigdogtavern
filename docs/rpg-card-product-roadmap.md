@@ -31,10 +31,10 @@
 
 当前已落地最小两阶段边界：`POST /api/world-saves/<saveId>/agent-execute` 在不增加正式 revision 的情况下结算并保存 `agentRuntime.pending`，前端对 Typed Patch 回合自动执行后再提交 `agentPhase:'narrate'`，此时才一次性写入 state、turns、receipt 与 eventLedger；待叙事结果带 baseRevision，过期或重复执行会被拒绝，用户放弃回合时可取消 pending。pending 现在会受限保存待叙事 `turns/options`，并持久化 `phase/phaseHistory`；刷新后可恢复并显示当前阶段，继续提交或放弃。原生工具循环已支持有限的多步调用；完整 Observe / Decide / Guard 编排和独立规则执行器仍未实现。
 
-Agent Guard 当前提供最小证据闭环：客户端工具执行 trace 可随 execute 阶段提交，服务端按白名单、长度、JSON 结构、工具所属阶段和 `observe → decide → guard` 顺序校验；成功的 `dice.roll` 必须伴随同回合成功的 `rules.check`，否则回合停在提交前。trace 仍是不可信诊断证据，正式状态仍由 Typed Patch、冲突、骰子和存档 CAS 再次复核，receipt 会标记 `guard.status` 与每个工具的通过 / 拒绝结果。
+Agent Guard 当前提供最小证据闭环：客户端工具执行 trace 可随 execute 阶段提交，服务端按白名单、长度、JSON 结构、工具所属阶段和 `observe → decide → guard → commit` 顺序校验；成功的 `dice.roll` 必须伴随同回合成功的 `rules.check`，状态/记忆候选只能在判定阶段之后提交，否则回合停在提交前。trace 仍是不可信诊断证据，正式状态仍由 Typed Patch、冲突、骰子和存档 CAS 再次复核，receipt 会标记 `guard.status` 与每个工具的通过 / 拒绝结果。
 候选调用与 trace 还会按 `callId/name` 绑定；只读 `context.retrieve` 可作为观察证据而不进入状态候选，其余 trace 在存在候选列表时必须有对应声明。旧客户端仅提交候选而不提交 trace 时继续走原有 Typed Patch 校验。`agentRuntime.pending.orchestration` 保存摘要计数，供刷新恢复和调试显示。
 
-阶段编排已接入现有工具循环：`context.retrieve → observe`，状态 / 实体 / 记忆候选 → `decide`，`rules.check / dice.roll → guard`，服务端两阶段提交 → `execute → narrate`。客户端负责调用循环，服务端负责最终阶段顺序与骰子门控；仍不执行任意模型脚本，也不把客户端结果直接当作状态真相。
+阶段编排已接入现有工具循环：`context.retrieve → observe`，规则选择 → `decide`，`rules.check / dice.roll → guard`，状态 / 实体 / 记忆候选 → `commit`，服务端两阶段提交 → `execute → narrate`。客户端负责调用循环，服务端负责最终阶段顺序与骰子门控；仍不执行任意模型脚本，也不把客户端结果直接当作状态真相。
 
 多步骤行动的最小规划层复用 `objective.upsert`：Agent 可以先提出一个或多个目标/线索作为计划，再提交状态候选；计划进入 `orchestration.plan`，玩家可以忽略，不会被解释成强制主线。
 
@@ -646,3 +646,6 @@ Implemented the minimal faction contract: static `WorldCard.factions`, save-owne
 ### R4.10 当前进度
 
 已完成截止时限的最小结算：目标 / 线索使用绝对世界时钟，服务端在正式回合推进后自动标记过期，receipt 记录过期 ID，前端和 RPG Prompt 显示未过期时限。长休、移动成本和更丰富的跨地区后果留给后续 `timeCost` 切片。
+# 历史说明
+
+本文包含早期 RPG 世界卡路线（地图、物品、任务、势力、冲突、成长和 runtime）。这些能力已从当前最小可玩世界卡契约中移除；文中的旧检查脚本与数据结构仅作历史记录，不代表当前实现。

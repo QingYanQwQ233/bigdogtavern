@@ -39,7 +39,7 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
 
     private val dataDir: File = File(ctx.filesDir, "data")
     private val imgDir: File = File(ctx.filesDir, "images")
-    private val dataTypes = setOf("characters", "presets", "lorebooks", "settings", "user", "sessions")
+    private val dataTypes = setOf("characters", "presets", "lorebooks", "settings", "user", "gen", "sessions")
     private val worldsFile: File = File(dataDir, "worlds.json")
     private val worldDraftsFile: File = File(dataDir, "world-drafts.json")
     private val worldImportsFile: File = File(dataDir, "world-imports.json")
@@ -51,26 +51,27 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
         } catch (e: Exception) {
             session.uri
         }
+        val route = uri.substringBefore('?')
         return try {
             when {
-                session.method == Method.POST && uri == "/api/chat" -> handleChat(session)
-                session.method == Method.POST && uri == "/api/image" -> handleImage(session)
-                session.method == Method.POST && uri == "/api/image-save" -> handleImageSave(session)
-                session.method == Method.GET && uri == "/api/models" -> handleModels(session)
-                session.method == Method.GET && uri == "/api/worlds" -> handleWorlds()
-                uri.substringBefore('?').startsWith("/api/worlds/") && session.method == Method.GET ->
+                session.method == Method.POST && route == "/api/chat" -> handleChat(session)
+                session.method == Method.POST && route == "/api/image" -> handleImage(session)
+                session.method == Method.POST && route == "/api/image-save" -> handleImageSave(session)
+                session.method == Method.GET && route == "/api/models" -> handleModels(session)
+                session.method == Method.GET && route == "/api/worlds" -> handleWorlds()
+                route.startsWith("/api/worlds/") && session.method == Method.GET ->
                     handleWorldItem(uri)
-                uri.substringBefore('?') == "/api/world-saves" && (session.method == Method.GET || session.method == Method.POST) ->
+                route == "/api/world-saves" && (session.method == Method.GET || session.method == Method.POST) ->
                     handleWorldSavesRoot(session, uri)
-                uri.substringBefore('?').startsWith("/api/world-saves/") ->
-                    handleWorldSaveItem(session, uri.substringBefore('?').removePrefix("/api/world-saves/"))
-                session.method == Method.POST && uri == "/api/world-drafts" -> handleWorldDraftCreate(session)
-                uri.startsWith("/api/world-drafts/") && (session.method == Method.GET || session.method == Method.PUT) ->
-                    handleWorldDraftItem(session, uri.removePrefix("/api/world-drafts/"))
-                session.method == Method.POST && uri == "/api/world-imports" -> handleWorldImportPreview(session)
-                uri.startsWith("/api/world-imports/") && (session.method == Method.GET || session.method == Method.POST) ->
-                    handleWorldImportItem(session, uri.removePrefix("/api/world-imports/"))
-                uri.startsWith("/api/data/") -> handleData(session, uri)
+                route.startsWith("/api/world-saves/") ->
+                    handleWorldSaveItem(session, route.removePrefix("/api/world-saves/"))
+                session.method == Method.POST && route == "/api/world-drafts" -> handleWorldDraftCreate(session)
+                route.startsWith("/api/world-drafts/") && (session.method == Method.GET || session.method == Method.PUT) ->
+                    handleWorldDraftItem(session, route.removePrefix("/api/world-drafts/"))
+                session.method == Method.POST && route == "/api/world-imports" -> handleWorldImportPreview(session)
+                route.startsWith("/api/world-imports/") && (session.method == Method.GET || session.method == Method.POST) ->
+                    handleWorldImportItem(session, route.removePrefix("/api/world-imports/"))
+                route.startsWith("/api/data/") -> handleData(session, uri)
                 else -> serveStatic(uri)
             }
         } catch (e: Exception) {
@@ -309,8 +310,11 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
             ensureSaveState(state)
             val player = body.optJSONObject("player")?.let { JSONObject(it.toString()) }
             if (player != null) state.put("player", JSONObject(player.toString()))
+            val playerId = start.optString("playerTemplateId").ifBlank { "pc-$saveId" }
+            val setupOnly = body.optBoolean("setupOnly", false)
             val now = System.currentTimeMillis()
             val save = JSONObject().apply {
+                put("schemaVersion", 1)
                 put("id", saveId)
                 put("worldId", world.optString("id"))
                 put("worldVersion", world.optInt("version", 1))
@@ -319,22 +323,33 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
                 put("updatedAt", now)
                 put("revision", 0)
                 put("player", JSONObject().put("snapshot", player ?: JSONObject()))
+                put("party", JSONObject().put("memberIds", org.json.JSONArray().put(playerId)).put("leaderId", playerId))
                 put("state", state)
+                put("initialState", JSONObject(state.toString()))
                 put("opening", start.optString("opening"))
                 put("openingMode", if (start.optString("openingMode") == "static") "static" else "ai")
                 put("setup", JSONObject().apply {
-                    put("status", if (start.optString("openingMode") == "static") "active" else "planning")
+                    put("status", if (!setupOnly && start.optString("openingMode") == "static") "active" else "planning")
                     put("game", start.optJSONObject("sessionConfig") ?: JSONObject())
                     put("plan", JSONObject.NULL)
                     put("candidate", JSONObject.NULL)
+                    if (setupOnly) put("draft", body.optJSONObject("setupDraft") ?: JSONObject())
                 })
-                put("openingOptions", org.json.JSONArray())
+                put("openingOptions", start.optJSONArray("openingOptions") ?: org.json.JSONArray())
                 put("turns", org.json.JSONArray())
                 put("receipts", org.json.JSONArray())
                 put("eventLedger", org.json.JSONArray())
+                put("initialEventLedger", org.json.JSONArray())
                 put("eventMemory", org.json.JSONArray())
                 put("npcStates", JSONObject())
+                put("initialNpcStates", JSONObject())
+                put("agentRuntime", JSONObject().put("version", 1).put("status", "idle").put("pending", JSONObject.NULL))
+                put("memoryRebuild", JSONObject.NULL)
+                put("worldLineSummary", JSONObject.NULL)
                 put("generatedEntities", JSONObject())
+                put("migrationHistory", org.json.JSONArray())
+                put("openingCommandId", JSONObject.NULL)
+                if (body.has("playerPresetId")) put("playerPresetId", body.optString("playerPresetId"))
             }
             writeObject(File(savesDir, "$saveId.json"), save)
             json(Response.Status.CREATED, save)
@@ -722,6 +737,12 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
                 put("createEntities", payload.optJSONArray("createEntities") ?: org.json.JSONArray())
                 put("eventMemory", payload.optJSONArray("eventMemory") ?: org.json.JSONArray())
                 put("agentCalls", payload.optJSONArray("agentCalls") ?: org.json.JSONArray())
+                put("agentToolTrace", payload.optJSONArray("agentToolTrace") ?: org.json.JSONArray())
+                put("turns", payload.optJSONArray("turns") ?: org.json.JSONArray())
+                put("options", payload.optJSONArray("options") ?: org.json.JSONArray())
+                put("phase", "narrate")
+                put("phaseHistory", org.json.JSONArray().put(JSONObject().put("phase", "narrate").put("status", "pending").put("order", 1)))
+                put("orchestration", payload.optJSONObject("orchestration") ?: JSONObject())
                 if (payload.has("actionIntent")) put("actionIntent", payload.optJSONObject("actionIntent") ?: JSONObject.NULL)
             }
             val next = JSONObject(current.toString()).put("agentRuntime", JSONObject().put("version", 1).put("status", "awaiting-narration").put("pending", pending)).put("updatedAt", System.currentTimeMillis())
@@ -758,7 +779,7 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
             ?: return json(Response.Status.CONFLICT, JSONObject().put("error", "Agent 执行结果不存在或已过期").put("revision", current.optInt("revision", 0)))
         val expected = payload.optInt("expectedRevision", -1)
         if (!safeCommandId(commandId) || !safeCommandId(payload.optString("pendingCommandId")) || payload.optString("pendingCommandId") != pending.optString("commandId") || expected != current.optInt("revision", 0)) return json(Response.Status.CONFLICT, JSONObject().put("error", "Agent 执行结果不存在或已过期").put("revision", current.optInt("revision", 0)))
-        val turns = payload.optJSONArray("turns") ?: return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "narrate 阶段必须包含 turns"))
+        val turns = payload.optJSONArray("turns") ?: pending.optJSONArray("turns") ?: return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "narrate 阶段必须包含 turns"))
         var hasAssistant = false
         for (index in 0 until turns.length()) if (turns.optJSONObject(index)?.optString("role") == "assistant") hasAssistant = true
         if (turns.length() > 32 || !hasAssistant) return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "narrate 阶段必须包含 assistant 消息"))
@@ -767,7 +788,7 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
         val next = JSONObject(current.toString()).apply {
             put("state", nextState)
             put("turns", appendJsonArray(current.optJSONArray("turns"), turns))
-            put("openingOptions", payload.optJSONArray("options") ?: org.json.JSONArray())
+            put("openingOptions", payload.optJSONArray("options") ?: pending.optJSONArray("options") ?: org.json.JSONArray())
             put("revision", expected + 1)
             put("updatedAt", System.currentTimeMillis())
             put("agentRuntime", JSONObject().put("version", 1).put("status", "idle").put("pending", JSONObject.NULL))
@@ -829,7 +850,13 @@ class TavernServer(private val ctx: Context) : NanoHTTPD("127.0.0.1", 3000) { //
             } else JSONObject(payload.optJSONObject("state")?.toString() ?: current.optJSONObject("state")?.toString() ?: "{}")
             ensureSaveState(state)
             next.put("state", state)
-            if (payload.has("turns")) next.put("turns", appendJsonArray(current.optJSONArray("turns"), payload.optJSONArray("turns")))
+            if (payload.has("turns")) {
+                val incomingTurns = payload.optJSONArray("turns")
+                    ?: return json(Response.Status.BAD_REQUEST, JSONObject().put("error", "turns 必须是数组"))
+                // PUT 是完整快照写入；POST 才是增量回合写入。否则编辑/删除历史会被旧楼层重新追加。
+                next.put("turns", if (session.method == Method.PUT) org.json.JSONArray(incomingTurns.toString()) else appendJsonArray(current.optJSONArray("turns"), incomingTurns))
+            }
+            if (payload.has("opening") && !payload.isNull("opening")) next.put("opening", payload.optString("opening"))
             val revision = expected + 1
             next.put("revision", revision)
             next.put("updatedAt", System.currentTimeMillis())

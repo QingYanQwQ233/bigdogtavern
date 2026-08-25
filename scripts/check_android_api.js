@@ -6,6 +6,7 @@ const fs = require('fs');
 const source = fs.readFileSync('android/app/src/main/java/com/tavern/app/TavernServer.kt', 'utf8');
 const activity = fs.readFileSync('android/app/src/main/java/com/tavern/app/MainActivity.kt', 'utf8');
 const app = fs.readFileSync('public/app.js', 'utf8');
+const workflow = fs.readFileSync('.github/workflows/android-apk.yml', 'utf8');
 for (const route of ['/api/worlds/', '/api/world-saves', '/setup', '/opening-candidate', '/opening', '/rename', '/export', '/copy', '/upgrade', '/agent-execute', '/agent-cancel', '/growth', '/end', '/reopen', '/summary', '/memory']) {
   assert.ok(source.includes(route), `Android route missing: ${route}`);
 }
@@ -20,7 +21,7 @@ assert.ok(source.includes('"regexes"'), 'Android must preserve world output rege
 assert.ok(source.includes('setupStatus'), 'Android summaries must expose setup status');
 assert.ok(source.includes('files["content"]'), 'Android PUT bodies must read NanoHTTPD temp content files');
 assert.ok(!source.includes('files["postData"] ?: ""'), 'Android must not silently convert missing bodies to empty JSON');
-assert.ok(source.includes('"characters", "presets", "lorebooks", "settings", "user", "sessions"'), 'Android data API must include user data');
+assert.ok(source.includes('"characters", "presets", "lorebooks", "settings", "user", "gen", "sessions"'), 'Android data API must match frontend persisted data types');
 assert.ok(source.includes('JSONTokener(raw).nextValue()'), 'Android data API must accept JSON array roots such as characters.json');
 assert.ok(source.includes('writeTextAtomic(f, raw)'), 'Android data API must atomically persist PUT bodies');
 assert.ok(source.includes('handleWorldSaveDelete'), 'Android must expose save deletion');
@@ -40,4 +41,7 @@ assert.ok(activity.includes('MediaStore.Downloads'), 'Android exports must targe
 assert.ok(activity.includes('saveFile(rawName'), 'Android export bridge must receive frontend files');
 assert.match(app, /async function downloadBlob\(blob, filename\)/);
 assert.ok(app.includes('bridge.saveFile(filename'), 'Frontend exports must use the Android bridge when available');
+assert.ok(workflow.includes('public/app.js public/mapgen.js'), 'APK assets must include mapgen.js alongside app.js');
+assert.ok(!workflow.includes('cp -r public/data'), 'APK build must not copy runtime data or API keys');
+assert.match(workflow, /permissions:\s*\n\s+contents:\s+read\b/, 'APK workflow token must remain read-only');
 console.log('android API contract check passed');

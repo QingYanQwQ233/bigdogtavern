@@ -1,6 +1,6 @@
 # World App Contract（世界卡应用契约）
 
-> 状态：W0 基线冻结 / W1 设计输入。本文描述当前代码证据与下一阶段契约，不代表所有目标能力已经实现。
+> 状态：W1 runtime 垂直切片已实现。本文描述当前代码证据与后续契约，未实现的扩展仍以明确的兼容边界标注。
 >
 > 目标：让世界卡从“固定 RPG 页面的一组配置”逐步成为一个可自定义、可保存、可恢复、可隔离的独立叙事应用包。
 
@@ -10,10 +10,9 @@
 
 ```text
 WorldCard(worldId, worldVersion)
-├─ setting / rules / locations / NPC / factions
+├─ setting / rules / locations / NPC
 ├─ lorebookIds / rpgPresetName / regexes
-├─ runtime schema / agent profile
-├─ ui declaration / sandbox extension
+├─ agent profile / ui declaration / extension
 └─ package assets
           │ 创建时快照
           ▼
@@ -41,20 +40,16 @@ WorldSave(saveId, worldId, worldVersion, revision)
 | 世界草稿 | `world-drafts.json`、草稿校验与发布接口 | 已实现 |
 | 世界存档 | `saves/<saveId>.json`、`revision`、CAS 写入 | 已实现 |
 | 世界书 / 预设 / 正则 | `lorebookIds`、`rpgPresetName`、`regexes` | 已绑定；按世界版本读取 |
-| runtime | `runtime.variables / collections / actions` 与服务端 Typed Patch | 已实现受限 JSON DSL |
+| RPG 状态 | 角色、属性、资源、地点、时间与世界卡声明的 runtime | 新世界卡唯一正式状态；物品、任务、关系等自定义数据走 runtime |
 | Agent | `agent` profile、`agent-execute` / `agentPhase` | 已实现工具候选 / 原生循环 |
-| 自定义 UI | `ui.sidebar` 声明式面板 | 已实现有限数据源 |
-| 扩展 UI | `ui.extension` HTML/CSS/JS/MVU + sandbox iframe | 已实现；首次授权后运行 |
+| 自定义 UI | `ui.sidebar` / `ui.extension` | 已实现有限数据源；只能提交玩家行动 |
 | 旧卡脚本 | 绑定角色卡中的 HTML/CSS/JS；预设中的 EJS、MVU、脚本 | 角色卡脚本需用户授权后在同源完整兼容 iframe 中运行，可访问宿主 DOM、localStorage、外部脚本和网络；预设脚本与模板保留但不执行 |
 | 世界包 | `tavern_world_package` 导入 / 导出 | 已实现；未知可执行内容不执行 |
 
 当前扩展桥接入口为 `TavernExtension`：
 
 - `requestContext()`：读取当前世界和当前存档的白名单投影；
-- `patch(updates)`：提交受限 runtime Patch；
-- `action(actionId, input)`：调用世界卡声明式动作；
-- `choose(text, options)`：复用普通 RPG 回合管线；
-- `mvu(message)`：把兼容消息映射到受限 runtime 更新。
+- `choose(text, options)`：复用普通 RPG 回合管线；卡内 UI 只提交玩家行动，runtime 变量/集合/动作由 AI 回合统一产生 Typed Patch。
 - `fullscreen()`：由卡内按钮请求浏览器全屏；失败时仍保持整页沉浸视图；
 - `exitFullscreen()`：退出浏览器全屏和沉浸布局，恢复窗口化卡内界面；Esc 使用同一退出路径；
 - `exitWorld()`：退出当前世界工作区，回到世界库；适用于世界卡隐藏宿主导航时提供卡内返回入口。
@@ -62,7 +57,7 @@ WorldSave(saveId, worldId, worldVersion, revision)
 
 绑定角色卡脚本另有一组只读 ST 兼容快照接口：`getLastMessageId()`、`getCurrentMessageId()`、`getChatMessages(range)`、`getAllChatMessages()`、`getCharWorldbookNames()`、`getWorldbook(name)` 和 `getCurrentChatId()`。快照在角色卡消息渲染时注入，只包含当前 Tavern 会话及绑定角色书；完整兼容 iframe 另提供宿主 DOM、localStorage、外部脚本、网络和原生 `alert()`，因此依赖这些同步接口或卡内资源的“加载本卡设置”类脚本可以运行。角色卡脚本仅在用户明确确认后启用；世界卡 `ui.extension` 仍维持 sandbox 边界。
 
-现有 `ui.extension` 是 W1 的兼容入口，不立即删除或改名。新的 UI 插槽和权限契约必须能从旧扩展配置降级出来。
+现有 `ui.extension` 是 W1 的兼容入口，不立即删除或改名。新的 UI 插槽和权限契约必须能从旧扩展配置降级出来。游玩阶段的 `getContext()` / `runtime.get()` 只读 runtime 快照；状态变化统一进入 AI 的声明式 runtime patch，避免扩展脚本绕过回合与存档 CAS。
 
 ## 3. World App Package 草案
 
@@ -86,9 +81,9 @@ WorldSave(saveId, worldId, worldVersion, revision)
 }
 ```
 
-`manifest.appContractVersion` 是世界应用契约版本，当前为 `1`；缺失时按旧包兼容处理，未来版本高于宿主能力会拒绝导入。导出时同时写入 `capabilities`，只描述包声明了哪些 UI、runtime、Agent、正则和引用能力，不包含运行时状态。
+`manifest.appContractVersion` 是世界应用契约版本，当前为 `1`；缺失时按旧包兼容处理，未来版本高于宿主能力会拒绝导入。导出时同时写入 `capabilities`，只描述包声明了哪些 UI、Agent、正则和引用能力，不包含运行时状态。
 
-W1 只扩展 `content.world` 的已知字段，不另起第二份状态仓库。目标结构如下：
+当前实现扩展 `content.world` 的已知字段，不另起第二份状态仓库。目标结构如下：
 
 ```json
 {
@@ -116,12 +111,12 @@ W1 只扩展 `content.world` 的已知字段，不另起第二份状态仓库。
 字段规则：
 
 - `lorebookIds`、`rpgPresetName`、`regexes` 是当前世界版本的 AI 依赖快照；不会读取酒馆模式当前选择。
-- `runtime` 只定义 Schema；本局的值在创建存档时复制到 `WorldSave.state.runtime`。
-- `ui` 定义界面和权限，不保存对话或正式数值。
+- runtime 属于新世界卡契约：世界卡声明变量、集合、动作和 entry schema，存档只保存按该 schema 初始化并经回合校验后的 runtime state。旧的物品、任务、地图、势力、成长硬编码投影仅作兼容读取，不再作为世界卡的写入入口。
+- `ui` 定义界面和权限，不保存对话或正式数值；自定义侧栏可读取 `runtime.variables.*` / `runtime.collections.*` 的当前存档投影。
 - `ui.schemaVersion` 当前为 `1`；缺失按旧格式兼容，未知版本拒绝发布。
 - `assets` 只允许受校验的相对路径 / 数据资源引用；不允许本机绝对路径和带认证参数的 URL。
 - 导入必须保留原始包、来源、版本和哈希；确认后才命名空间化落库。
-- 导入旧包时仅在内存映射阶段补齐缺省的 `ui`、`runtime`、`agent`、`regexes` 和引用数组；原始封存文本与内容哈希不改写。
+- 导入旧包时仅在内存映射阶段补齐缺省的 `ui`、`agent`、`regexes` 和引用数组；原始封存文本与内容哈希不改写。
 
 ## 4. 自定义 UI 契约
 
@@ -132,7 +127,7 @@ W1 只扩展 `content.world` 的已知字段，不另起第二份状态仓库。
 二级  workspace       Tavern / RPG / 世界库等视图路由（宿主）
 三级  workspace slots  顶栏、叙事、侧栏、状态、选项、输入（宿主或世界卡）
 四级  components       卡片、列表、按钮、表单、消息和滚动容器（当前渲染 owner）
-五级  bridge            投影读取、UI Command、统一回合与 runtime Patch（宿主校验）
+五级  bridge            投影读取、统一回合与选项提交（宿主校验）
 ```
 
 移动端不改变这五级归属，但把同级管理器收敛为“父级列表 → 子级详情”的钻取流程；列表和详情顶部都固定显示返回条，详情返回只回到上一级，嵌套的预设条目与世界书条目继续使用各自的二级返回；玩家设定页先显示设定列表，再从顶部按钮进入记忆条目。
@@ -187,9 +182,9 @@ UI 不直接写 `WorldSave`。卡内控件应通过稳定绑定描述数据源�
 {
   "id": "shop",
   "slot": "sidebar.right",
-  "source": "runtime.collections.shop",
+  "source": "state.player",
   "layout": "cards",
-  "actions": [{ "type": "runtime.action", "actionId": "buy" }]
+  "actions": [{ "type": "player.choose", "text": "查看状态" }]
 }
 ```
 
@@ -281,7 +276,7 @@ UI / Agent action
 - 授权只对当前世界版本和扩展代码哈希生效；
 - iframe 使用 `sandbox="allow-scripts"` 和 CSP；
 - 不提供 `allow-same-origin`、网络、文件系统、主页面 DOM 或 API key；
-- `read.*`、`write.runtime`、`tool.call` 分开授权；
+- 只读投影与玩家行动提交分开处理；不提供状态/变量写入桥；
 - 扩展超时、异常或权限失败时只停用扩展，不污染存档。
 
 ### 6.2 EJS / MVU 兼容边界
@@ -289,8 +284,7 @@ UI / Agent action
 - 角色卡中的 HTML/CSS/JS：首次显示前需用户授权，在同源完整兼容 iframe 中运行；角色卡可使用宿主 DOM、localStorage、外部脚本、网络和原生 `alert()`；预设中的 EJS / MVU / 脚本仍保存、导出并标记为不执行；
 - 角色卡 EJS / MVU 模板：只保留原文，不解释模板变量；脚本提供 ST 兼容桥：`triggerSlash('/send …|/trigger')`、`copyToTavernDialog(text)`、`TavernCard.send/copy` 分别发送到当前 Tavern 对话或填入输入框，并注入当前对话/角色书的只读快照；
 - 世界卡中的 EJS：第一阶段只做安全模板子集或原文保留，不执行任意 Node/EJS 代码；
-- 世界卡中的 MVU：映射到受限变量、集合和 Typed Patch，不实现无限制 `eval`；
-- MVU 兼容入口接受现有 Typed Patch、`{ updates: [...] }`、`{ patch: { updates: [...] } }` 或变量映射 `{ variables: { id: value } }`；变量映射会转换为 `runtime.variable.set`，不支持任意 JSON Path。
+- 世界卡中的 MVU：保留原文用于兼容展示；游玩态扩展可读取 runtime，但不直接写入。变量、集合和 Typed Patch 由世界卡 schema 声明，并由 AI 回合提交。
 - 世界卡扩展的交互脚本只能走授权后的 sandbox Bridge；角色卡脚本则走用户确认后的完整兼容 iframe。
 
 角色卡完整兼容模式不使用 `sandbox` 或 `connect-src 'none'`，因为部分 ST 卡依赖 `parent.document`、localStorage、外部 CDN、卡内相对路径和网络请求。它仍要求逐卡确认，并只接受 `http:` / `https:` 外部脚本 URL；不要导入不可信角色卡。该模式不等于把脚本直接拼进宿主主页面，卡内代码仍位于独立 iframe 文档中。
@@ -315,7 +309,7 @@ UI / Agent action
 
 - Agent 最大步骤数和允许工具；
 - 选项数量与输出标签；
-- 是否允许创建 NPC、地点、任务、物品；
+- 是否允许创建 NPC、地点；
 - 是否需要骰子或规则检查；
 - 回合后触发哪些声明式动作。
 
@@ -325,7 +319,7 @@ UI / Agent action
 
 - 世界定义发布后形成不可变 `worldVersion`；
 - 现有存档继续读取旧版本；
-- 新 UI / runtime 字段必须提供默认值或迁移函数；
+- 新 UI 字段必须提供默认值或迁移函数；
 - 升级前先 dry-run，列出缺失 ID、字段变化、权限变化和脚本风险；
 - 迁移成功才更新 `worldVersion` 与 `revision`；
 - 导入失败、用户取消或扩展校验失败不得写入活动世界。
@@ -334,9 +328,7 @@ UI / Agent action
 
 以下现有检查必须保持通过：
 
-- `node scripts/check_world_storage.js`
-- `node scripts/check_world_electronic_yandere.js`
-- `node scripts/check_rpg_extension.js`
+- `node scripts/check_rpg_minimal_world.js`
 - `node scripts/check_rpg_agent.js`
 - `node scripts/check_rpg_agent_compat.js`
 - `node scripts/check_session_binding.js`

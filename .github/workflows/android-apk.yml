@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch: # 手动触发
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -34,7 +37,7 @@ jobs:
           sed -E -i "s#const ASSET_VERSION = '[^']+';#const ASSET_VERSION = '${ASSET_VERSION}';#" public/sw.js
           mkdir -p android/app/src/main/assets/data
           # 前端资源（明确列出；绝不复制 public/data/ 下的运行时文件——含用户 API key）
-          cp public/index.html public/styles.css public/app.js \
+          cp public/index.html public/styles.css public/app.js public/mapgen.js \
              public/manifest.json public/sw.js public/favicon.png \
              android/app/src/main/assets/
           cp -r public/vendor public/icons android/app/src/main/assets/

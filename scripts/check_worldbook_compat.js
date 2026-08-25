@@ -43,7 +43,7 @@ assert.match(source, /world-lb-delete/);
 assert.match(source, /function deleteLBById\(id\)/);
 
 const importStart = source.indexOf('function importCharOrLorebookFromBuffer(buffer, fileName = \'\')');
-const importEnd = source.indexOf('function exportCurrentChar()', importStart);
+const importEnd = source.indexOf('async function exportCurrentChar()', importStart);
 assert.ok(importStart >= 0 && importEnd > importStart, 'unified character/worldbook import helper not found');
 const importSandbox = {
   characterCardTextFromBuffer: () => JSON.stringify({ name: 'ST 世界书', entries: [{ key: ['港口'], content: 'x' }] }),

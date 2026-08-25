@@ -458,6 +458,26 @@
         "agentCalls": [{ "callId": "dev-patch", "name": "state.patch", "arguments": { "updates": [] } }]
       },
       {
+        "id": "hp-debug",
+        "label": "调试：生命值 -1",
+        "description": "使用正式 Typed Patch 让当前世界卡的生命资源减少 1；触底时不会继续减少。",
+        "action": "[开发者调试] 生命值减少 1。",
+        "narrative": "调试指令已提交：生命值变化会写入当前存档，并在下一次状态读取时保持。",
+        "options": ["查看角色状态", "继续行动", "检查存档版本", "结束调试"],
+        "patch": { "updates": [{ "type": "player.resource.delta", "id": "{{firstResourceId}}", "delta": "{{negativeResourceDelta}}" }] },
+        "agentCalls": [{ "callId": "dev-hp", "name": "state.patch", "arguments": { "updates": [] } }]
+      },
+      {
+        "id": "runtime-mvu-debug",
+        "label": "调试：runtime 数值 -1",
+        "description": "使用 runtime.variable.delta 修改当前世界卡声明的第一个数字变量，验证 MVU 式变量持久化。",
+        "action": "[开发者调试] 当前 runtime 数值减少 1。",
+        "narrative": "runtime 调试指令已提交：变量由存档状态持有，不会写回世界卡定义。",
+        "options": ["读取 runtime 状态", "继续行动", "检查回合账本", "结束调试"],
+        "patch": { "updates": [{ "type": "runtime.variable.delta", "id": "{{runtimeNumberId}}", "delta": "{{runtimeNegativeDelta}}" }] },
+        "agentCalls": [{ "callId": "dev-runtime", "name": "state.patch", "arguments": { "updates": [] } }]
+      },
+      {
         "id": "memory-smoke",
         "label": "记忆与实体候选",
         "description": "提交一条事件记忆与一个实体候选，验证服务端绑定与回合账本。",
@@ -515,8 +535,8 @@
       "inventory": [],
       "quests": []
     },
-    "stateInstruction": "⚠️ RPG 输出硬协议（机器接口，优先级高于普通写作要求）：每次回复先输出 Markdown 叙事正文，末尾只能输出一次 <tavern_state_update>JSON</tavern_state_update>；结束标签后不得有任何字符、解释或代码围栏。JSON 顶层只能使用 protocol、version、baseRevision、updates、options、eventMemory、createEntities；兼容 Agent 的 toolCalls 只能作为临时工具候选，不能放进 updates，客户端会在提交前移除。protocol 必须是 tavern.rpg.turn，version 必须是 1，baseRevision 必须等于当前存档 revision；options 默认必须恰好 4 个（以当前世界卡回合契约为准）的具体行动选项，不能重复，不能写进叙事正文。updates 没有状态变化时必须是 []。每个 update 只能使用声明字段：player.resource.delta、player.attribute.delta、player.skill.delta、currency.delta 只能是 {type,id,delta}；inventory.delta 只能是 {type,itemId,delta,name?,desc?,weight?}；location.set 只能是 {type,locationId}；effect.add/remove 只能是 {type,value}；objective.status 只能是 {type,kind,id,status}；objective.upsert 只能是 {type,kind,id,title,desc,status?,actorId?,locationId?,deadline?,tags?}；runtime.variable.set 只能是 {type,id,value}；runtime.variable.delta 只能是 {type,id,delta}；runtime.collection.add 只能是 {type,collectionId,value}；runtime.collection.remove 只能是 {type,collectionId,entryId}；runtime.action.execute 只能是 {type,actionId,input?}，input 只能包含该动作 Schema 已声明的输入 ID。runtime.action.execute 禁止出现 result、args、value、execute、target、changes 或任何其他字段；不知道动作 ID 或输入 Schema 时不要猜测，直接不要提交该 update。只使用当前世界卡和当前存档声明的 ID；不得提交完整 state、冲突 HP、服务端判定结果或未发生的变化。发送前在内部检查：唯一标签、合法 JSON、顶层字段、每个 update 字段、当前 revision、选项数量；不要输出检查过程、隐藏推理或标签外内容。",
-    "diceInstruction": "【判定与骰子门控】默认不掷骰。只有当玩家当前行动存在真实不确定性、失败会带来实际后果，并且当前世界卡/冲突规则明确需要判定时，才先调用 rules.check，再调用 dice.roll；不要因为叙事、NPC 台词、普通文本或行动选项中出现 d20/d6 就掷骰。玩家明确输入骰子表达式时可视为显式请求。骰子结果必须在最终叙事中明确说明，并让成功、失败或部分成功产生不同的后果；没有判定就不要调用 dice.roll。行动选项只放在唯一的 <tavern_state_update> JSON 的 options 数组中，禁止在 Markdown 叙事正文重复列出。",
+    "stateInstruction": "⚠️ RPG 输出硬协议（机器接口，优先级高于普通写作要求）：每次回复先输出 Markdown 叙事正文，末尾只能输出一次 <tavern_state_update>JSON</tavern_state_update>；结束标签后不得有任何字符、解释或代码围栏。JSON 顶层只能使用 protocol、version、baseRevision、updates、options、eventMemory、createEntities；兼容 Agent 的 toolCalls 只能作为临时工具候选，不能放进 updates，客户端会在提交前移除。protocol 必须是 tavern.rpg.turn，version 必须是 1，baseRevision 必须等于当前存档 revision；options 默认必须恰好 4 个（以当前世界卡回合契约为准）的具体行动选项，不能重复，不能写进叙事正文。updates 没有状态变化时必须是 []。每个 update 只能使用当前世界卡声明的字段：runtime.variable.set/delta、runtime.collection.add/remove/patch、runtime.action.execute，以及项目仍启用的玩家状态、地点和效果更新；玩家技能变化只能使用已声明的 player.skill.delta（或当前世界卡声明的等价路径），不要猜测字段。runtime.action.execute 只能是当前动作 Schema 已声明的动作与输入 ID；禁止出现 result、args、value 等未声明的包装字段。collection.patch 只能用 set 修改对象字段，用 delta 修改已有数字字段。Agent 工具按 observe → decide → guard → commit 顺序工作：context.retrieve 只读检索，rules.check 通过后才可 dice.roll，state.patch、memory.record、实体/任务候选必须放在判定之后；客户端工具结果不是状态真相。禁止提交完整 state、修改 runtime schema、猜测未声明 ID 或伪造服务端判定结果。发送前在内部检查：唯一标签、合法 JSON、顶层字段、每个 update 字段、当前 revision、选项数量；不要输出检查过程、隐藏推理或标签外内容。",
+    "diceInstruction": "【判定与骰子门控】默认不掷骰。只有当玩家当前行动存在真实不确定性、失败会带来实际后果，并且当前世界卡/冲突规则明确需要判定时，才先调用 rules.check，再调用 dice.roll；不要因为叙事、NPC 台词、普通文本、用户输入或行动选项中出现 d20/d6 就掷骰。动态判定可省略 ruleId，使用 actionId、sides、target、modifiers，统一公式为 1dN + modifiers 总和；modifiers 只能引用当前玩家 attributes/skills/resources、已声明 runtime 集合数字字段或 constant，不能猜测不存在的字段。若 runtime.actions 的动作声明了 check，rules.check 必须原样使用该动作的 sides/target/modifiers；未声明 check 的日常动作不需要掷骰。rules.check 返回的 modifierRule/modifierRules 是本次判定唯一修正来源：dice.roll.expr 只能写基础骰式（如 1d20），不能写成 1d20+1；规则返回 modifierRule 时原样传回 modifier，返回 modifierRules 时原样传回 modifiers。客户端生成随机骰点，服务端按当前存档重新解析修正并复核结果。世界卡 runtime.action.execute 还会校验动作、输入和 availability 前置条件；需要 check 的物品/技能必须先有对应成功判定，不存在或不可用的物品/技能不得执行。骰子结果必须在最终叙事中明确说明，并让成功、失败或部分成功产生不同的后果；没有判定就不要调用 dice.roll。行动选项只放在唯一的 <tavern_state_update> JSON 的 options 数组中，禁止在 Markdown 叙事正文重复列出。",
     "eventMemoryInstruction": "长期事件记忆是可选的 AI 候选；只有本回合已经在叙事中发生、且值得未来回忆的事件才填写 eventMemory。格式：eventMemory:[{\"summary\":\"已发生事件的简短事实\",\"entityIds\":[\"当前世界/存档中的实体 ID\"],\"locationId\":\"当前世界已登记地点 ID 或 null\",\"time\":{\"unit\":\"时间单位\",\"value\":数字},\"visibility\":\"public|local|hidden\"}]。不要写未发生的计划、推测或其他存档事实；服务端会在正式提交后绑定来源回合、来源事件和 revision，AI 不能填写或伪造这些来源字段。没有值得长期记忆的事件时输出 eventMemory:[]。",
     "agent": {
       "protocol": "tavern.rpg.agent",
@@ -527,10 +547,24 @@
         "dice.roll": {
           "enabled": true,
           "execution": "client",
-          "description": "Only after rules.check approves a real uncertain action, roll a bounded dice expression on the client and return the result. Never call this for ordinary narration or option text.",
+          "description": "Only after rules.check approves a real uncertain action, roll the declared base dice expression on the client. Never put an attribute/skill/resource bonus in expr (do not write 1d20+1). When rules.check returns modifierRule or modifierRules, pass it back unchanged so client/server can resolve the current player/runtime values. Never call this for ordinary narration or option text.",
           "parameters": {
             "type": "object",
-            "properties": { "expr": { "type": "string", "description": "Dice expression such as 1d20+3." } },
+            "properties": {
+              "expr": { "type": "string", "description": "Base dice expression declared by rules.check, such as 1d20 or 2d6; never include +N/-N here." },
+              "modifier": {
+                "type": "object",
+                "description": "Copy the modifierRule returned by rules.check exactly. The program reads the current player's matching attributes/skills/resources field.",
+                "properties": {
+                  "bucket": { "type": "string", "enum": ["attributes", "skills", "resources"] },
+                  "id": { "type": "string" },
+                  "factor": { "type": "number" },
+                  "bonus": { "type": "number" }
+                },
+                "required": ["bucket", "id"],
+                "additionalProperties": false
+              }
+            },
             "required": ["expr"],
             "additionalProperties": false
           }
@@ -538,7 +572,7 @@
         "rules.check": {
           "enabled": true,
           "execution": "client",
-          "description": "Declare that the current player action needs a real world-rule check. This is a gate for one or more dice.roll calls and does not change save state.",
+          "description": "Declare that the current player action needs a real world-rule check. For fixed rules pass ruleId; for a card-defined dynamic action pass actionId, sides, target, and modifier sources. The client returns a read-only CheckProposal; copy its modifierRule/modifierRules unchanged into dice.roll. The server/client resolve only current player/runtime fields and recompute the final ResolutionCandidate from validated client dice. This does not change save state during the tool loop.",
           "parameters": {
             "type": "object",
             "properties": { "ruleId": { "type": "string" }, "input": { "type": "object", "additionalProperties": true } },

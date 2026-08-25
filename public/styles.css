@@ -169,6 +169,55 @@ body[data-mode="rpg"] #rpg-status { display: flex; grid-area: status; }
 }
 .rpg-item .rpg-item-name { font-weight: 600; color: var(--text); }
 .rpg-item .rpg-item-sub { color: var(--muted); font-size: 11.5px; }
+.rpg-panel-summary { color: var(--ok); font-variant-numeric: tabular-nums; }
+.rpg-item .rpg-item-sub.rpg-item-status {
+  width: fit-content;
+  margin-top: 4px;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.rpg-item .rpg-item-sub.rpg-item-status[data-status="confirmed"] {
+  border-color: rgba(48, 209, 88, 0.35);
+  background: rgba(48, 209, 88, 0.08);
+  color: var(--ok);
+}
+.rpg-runtime-action {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 9px;
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  background: linear-gradient(180deg, rgba(var(--bg-0-rgb), 0.42), rgba(var(--bg-0-rgb), 0.2));
+}
+.rpg-runtime-action-field { display: flex; flex-direction: column; gap: 4px; color: var(--text); font-size: 11px; }
+.rpg-runtime-action-field input:not([type="checkbox"]), .rpg-runtime-action-field select, .rpg-runtime-action-field textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(var(--bg-0-rgb), 0.86);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+  color-scheme: dark;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.rpg-runtime-action-field textarea { min-height: 52px; resize: vertical; line-height: 1.45; }
+.rpg-runtime-action-field input:not([type="checkbox"]):focus, .rpg-runtime-action-field select:focus, .rpg-runtime-action-field textarea:focus {
+  border-color: rgba(var(--accent-rgb), 0.75);
+  background: rgba(var(--bg-0-rgb), 0.98);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.1);
+}
+.rpg-runtime-action-field input::placeholder, .rpg-runtime-action-field textarea::placeholder { color: var(--muted); opacity: 0.75; }
+.rpg-runtime-action-field input[type="checkbox"] { width: auto; align-self: flex-start; accent-color: var(--accent); }
+.rpg-runtime-action > button { width: 100%; margin-top: 1px; }
+.rpg-runtime-action-status { min-height: 1.2em; margin: 0; }
 .rpg-player-sheet { display: flex; flex-direction: column; gap: 8px; }
 .rpg-sheet-section { display: flex; flex-direction: column; gap: 5px; }
 .rpg-sheet-section-title { color: var(--muted); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
@@ -177,6 +226,33 @@ body[data-mode="rpg"] #rpg-status { display: flex; grid-area: status; }
 .rpg-sheet-stat-head { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; font-size: 11px; }
 .rpg-sheet-stat-head span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .rpg-sheet-stat-head b { color: var(--text); font-size: 12px; font-variant-numeric: tabular-nums; }
+.rpg-state-delta {
+  display: inline-flex;
+  align-items: center;
+  margin-inline-start: 5px;
+  padding: 1px 5px;
+  border: 1px solid rgba(var(--accent-rgb), 0.28);
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb), 0.1);
+  color: var(--ok);
+  font: 700 10px/1.3 var(--font-body);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  vertical-align: middle;
+  animation: rpg-state-delta-in 180ms var(--motion-out) both;
+}
+.rpg-state-delta.decrease { border-color: rgba(var(--danger-rgb), 0.32); background: rgba(var(--danger-rgb), 0.1); color: var(--danger); }
+.rpg-state-delta.changed { color: var(--accent); }
+.rpg-state-delta.leaving { animation: rpg-state-delta-out 160ms var(--motion-in-out) both; }
+.rpg-panel-entry-feedback { display: flex; flex-wrap: wrap; gap: 5px 8px; color: var(--muted); font-size: 10.5px; }
+.rpg-panel-entry-feedback > span { display: inline-flex; align-items: center; }
+@keyframes rpg-state-delta-in { from { opacity: 0; transform: translateY(2px) scale(0.96); } }
+@keyframes rpg-state-delta-fade { from { opacity: 0; } }
+@keyframes rpg-state-delta-out { to { opacity: 0; transform: translateY(-2px) scale(0.98); } }
+@media (prefers-reduced-motion: reduce) {
+  .rpg-state-delta { animation: rpg-state-delta-fade 180ms var(--motion-out) both; }
+  .rpg-state-delta.leaving { animation-direction: reverse; }
+}
 .rpg-sheet-meter { height: 3px; margin-top: 5px; overflow: hidden; border-radius: 2px; background: rgba(255, 255, 255, 0.08); }
 .rpg-sheet-meter i { display: block; width: var(--meter, 0%); height: 100%; border-radius: inherit; background: var(--accent); }
 .rpg-sheet-text { padding: 6px 7px; border-left: 2px solid var(--line-soft); color: var(--muted); font-size: 11.5px; line-height: 1.45; }
@@ -431,6 +507,18 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   flex-direction: column;
   gap: 16px;
   scroll-behavior: smooth;
+}
+.message-window-control {
+  align-self: center;
+  margin: -4px 0 4px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  background: var(--panel);
+}
+.message-window-control:hover,
+.message-window-control:focus-visible {
+  color: var(--text);
+  border-color: var(--accent);
 }
 .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 
@@ -703,6 +791,7 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   min-width: 0;
   height: 1px;
   max-width: 100%;
+  overflow: auto;
   border: 0;
   background: transparent;
 }
@@ -787,6 +876,68 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere;
+}
+
+/* RPG 判定反馈：短促的状态提示，不占用叙事正文，也不阻塞 AI 请求。 */
+.rpg-check-anchor {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  white-space: normal;
+}
+.rpg-check-feedback {
+  --check-color: var(--accent);
+  --check-rgb: var(--accent-rgb);
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(92%, 360px);
+  margin: 4px auto 10px;
+  padding: 8px 14px 8px 10px;
+  border: 1px solid rgba(var(--check-rgb), 0.34);
+  border-radius: 999px;
+  background: linear-gradient(rgba(var(--check-rgb), 0.1), rgba(var(--check-rgb), 0.1)), var(--panel);
+  box-shadow: 0 5px 18px rgba(0, 0, 0, 0.22);
+  color: var(--text);
+  animation: rpg-check-in 180ms var(--motion-out) both;
+}
+.rpg-check-feedback.is-result {
+  border-color: rgba(var(--check-rgb), 0.62);
+  animation: rpg-check-result 180ms var(--motion-out) both;
+}
+.rpg-check-feedback.is-settled { animation: none; }
+.rpg-check-feedback.is-gold { --check-color: #ffd60a; --check-rgb: 255, 214, 10; box-shadow: 0 5px 18px rgba(0, 0, 0, 0.22), 0 0 18px rgba(255, 214, 10, 0.12); }
+.rpg-check-feedback.is-success { --check-color: var(--ok); --check-rgb: 48, 209, 88; }
+.rpg-check-feedback.is-warning { --check-color: #ff9f0a; --check-rgb: 255, 159, 10; }
+.rpg-check-feedback.is-failure { --check-color: var(--danger); --check-rgb: var(--danger-rgb); }
+.rpg-check-die {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  place-items: center;
+  justify-items: center;
+  align-items: center;
+  flex: 0 0 25px;
+  color: var(--check-color);
+  font-size: 15px;
+  line-height: 25px;
+  text-align: center;
+  transform-origin: 50% 50%;
+  transform-box: border-box;
+  will-change: transform;
+  text-shadow: 0 0 12px rgba(var(--check-rgb), 0.55);
+}
+.rpg-check-feedback.is-pending .rpg-check-die { animation: rpg-check-spin 420ms linear infinite; }
+.rpg-check-copy { min-width: 0; display: grid; gap: 1px; }
+.rpg-check-copy strong { color: var(--check-color); font-size: 12px; font-weight: 700; letter-spacing: .03em; }
+.rpg-check-copy small { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+@keyframes rpg-check-in { from { opacity: 0; transform: translateY(4px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes rpg-check-result { from { opacity: .72; transform: scale(.97); } to { opacity: 1; transform: scale(1); } }
+@keyframes rpg-check-spin { to { transform: rotate(180deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .rpg-check-feedback, .rpg-check-feedback.is-result { animation: none; }
+  .rpg-check-feedback.is-pending .rpg-check-die { animation: none; }
 }
 /* 卡片整组正则未匹配时的结构化标签降级展示，避免原始 XML 直接占满正文。 */
 .tavern-tag-field {
@@ -1354,7 +1505,7 @@ textarea#input:focus {
 /* ═══════════════════ RPG 世界工作区（新前端） ═══════════════════ */
 body[data-mode="rpg"] .main {
   grid-template-rows: auto minmax(0, 1fr) auto auto auto;
-  grid-template-columns: minmax(238px, 270px) minmax(0, 1fr) minmax(270px, 320px);
+  grid-template-columns: var(--rpg-panel-width) minmax(0, 1fr) var(--rpg-panel-width);
   grid-template-areas:
     "top top top"
     "left stage right"
@@ -2131,6 +2282,8 @@ body.world-custom-layout.world-shell-topbar-hidden:not(.world-immersive) .chat-h
 .world-extension-editor-body textarea { min-height: 68px; resize: vertical; font: 11px/1.45 var(--font-mono); }
 .world-extension-permissions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px 11px; padding: 8px 0 2px; }
 .world-extension-permissions .check { color: var(--muted); font-size: 11px; }
+.world-extension-surfaces { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 11px; padding: 3px 0 2px; }
+.world-extension-surfaces .check { color: var(--muted); font-size: 11px; }
 .world-extension-editor-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .world-ui-config-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .world-ui-config-head label { min-width: 0; }
@@ -2337,6 +2490,63 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
 @media (max-width: 600px) {
   .regex-stage-grid { grid-template-columns: 1fr; }
   .regex-depth-row input[type="number"] { width: 100px; flex-basis: 100px; }
+}
+/* setup surface：开局由世界卡接管整页，但保留宿主的最小退出/重载控制。 */
+body.world-setup-extension-mode {
+  overflow: hidden;
+  background: var(--bg-0);
+}
+body.world-setup-extension-mode .sidebar,
+body.world-setup-extension-mode .chat-header,
+body.world-setup-extension-mode #chat,
+body.world-setup-extension-mode #rpg-left,
+body.world-setup-extension-mode #rpg-right,
+body.world-setup-extension-mode #rpg-status,
+body.world-setup-extension-mode #rpg-mobile-toolbar,
+body.world-setup-extension-mode #rpg-mobile-scrim,
+body.world-setup-extension-mode .composer {
+  display: none !important;
+}
+body.world-setup-extension-mode #app,
+body.world-setup-extension-mode .main {
+  display: block;
+  width: 100%;
+  height: 100vh;
+  min-height: 100vh;
+  margin: 0;
+}
+body.world-setup-extension-mode #rpg-extension-host {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex !important;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 100vh;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--bg-0);
+}
+body.world-setup-extension-mode #rpg-extension-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  max-height: none;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: var(--bg-0);
+}
+body.world-setup-extension-mode .rpg-extension-frame iframe {
+  width: 100%;
+  height: 100% !important;
+  min-height: 100%;
+}
+body.world-setup-extension-mode .rpg-extension-head {
+  display: flex;
+  flex: 0 0 auto;
 }
 
 .memory-auto-panel {
@@ -2758,7 +2968,7 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
   .devtools-toolbar { align-items: stretch; flex-wrap: wrap; }
   .devtools-toolbar .field { flex-basis: 100%; }
   .msg.rpg-narrative { padding-bottom: 24px; }
-  .rpg-prose { font-size: 14.5px; padding-inline: 2px; }
+  .rpg-prose { padding-inline: 2px; }
   .regen-btn { font-size: 11.5px; padding: 3px 8px; }
   .lightbox img { max-width: 96vw; max-height: 94vh; }
   /* 移动端无 hover：操作按钮仍独立占行，不遮挡消息内容。 */
