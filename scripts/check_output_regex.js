@@ -64,8 +64,9 @@ assert.strictEqual(context.check.converted.preset.regexes[0].id, 'st-hide');
 assert.strictEqual(context.check.rpg, 'visible');
 assert.strictEqual(context.check.world, 'visible');
 
-// 真实 V3 卡片的长状态栏正则：多行标签也必须在首次响应时转成卡片 HTML。
-const simulatorCard = Object.values(require('../public/data/characters.json')).find(item => item.name === '人生模拟器，我进入了诡异修仙界');
+// V3 风格的长状态栏正则：多行标签也必须在首次响应时转成卡片 HTML。
+// 运行时角色库被 .gitignore 排除（其中可能包含 API Key）；测试使用仓库内的最小夹具。
+const simulatorCard = Object.values(require('./fixtures/output-regex-character.json')).find(item => item.name === '人生模拟器，我进入了诡异修仙界');
 assert.ok(simulatorCard, 'simulator character card fixture should exist');
 vm.runInContext(`characters = ${JSON.stringify([simulatorCard])}; currentCharId = ${JSON.stringify(simulatorCard.id)}; mode = 'tavern';`, context);
 const simulatorRaw = [
