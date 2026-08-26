@@ -151,6 +151,8 @@ let messageRenderWindow = { key: '', start: 0, preserveScroll: false };
 let theme = FIXED_THEME;
 let mode = localStorage.getItem(LS_MODE) || 'tavern'; // 'tavern' 酒馆模式 | 'rpg' RPG 模式
 let sending = false;
+let activeRequestController = null;
+let requestAbortRequested = false;
 const debugTraces = new Map(); // 仅内存、按 session.id 隔离，不把完整 Prompt 写入存档
 const debugMemoryDiagnostics = new Map(); // 仅内存、按 save.id 隔离，不写入世界存档
 const debugMemoryPending = new Set();
@@ -10906,6 +10908,7 @@ async function callAPI(payload) {
   const resp = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    signal: activeRequestController?.signal,
     body: JSON.stringify(payload),
   });
   const data = await resp.json().catch(() => ({}));
@@ -11777,6 +11780,7 @@ async function callAPIStream(payload, { previewPrefix = '', render = true } = {}
   const resp = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    signal: activeRequestController?.signal,
     body: JSON.stringify(payload),
   });
   if (!resp.ok) {
@@ -13738,6 +13742,45 @@ async function regenImage(msg) {
 }
 
 /* 核心请求：用当前历史请求一次回复（发送消息 / 重新生成共用） */
+function syncSendButton() {
+  const button = $('btn-send');
+  if (!button) return;
+  const busy = sending;
+  button.classList.toggle('is-loading', busy);
+  button.setAttribute('aria-label', busy ? '停止生成' : '发送');
+  button.title = busy ? '停止生成' : '发送';
+  button.innerHTML = busy
+    ? '<span class="send-spinner" aria-hidden="true"></span><span class="send-label">停止</span>'
+    : '<span class="send-icon" aria-hidden="true">➤</span><span class="send-label">发送</span>';
+  if (busy) button.disabled = false;
+}
+
+function stopGeneration() {
+  if (!sending) return false;
+  requestAbortRequested = true;
+  activeRequestController?.abort();
+  return true;
+}
+
+function openInputFullscreen() {
+  const dialog = $('input-fullscreen-dialog');
+  const fullInput = $('input-fullscreen');
+  if (!dialog || !fullInput) return;
+  fullInput.value = $('input')?.value || '';
+  if (!dialog.open) dialog.showModal();
+  requestAnimationFrame(() => fullInput.focus());
+}
+
+function closeInputFullscreen(send = false) {
+  const dialog = $('input-fullscreen-dialog');
+  const fullInput = $('input-fullscreen');
+  const input = $('input');
+  if (input && fullInput) input.value = fullInput.value;
+  if (dialog?.open) dialog.close(send ? 'send' : 'cancel');
+  input?.focus();
+  if (send) void sendMessage();
+}
+
 async function requestReply() {
   if (sending) return;
   const targetScope = activeConversationScope();
@@ -13752,8 +13795,11 @@ async function requestReply() {
     clearResponsePreview();
     clearRpgCheckAnimation();
   }
+  const requestController = new AbortController();
+  activeRequestController = requestController;
+  requestAbortRequested = false;
   sending = true;
-  $('btn-send').disabled = true;
+  syncSendButton();
   if (!preserveRetryPreview) addTyping();
   let cot = '';
   let rpgAgentSession = null;
@@ -13996,6 +14042,16 @@ async function requestReply() {
       generateImageFor(clean).catch(e => console.error('[Tavern] 文生图失败', e.message));
     }
   } catch (err) {
+    const stopped = requestAbortRequested || err?.name === 'AbortError';
+    if (stopped) {
+      removeTyping();
+      clearResponsePreview();
+      clearRpgCheckAnimation();
+      if (mode === 'rpg' && worldTurnPendingActive()) failWorldTurnPending('已停止生成');
+      setDebugTrace(targetScope, { status: '已停止生成', error: '' });
+      setApiStatus('已停止生成');
+      return;
+    }
     console.error('[Tavern] ✗ 请求失败', err.message);
     rpgAgentSession = rpgAgentSession || (payload ? rpgAgentRequestSessions.get(payload) : null) || null;
     if (mode === 'rpg' && worldTurnPendingActive()) {
@@ -14026,7 +14082,9 @@ async function requestReply() {
     setApiStatus(`最近一次请求失败：${err.message}`, true);
   } finally {
     sending = false;
-    $('btn-send').disabled = false;
+    if (activeRequestController === requestController) activeRequestController = null;
+    syncSendButton();
+    $('btn-send').disabled = mode === 'rpg' && worldSavePlanning();
     const input = $('input');
     if (input) input.focus();
   }
@@ -14982,10 +15040,26 @@ function bindEvents() {
   });
   $('rpg-extension-setup-exit')?.addEventListener('click', closeWorldSetupExtension);
   // 发送
-  $('btn-send').addEventListener('click', sendMessage);
+  $('btn-send').addEventListener('click', () => { if (sending) stopGeneration(); else sendMessage(); });
   $('input').addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   });
+  $('btn-input-fullscreen')?.addEventListener('click', openInputFullscreen);
+  $('input-fullscreen-close')?.addEventListener('click', () => closeInputFullscreen());
+  $('input-fullscreen-cancel')?.addEventListener('click', () => closeInputFullscreen());
+  $('input-fullscreen-send')?.addEventListener('click', () => closeInputFullscreen(true));
+  $('input-fullscreen')?.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); closeInputFullscreen(true); }
+  });
+  $('input-fullscreen-dialog')?.addEventListener('click', event => {
+    if (event.target === $('input-fullscreen-dialog')) closeInputFullscreen();
+  });
+  $('input-fullscreen-dialog')?.addEventListener('close', () => {
+    const fullInput = $('input-fullscreen');
+    const input = $('input');
+    if (fullInput && input) input.value = fullInput.value;
+  });
+  syncSendButton();
   // 快捷行动（按模式渲染）
   renderQuickActions();
   // RPG 功能区：背包/任务管理

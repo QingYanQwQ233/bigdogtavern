@@ -7,7 +7,7 @@
   <link rel="manifest" href="manifest.json" />
   <title>Tavern · AI RP 框架演示</title>
   <link rel="icon" type="image/png" href="favicon.png" />
-  <link rel="stylesheet" href="styles.css?v=20260825t" />
+  <link rel="stylesheet" href="styles.css?v=20260826a" />
 </head>
 <body data-theme="vibrancy" data-layout="classic">
   <canvas id="bg-fx" aria-hidden="true"></canvas>
@@ -186,13 +186,31 @@
       <footer class="composer" data-ui-level="3" data-ui-region="workspace.input" data-ui-owner="host">
         <div class="quick-actions" id="quick-actions" data-ui-level="4" data-ui-region="workspace.options" data-ui-owner="host" aria-live="polite"></div>
         <div class="composer-row" data-ui-level="4" data-ui-region="workspace.input.control" data-ui-owner="host">
-          <textarea id="input" rows="2" aria-label="消息输入"
+          <textarea id="input" rows="1" aria-label="消息输入"
             placeholder="写下你的话或行动（可用 *动作* 表示）… Enter 发送 · Shift+Enter 换行"></textarea>
-          <button id="btn-send" class="seal" title="发送">发送</button>
+          <button id="btn-input-fullscreen" class="composer-tool" type="button" title="全屏输入" aria-label="打开全屏输入">⛶</button>
+          <button id="btn-send" class="seal" type="button" title="发送" aria-label="发送"><span class="send-icon" aria-hidden="true">➤</span><span class="send-label">发送</span></button>
         </div>
       </footer>
     </main>
   </div>
+
+  <dialog id="input-fullscreen-dialog" class="input-fullscreen-dialog" aria-labelledby="input-fullscreen-title">
+    <form class="input-fullscreen-card">
+      <header class="input-fullscreen-head">
+        <h2 id="input-fullscreen-title">全屏输入</h2>
+        <button id="input-fullscreen-close" class="ghost-btn small" type="button" aria-label="关闭全屏输入">关闭</button>
+      </header>
+      <textarea id="input-fullscreen" aria-label="全屏消息输入" placeholder="写下你的话或行动…"></textarea>
+      <footer class="input-fullscreen-actions">
+        <span>Enter 发送 · Shift+Enter 换行</span>
+        <div>
+          <button id="input-fullscreen-cancel" class="ghost-btn" type="button">取消</button>
+          <button id="input-fullscreen-send" class="btn gold" type="button">发送</button>
+        </div>
+      </footer>
+    </form>
+  </dialog>
 
   <div id="world-ui-overlay" data-ui-level="1" data-ui-region="overlay.world-card" data-ui-owner="host" hidden aria-live="polite" aria-label="世界卡覆盖层"></div>
 
@@ -1596,13 +1614,13 @@
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
   <script src="vendor/mapgen2.bundle.js"></script>
-  <script src="mapgen.js?v=20260825t"></script>
-  <script src="app.js?v=20260825t"></script>
+  <script src="mapgen.js?v=20260826a"></script>
+  <script src="app.js?v=20260826a"></script>
   <script>
     // PWA：注册 service worker（仅 HTTPS / localhost 生效，套壳 APK 可用）
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js?v=20260825t').catch(() => {});
+    navigator.serviceWorker.register('sw.js?v=20260826a').catch(() => {});
       });
     }
   </script>

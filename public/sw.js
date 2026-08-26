@@ -3,7 +3,7 @@
  */
 // Bump this when the shell changes so an old broken cache is retired on the
 // next load. API/data requests are never handled by this worker.
-const ASSET_VERSION = '20260825t';
+const ASSET_VERSION = '20260826a';
 const CACHE = 'tavern-' + ASSET_VERSION;
 const SHELL = ['/', '/index.html', '/styles.css', '/mapgen.js?v=' + ASSET_VERSION, '/app.js?v=' + ASSET_VERSION, '/vendor/marked.min.js', '/vendor/purify.min.js', '/vendor/mapgen2.bundle.js', '/manifest.json'];
 

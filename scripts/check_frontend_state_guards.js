@@ -6,6 +6,7 @@ const vm = require('vm');
 
 const source = fs.readFileSync('public/app.js', 'utf8').replace(/\ninit\(\);\s*$/, '');
 const styles = fs.readFileSync('public/styles.css', 'utf8');
+const html = fs.readFileSync('public/index.html', 'utf8');
 
 assert.match(source, /const token = \+\+worldLoadToken;[\s\S]{0,800}openWorldSave\(btn\.dataset\.openSave, token\)/, '每次打开存档必须签发新 token');
 assert.match(source, /if \(worldSavePlanning\(\)\) resumeWorldSaveSetup\(currentWorldSave\);\s*else enterWorldWorkspace\(\);/, 'planning 存档恢复不能落入游玩界面');
@@ -28,6 +29,12 @@ assert.match(source, /function hideWorldStateFeedback\(\)[\s\S]{0,350}if \(world
 assert.doesNotMatch(styles, /\.rpg-prose \{ font-size: 14\.5px;/, '移动端 RPG 不得覆盖用户设置的正文字号');
 assert.match(styles, /grid-template-columns:\s*var\(--rpg-panel-width\) minmax\(0, 1fr\) var\(--rpg-panel-width\);/, 'RPG 两侧栏必须使用界面设置宽度');
 assert.doesNotMatch(styles, /\.chat > \.msg \{ content-visibility: auto;/, '窗口化已经限制消息数，不能再用估算高度破坏聊天滚动定位');
+assert.match(html, /id="btn-input-fullscreen"[\s\S]{0,260}id="btn-send"/, 'RP/RPG 输入区必须提供全屏入口与发送按钮');
+assert.match(html, /<dialog id="input-fullscreen-dialog"[\s\S]{0,500}id="input-fullscreen"/, '全屏输入必须使用可访问的原生 dialog');
+assert.match(source, /const requestController = new AbortController\(\);[\s\S]{0,180}activeRequestController = requestController;[\s\S]{0,180}syncSendButton\(\);/, '发送时必须创建可中止请求并切换按钮状态');
+assert.match(source, /if \(sending\) stopGeneration\(\); else sendMessage\(\)/, '生成中点击发送按钮必须停止当前回复');
+assert.match(styles, /\.composer-row \{ display: flex; gap: 12px; align-items: stretch; \}/, '输入栏与按钮必须保持同高布局');
+assert.match(styles, /\.send-spinner[\s\S]{0,240}animation: composer-spin/, '发送中按钮必须显示轻量加载动画');
 
 const timers = [];
 const context = vm.createContext({
