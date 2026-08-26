@@ -5027,6 +5027,7 @@ function renderRPG() {
   const legacyWorldRight = $('rpg-legacy-world-right');
   if (legacyWorldRight) legacyWorldRight.hidden = worldRuntime;
   const statusBar = $('rpg-status');
+  if (statusBar) statusBar.hidden = worldRuntime;
   statusBar?.querySelectorAll(':scope > .rpg-stat').forEach(element => { element.hidden = worldRuntime; });
   const sendButton = $('btn-send');
   if (sendButton && !sending) sendButton.disabled = worldSavePlanning();

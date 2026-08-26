@@ -21,6 +21,7 @@ assert.strictEqual((source.match(/showRpgCheckAnimation\(/g) || []).length, 2, '
 assert.match(source, /function scrollChatToLatest\([\s\S]{0,500}requestAnimationFrame/, '进入 RPG 后必须在布局完成后再次定位最新消息');
 assert.match(source, /function scrollChatToLatest\([\s\S]{0,500}scrollTo\(\{ top: chat\.scrollHeight, behavior: 'instant' \}\)/, '消息重绘必须使用瞬时滚动，不能继承 CSS 的平滑滚动');
 assert.match(source, /function enterWorldWorkspace\([\s\S]{0,900}requestAnimationFrame\?\.\(\(\) => scrollChatToLatest\(\$\('chat'\), conversationKey\)\)/, '打开世界工作区后必须在最终布局帧重定位最新消息');
+assert.match(source, /const statusBar = \$\('rpg-status'\);[\s\S]{0,220}statusBar\.hidden = worldRuntime/, '世界存档态不能保留空的旧状态栏占位');
 assert.match(source, /function rpgRuntimeActionAvailabilityError\([\s\S]{0,2400}当前值 \$\{actual\}/, '动作可用性检查必须向 Agent 提供当前资源值');
 assert.match(source, /submit\.disabled = alreadyConfirmed \|\| !!availabilityError/, '静态不可用的世界卡动作必须在界面中禁用');
 assert.match(source, /function hideWorldStateFeedback\(\)[\s\S]{0,350}if \(worldModeActive\(\)\) renderRPG\(\);/, '本轮状态提示退出前必须先重绘以播放消失动画');
