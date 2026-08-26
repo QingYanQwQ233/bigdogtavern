@@ -45,6 +45,8 @@ assert.match(css, /#lore-mgr\[data-mobile-lore-panel="entry"\] \.wi-list/);
 assert.match(css, /\.char-mgr \.mobile-manager-head/);
 assert.match(html, /data-manager-back data-parent-label="角色库"/);
 assert.match(html, /class="mobile-manager-head"/);
+assert.match(html, /data-rpg-drawer="right"[^>]*aria-controls="rpg-right"[^>]*>任务与世界状态<\/button>/);
+assert.doesNotMatch(html, /data-rpg-drawer="right"[^>]*\shidden(?:\s|>)/, '移动端右侧 RPG 抽屉入口不能默认隐藏');
 assert.doesNotMatch(html, /label[^>]+for="world-draft-(?:player-preview|growth-sources-preview|growth-candidates-preview|failure-modes-preview|ending-endings-preview|events-preview|factions-preview|conflicts-preview)"/);
 assert.match(html, /id="world-extension-permission-read-public" name="worldExtensionPermission"/);
 assert.match(html, /class="field-label">已有记忆/);
