@@ -303,7 +303,6 @@ async function downloadBlob(blob, filename) {
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 function currentChar() { return characters.find(c => c.id === currentCharId) || null; }
 function sessionMatches(s) { return !!s && s.charId === currentCharId && s.kind === mode; }
-
 /* ─────────── 世界库 / 世界存档（W2：RPG 主链由当前 WorldSave 持有） ─────────── */
 function worldCardById(id) { return worldCards.find(w => w.id === id) || null; }
 function worldCardKey(id, version) { return `${id}@${version}`; }
@@ -6033,7 +6032,6 @@ function renderRPG() {
   renderWorldExtension();
   renderMap(); // 世界地图（数据层 + 美化图显示）
 }
-
 /* 应用 AI 输出的 ```rpg``` JSON 状态变更；返回本轮行动选项 */
 /* RPG 任务定义兜底（仅当「RPG 叙事引擎」预设被删除时使用；正常内容在预设 JSON 里可编辑） */
 const RPG_TASK_FALLBACK = '你是这个幻想世界的地下城主（DM）与世界化身，始终以“你”称呼玩家。直接呈现场景、事件与 NPC，不以作者或助手自称。根据当前状态公平裁定行动；状态变化必须先在叙事中发生，再写入回复末尾唯一一个 <tavern_state_update> JSON 更新块。更新块必须使用 protocol=tavern.rpg.turn、version=1、当前 revision；除了项目启用的玩家状态/地点/效果更新，只能提交当前世界卡 runtime schema 已声明的变量、集合或动作更新，不能猜测 ID、修改 schema 或提交完整 state。runtime.collection.patch 用 set 修改字段、delta 修改已有数字字段；options 必须遵守当前世界卡回合契约（0-4 条），具体、可执行且不重复；自由输入始终可用。';
@@ -6855,7 +6853,6 @@ function applyRpgUpdate(payload) {
   renderRPG();
   return { options, createEntities, eventMemory };
 }
-
 /* ─────────── 掷骰（D&D 风格：d20+5 / 2d6-1 自动掷骰） ─────────── */
 const DICE_RE = /(\d*)d(\d+)([+-]\d+)?/gi;
 const MAX_DICE_BONUS = 1000;
@@ -7714,7 +7711,6 @@ function splitNarration(text) {
   if (!segs.length) segs.push({ type: 'narration', text });
   return segs;
 }
-
 /* ─────────── 会话管理 ─────────── */
 function saveSessions(updatedSession = curSession()) {
   const cur = updatedSession && Array.isArray(sessions)
@@ -11654,7 +11650,6 @@ function buildPromptBlocks() {
     rpgSections,
   };
 }
-
 /* ─────────── API ─────────── */
 function buildPayload({ test = false } = {}) {
   const s = settings;
@@ -12718,7 +12713,6 @@ async function fetchModels() {
     out.className = 'err';
   }
 }
-
 /* ─────────── 配置存档 Profile ─────────── */
 const PROFILE_KEYS = ['preset', 'baseUrl', 'apiKey', 'model', 'temperature', 'maxTokens',
   'topP', 'frequencyPenalty', 'presencePenalty', 'seed', 'history', 'stream'];
