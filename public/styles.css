@@ -2289,12 +2289,13 @@ body.world-custom-layout:not(.world-immersive) .chat-header {
   padding: 0;
   border: 0;
   background: transparent;
-  pointer-events: none;
+  /* WebView 83 不可靠地把父级 pointer-events:none 传播到汉堡按钮，不能在这里做点击穿透。 */
+  pointer-events: auto;
+  isolation: isolate;
 }
 body.world-custom-layout:not(.world-immersive) .chat-header > :not(#btn-nav-drawer) { display: none !important; }
 body.world-custom-layout:not(.world-immersive) #btn-nav-drawer {
   display: inline-flex !important;
-  pointer-events: auto;
   border-color: var(--line);
   background: rgba(var(--panel-rgb), .9);
   box-shadow: 0 8px 24px rgba(0, 0, 0, .22);
@@ -2314,6 +2315,7 @@ body.world-custom-layout.world-shell-topbar-hidden:not(.world-immersive) .chat-h
 }
 @media (max-width: 960px) {
   body.world-custom-layout:not(.world-immersive) .main { margin-left: 0; width: 100%; }
+  #btn-nav-drawer { min-width: 44px; min-height: 44px; touch-action: manipulation; }
 }
 .world-draft-dialog {
   width: min(680px, calc(100vw - 32px));

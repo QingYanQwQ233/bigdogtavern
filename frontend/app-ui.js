@@ -2674,8 +2674,19 @@ function switchMode() {
 }
 
 /* ─────────── 手机导航抽屉 ─────────── */
-function openNavDrawer() { const d = $('nav-drawer'); if (d) d.classList.add('open'); }
-function closeNavDrawer() { const d = $('nav-drawer'); if (d) d.classList.remove('open'); }
+const NAVIGATION_DESKTOP_QUERY = '(min-width: 961px)';
+function usesDesktopNavigation() {
+  if (typeof window.matchMedia === 'function') return window.matchMedia(NAVIGATION_DESKTOP_QUERY).matches;
+  return window.innerWidth >= 961;
+}
+function setNavDrawerOpen(open) {
+  const drawer = $('nav-drawer');
+  if (drawer) drawer.classList.toggle('open', Boolean(open));
+  const trigger = $('btn-nav-drawer');
+  if (trigger) trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+function openNavDrawer() { setNavDrawerOpen(true); }
+function closeNavDrawer() { setNavDrawerOpen(false); }
 
 /* ─────────── AI 生成（角色卡 / 世界书条目） ─────────── */
 /* 调用对话 API 生成，返回解析后的对象 */
@@ -3362,10 +3373,10 @@ function bindEvents() {
       if (manager && !manager.classList.contains('hidden')) setMobileManagerPanel(id, manager.dataset.mobilePanel || 'list', { focus: false });
     }
   });
-  // 手机导航抽屉 / 桌面侧栏收起（≥961px 时切换侧栏显隐，否则开抽屉）
+  // 手机导航抽屉 / 桌面侧栏收起（与 CSS 的媒体查询共用断点，避免旧 WebView 视口测量不一致）。
   $('btn-nav-drawer').addEventListener('click', e => {
     e.stopPropagation();
-    if (window.innerWidth >= 961) {
+    if (usesDesktopNavigation()) {
       document.body.classList.toggle('sidebar-hidden'); // 侧栏滑出 + main 回满宽（CSS transform/margin 动画，可靠无抽搐）
     } else {
       openNavDrawer();
