@@ -19,13 +19,14 @@ node server.js
 
 ## Android APK
 
-推送到 `main` 会触发 [Build Tavern APK](.github/workflows/android-apk.yml)。构建完成后，在对应的 GitHub Actions 运行页下载 `tavern-apk` artifact；当前产物是已签名的 Debug APK，不会自动发布为 GitHub Release。
+推送到 `main` 会触发 [Build Tavern APK](.github/workflows/android-apk.yml)。功能分支已推送时，可在 GitHub 的 **Actions → Build Tavern APK → Run workflow** 选择该分支手动构建。构建完成后，在对应运行页下载 `tavern-apk` artifact；当前产物是已签名的 Debug APK，不会自动发布为 GitHub Release。
 
 本地构建需要 JDK 17、Android SDK 与 Gradle 8.7。构建前只复制前端资源和默认模板，不会把本地 API Key、存档或其他运行时数据打进 APK：
 
 ```powershell
 $assets = 'android\app\src\main\assets'
 New-Item -ItemType Directory -Force "$assets\data" | Out-Null
+node scripts\build_frontend.js
 Copy-Item public\index.html, public\styles.css, public\app.js, public\mapgen.js, public\manifest.json, public\sw.js, public\favicon.png -Destination $assets -Force
 Copy-Item public\vendor -Destination $assets -Recurse -Force
 Copy-Item public\icons -Destination $assets -Recurse -Force
@@ -41,6 +42,8 @@ APK 输出路径：`android/app/build/outputs/apk/debug/app-debug.apk`。
 
 - RPG 回合的 `runtime.collection.add` 统一要求使用 `value: { id: "stable-entry-id", ... }`；字段平铺或漏掉条目 ID 会在提交前触发精确的协议修复，不再直接落到服务端报错。
 - Runtime 动作会在零库存或条件不足时禁用，Agent 同步收到不可用上下文，避免继续尝试无效动作。
+- 世界卡草稿现可通过 `?worldDraft=<id>` 进入可刷新恢复的全屏制卡工作台；状态变量、耐久物品和固定使用动作均可填表创建，复杂 Runtime JSON 仍保留在折叠的兼容区。未声明侧栏时，表单创建的耐久表、使用按钮和可见变量会自动显示给玩家（最多 24 个面板，超出部分请手写侧栏）；一旦手写 `ui.sidebar`（包括空面板）即完全按手写配置显示。
+- 耐久物品会生成声明式 `runtime.action`：每次使用固定扣除耐久并增加使用次数；耐久不足时服务端拒绝执行，不会写入半个状态更新。
 - RPG 继承「设置 → 排版 / 界面」配置；消息窗口在发送、点击选项和回合提交后保持当前位置，回合内状态增减会以轻微动画保留到下一行动。
 - RP / RPG 输入栏统一为紧凑等高布局；支持全屏多行输入，AI 生成时发送按钮变为可点击停止。
 - 移动端 RPG 工具栏恢复「任务与世界状态」右侧抽屉入口，左右侧栏均可从手机端打开；世界存档态不再保留空的旧状态栏占位。
@@ -68,7 +71,7 @@ GitHub Release 提供 `tavern-*-portable-win-x64.zip`。解压后双击「启动
 - 角色卡导入入口可自动识别误选的 ST World Info JSON，并转入世界书库；世界书页仍提供独立的 ST 世界书导入入口。
 - RP / RPG 回复选项改为预设协议驱动，选项不再写死在前端；编辑消息时输入框按聊天区域自适应并支持拖高。
 - Android 套壳补齐 `user.json` 与数组/对象 JSON 原子持久化校验；推送后由 GitHub Actions 构建 APK。
-- Android APK 启动时会检测 Android System WebView/Chromium 版本；低于 92 会提示更新，避免旧 WebView 解析失败导致按钮失效。
+- Android APK 支持 Android System WebView/Chromium 83 起；入口会在加载本地依赖前补齐 `Array.prototype.at`、`Object.hasOwn` 和 `Element.replaceChildren`，并避开 83 无法解析的逻辑赋值语法；低于 83 才提示更新。
 - Android 导出桥接：角色卡、预设、世界书、世界包、世界存档和设置可直接导出到系统 `Download` 文件夹；Android 10+ 使用 MediaStore，旧系统按需申请存储权限，浏览器端仍保留下载回退。
 - 新增 Android 导出回归检查 `node scripts/check_android_api.js`，覆盖 WebView JavaScript bridge、文件名清理、大小限制和前端下载回退。
 - 发布 Windows x64 便携文件夹包，内置 Node.js，解压即可启动。
@@ -92,6 +95,14 @@ node scripts/check_android_api.js
 ```
 
 `node scripts/run_checks.js` 会先检查核心与脚本 JavaScript 语法，再顺序执行全部 `scripts/check_*.js`；GitHub Actions 在 main 和 Pull Request 上运行同一入口。
+
+前端源码按职责拆在 `frontend/`。修改分片后先运行：
+
+```bash
+node scripts/build_frontend.js
+```
+
+再运行 `node scripts/run_checks.js`。检查会验证源码分片与 `public/app.js` 完全一致，避免 APK 或 PWA 打入过期前端。
 
 ## 数据所有权
 
@@ -239,12 +250,13 @@ RPG 记忆不是一段模糊的 AI 摘要，而是几层结构化事实：
 
 对话顶栏的「⌘ 终端」打开独立调试窗口，分区查看：
 
+- 请求历史：当前角色会话或世界存档在本页产生的全部 AI 请求；点击任一条即可回看对应记录，普通回复、Agent 多步调用、协议修复和开场候选会分别保留；
 - INPUT：发送给 AI 的完整请求；
 - OUTPUT：正则处理前的完整原文、结构化标签摘录和 `reasoning_content`；
 - Prompt：本次请求的 Prompt 分区与字符预算；
 - MEMORY：当前 RPG 存档的记忆诊断与重建入口。
 
-调试记录只保存在当前页面内存，不写入角色、会话或 RPG 存档。
+调试记录只保存在当前页面内存，不写入角色、会话或 RPG 存档；每个会话/存档最多保留最近 120 条请求，终端的「复制全部」会导出当前范围的全部保留记录。
 
 ### RPG 开发者实验台
 
@@ -260,9 +272,15 @@ RPG 世界卡当前验收 AI 回合闭环、客户端骰子、Agent 阶段顺序
 
 ```text
 server.js                     Node 静态服务、AI/图片代理、世界与存档 API
+frontend/                     前端可编辑源码分片（按 RP / RPG / 共享职责拆分）
+frontend/tavern-rp.js         酒馆 RP：会话、角色、记忆、正则、世界书与 Prompt
+frontend/rpg-world.js         RPG：世界卡、存档、建角、世界 UI 与状态面板
+frontend/ai-protocol.js       双模式输出协议与结构化状态边界
+frontend/ai-runtime.js        AI 请求、流式响应与 RPG Agent
 public/index.html             双模式页面与弹窗
 public/styles.css             macOS 深色主题与响应式布局
-public/app.js                 前端状态、会话、Prompt、解析和 UI
+public/app.js                 由 frontend/ 生成的兼容运行产物（勿直接编辑）
+scripts/build_frontend.js     生成 / 校验 public/app.js 与源码分片一致性
 public/mapgen.js               地图生成兼容代码（当前隐藏）
 public/data/_defaults.json    默认配置、预设、世界卡与输出协议
 public/data/*.json             本地运行时数据（含 API Key，不入库）
@@ -325,7 +343,7 @@ docs/                          数据结构、世界卡与 Android 文档
 
 这些规划不会改变当前的核心约束：数据由 WorldCard / Preset / WorldSave 分层拥有，AI 只能提交候选，服务端才是状态权威源。
 
-详细数据结构见 [docs/data-structure.md](docs/data-structure.md)，世界卡 UI 美化声明见 [docs/ui-beauty-declaration.md](docs/ui-beauty-declaration.md)，产品路线见 [docs/rpg-card-product-roadmap.md](docs/rpg-card-product-roadmap.md)。
+制作世界卡请先读 [从零创建一张可玩的 RPG 世界卡](docs/rpg-card-tutorial.md)，接口、Runtime 与回合协议见 [RPG 世界卡、运行时与 HTTP 接口参考](docs/rpg-card-api.md)。兼容历史见 [docs/data-structure.md](docs/data-structure.md)，世界卡 UI 美化声明见 [docs/ui-beauty-declaration.md](docs/ui-beauty-declaration.md)，产品路线见 [docs/rpg-card-product-roadmap.md](docs/rpg-card-product-roadmap.md)。
 
 ## 安全提醒
 

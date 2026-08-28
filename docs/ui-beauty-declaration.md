@@ -170,7 +170,7 @@ Token 会同时作用于宿主投影和扩展 sandbox 的 `:root`。值只允许
 - 玩家：`save.state.player.attributes`、`save.state.player.skills`、`save.state.player.resources`、`save.state.player.traits`；
 - RPG GEN 3：`runtime.variables.<id>`、`runtime.collections.<id>`，隐藏变量不可展示。
 
-面板只读，不直接改存档。需要修改状态时，必须走扩展 Bridge 的 `patch` / `action`，由服务端做世界版本、权限和 revision 校验。
+面板只读，不直接改存档。游玩中的状态变化必须由玩家选择进入正式 Agent / Typed Patch 回合，或使用宿主已声明的 Runtime 动作；开局 planning 则只可经 setup Bridge 保存。
 
 ## 6. 扩展与沉浸布局
 
@@ -180,7 +180,7 @@ Token 会同时作用于宿主投影和扩展 sandbox 的 `:root`。值只允许
 - 不提供主页面 DOM、网络、文件系统、API key 或 `allow-same-origin`；
 - 首次发现脚本/MVU/EJS 标记时询问授权；拒绝时世界仍可打开；
 - 消息统一使用 `data-tavern-messages`；选项使用 `data-tavern-options`；输入使用 `data-tavern-input` / `data-tavern-submit`；
-- `TavernExtension.requestContext()` 读取当前存档白名单投影；`choose()`、`action()`、`patch()` 复用现有 Agent / runtime 管线；
+- `TavernExtension.requestContext()` / `getContext()` 与 `runtime.get()` 只读上下文；`choose()` 提交玩家选择；`setup.get()` / `setup.patch()` / `setup.commit()` / `setup.cancel()` 只用于 planning；当前没有 `action()` 或 `patch()` 直写存档接口；
 - `layout:"custom"` 是整页工作区接管兼容模式；配合 `shell.navigation:"hide"` / `shell.topbar:"hide"` 可在窗口化直接隐藏宿主同级壳层，浏览器全屏和 Esc 仍走宿主桥；`TavernExtension.exitWorld()` 用于卡内返回世界库。
 
 扩展不应再创建第二份聊天记录、状态或存档。所有展示都从当前存档投影重绘。

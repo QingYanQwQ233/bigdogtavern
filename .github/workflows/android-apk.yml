@@ -30,6 +30,7 @@ jobs:
 
       - name: Copy frontend into APK assets
         run: |
+          node scripts/build_frontend.js --check
           # 每个 APK 使用独立资源版本，避免覆盖安装后 WebView Service Worker 命中旧壳
           ASSET_VERSION="apk-${{ github.run_number }}"
           # 当前 Web 资源版本可能已更新，按字段替换而不是依赖某个旧版本号

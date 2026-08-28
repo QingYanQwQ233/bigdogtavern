@@ -1,5 +1,7 @@
 # 雨幕协议 · 自定义界面实验室
 
+> **历史兼容实验，勿作为新卡模板。** 这份示例保留了已退休的直接 MVU 与 action 演示；当前游玩态扩展不能直接写 Runtime。新卡请改用 [RPG 卡从零教程](rpg-card-tutorial.md) 第 17.9 节的完整 custom 页面，通过数据绑定和 choose 提交玩家行动。
+
 文件：`demo-custom-ui-world.tavern-world.json`
 
 这张世界卡专门演示完整的 `ui.layout: "custom"`：它把宿主 RPG 的顶部信息、左右侧栏、状态栏、叙事区、快捷选项、输入框和覆盖层全部声明为 `hide`，并通过 `ui.shell` 隐藏宿主应用导航和顶栏，改由卡内 HTML/CSS/JS 在隔离 iframe 中统一绘制。卡内左侧状态、中央消息、右侧协议面板、选项和输入组成唯一可见工作区。

@@ -6650,6 +6650,39 @@ function validateAgentExecutionPayload(payload) {
   return null;
 }
 
+/*
+ * A world-card button is an explicit player action, not a model-authored
+ * state patch. If an agent returns an obsolete update shape (for example
+ * item.delta), discard that untrusted update before phase validation and let
+ * ensureRuntimeActionIntentUpdate rebuild the declared action inside the
+ * save lock. Revision and root patch contracts still have to be valid, and
+ * the action later goes through normal availability, input, and check gates.
+ */
+function recoverMalformedExplicitActionIntentPatch(payload) {
+  const intent = payload?.actionIntent;
+  const patch = payload?.patch;
+  if (!patch || !intent?.actionId || intent.kind !== 'action' || intent.source !== 'world-card') return null;
+  if (!Number.isSafeInteger(payload?.expectedRevision) || payload.expectedRevision < 0) return null;
+  const normalized = normalizeRpgPatch(patch);
+  const rootContractValid = normalized
+    && typeof normalized === 'object'
+    && !Array.isArray(normalized)
+    && normalized.protocol === RPG_PATCH_PROTOCOL
+    && normalized.version === RPG_PATCH_VERSION
+    && normalized.baseRevision === payload.expectedRevision
+    && Array.isArray(normalized.updates)
+    && normalized.updates.length <= RPG_PATCH_MAX_UPDATES
+    && !Object.keys(normalized).some(key => !['protocol', 'version', 'baseRevision', 'updates', 'options', 'createEntities', 'eventMemory'].includes(key));
+  if (!rootContractValid) return null;
+  const invalidPatch = validateRpgPatch(normalized);
+  if (!invalidPatch) return null;
+  if (payload.options === undefined && Array.isArray(normalized.options)) payload.options = cloneJson(normalized.options);
+  // Never revive state-adjacent metadata from a rejected model patch. The
+  // trusted client sends valid eventMemory/createEntities separately.
+  payload.patch = { protocol: RPG_PATCH_PROTOCOL, version: RPG_PATCH_VERSION, baseRevision: payload.expectedRevision, updates: [] };
+  return invalidPatch;
+}
+
 function validateAgentNarrationTurns(turns) {
   if (!Array.isArray(turns) || turns.length > 32 || !turns.some(turn => turn?.role === 'assistant')) return 'Agent 待叙事 turns 必须包含 assistant 消息';
   for (const turn of turns) {
@@ -6820,6 +6853,56 @@ function runtimeActionCheckError(action, checkResolutions) {
   const target = Number(action.check.target);
   if (!Number.isFinite(total) || total < target) return `动作 ${action.id} 判定失败（${Number.isFinite(total) ? `${total} < ${target}` : '无有效结果'}）`;
   return null;
+}
+
+/*
+ * A card button carries an explicit actionIntent.actionId.  Models can still
+ * narrate that intent without returning the matching tool candidate, so the
+ * host adds the missing candidate only when the action is available and any
+ * declared check has already passed.  Direct writes to the action's targets
+ * or another action candidate are normalized to avoid double application.
+ */
+function ensureRuntimeActionIntentUpdate(world, currentState, patch, actionIntent, checkResolutions = []) {
+  if (!patch || !Array.isArray(patch.updates) || !actionIntent?.actionId) return patch;
+  const actionId = String(actionIntent.actionId).trim();
+  const action = runtimeDefinitions(world?.runtime).actions.get(actionId);
+  if (!action) return patch;
+  const runtimeUpdates = patch.updates.filter(update => typeof update?.type === 'string' && update.type.startsWith('runtime.'));
+  // A card action is a single explicit intent.  Do not let model-selected
+  // action IDs or model-provided inputs replace it.
+  const filteredUpdates = patch.updates.filter(update => update.type !== 'runtime.action.execute');
+  const input = actionIntent.input && typeof actionIntent.input === 'object' && !Array.isArray(actionIntent.input) ? cloneJson(actionIntent.input) : {};
+  const effectTargets = (Array.isArray(action.effects) ? action.effects : []).map(effect => ({
+    type: effect?.type,
+    variableId: effect?.variableId,
+    collectionId: effect?.collectionId,
+    entryId: effect?.entryId
+      ? String(resolveRuntimeInputValue(effect.entryId, input) || '')
+      : (effect?.type === 'collection.add' && effect?.value?.id !== undefined ? String(resolveRuntimeInputValue(effect.value.id, input) || '') : null),
+  }));
+  const effectUpdateMatches = update => effectTargets.some(target =>
+    (target.type?.startsWith('variable.') && /^runtime\.variable\.(set|delta)$/.test(update.type) && update.id === target.variableId)
+    || (target.type?.startsWith('collection.') && update.collectionId === target.collectionId && target.entryId && (
+      (update.type === 'runtime.collection.add' && update.value?.id === target.entryId)
+      || (/^runtime\.collection\.(patch|remove)$/.test(update.type) && update.entryId === target.entryId)
+    ))
+  );
+  // The declared action owns its effect targets.  Strip model-authored direct
+  // writes to those targets so partial writes cannot double-apply or bypass
+  // the action's availability/check gates when the host restores the action.
+  const sanitizedUpdates = filteredUpdates.filter(update => !effectUpdateMatches(update));
+  const sanitizedPatch = sanitizedUpdates.length === patch.updates.length ? patch : { ...patch, updates: sanitizedUpdates };
+  const snapshot = cloneJson(currentState || {});
+  runtimeStateEnsure(snapshot, world);
+  if (runtimeActionAvailabilityError(snapshot.runtime, action, input)) return sanitizedPatch;
+  if (action.check) {
+    const resolution = (Array.isArray(checkResolutions) ? checkResolutions : []).find(item => item?.actionId === actionId || item?.ruleId === `dynamic:${actionId}` || item?.ruleId === actionId);
+    if (!resolution || !Number.isFinite(Number(resolution.total)) || Number(resolution.total) < Number(action.check.target)) return sanitizedPatch;
+  }
+  return {
+    ...patch,
+    updates: [...sanitizedUpdates, { type: 'runtime.action.execute', actionId, ...(Object.keys(input).length ? { input } : {}) }],
+  };
 }
 
 function applyRuntimeUpdate(state, world, update, options = {}) {
@@ -7054,6 +7137,7 @@ async function handleWorldTurnPost(req, res, saveId, forcedAgentPhase = null) {
   }
   const agentPhase = payload?.agentPhase || null;
   if (agentPhase !== null && !['execute', 'narrate'].includes(agentPhase)) return send(res, 400, JSON.stringify({ error: 'agentPhase 无效' }), 'application/json');
+  if (agentPhase !== 'narrate') recoverMalformedExplicitActionIntentPatch(payload);
   const invalid = agentPhase === 'execute'
     ? validateAgentExecutionPayload(payload)
     : agentPhase === 'narrate'
@@ -7104,8 +7188,18 @@ async function handleWorldTurnPost(req, res, saveId, forcedAgentPhase = null) {
         const runtimeBindingError = runtimeBindingInvalid(world, current.state, payload.state);
         if (runtimeBindingError) return send(res, 400, JSON.stringify({ error: runtimeBindingError }), 'application/json');
       }
+      // An explicit card action must not depend on the model remembering to
+      // emit an otherwise empty patch.  Synthesize the smallest patch here;
+      // availability and check gates still run through the normal validator.
+      if (payload.patch === undefined && payload.actionIntent?.actionId) {
+        const candidate = ensureRuntimeActionIntentUpdate(world, current.state, {
+          protocol: 'tavern.rpg.turn', version: 1, baseRevision: current.revision, updates: [],
+        }, payload.actionIntent, agentCheckResolutions.resolutions || []);
+        if (candidate?.updates?.length) payload.patch = candidate;
+      }
       if (payload.patch !== undefined) {
         if (payload.patch.baseRevision !== current.revision) return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
+        payload.patch = ensureRuntimeActionIntentUpdate(world, current.state, payload.patch, payload.actionIntent, agentCheckResolutions.resolutions || []);
         const patched = applyRpgPatch(world, current.state, payload.patch, { checkResolutions: agentCheckResolutions.resolutions || [] });
         if (patched.error) return send(res, 400, JSON.stringify({ error: patched.error }), 'application/json');
         payload.state = patched.state;
@@ -7888,4 +7982,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { server, startServer, ensureDataFiles, DATA_DIR, SAVES_DIR, normalizeRpgTurnIntent, validateActionIntent, validateRpgPatch, applyRpgPatch, materializeWorldRuntimeState, validateAgentPhaseContract, buildAgentCheckResolutions };
+module.exports = { server, startServer, ensureDataFiles, DATA_DIR, SAVES_DIR, normalizeRpgTurnIntent, validateActionIntent, validateRpgPatch, applyRpgPatch, materializeWorldRuntimeState, validateAgentPhaseContract, buildAgentCheckResolutions, ensureRuntimeActionIntentUpdate };

@@ -12,6 +12,7 @@ const pkg = JSON.parse(fs.readFileSync(path.join(root, 'docs', 'demo-gameplay-fo
 const world = JSON.parse(JSON.stringify(pkg.content.world));
 world.id = 'world-runtime-roundtrip';
 world.start.openingMode = 'static';
+world.runtime.collections.find(collection => collection.id === 'inventory').initial.find(item => item.id === 'field-rations').count = 3;
 fs.writeFileSync(path.join(tempDir, '_defaults.json'), JSON.stringify({ ...defaults, worlds: [world] }));
 fs.writeFileSync(path.join(tempDir, 'worlds.json'), JSON.stringify([world]));
 process.env.TAVERN_DATA_DIR = tempDir;
@@ -97,21 +98,93 @@ async function main() {
     assert.strictEqual(committed.body.state.runtime.collections.contracts.length, 1);
     assert.strictEqual(committed.body.state.runtime.collections.contracts[0].id, 'contract-mira-letter');
     assert.strictEqual(committed.body.state.runtime.collections.contracts[0].title, '护送信件');
-    assert.strictEqual(committed.body.state.runtime.collections.inventory.find(item => item.id === 'field-rations').count, 1);
+    assert.strictEqual(committed.body.state.runtime.collections.inventory.find(item => item.id === 'field-rations').count, 2);
 
     const reloaded = await request(base, `/api/world-saves/${encodeURIComponent(save.id)}`);
     assert.strictEqual(reloaded.response.status, 200, JSON.stringify(reloaded.body));
     assert.strictEqual(reloaded.body.state.runtime.variables.evidence, 1);
     assert.strictEqual(reloaded.body.state.runtime.collections.contracts.length, 1);
-    assert.strictEqual(reloaded.body.state.runtime.collections.inventory.find(item => item.id === 'field-rations').count, 1);
+    assert.strictEqual(reloaded.body.state.runtime.collections.inventory.find(item => item.id === 'field-rations').count, 2);
+
+    const intentCommitted = await request(base, `/api/world-saves/${encodeURIComponent(save.id)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        commandId: 'runtime-roundtrip-intent-fallback', expectedRevision: reloaded.body.revision,
+        actionIntent: { version: 1, kind: 'action', source: 'input', raw: '食用野外口粮', actionId: 'use-field-ration' },
+        state: reloaded.body.state,
+        turns: [{ role: 'user', content: '食用野外口粮' }, { role: 'assistant', content: '你吃下最后一份野外口粮。' }],
+        options: ['检查补给袋', '继续前进', '返回港口'],
+      }),
+    });
+    assert.strictEqual(intentCommitted.response.status, 200, JSON.stringify(intentCommitted.body));
+    assert.strictEqual(intentCommitted.body.state.runtime.collections.inventory.find(item => item.id === 'field-rations').count, 1, 'an exact free-input action intent should synthesize the missing runtime execute');
+
+    const malformedIntentExecution = await request(base, `/api/world-saves/${encodeURIComponent(save.id)}/agent-execute`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        commandId: 'runtime-roundtrip-intent-malformed', expectedRevision: intentCommitted.body.revision,
+        actionIntent: { version: 1, kind: 'action', source: 'world-card', raw: '食用野外口粮', actionId: 'use-field-ration' },
+        patch: {
+          protocol: 'tavern.rpg.turn', version: 1, baseRevision: intentCommitted.body.revision,
+          updates: [{ type: 'item.delta', id: 'field-rations', field: 'count', delta: -1 }],
+        },
+        turns: [{ role: 'user', content: '食用野外口粮' }, { role: 'assistant', content: '你吃下最后一份野外口粮。' }],
+        options: ['检查补给袋', '继续前进', '返回港口'],
+      }),
+    });
+    assert.strictEqual(malformedIntentExecution.response.status, 200, JSON.stringify(malformedIntentExecution.body));
+    assert.strictEqual(malformedIntentExecution.body.execution.state.runtime.collections.inventory.find(item => item.id === 'field-rations').count, 0, 'malformed model updates must be replaced by the explicit declared action');
+
+    const malformedIntentCommitted = await request(base, `/api/world-saves/${encodeURIComponent(save.id)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        agentPhase: 'narrate', commandId: 'runtime-roundtrip-intent-malformed', pendingCommandId: 'runtime-roundtrip-intent-malformed', expectedRevision: intentCommitted.body.revision,
+        turns: [{ role: 'user', content: '食用野外口粮' }, { role: 'assistant', content: '你吃下最后一份野外口粮。' }],
+        options: ['检查补给袋', '继续前进', '返回港口'],
+      }),
+    });
+    assert.strictEqual(malformedIntentCommitted.response.status, 200, JSON.stringify(malformedIntentCommitted.body));
+    assert.strictEqual(malformedIntentCommitted.body.state.runtime.collections.inventory.find(item => item.id === 'field-rations').count, 0);
+
+    const malformedNonCardIntent = await request(base, `/api/world-saves/${encodeURIComponent(save.id)}/agent-execute`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        commandId: 'runtime-roundtrip-malformed-non-card', expectedRevision: malformedIntentCommitted.body.revision,
+        actionIntent: { version: 1, kind: 'action', source: 'input', raw: '食用野外口粮', actionId: 'use-field-ration' },
+        patch: {
+          protocol: 'tavern.rpg.turn', version: 1, baseRevision: malformedIntentCommitted.body.revision,
+          updates: [{ type: 'item.delta', id: 'field-rations', field: 'count', delta: -1 }],
+        },
+        turns: [{ role: 'user', content: '食用野外口粮' }, { role: 'assistant', content: '你试着翻找补给袋。' }],
+        options: ['检查补给袋', '继续前进', '返回港口'],
+      }),
+    });
+    assert.strictEqual(malformedNonCardIntent.response.status, 400, 'only explicit world-card actions may discard malformed model patches');
+
+    const unavailableIntent = await request(base, `/api/world-saves/${encodeURIComponent(save.id)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        commandId: 'runtime-roundtrip-intent-empty', expectedRevision: malformedIntentCommitted.body.revision,
+        actionIntent: { version: 1, kind: 'action', source: 'world-card', raw: '食用野外口粮', actionId: 'use-field-ration' },
+        patch: {
+          protocol: 'tavern.rpg.turn', version: 1, baseRevision: malformedIntentCommitted.body.revision,
+          updates: [{ type: 'runtime.action.execute', actionId: 'use-field-ration' }],
+        },
+        state: malformedIntentCommitted.body.state,
+        turns: [{ role: 'user', content: '食用野外口粮' }, { role: 'assistant', content: '补给袋已经空了。' }],
+        options: ['检查补给袋', '继续前进', '返回港口'],
+      }),
+    });
+    assert.strictEqual(unavailableIntent.response.status, 200, JSON.stringify(unavailableIntent.body));
+    assert.strictEqual(unavailableIntent.body.state.runtime.collections.inventory.find(item => item.id === 'field-rations').count, 0, 'zero resources should produce a normal turn, not an action error');
 
     const aliasDiscarded = await request(base, `/api/world-saves/${encodeURIComponent(save.id)}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        commandId: 'runtime-roundtrip-alias-remove', expectedRevision: reloaded.body.revision,
+      commandId: 'runtime-roundtrip-alias-remove', expectedRevision: unavailableIntent.body.revision,
         actionIntent: { version: 1, kind: 'text', source: 'input', raw: '丢弃野外口粮' },
         patch: {
-          protocol: 'tavern.rpg.turn', version: 1, baseRevision: reloaded.body.revision,
+          protocol: 'tavern.rpg.turn', version: 1, baseRevision: unavailableIntent.body.revision,
           updates: [{ type: 'collection.remove', collectionId: 'inventory', entryId: 'field-rations' }],
         },
         turns: [{ role: 'user', content: '丢弃野外口粮' }, { role: 'assistant', content: '你丢弃了野外口粮。' }],
@@ -130,13 +203,13 @@ async function main() {
     assert.strictEqual(reset.body.state.runtime.variables.evidence, 0);
     assert.strictEqual(reset.body.state.runtime.variables.tideClock, 5);
     assert.strictEqual(reset.body.state.runtime.collections.contracts.length, 0);
-    assert.strictEqual(reset.body.state.runtime.collections.inventory.find(item => item.id === 'field-rations').count, 2);
+    assert.strictEqual(reset.body.state.runtime.collections.inventory.find(item => item.id === 'field-rations').count, 3);
 
     const resetReloaded = await request(base, `/api/world-saves/${encodeURIComponent(save.id)}`);
     assert.strictEqual(resetReloaded.response.status, 200, JSON.stringify(resetReloaded.body));
     assert.strictEqual(resetReloaded.body.state.runtime.variables.evidence, 0);
     assert.strictEqual(resetReloaded.body.state.runtime.collections.contracts.length, 0);
-    assert.strictEqual(resetReloaded.body.state.runtime.collections.inventory.find(item => item.id === 'field-rations').count, 2);
+    assert.strictEqual(resetReloaded.body.state.runtime.collections.inventory.find(item => item.id === 'field-rations').count, 3);
     console.log('check_runtime_roundtrip: ok');
   } finally {
     await new Promise(resolve => server.listening ? server.close(resolve) : resolve());

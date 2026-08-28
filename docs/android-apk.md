@@ -17,7 +17,7 @@ APK 结构：
                             ├ /api/world-saves/:id/setup|opening-candidate|opening 开局规划与候选确认
                             ├ /api/world-saves/:id/agent-execute|agent-cancel + narrate Agent 两阶段回合
                             ├ /api/world-saves/:id/upgrade 世界版本升级预演与确认
-                            ├ /api/world-saves/:id/growth|end|reopen 成长、结局、世界线重开
+                            ├ /api/world-saves/:id/end|reopen 结局、世界线重开（growth 已移除，改用 Runtime）
                             ├ /api/world-saves/:id/summary|memory 总结与记忆诊断/重建
                             ├ /api/world-drafts 世界草稿（基础读写）
                             ├ /api/world-imports 世界包预览、封存与确认导入（正则默认禁用）
@@ -44,9 +44,10 @@ APK 结构：
 2. 「设置」里配置 API（与桌面版完全一样）：Base URL / Key / 模型 / 文生图
 3. 开聊；生图会落盘到 App 私有目录，刷新不丢
 4. 角色卡、预设、世界书、世界包和存档的“导出”会写入系统 `Download` 文件夹；Android 10+ 使用 MediaStore，旧版本首次导出会请求存储权限
+5. 内嵌前端最低支持 Android System WebView / Chromium 83；宿主与隔离卡片 iframe 会补齐 `Array.prototype.at`、`Object.hasOwn`、`Element.replaceChildren`。自定义角色卡/世界卡脚本仍应避免 `||=`、`&&=`、`??=` 等 83 无法解析的语法。
 
 ## 已知限制
 
 - 内嵌服务监听 127.0.0.1，理论上同机其他 App 可访问（本地单机演示可接受；如需加固可在 server 加 token）
 - 构建产物为 debug APK（签名可直接安装；上架需自己配 release 签名）
-- Android 内嵌服务已覆盖世界卡、WorldSave 创建/读取/重命名/复制/删除/脱敏导出、待开局 `setup.game / plan / candidate / opening`、版本升级预演/确认、revision 幂等、Agent 两阶段回合与核心 Typed Patch；完整世界规则结算仍以 Node `server.js` 为基准，APK 端应在真机上验证冲突/成长/结局等高级入口。
+- Android 内嵌服务已覆盖世界卡、WorldSave 创建/读取/重命名/复制/删除/脱敏导出、待开局 `setup.game / plan / candidate / opening`、版本升级预演/确认、revision 幂等、Agent 两阶段回合与核心 Typed Patch；完整世界规则结算仍以 Node `server.js` 为基准，APK 端应在真机上验证 Runtime、结局和重开等高级入口。

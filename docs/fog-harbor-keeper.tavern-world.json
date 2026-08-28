@@ -1,0 +1,1157 @@
+{
+  "spec": "tavern_world_package",
+  "specVersion": 1,
+  "exportedAt": "2026-08-26T00:00:00.000Z",
+  "manifest": {
+    "packageId": "world-fog-harbor-keeper",
+    "worldVersion": 1,
+    "worldSchemaVersion": 1,
+    "appContractVersion": 1,
+    "title": "雾港：守灯人",
+    "author": "Tavern",
+    "license": "CC-BY-4.0",
+    "contentHash": "sha256:e5d82f87f229eee6646acb55574b9f784a6de61b684924bb83783051a31ee0fd",
+    "hashScope": "canonical-json(content,assets)",
+    "capabilities": {
+      "ui": {
+        "layout": "custom",
+        "extension": true,
+        "fullscreen": true,
+        "escape": "fullscreen"
+      },
+      "runtime": true,
+      "agent": true,
+      "regexes": 0
+    },
+    "references": {
+      "characters": 0,
+      "lorebooks": 1,
+      "presets": 1,
+      "assets": 0
+    },
+    "privacy": {
+      "excludes": [
+        "settings",
+        "user",
+        "worldSaves"
+      ],
+      "redactedPaths": []
+    },
+    "executableContent": {
+      "html": true,
+      "scripts": true,
+      "regexTriggers": 0,
+      "executedDuringExport": false
+    },
+    "warnings": [
+      "卡内扩展只读取当前上下文，并通过 choose 提交玩家行动；所有状态变化仍由正式 RPG 回合结算。",
+      "卡内“提前结束本局”调用宿主结局接口并要求明确确认；结局仍可从世界库重开。",
+      "首次进入需阅读并授权卡内扩展；若拒绝授权，请在世界设置中改回宿主界面或重新授权。"
+    ]
+  },
+  "content": {
+    "world": {
+      "schemaVersion": 1,
+      "id": "world-fog-harbor-keeper",
+      "version": 1,
+      "title": "雾港：守灯人",
+      "summary": "在涨潮吞没旧城前调查失踪的港灯，以盐火穿过潮雾，并决定海门的命运。",
+      "coverImage": "",
+      "tags": [
+        "奇幻",
+        "调查",
+        "潮雾",
+        "低战斗",
+        "独立界面"
+      ],
+      "setting": {
+        "premise": "雾港依靠海门灯塔的主灯阻挡潮雾。主灯失踪后，旧码头首先被雾吞没。",
+        "history": "二十年前，守灯人用盐火封住海门下的潮影。如今封印仍在，但主灯的搬运记录被人为撕走。",
+        "geography": "锚灯旅店位于高处；淹没旧码头通向潮雾；海门灯塔在礁石尽头。",
+        "magic": "盐火只能短暂驱散潮雾，不能直接消灭潮影。潮影会模仿熟人的声音。",
+        "currentSituation": "第一夜涨潮前，港务官伊莱拿着缺页账本，请玩家找回被转移的主灯。"
+      },
+      "rules": {
+        "hard": [
+          "没有可用盐火时，角色不能把潮雾当作安全区域。",
+          "物品耐久或数量为零时，不执行对应动作，也不把数值扣成负数。",
+          "线索只有在声明动作成功写入 Runtime 后才可称为 confirmed。",
+          "NPC 的 secrets 不会自动变成玩家已知事实。",
+          "玩家拥有行动主权；推荐选项只是建议，不能替玩家发言或完成关键决定。"
+        ],
+        "soft": [
+          "叙事保持潮湿、克制、悬疑的低战斗气质。",
+          "失败或部分成功要改变局面并保留选择，不要简单重播同一段结果。"
+        ],
+        "checks": [
+          {
+            "id": "inspect-lost-ledger",
+            "label": "调查搬运账本",
+            "description": "从残缺账本中辨认主灯的转运记录。",
+            "roll": "1d20",
+            "target": 12,
+            "modifier": {
+              "bucket": "skills",
+              "id": "investigate",
+              "factor": 1
+            }
+          },
+          {
+            "id": "decode-bell-code",
+            "label": "解读钟楼密码",
+            "description": "从三短两长的钟声中辨认旧守灯人的暗号。",
+            "roll": "1d20",
+            "target": 11,
+            "modifier": {
+              "bucket": "attributes",
+              "id": "insight",
+              "factor": 1
+            }
+          }
+        ]
+      },
+      "playerCreation": {
+        "mode": "custom",
+        "title": "成为雾港旅者",
+        "description": "选择一个出身预设，或自行分配能力点。出身提供倾向，不锁死剧情路线。",
+        "pointBudget": {
+          "label": "能力点",
+          "total": 10,
+          "min": 1,
+          "mode": "pool",
+          "cost": "above-min"
+        },
+        "defaultPresetId": "harbor-scout",
+        "buildPresets": [
+          {
+            "id": "harbor-scout",
+            "label": "港区斥候",
+            "description": "熟悉潮位与旧码头，适合从调查开始。",
+            "values": {
+              "attributes": {
+                "insight": 4,
+                "nerve": 3,
+                "stride": 3
+              },
+              "skills": {
+                "investigate": 3,
+                "negotiate": 1
+              },
+              "choices": [
+                "salt-sense"
+              ]
+            }
+          },
+          {
+            "id": "fallen-keeper",
+            "label": "失职守灯人",
+            "description": "记得一部分灯塔规矩，也背着一笔旧债。",
+            "values": {
+              "attributes": {
+                "insight": 3,
+                "nerve": 5,
+                "stride": 2
+              },
+              "skills": {
+                "investigate": 2,
+                "negotiate": 2
+              },
+              "choices": [
+                "old-debt"
+              ]
+            }
+          },
+          {
+            "id": "tide-smuggler",
+            "label": "潮间走私客",
+            "description": "能在涨潮边缘找到小路，但不一定会守规矩。",
+            "values": {
+              "attributes": {
+                "insight": 2,
+                "nerve": 3,
+                "stride": 5
+              },
+              "skills": {
+                "investigate": 1,
+                "negotiate": 3
+              },
+              "choices": [
+                "dock-born"
+              ]
+            }
+          }
+        ],
+        "fields": [
+          {
+            "id": "name",
+            "label": "角色名",
+            "type": "text",
+            "required": true,
+            "maxLength": 80
+          },
+          {
+            "id": "origin",
+            "label": "来处",
+            "type": "select",
+            "required": true,
+            "options": [
+              {
+                "value": "harbor",
+                "label": "港区"
+              },
+              {
+                "value": "old-city",
+                "label": "旧城"
+              },
+              {
+                "value": "outsider",
+                "label": "外来者"
+              }
+            ],
+            "default": "harbor"
+          },
+          {
+            "id": "oath",
+            "label": "对灯火的誓言",
+            "type": "textarea",
+            "required": false,
+            "maxLength": 1000
+          }
+        ],
+        "attributes": [
+          {
+            "id": "insight",
+            "label": "洞察",
+            "min": 1,
+            "max": 6,
+            "default": 3,
+            "step": 1
+          },
+          {
+            "id": "nerve",
+            "label": "意志",
+            "min": 1,
+            "max": 6,
+            "default": 3,
+            "step": 1
+          },
+          {
+            "id": "stride",
+            "label": "身手",
+            "min": 1,
+            "max": 6,
+            "default": 2,
+            "step": 1
+          }
+        ],
+        "skills": [
+          {
+            "id": "investigate",
+            "label": "调查",
+            "description": "阅读搬运记录、痕迹和口供。",
+            "min": 0,
+            "max": 6,
+            "default": 1,
+            "step": 1
+          },
+          {
+            "id": "negotiate",
+            "label": "交涉",
+            "description": "与港务官、值夜人和守灯人交换承诺。",
+            "min": 0,
+            "max": 6,
+            "default": 1,
+            "step": 1
+          }
+        ],
+        "resources": [
+          {
+            "id": "hp",
+            "label": "生命",
+            "type": "number",
+            "min": 0,
+            "max": 12,
+            "initial": 12
+          },
+          {
+            "id": "courage",
+            "label": "勇气",
+            "type": "number",
+            "min": 0,
+            "max": 6,
+            "initial": 4
+          }
+        ],
+        "choiceBudget": {
+          "label": "特质选择数",
+          "total": 1,
+          "min": 1
+        },
+        "choices": [
+          {
+            "id": "salt-sense",
+            "label": "盐火感知",
+            "kind": "trait",
+            "cost": 1,
+            "description": "调查与盐火有关的遗物时能察觉异常。"
+          },
+          {
+            "id": "dock-born",
+            "label": "港区出身",
+            "kind": "trait",
+            "cost": 1,
+            "description": "更熟悉雾港的潮位和人情。"
+          },
+          {
+            "id": "old-debt",
+            "label": "旧债",
+            "kind": "flaw",
+            "cost": 0,
+            "description": "灯塔相关人物更容易认出你，也会提出额外要求。"
+          }
+        ],
+        "relations": [
+          {
+            "npcId": "npc-elian",
+            "min": -100,
+            "max": 100,
+            "default": 0
+          },
+          {
+            "npcId": "npc-vessa",
+            "min": -100,
+            "max": 100,
+            "default": 0
+          },
+          {
+            "npcId": "npc-mora",
+            "min": -100,
+            "max": 100,
+            "default": 0
+          }
+        ]
+      },
+      "turnContract": {
+        "options": {
+          "min": 3,
+          "max": 4
+        },
+        "actionIntent": true
+      },
+      "failure": {
+        "defaultMode": "continue",
+        "onZeroHp": "injured",
+        "modes": [
+          {
+            "id": "injured",
+            "label": "潮雾负伤",
+            "description": "角色被迫撤回锚灯旅店，保留世界线但带着代价继续。",
+            "hpRatio": 0.25,
+            "effect": "潮雾负伤"
+          },
+          {
+            "id": "continue",
+            "label": "带着代价继续",
+            "description": "失败改变局面，不删除故事。"
+          }
+        ]
+      },
+      "ending": {
+        "enabled": true,
+        "allowPlayerEnd": true,
+        "requireConfirm": true,
+        "defaultEndingId": "player-choice",
+        "endings": [
+          {
+            "id": "player-choice",
+            "kind": "player-choice",
+            "label": "暂别雾港",
+            "description": "保留进度，结束这一次旅程。",
+            "terminal": true
+          },
+          {
+            "id": "light-restored",
+            "kind": "card-defined",
+            "label": "灯火归港",
+            "description": "在玩家确认后，以重新点亮海门作为命名结局。",
+            "terminal": true
+          }
+        ]
+      },
+      "time": {
+        "unit": "更",
+        "start": 1,
+        "turnAdvance": 1
+      },
+      "locations": [
+        {
+          "id": "harbor-inn",
+          "name": "锚灯旅店",
+          "type": "safe",
+          "summary": "高处旅店仍有盐火，伊莱在此保管残缺账本。",
+          "tags": [
+            "起点",
+            "安全",
+            "社交"
+          ]
+        },
+        {
+          "id": "drowned-pier",
+          "name": "淹没旧码头",
+          "type": "danger",
+          "summary": "涨潮后木栈桥半沉，潮影的低语从水下传来。",
+          "tags": [
+            "调查",
+            "危险",
+            "潮雾"
+          ]
+        },
+        {
+          "id": "sea-gate",
+          "name": "海门灯塔",
+          "type": "landmark",
+          "summary": "礁石尽头的灯塔失去主灯，海门锁芯等待两条线索。",
+          "tags": [
+            "主线",
+            "终局",
+            "盐火"
+          ]
+        }
+      ],
+      "npcs": [
+        {
+          "id": "npc-elian",
+          "name": "伊莱",
+          "role": "港务官",
+          "description": "谨慎、疲惫、精于账目；他保管的搬运账本缺少最后一页。",
+          "persona": "先讲规矩，再谈情分；不愿承认自己慌张。",
+          "speechStyle": "语句短，常用“按规矩”开头。",
+          "publicFacts": [
+            "他保管一份被撕掉末页的搬运账本。"
+          ],
+          "publicGoals": [
+            "在涨潮前找回主灯。"
+          ],
+          "secrets": [
+            {
+              "id": "elian-permit",
+              "content": "他亲自签过一次不合规的转运许可。"
+            }
+          ],
+          "locationId": "harbor-inn",
+          "homeLocationId": "harbor-inn"
+        },
+        {
+          "id": "npc-vessa",
+          "name": "维萨",
+          "role": "值夜人",
+          "description": "警觉、嘴硬、害怕孤独；她昨夜听见钟楼里有人敲三短两长。",
+          "persona": "不愿承认恐惧，但不会看着人独自送命。",
+          "speechStyle": "用海员俗语，避免直接说出潮影。",
+          "publicFacts": [
+            "她听见了旧码头钟楼的异常钟声。"
+          ],
+          "publicGoals": [
+            "不让任何人独自走上码头。"
+          ],
+          "secrets": [
+            {
+              "id": "vessa-ring",
+              "content": "她把密码卖给过一个戴潮纹戒指的人。"
+            }
+          ],
+          "locationId": "drowned-pier",
+          "homeLocationId": "drowned-pier"
+        },
+        {
+          "id": "npc-mora",
+          "name": "莫拉",
+          "role": "守灯人",
+          "description": "克制、固执、对盐火近乎虔诚；她守在封锁的灯塔门前。",
+          "persona": "先问代价，再回答问题。",
+          "speechStyle": "像宣读旧誓一样缓慢而准确。",
+          "publicFacts": [
+            "她拒绝让没有盐火的人进入灯塔。"
+          ],
+          "publicGoals": [
+            "保住海门的旧封印。"
+          ],
+          "secrets": [
+            {
+              "id": "mora-hidden-light",
+              "content": "她知道主灯并非被偷走，而是被人故意藏起。"
+            }
+          ],
+          "locationId": "sea-gate",
+          "homeLocationId": "sea-gate"
+        }
+      ],
+      "npcIds": [
+        "npc-elian",
+        "npc-vessa",
+        "npc-mora"
+      ],
+      "sessionSetup": {
+        "title": "本局雾港配置",
+        "fields": [
+          {
+            "id": "difficulty",
+            "label": "潮雾压力",
+            "type": "select",
+            "options": [
+              {
+                "value": "story",
+                "label": "故事：失败代价较轻"
+              },
+              {
+                "value": "standard",
+                "label": "标准：资源与线索并重"
+              },
+              {
+                "value": "hard",
+                "label": "严酷：潮雾更快逼近"
+              }
+            ],
+            "default": "standard"
+          },
+          {
+            "id": "first-lead",
+            "label": "第一条线索",
+            "type": "select",
+            "options": [
+              {
+                "value": "ledger",
+                "label": "先查伊莱的搬运账本"
+              },
+              {
+                "value": "bell",
+                "label": "先查旧码头的钟声"
+              }
+            ],
+            "default": "ledger"
+          }
+        ]
+      },
+      "start": {
+        "locationId": "harbor-inn",
+        "openingMode": "static",
+        "opening": "第一夜涨潮前，锚灯旅店的盐火被风压得很低。伊莱把缺页账本摊在桌上，窗外的潮雾正一点点吞掉旧码头的木桩。远处钟楼忽然敲出三短两长，像有人在水下重复一句没有说完的话。",
+        "options": [
+          "检查伊莱的搬运账本，寻找主灯转运的痕迹",
+          "询问伊莱最后一次见到主灯时发生了什么",
+          "带着盐火提灯前往淹没旧码头，寻找钟声来源",
+          "在旅店休整片刻，先理清潮雾逼近的时间"
+        ],
+        "playerTemplate": {
+          "name": "未命名旅者",
+          "race": "人类",
+          "role": "雾港旅者",
+          "profileFields": []
+        },
+        "initialState": {
+          "stats": {
+            "level": 1,
+            "exp": 0,
+            "expNext": 100,
+            "hp": 12,
+            "maxHp": 12,
+            "buffs": []
+          },
+          "player": {
+            "attributes": {
+              "insight": 3,
+              "nerve": 3,
+              "stride": 2
+            },
+            "skills": {
+              "investigate": 1,
+              "negotiate": 1
+            },
+            "resources": {
+              "hp": 12,
+              "courage": 4
+            },
+            "traits": [],
+            "relations": {
+              "npc-elian": 0,
+              "npc-vessa": 0,
+              "npc-mora": 0
+            },
+            "identity": {}
+          }
+        }
+      },
+      "lorebookIds": [
+        "fog-harbor-lore"
+      ],
+      "rpgPresetName": "RPG · 雾港",
+      "runtime": {
+        "version": 1,
+        "variables": [
+          {
+            "id": "focus",
+            "label": "专注",
+            "scope": "save",
+            "type": "number",
+            "initial": 4,
+            "min": 0,
+            "max": 8,
+            "visible": true
+          },
+          {
+            "id": "clues",
+            "label": "已确认线索",
+            "scope": "save",
+            "type": "number",
+            "initial": 0,
+            "min": 0,
+            "max": 2,
+            "visible": true
+          },
+          {
+            "id": "missing-light-confirmed",
+            "label": "失灯记录已确认",
+            "scope": "save",
+            "type": "boolean",
+            "initial": false,
+            "visible": false
+          },
+          {
+            "id": "bell-code-confirmed",
+            "label": "钟楼密码已确认",
+            "scope": "save",
+            "type": "boolean",
+            "initial": false,
+            "visible": false
+          },
+          {
+            "id": "gate-open",
+            "label": "海门已开启",
+            "scope": "save",
+            "type": "boolean",
+            "initial": false,
+            "visible": true
+          }
+        ],
+        "collections": [
+          {
+            "id": "durable-items",
+            "label": "随身物品",
+            "scope": "save",
+            "entrySchema": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "durability": {
+                  "type": "number",
+                  "min": 0,
+                  "max": 1000000
+                },
+                "maxDurability": {
+                  "type": "number",
+                  "min": 0,
+                  "max": 1000000
+                },
+                "uses": {
+                  "type": "number",
+                  "min": 0,
+                  "max": 1000000000
+                }
+              },
+              "required": [
+                "id",
+                "label",
+                "durability",
+                "maxDurability",
+                "uses"
+              ],
+              "additionalProperties": false
+            },
+            "initial": [
+              {
+                "id": "salt-lantern",
+                "label": "盐火提灯",
+                "durability": 3,
+                "maxDurability": 3,
+                "uses": 0
+              },
+              {
+                "id": "fog-ration",
+                "label": "潮雾口粮",
+                "durability": 2,
+                "maxDurability": 2,
+                "uses": 0
+              }
+            ]
+          },
+          {
+            "id": "clue-board",
+            "label": "线索板",
+            "scope": "save",
+            "entrySchema": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "text",
+                "status"
+              ],
+              "additionalProperties": false
+            },
+            "initial": [
+              {
+                "id": "missing-light",
+                "title": "失踪的港灯",
+                "text": "伊莱的搬运账本缺失最后一页，主灯去向尚未确认。",
+                "status": "unconfirmed"
+              },
+              {
+                "id": "bell-code",
+                "title": "钟楼密码",
+                "text": "旧码头有人敲出三短两长，含义尚未确认。",
+                "status": "unconfirmed"
+              }
+            ]
+          }
+        ],
+        "actions": [
+          {
+            "id": "use-salt-lantern",
+            "label": "点亮盐火提灯",
+            "category": "item",
+            "description": "消耗 1 点提灯耐久，驱散近处潮雾。耐久归零时不可用。",
+            "availability": [
+              {
+                "type": "collection.number",
+                "collectionId": "durable-items",
+                "entryId": "salt-lantern",
+                "field": "durability",
+                "operator": ">=",
+                "value": 1
+              }
+            ],
+            "effects": [
+              {
+                "type": "collection.patch",
+                "collectionId": "durable-items",
+                "entryId": "salt-lantern",
+                "delta": {
+                  "durability": -1,
+                  "uses": 1
+                }
+              }
+            ]
+          },
+          {
+            "id": "eat-fog-ration",
+            "label": "食用潮雾口粮",
+            "category": "item",
+            "description": "消耗 1 份口粮，恢复 1 点专注。口粮或可恢复空间不足时不可用。",
+            "availability": [
+              {
+                "type": "collection.number",
+                "collectionId": "durable-items",
+                "entryId": "fog-ration",
+                "field": "durability",
+                "operator": ">=",
+                "value": 1
+              },
+              {
+                "type": "variable.compare",
+                "variableId": "focus",
+                "operator": "<",
+                "value": 8
+              }
+            ],
+            "effects": [
+              {
+                "type": "collection.patch",
+                "collectionId": "durable-items",
+                "entryId": "fog-ration",
+                "delta": {
+                  "durability": -1,
+                  "uses": 1
+                }
+              },
+              {
+                "type": "variable.delta",
+                "variableId": "focus",
+                "delta": 1
+              }
+            ]
+          },
+          {
+            "id": "rest-at-inn",
+            "label": "在旅店休整",
+            "category": "rest",
+            "description": "在安全处恢复 2 点专注；当前专注高于 6 时不可用。",
+            "availability": [
+              {
+                "type": "variable.compare",
+                "variableId": "focus",
+                "operator": "<=",
+                "value": 6
+              }
+            ],
+            "effects": [
+              {
+                "type": "variable.delta",
+                "variableId": "focus",
+                "delta": 2
+              }
+            ]
+          },
+          {
+            "id": "inspect-lost-ledger",
+            "label": "调查搬运账本",
+            "category": "investigate",
+            "description": "使用调查技能判定；成功后确认主灯被转移的记录。",
+            "availability": [
+              {
+                "type": "variable.compare",
+                "variableId": "missing-light-confirmed",
+                "operator": "==",
+                "value": false
+              }
+            ],
+            "check": {
+              "sides": 20,
+              "target": 12,
+              "modifiers": [
+                {
+                  "source": "player",
+                  "bucket": "skills",
+                  "id": "investigate"
+                }
+              ]
+            },
+            "effects": [
+              {
+                "type": "variable.delta",
+                "variableId": "clues",
+                "delta": 1
+              },
+              {
+                "type": "variable.set",
+                "variableId": "missing-light-confirmed",
+                "value": true
+              },
+              {
+                "type": "collection.patch",
+                "collectionId": "clue-board",
+                "entryId": "missing-light",
+                "set": {
+                  "status": "confirmed"
+                }
+              }
+            ]
+          },
+          {
+            "id": "decode-bell-code",
+            "label": "解读钟楼密码",
+            "category": "investigate",
+            "description": "在已有账本线索的基础上，以洞察判定解读三短两长。",
+            "availability": [
+              {
+                "type": "variable.compare",
+                "variableId": "missing-light-confirmed",
+                "operator": "==",
+                "value": true
+              },
+              {
+                "type": "variable.compare",
+                "variableId": "bell-code-confirmed",
+                "operator": "==",
+                "value": false
+              }
+            ],
+            "check": {
+              "sides": 20,
+              "target": 11,
+              "modifiers": [
+                {
+                  "source": "player",
+                  "bucket": "attributes",
+                  "id": "insight"
+                }
+              ]
+            },
+            "effects": [
+              {
+                "type": "variable.delta",
+                "variableId": "clues",
+                "delta": 1
+              },
+              {
+                "type": "variable.set",
+                "variableId": "bell-code-confirmed",
+                "value": true
+              },
+              {
+                "type": "collection.patch",
+                "collectionId": "clue-board",
+                "entryId": "bell-code",
+                "set": {
+                  "status": "confirmed"
+                }
+              }
+            ]
+          },
+          {
+            "id": "open-sea-gate",
+            "label": "开启海门",
+            "category": "world",
+            "description": "需要两条已确认线索与至少 1 点专注；开启后不再重复执行。",
+            "availability": [
+              {
+                "type": "variable.compare",
+                "variableId": "clues",
+                "operator": ">=",
+                "value": 2
+              },
+              {
+                "type": "variable.compare",
+                "variableId": "focus",
+                "operator": ">=",
+                "value": 1
+              },
+              {
+                "type": "variable.compare",
+                "variableId": "gate-open",
+                "operator": "==",
+                "value": false
+              }
+            ],
+            "effects": [
+              {
+                "type": "variable.set",
+                "variableId": "gate-open",
+                "value": true
+              },
+              {
+                "type": "variable.delta",
+                "variableId": "focus",
+                "delta": -1
+              }
+            ]
+          }
+        ]
+      },
+      "agent": {
+        "protocol": "tavern.rpg.agent",
+        "version": 1,
+        "mode": "native",
+        "maxSteps": 4,
+        "tools": {
+          "rules.check": {
+            "enabled": true,
+            "execution": "client-readonly",
+            "description": "只按当前世界卡和玩家数据复核判定。"
+          },
+          "dice.roll": {
+            "enabled": true,
+            "execution": "client",
+            "description": "只在 rules.check 后请求真实骰子。"
+          },
+          "runtime.action.execute": {
+            "enabled": true,
+            "execution": "server",
+            "description": "执行已声明且当前可用的 Runtime 动作。"
+          },
+          "state.patch": {
+            "enabled": true,
+            "execution": "server",
+            "description": "提交受 Typed Patch 校验的存档变化。"
+          },
+          "memory.record": {
+            "enabled": true,
+            "execution": "server",
+            "description": "记录玩家已经历的稳定事实。"
+          }
+        }
+      },
+      "ui": {
+        "schemaVersion": 1,
+        "layout": "custom",
+        "theme": {
+          "tokens": {
+            "bg-scene": "#0b1118",
+            "bg-0": "#101922",
+            "bg-1": "#1a2a33",
+            "panel": "#18252d",
+            "panel-2": "#22343b",
+            "panel-rgb": "24,37,45",
+            "accent": "#d4a55a",
+            "accent-2": "#8caea9",
+            "accent-rgb": "212,165,90",
+            "text": "#f1e8d5",
+            "muted": "#b7b8ae",
+            "line": "rgba(212,165,90,0.34)",
+            "line-soft": "rgba(202,220,206,0.12)",
+            "radius": "10px",
+            "chat-font-size": "17px",
+            "chat-line-height": "1.82",
+            "chat-para-gap": "0.78em",
+            "chat-side-pad": "24px"
+          }
+        },
+        "shell": {
+          "navigation": "hide",
+          "topbar": "hide",
+          "fullscreen": true,
+          "escape": "fullscreen"
+        },
+        "entryGate": {
+          "enabled": true,
+          "title": "雾港：守灯人",
+          "message": "潮雾正在越过旧码头。带好盐火，决定你要追查、谈判，还是先守住海门。",
+          "confirmText": "进入雾港",
+          "cancelText": "返回世界库",
+          "fullscreen": false
+        },
+        "regions": {
+          "topbar": {
+            "mode": "hide"
+          },
+          "sidebar.left": {
+            "mode": "hide"
+          },
+          "narrative": {
+            "mode": "hide"
+          },
+          "options": {
+            "mode": "hide"
+          },
+          "input": {
+            "mode": "hide"
+          },
+          "sidebar.right": {
+            "mode": "hide"
+          },
+          "status": {
+            "mode": "hide"
+          },
+          "overlay": {
+            "mode": "hide"
+          }
+        },
+        "extension": {
+          "enabled": true,
+          "immersive": false,
+          "title": "雾港船坞日志",
+          "maxHeight": 800,
+          "timeoutMs": 1200,
+          "actionNarrates": false,
+          "permissions": [
+            "read.public",
+            "read.save"
+          ],
+          "surfaces": [
+            "play"
+          ],
+          "html": "<main class=\"keeper-shell\" aria-labelledby=\"keeper-title\">\n  <header class=\"keeper-head\">\n    <div class=\"keeper-heading\">\n      <p class=\"keeper-kicker\">THE FOG HARBOR · SHIP LOG</p>\n      <h1 id=\"keeper-title\" data-tavern-bind=\"world.title\">雾港：守灯人</h1>\n      <p class=\"keeper-place\">泊位 <span data-tavern-bind=\"save.state.locationId\">载入中</span><span class=\"keeper-separator\">·</span><span data-tavern-bind=\"save.state.time.value\">—</span> <span data-tavern-bind=\"save.state.time.unit\">更</span></p>\n    </div>\n    <div class=\"keeper-head-actions\" aria-label=\"船坞控制\">\n      <button id=\"keeper-fullscreen\" type=\"button\" aria-pressed=\"false\">进入全屏</button>\n      <button id=\"keeper-terminal\" type=\"button\">AI 终端</button>\n      <button id=\"keeper-end\" class=\"keeper-control-end\" type=\"button\">提前结束本局</button>\n      <button id=\"keeper-exit\" class=\"keeper-control-quiet\" type=\"button\">返回世界库</button>\n    </div>\n  </header>\n  <div class=\"keeper-rule\" aria-hidden=\"true\"><i></i><span>航海日志 · 第 <b data-tavern-bind=\"save.revision\">—</b> 次记载</span><i></i></div>\n  <section class=\"keeper-hud\" aria-label=\"当前状态\">\n    <article class=\"keeper-panel\" data-keeper-value=\"time\"><span>更次</span><strong data-tavern-bind=\"save.state.time.value\">—</strong><small data-tavern-bind=\"save.state.time.unit\">更</small></article>\n    <article class=\"keeper-panel\" data-keeper-value=\"focus\"><span>专注</span><strong data-tavern-bind=\"save.state.runtime.variables.focus\">—</strong><small>/ 8</small></article>\n    <article class=\"keeper-panel\" data-keeper-value=\"clues\"><span>确认线索</span><strong data-tavern-bind=\"save.state.runtime.variables.clues\">—</strong><small>/ 2</small></article>\n    <article class=\"keeper-panel\" data-keeper-value=\"gate\"><span>海门</span><strong data-tavern-bind=\"save.state.runtime.variables.gate-open\">未开</strong><small>港口状态</small></article>\n  </section>\n  <section class=\"keeper-layout\">\n    <aside class=\"keeper-rail keeper-supply\" aria-label=\"船上补给\">\n      <p class=\"keeper-label\">SHIP SUPPLIES</p>\n      <div class=\"keeper-supply-item\" data-keeper-value=\"lantern\">\n        <div><strong>盐火提灯</strong><small id=\"keeper-lantern-count\">读取耐久中…</small></div>\n        <button id=\"keeper-lantern\" class=\"keeper-action\" type=\"button\">点亮盐火</button>\n      </div>\n      <div class=\"keeper-supply-item\" data-keeper-value=\"ration\">\n        <div><strong>潮雾口粮</strong><small id=\"keeper-ration-count\">读取余量中…</small></div>\n        <button id=\"keeper-ration\" class=\"keeper-action\" type=\"button\">吃一份口粮</button>\n      </div>\n      <p id=\"keeper-status\" class=\"keeper-status\" role=\"status\">船坞界面连接中…</p>\n    </aside>\n    <section class=\"keeper-story\" aria-label=\"故事记录\">\n      <div class=\"keeper-section-head\"><span>潮汐航海日志</span><small>叙事 · 选项 · 自由行动</small></div>\n      <div class=\"keeper-messages\" data-tavern-messages aria-live=\"polite\"></div>\n      <div class=\"keeper-options\" data-tavern-options></div>\n      <form class=\"keeper-composer\" data-tavern-input>\n        <label class=\"keeper-sr-only\" for=\"keeper-input\">自由行动</label>\n        <textarea id=\"keeper-input\" rows=\"2\" aria-label=\"自由行动\" placeholder=\"写下你的行动……\"></textarea>\n        <button type=\"submit\" data-tavern-submit>发送</button>\n      </form>\n    </section>\n    <aside class=\"keeper-rail keeper-clues\" aria-label=\"线索航图\">\n      <div class=\"keeper-clue-head\"><p class=\"keeper-label\">CLUE CHART</p><span>记载</span></div>\n      <ul id=\"keeper-clue-list\"></ul>\n    </aside>\n  </section>\n  <footer class=\"keeper-foot\"><span>雾港船坞 · 守灯人</span><span>状态由世界存档保存</span><span>Esc 退出沉浸</span></footer>\n</main>",
+          "css": ".keeper-shell{height:100%;min-height:100%;overflow:auto;padding:clamp(14px,2.4vw,30px);color:#f1e8d5;background:radial-gradient(ellipse at 12% 0%,rgba(140,174,169,.12),transparent 30%),radial-gradient(ellipse at 92% 86%,rgba(212,165,90,.11),transparent 28%),repeating-linear-gradient(0deg,rgba(255,255,255,.014) 0,rgba(255,255,255,.014) 1px,transparent 1px,transparent 5px),linear-gradient(150deg,#0b1118,#14232c 56%,#101a22);font-family:Georgia,Noto Serif SC,Songti SC,STSong,serif}.keeper-shell *{box-sizing:border-box}.keeper-shell button,.keeper-shell textarea{font:inherit}.keeper-head{display:flex;justify-content:space-between;align-items:flex-start;gap:22px;padding-bottom:17px;border-bottom:1px solid rgba(212,165,90,.38)}.keeper-heading{min-width:0}.keeper-kicker,.keeper-label{margin:0;color:#d4a55a;font:600 10px/1.4 ui-monospace,Consolas,monospace;letter-spacing:.18em;text-transform:uppercase}.keeper-head h1{margin:7px 0 4px;color:#f5ecd8;font-size:clamp(26px,4vw,44px);font-weight:600;letter-spacing:.035em;text-shadow:0 2px 20px rgba(0,0,0,.35)}.keeper-place{margin:0;color:#b7b8ae;font-size:13px}.keeper-separator{padding:0 8px;color:#d4a55a}.keeper-head-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:7px;max-width:470px}.keeper-head-actions button,.keeper-action,.keeper-composer button{min-height:44px;border:1px solid rgba(212,165,90,.48);border-radius:7px;background:linear-gradient(180deg,rgba(212,165,90,.16),rgba(212,165,90,.06));color:#f1e8d5;padding:0 13px;font:600 13px/1 ui-sans-serif,system-ui,Segoe UI,Microsoft YaHei,sans-serif;cursor:pointer;transition:background .18s ease,border-color .18s ease,transform .18s ease}.keeper-head-actions button:hover,.keeper-action:hover,.keeper-composer button:hover{border-color:#e6bf76;background:rgba(212,165,90,.25);transform:translateY(-1px)}.keeper-head-actions button:focus-visible,.keeper-action:focus-visible,.keeper-composer button:focus-visible,.keeper-options .tavern-option:focus-visible{outline:3px solid rgba(212,165,90,.42);outline-offset:2px}.keeper-head-actions button:disabled,.keeper-action:disabled,.keeper-composer button:disabled{cursor:not-allowed;opacity:.45;transform:none}.keeper-control-end{border-color:rgba(216,126,88,.6)!important;background:rgba(216,126,88,.11)!important;color:#f0b18d!important}.keeper-control-end:hover{border-color:#ed9b72!important;background:rgba(216,126,88,.2)!important}.keeper-control-quiet{border-color:rgba(183,184,174,.3)!important;background:rgba(183,184,174,.07)!important;color:#c9c7ba!important}.keeper-rule{display:flex;align-items:center;gap:10px;margin:13px 0 14px;color:#969f9a;font:10px ui-monospace,Consolas,monospace;letter-spacing:.08em}.keeper-rule i{height:1px;flex:1;background:linear-gradient(90deg,transparent,rgba(212,165,90,.44),transparent)}.keeper-rule b{color:#d4a55a}.keeper-hud{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin-bottom:13px}.keeper-panel,.keeper-rail,.keeper-story{border:1px solid rgba(202,220,206,.16);border-radius:9px;background:linear-gradient(145deg,rgba(30,45,54,.9),rgba(17,27,34,.92));box-shadow:0 14px 32px rgba(0,0,0,.22),inset 0 1px rgba(255,255,255,.035)}.keeper-panel{position:relative;padding:12px 14px;overflow:hidden}.keeper-panel:after{content:\"\";position:absolute;right:-18px;bottom:-24px;width:68px;height:68px;border:1px solid rgba(212,165,90,.16);border-radius:50%}.keeper-panel span,.keeper-panel small{display:block;color:#aeb5ac;font:11px ui-monospace,Consolas,monospace}.keeper-panel strong{display:inline-block;margin:7px 5px 0 0;color:#e6bd73;font:600 24px/1.05 Georgia,Noto Serif SC,serif}.keeper-panel.is-changed,.keeper-supply-item.is-changed{animation:keeper-pulse .78s ease-out}.keeper-layout{display:grid;grid-template-columns:minmax(190px,238px) minmax(0,1fr) minmax(190px,254px);gap:12px;min-height:0}.keeper-rail{display:flex;flex-direction:column;gap:12px;padding:15px}.keeper-supply-item{display:flex;flex-direction:column;gap:10px;padding:12px;border:1px solid rgba(212,165,90,.17);border-radius:7px;background:rgba(8,14,20,.32)}.keeper-supply-item strong{display:block;color:#f0e4cc;font-size:17px;font-weight:600}.keeper-supply-item small{display:block;margin-top:4px;color:#b7b8ae;font:12px ui-monospace,Consolas,monospace}.keeper-action{width:100%;padding:0 10px}.keeper-status{min-height:42px;margin:auto 0 0;color:#aeb5ac;font:12px/1.55 ui-sans-serif,system-ui,Segoe UI,Microsoft YaHei,sans-serif}.keeper-status[data-busy=true]{color:#edc47d}.keeper-status[data-error=true]{color:#eca182}.keeper-story{display:grid;grid-template-rows:auto minmax(270px,1fr) auto auto;min-height:560px;overflow:hidden}.keeper-section-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid rgba(202,220,206,.13);background:linear-gradient(90deg,rgba(212,165,90,.09),transparent 65%)}.keeper-section-head span{color:#e6bd73;font-weight:600;letter-spacing:.06em}.keeper-section-head small{color:#aeb5ac;font:11px ui-monospace,Consolas,monospace}.keeper-messages{min-height:0;overflow:auto;padding:18px 20px;scrollbar-color:#b99051 transparent}.keeper-messages .tavern-message{max-width:94%;color:#efe7d7;font-size:var(--chat-font-size,17px);line-height:var(--chat-line-height,1.82)}.keeper-messages .tavern-message-user{align-self:flex-end;margin:8px 0;padding:10px 13px;border:1px solid rgba(212,165,90,.25);border-radius:8px;background:rgba(212,165,90,.09);color:#ead5ad}.keeper-messages .tavern-message-assistant{padding:2px 0}.keeper-messages [data-tavern-rendered] p{margin:var(--chat-para-gap,.78em) 0}.keeper-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:11px 13px;border-top:1px solid rgba(202,220,206,.13);background:rgba(7,13,18,.23)}.keeper-options .tavern-option{min-height:44px;padding:9px 11px;border:1px solid rgba(212,165,90,.34);border-radius:7px;background:rgba(212,165,90,.07);color:#e6bd73;text-align:left;cursor:pointer;transition:background .18s ease,border-color .18s ease}.keeper-options .tavern-option:hover{border-color:#e6bd73;background:rgba(212,165,90,.18)}.keeper-composer{display:flex;align-items:stretch;gap:8px;padding:11px 13px 13px;border-top:1px solid rgba(202,220,206,.13)}.keeper-composer textarea{min-width:0;flex:1;resize:vertical;min-height:44px;padding:10px 12px;border:1px solid rgba(202,220,206,.22);border-radius:7px;background:#0b141b;color:#f1e8d5;font:16px/1.45 ui-sans-serif,system-ui,Segoe UI,Microsoft YaHei,sans-serif}.keeper-composer textarea::placeholder{color:#7f8b86}.keeper-composer textarea:focus{outline:3px solid rgba(212,165,90,.18);border-color:#d4a55a}.keeper-composer button{min-width:76px;padding:0 15px;background:#c99a51;color:#1a1711}.keeper-clues{min-width:0}.keeper-clue-head{display:flex;justify-content:space-between;align-items:center}.keeper-clue-head span{color:#9ca8a1;font:11px ui-monospace,Consolas,monospace}.keeper-clues ul{display:grid;gap:8px;margin:0;padding:0;list-style:none}.keeper-clues li{padding:10px 11px;border-left:2px solid #68756f;border-radius:0 6px 6px 0;background:rgba(255,255,255,.035);color:#b7b8ae;font:12px/1.55 ui-sans-serif,system-ui,Segoe UI,Microsoft YaHei,sans-serif}.keeper-clues li[data-confirmed=true]{border-color:#d4a55a;color:#eee1c6;background:rgba(212,165,90,.08)}.keeper-foot{display:flex;justify-content:space-between;gap:12px;margin-top:12px;color:#7f8b86;font:10px ui-monospace,Consolas,monospace;letter-spacing:.05em}.keeper-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}@keyframes keeper-pulse{0%{transform:translateY(0);box-shadow:0 0 0 rgba(212,165,90,0)}35%{transform:translateY(-2px);box-shadow:0 0 0 4px rgba(212,165,90,.14)}100%{transform:translateY(0);box-shadow:0 0 0 rgba(212,165,90,0)}}@media(max-width:980px){.keeper-layout{grid-template-columns:minmax(174px,215px) minmax(0,1fr)}.keeper-clues{display:none}}@media(max-width:680px){.keeper-shell{padding:12px}.keeper-head{display:block}.keeper-head-actions{justify-content:stretch;max-width:none;margin-top:13px}.keeper-head-actions button{flex:1;padding:0 8px;font-size:12px}.keeper-hud{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.keeper-layout{display:block}.keeper-rail{margin-bottom:10px}.keeper-story{min-height:500px}.keeper-options{grid-template-columns:1fr}.keeper-composer{gap:7px}.keeper-composer button{min-width:70px}.keeper-foot{display:none}.keeper-clues{display:flex}}@media(prefers-reduced-motion:reduce){.keeper-shell *,.keeper-shell *:before,.keeper-shell *:after{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}",
+          "js": "(() => {\n  const status = document.querySelector(\"#keeper-status\");\n  const lanternButton = document.querySelector(\"#keeper-lantern\");\n  const rationButton = document.querySelector(\"#keeper-ration\");\n  const lanternCount = document.querySelector(\"#keeper-lantern-count\");\n  const rationCount = document.querySelector(\"#keeper-ration-count\");\n  const clueList = document.querySelector(\"#keeper-clue-list\");\n  const fullscreenButton = document.querySelector(\"#keeper-fullscreen\");\n  const terminalButton = document.querySelector(\"#keeper-terminal\");\n  const endButton = document.querySelector(\"#keeper-end\");\n  const exitButton = document.querySelector(\"#keeper-exit\");\n  let submittingAction = false;\n  let fullscreenBusy = false;\n  let fullscreenActive = false;\n  let previousValues = null;\n  const setStatus = (text, busy, error = false) => {\n    if (!status) return;\n    status.textContent = text;\n    status.dataset.busy = busy ? \"true\" : \"false\";\n    status.dataset.error = error ? \"true\" : \"false\";\n  };\n  const pulse = element => {\n    if (!element) return;\n    element.classList.remove(\"is-changed\");\n    void element.offsetWidth;\n    element.classList.add(\"is-changed\");\n  };\n  const renderFullscreen = () => {\n    if (!fullscreenButton) return;\n    fullscreenButton.textContent = fullscreenActive ? \"退出全屏\" : \"进入全屏\";\n    fullscreenButton.setAttribute(\"aria-pressed\", fullscreenActive ? \"true\" : \"false\");\n    fullscreenButton.setAttribute(\"aria-label\", fullscreenActive ? \"退出浏览器全屏\" : \"进入浏览器全屏\");\n  };\n  const paint = (runtime, save) => {\n    const data = runtime && typeof runtime === \"object\" ? runtime : {};\n    const collections = data.collections && typeof data.collections === \"object\" ? data.collections : {};\n    const items = Array.isArray(collections[\"durable-items\"]) ? collections[\"durable-items\"] : [];\n    const lantern = items.find(item => item && item.id === \"salt-lantern\");\n    const ration = items.find(item => item && item.id === \"fog-ration\");\n    const lanternDurability = Number(lantern && lantern.durability);\n    const lanternMax = Number(lantern && lantern.maxDurability);\n    const rationDurability = Number(ration && ration.durability);\n    const rationUses = Number(ration && ration.uses);\n    const focus = Number(data.variables && data.variables.focus);\n    if (lanternCount) lanternCount.textContent = Number.isFinite(lanternDurability) ? \"耐久 \" + lanternDurability + \" / \" + (Number.isFinite(lanternMax) ? lanternMax : \"—\") + \" · 已用 \" + (Number.isFinite(Number(lantern && lantern.uses)) ? Number(lantern.uses) : 0) + \" 次\" : \"未找到提灯\";\n    if (rationCount) rationCount.textContent = Number.isFinite(rationDurability) ? \"余量 \" + rationDurability + \" 份 · 已用 \" + (Number.isFinite(rationUses) ? rationUses : 0) + \" 次\" : \"未找到口粮\";\n    if (lanternButton) lanternButton.disabled = submittingAction || !Number.isFinite(lanternDurability) || lanternDurability < 1;\n    if (rationButton) rationButton.disabled = submittingAction || !Number.isFinite(rationDurability) || rationDurability < 1 || !Number.isFinite(focus) || focus >= 8;\n    const values = { lantern: lanternDurability, ration: rationDurability, focus, clues: Number(data.variables && data.variables.clues), gate: Boolean(data.variables && data.variables[\"gate-open\"]) };\n    if (previousValues) Object.keys(values).forEach(key => { if (String(previousValues[key]) !== String(values[key])) pulse(document.querySelector(\"[data-keeper-value=\" + key + \"]\")); });\n    previousValues = values;\n    const clues = Array.isArray(collections[\"clue-board\"]) ? collections[\"clue-board\"] : [];\n    if (clueList) {\n      clueList.replaceChildren();\n      clues.forEach(clue => {\n        const item = document.createElement(\"li\");\n        const confirmed = clue && clue.status === \"confirmed\";\n        item.dataset.confirmed = confirmed ? \"true\" : \"false\";\n        item.textContent = (confirmed ? \"已确认 · \" : \"待确认 · \") + String(clue && clue.title ? clue.title : \"未命名线索\");\n        clueList.append(item);\n      });\n    }\n    if (endButton) endButton.disabled = !!(save && save.state && save.state.ending && save.state.ending.status === \"ended\");\n  };\n  const refresh = async () => {\n    try {\n      const context = await TavernExtension.getContext();\n      paint(context && context.save && context.save.state && context.save.state.runtime, context && context.save);\n      fullscreenActive = !!(context && context.ui && context.ui.fullscreen);\n      renderFullscreen();\n    } catch (error) { setStatus(\"读取船坞状态失败：\" + error.message, false, true); }\n  };\n  const submitAction = async (button, actionId, text) => {\n    if (submittingAction || !button || button.disabled) return;\n    submittingAction = true;\n    button.disabled = true;\n    try {\n      setStatus(\"正在请求 \" + text + \"……\", true);\n      await TavernExtension.choose(text + \"。\", { actionId });\n      setStatus(\"行动已提交，等待本回合结算。\", true);\n    } catch (error) { setStatus(\"行动失败：\" + error.message, false, true); }\n    finally { submittingAction = false; refresh(); }\n  };\n  lanternButton?.addEventListener(\"click\", () => submitAction(lanternButton, \"use-salt-lantern\", \"点亮盐火提灯\"));\n  rationButton?.addEventListener(\"click\", () => submitAction(rationButton, \"eat-fog-ration\", \"食用潮雾口粮\"));\n  fullscreenButton?.addEventListener(\"click\", async () => {\n    if (fullscreenBusy) return;\n    fullscreenBusy = true;\n    fullscreenButton.disabled = true;\n    try {\n      const result = fullscreenActive ? await TavernExtension.exitFullscreen() : await TavernExtension.fullscreen();\n      fullscreenActive = !!(result && result.fullscreen);\n      renderFullscreen();\n      setStatus(fullscreenActive ? \"已进入浏览器全屏。\" : \"已退出浏览器全屏；当前为窗口化界面。\", false);\n    } catch (error) { setStatus(\"全屏切换失败：\" + error.message, false, true); }\n    finally { fullscreenBusy = false; fullscreenButton.disabled = false; refresh(); }\n  });\n  terminalButton?.addEventListener(\"click\", async () => {\n    try { await TavernExtension.openTerminal(); setStatus(\"AI 终端已打开。\", false); }\n    catch (error) { setStatus(\"终端打开失败：\" + error.message, false, true); }\n  });\n  endButton?.addEventListener(\"click\", async () => {\n    if (endButton.disabled) return;\n    try {\n      const context = await TavernExtension.getContext();\n      const rule = context && context.world && context.world.ending ? context.world.ending : {};\n      const endingId = rule.defaultEndingId || \"player-choice\";\n      const ending = Array.isArray(rule.endings) ? rule.endings.find(item => item && item.id === endingId) : null;\n      if (!window.confirm(\"确定以“\" + (ending && ending.label ? ending.label : \"玩家主动结束\") + \"”结束当前世界线吗？结束后仍可从世界库重开。\")) return;\n      endButton.disabled = true;\n      setStatus(\"正在保存世界线结局……\", true);\n      await TavernExtension.endWorld({ endingId, confirm: true });\n      setStatus(\"本局已结束，进度已保存。\", false);\n      await refresh();\n    } catch (error) { endButton.disabled = false; setStatus(\"结束世界线失败：\" + error.message, false, true); }\n  });\n  exitButton?.addEventListener(\"click\", async () => {\n    try { await TavernExtension.exitWorld(); }\n    catch (error) { setStatus(\"返回世界库失败：\" + error.message, false, true); }\n  });\n  TavernExtension.on(\"turn.start\", () => setStatus(\"正在请求 AI……\", true));\n  TavernExtension.on(\"agent.execute\", () => setStatus(\"正在结算声明动作……\", true));\n  TavernExtension.on(\"agent.complete\", () => setStatus(\"正在写入航海日志……\", true));\n  TavernExtension.on(\"turn.commit\", () => { setStatus(\"本回合已保存。\", false); refresh(); });\n  TavernExtension.on(\"turn.error\", event => { setStatus(\"回合失败：\" + (event && event.message ? event.message : \"请重试\"), false, true); refresh(); });\n  window.addEventListener(\"tavern-context\", event => {\n    const context = event.detail || {};\n    paint(context.save && context.save.state && context.save.state.runtime, context.save);\n    fullscreenActive = !!(context.ui && context.ui.fullscreen);\n    renderFullscreen();\n  });\n  renderFullscreen();\n  TavernExtension.getContext().then(context => { paint(context && context.save && context.save.state && context.save.state.runtime, context && context.save); fullscreenActive = !!(context && context.ui && context.ui.fullscreen); renderFullscreen(); setStatus(\"雾港船坞已连接。\", false); }).catch(error => setStatus(\"连接失败：\" + error.message, false, true));\n})();"
+        }
+      },
+      "regexes": [],
+      "source": {
+        "format": "native",
+        "rawAssetRef": null
+      }
+    },
+    "characters": [],
+    "lorebooks": {
+      "fog-harbor-lore": {
+        "name": "雾港设定",
+        "entries": [
+          {
+            "title": "潮雾与潮影",
+            "keys": "潮雾,潮影,海门",
+            "content": "潮雾会吞没没有稳定光源的区域。潮影会模仿熟悉的声音，把人引向水边；它惧怕盐火，但不会被一盏手提灯永久消灭。",
+            "enabled": true,
+            "constant": false,
+            "order": 100
+          },
+          {
+            "title": "锚灯旅店",
+            "keys": "锚灯旅店,伊莱,港务官",
+            "content": "锚灯旅店是港口最后一处稳定灯火。港务官伊莱负责账本和潮汐通行证，只公开账本缺页，不公开自己曾参与主灯转运。",
+            "enabled": true,
+            "constant": false,
+            "order": 90
+          },
+          {
+            "title": "失踪的港灯",
+            "keys": "失灯,主灯,灯塔,搬运记录",
+            "content": "海门灯塔的主灯在涨潮前被人搬离。旧账本和钟楼密码各能确认一部分路线；没有证据时不能断言是谁偷走主灯。",
+            "enabled": true,
+            "constant": false,
+            "order": 80
+          },
+          {
+            "title": "盐火",
+            "keys": "盐火,盐火提灯,潮雾口粮",
+            "content": "盐火提灯每次点亮都会消耗耐久。潮雾口粮能恢复一点专注，但吃完后不能凭空再获得。",
+            "enabled": true,
+            "constant": false,
+            "order": 70
+          }
+        ]
+      }
+    },
+    "presets": {
+      "RPG · 雾港": {
+        "systemPrompt": "你是《雾港：守灯人》的叙事者。根据当前存档、世界书与工具结果推进潮雾中的调查冒险。",
+        "postHistory": "玩家拥有完全行动主权；不要替玩家决定态度、台词或最终选择。先判断行动是否引用已声明的 Runtime 动作，是否满足 availability，是否需要判定。物品耐久或数量为零时，要明确说明它已经耗尽；不得执行，不得伪造扣除，也不得报成系统错误。需要判定时，先按世界卡检查规则复核，再由客户端掷真实骰子；正文不能伪造骰面。成功、部分成功和失败都必须推进局面，但线索只有在成功执行对应 Runtime 动作后才是 confirmed。Runtime 的 availability 不表达地点：只在 harbor-inn 执行 rest-at-inn 或 inspect-lost-ledger，只在 drowned-pier 执行 decode-bell-code，只在 sea-gate 执行 open-sea-gate；地点不对时只叙事说明原因，不执行动作。只把已执行的 Runtime 动作或已校验 Typed Patch 写成真实状态变化。不要泄露 secrets、思维链、工具草稿、内部错误或假想 API。正文后只输出一次 tavern_state_update。推荐选项按 turnContract 给出 3–4 个不重复的纯字符串；玩家仍可自由输入行动。",
+        "firstMes": "第一夜涨潮前，锚灯旅店的盐火被风压得很低。伊莱把缺页账本摊在桌上，窗外的潮雾正一点点吞掉旧码头的木桩。",
+        "modules": [
+          {
+            "id": "agency",
+            "name": "玩家主权",
+            "enabled": true,
+            "content": "不替玩家说话、思想、选择或完成关键行动。"
+          },
+          {
+            "id": "agent",
+            "name": "工具循环",
+            "enabled": true,
+            "content": "判定时遵守 rules.check → dice.roll → runtime.action.execute；无判定动作也只执行已声明的 action。"
+          },
+          {
+            "id": "state",
+            "name": "状态真实",
+            "enabled": true,
+            "content": "物品、专注、线索和海门状态必须通过声明式 Runtime 写回存档。"
+          },
+          {
+            "id": "narrative",
+            "name": "雾港叙事",
+            "enabled": true,
+            "content": "使用克制、潮湿、悬疑的中文叙事；传闻与已确认事实必须分开。"
+          }
+        ]
+      }
+    }
+  },
+  "assets": []
+}

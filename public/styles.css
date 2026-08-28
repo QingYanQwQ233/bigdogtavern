@@ -2876,6 +2876,56 @@ body.world-setup-extension-mode .rpg-extension-head {
 .debug-head strong { display: block; font: 14px var(--font-display); letter-spacing: 1px; }
 .debug-head #debug-scope { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
 .debug-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.debug-history {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 7px;
+  min-height: 62px;
+  padding: 8px 12px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border-bottom: 1px solid var(--line-soft);
+  background: rgba(0, 0, 0, 0.12);
+}
+.debug-history.is-empty {
+  display: block;
+  min-height: 0;
+  padding-block: 10px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.debug-history-entry {
+  flex: 0 0 208px;
+  min-width: 0;
+  min-height: 46px;
+  padding: 7px 9px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.018);
+  cursor: pointer;
+  text-align: left;
+  transition: color .16s ease, border-color .16s ease, background .16s ease, transform .16s ease;
+}
+.debug-history-entry:hover {
+  color: var(--text);
+  border-color: rgba(var(--accent-rgb), .48);
+  background: rgba(var(--accent-rgb), .08);
+}
+.debug-history-entry[aria-pressed="true"] {
+  color: var(--text);
+  border-color: var(--accent);
+  background: linear-gradient(135deg, rgba(var(--accent-rgb), .17), rgba(var(--accent-rgb), .04));
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.debug-history-meta { color: var(--muted); font: 700 9px ui-monospace, Consolas, monospace; letter-spacing: .35px; }
+.debug-history-entry strong { overflow: hidden; color: inherit; font: 600 11.5px var(--font-body); text-overflow: ellipsis; white-space: nowrap; }
+.debug-history-preview { overflow: hidden; color: var(--muted); font: 10.5px/1.25 var(--font-body); text-overflow: ellipsis; white-space: nowrap; }
 .debug-tabs { display: flex; gap: 4px; padding: 8px 12px 0; border-bottom: 1px solid var(--line); background: var(--bg-1); overflow-x: auto; }
 .debug-tab { appearance: none; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); padding: 8px 12px 9px; cursor: pointer; white-space: nowrap; font: 12px var(--font-body); transition: color .16s ease, border-color .16s ease, background .16s ease; }
 .debug-tab:hover { color: var(--text); background: rgba(var(--accent-rgb), .08); }
@@ -3067,6 +3117,8 @@ body.world-setup-extension-mode .rpg-extension-head {
   .debug-panel, .devtools-panel { width: 100%; height: 100%; max-height: none; border-radius: 0; }
   .debug-body { overflow: hidden; }
   .debug-stream { min-height: 0; }
+  .debug-history { padding-inline: 9px; }
+  .debug-history-entry { flex-basis: 172px; }
   .debug-tab { padding-inline: 9px; }
   .devtools-toolbar { align-items: stretch; flex-wrap: wrap; }
   .devtools-toolbar .field { flex-basis: 100%; }
@@ -3078,4 +3130,145 @@ body.world-setup-extension-mode .rpg-extension-head {
   .msg-actions { opacity: 0.65; flex-basis: 100%; width: 100%; }
   .ma-btn { width: 22px; height: 22px; font-size: 11px; background: var(--panel); }
   .msg-actions { background: transparent; padding: 2px; }
+}
+
+/* RPG 制卡页：保留同一草稿表单，路由激活时仅将 dialog 提升为全页工作区。 */
+body.world-authoring-active { overflow: hidden; }
+body.world-authoring-active .world-draft-dialog {
+  inset: 0;
+  width: 100vw;
+  max-width: none;
+  height: 100vh;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  border-radius: 0;
+}
+body.world-authoring-active .world-draft-dialog::backdrop {
+  background: var(--bg-0);
+  backdrop-filter: none;
+}
+body.world-authoring-active .world-draft-card { height: 100%; max-height: none; }
+body.world-authoring-active .world-draft-head,
+body.world-authoring-active .world-draft-actions { padding-inline: clamp(20px, 5vw, 72px); }
+body.world-authoring-active .world-draft-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1080px);
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  justify-content: center;
+  align-content: start;
+  padding: 24px clamp(20px, 5vw, 72px) 8px;
+  scrollbar-gutter: stable;
+}
+body.world-authoring-active .world-draft-actions {
+  flex: 0 0 auto;
+  padding-bottom: max(18px, env(safe-area-inset-bottom));
+}
+
+.world-draft-runtime {
+  margin: 18px 0 20px;
+  padding: 16px 0;
+  border-block: 1px solid var(--line);
+}
+.world-draft-runtime > .world-draft-collection-head { margin-bottom: 10px; }
+.world-draft-runtime-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.world-draft-runtime-panel {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 11px;
+  background: rgba(var(--bg-0-rgb), 0.24);
+}
+.world-draft-runtime-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.world-draft-runtime-panel-head > div { min-width: 0; }
+.world-draft-runtime-panel h4 {
+  margin: 0;
+  color: var(--text);
+  font: 14px var(--font-display);
+  letter-spacing: 0.45px;
+}
+.world-draft-runtime-panel p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+.world-draft-runtime-panel .ghost-btn { flex: 0 0 auto; white-space: nowrap; }
+.world-draft-runtime-list { display: grid; min-width: 0; min-height: 58px; align-content: start; gap: 8px; }
+.world-draft-runtime-empty {
+  margin: 0;
+  padding: 10px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.world-draft-runtime-entry {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(var(--bg-0-rgb), 0.32);
+}
+.world-draft-runtime-entry .field { margin: 0; }
+.world-draft-runtime-auto-action {
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+  border-left: 3px solid rgba(var(--accent-rgb), 0.65);
+  border-radius: 8px;
+  background: rgba(var(--accent-rgb), 0.08);
+}
+.world-draft-runtime-auto-action strong { color: var(--text); font-size: 12px; }
+.world-draft-runtime-auto-action span { color: var(--muted); font-size: 10.5px; line-height: 1.45; }
+.world-draft-runtime > .hint { margin: 10px 0 0; }
+.world-draft-runtime-advanced {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(var(--bg-0-rgb), 0.18);
+}
+.world-draft-runtime-advanced > summary {
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.world-draft-runtime-advanced > summary::marker { color: var(--accent); }
+.world-draft-runtime-advanced-body { display: grid; gap: 9px; padding: 0 12px 12px; }
+.world-draft-runtime-advanced-body .hint { margin: 0; }
+.world-draft-runtime-advanced-body textarea { min-height: 150px; font: 11px/1.5 var(--font-mono); }
+.world-draft-runtime-advanced-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+
+@media (max-width: 760px) {
+  .world-draft-runtime-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  body.world-authoring-active .world-draft-dialog { border: 0; }
+  body.world-authoring-active .world-draft-head {
+    padding-top: max(14px, env(safe-area-inset-top));
+    padding-bottom: 12px;
+  }
+  body.world-authoring-active .world-draft-body { padding: 14px 14px 8px; }
+  body.world-authoring-active .world-draft-actions {
+    padding: 10px max(14px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+  }
+  .world-draft-runtime-panel .ghost-btn { min-height: 44px; }
+  .world-draft-runtime-advanced > summary { min-height: 44px; padding-block: 12px; }
 }

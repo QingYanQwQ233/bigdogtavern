@@ -31,6 +31,8 @@ assert.match(extension.js, /TavernExtension\.fullscreen/);
 assert.match(extension.js, /TavernExtension\.exitFullscreen/);
 assert.match(extension.js, /TavernExtension\.exitWorld/);
 assert.match(extension.js, /TavernExtension\.openTerminal/);
+assert.match(appSource, /input: options && options\.input/);
+assert.match(appSource, /endWorld: \(options = \{\}\) => send\('world\.end'/);
 assert.match(extension.js, /TavernExtension\.on\('turn\.error'/);
 assert.match(appSource, /type: 'immersive\.exit', reason: 'escape'/);
 assert.match(appSource, /data\.reason === 'escape' && escapeMode === 'none'/);

@@ -1,3 +1,4 @@
+/* AUTO-GENERATED: edit frontend/*.js, then run node scripts/build_frontend.js. */
 /* ═══════════════ Tavern · AI RP 框架 —— 前端逻辑 ═══════════════
  * 数据层（localStorage）：
  *   角色库 characters / 会话 sessions / 世界书 lorebook /
@@ -128,6 +129,8 @@ let worldDraftDirty = false;
 let worldDraftOpener = null;
 let worldDraftChoiceOpener = null;
 let worldDraftPublishId = null;
+let worldDraftRouteLoadToken = 0;
+const APP_DOCUMENT_TITLE = document.title;
 let worldPlayerOpener = null;
 let pendingWorldSaveName = '';
 let pendingWorldSaveButton = null;
@@ -153,7 +156,48 @@ let mode = localStorage.getItem(LS_MODE) || 'tavern'; // 'tavern' 酒馆模式 |
 let sending = false;
 let activeRequestController = null;
 let requestAbortRequested = false;
-const debugTraces = new Map(); // 仅内存、按 session.id 隔离，不把完整 Prompt 写入存档
+// 83 版 WebView 缺少 at / Object.hasOwn / replaceChildren。函数体保持 ES5，供隔离 iframe 原样注入。
+function webview83CompatBootstrap() {
+  if (typeof Array.prototype.at !== 'function') {
+    Object.defineProperty(Array.prototype, 'at', {
+      configurable: true,
+      writable: true,
+      value: function(index) {
+        'use strict';
+        if (this === null || this === undefined) throw new TypeError('Cannot convert undefined or null to object');
+        var length = Number(this.length) || 0;
+        var integer = Number(index);
+        if (isNaN(integer) || integer === 0) integer = 0;
+        integer = integer < 0 ? Math.ceil(integer) : Math.floor(integer);
+        var actual = integer < 0 ? length + integer : integer;
+        return actual < 0 || actual >= length ? undefined : this[actual];
+      },
+    });
+  }
+  if (typeof Object.hasOwn !== 'function') {
+    Object.hasOwn = function(object, property) {
+      if (object === null || object === undefined) throw new TypeError('Cannot convert undefined or null to object');
+      return Object.prototype.hasOwnProperty.call(object, property);
+    };
+  }
+  if (typeof Element !== 'undefined' && typeof Element.prototype.replaceChildren !== 'function') {
+    Element.prototype.replaceChildren = function() {
+      var index;
+      while (this.firstChild) this.removeChild(this.firstChild);
+      for (index = 0; index < arguments.length; index += 1) {
+        var child = arguments[index];
+        this.appendChild(child && typeof child.nodeType === 'number' ? child : document.createTextNode(String(child)));
+      }
+    };
+  }
+}
+function webview83CompatSource() {
+  return `(${webview83CompatBootstrap.toString()}());`;
+}
+// 仅本页内存、按 session.id 隔离；完整 Prompt 不写入角色、会话或世界存档。
+const debugTraces = new Map();
+const debugTraceSelection = new Map();
+const DEBUG_TRACE_HISTORY_LIMIT = 120;
 const debugMemoryDiagnostics = new Map(); // 仅内存、按 save.id 隔离，不写入世界存档
 const debugMemoryPending = new Set();
 // ponytail: 事件账本只保留最近 96 条摘要，避免长回合把调试内存变成第二份聊天记录。
@@ -442,6 +486,21 @@ function buildRpgTurnIntent(raw, { kind = 'text', source = 'input', optionId = n
   if (input && typeof input === 'object' && !Array.isArray(input)) intent.input = cloneValue(input);
   if (Array.isArray(dice) && dice.length) intent.dice = dice;
   return intent;
+}
+function normalizeRuntimeActionIntentText(value) {
+  return String(value || '').normalize('NFKC').toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '');
+}
+function matchExactWorldRuntimeAction(raw, actions = currentWorldCard()?.runtime?.actions) {
+  const text = normalizeRuntimeActionIntentText(raw);
+  if (!text || !Array.isArray(actions)) return null;
+  const matches = actions.filter(action => {
+    if (!action || (Array.isArray(action.inputs) && action.inputs.length)) return false;
+    return [action.label, action.id].some(value => normalizeRuntimeActionIntentText(value) === text);
+  });
+  return matches.length === 1 ? matches[0] : null;
+}
+function isExplicitWorldRuntimeActionIntent(intent) {
+  return !!(intent?.actionId && intent.kind === 'action' && ['world-card', 'input'].includes(intent.source));
 }
 function hydrateWorldSave(data) {
   if (!data || typeof data !== 'object') return data;
@@ -1117,6 +1176,520 @@ function worldDraftDuplicateIdReport(world) {
   }
   return null;
 }
+
+/* 表单优先的 runtime 编辑器：只生成已有受限 DSL，不新增第二份状态模型。 */
+const WORLD_DRAFT_DURABLE_ITEMS_ID = 'durable-items';
+const WORLD_DRAFT_RUNTIME_FORM_TYPES = new Set(['number', 'string', 'boolean']);
+const WORLD_DRAFT_RUNTIME_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+const WORLD_DRAFT_AUTO_PANEL_LIMIT = 24;
+
+function worldDraftRuntimeValue() {
+  const value = worldDraft?.world?.runtime;
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+}
+function worldDraftRuntimeText(value = worldDraftRuntimeValue()) {
+  return value ? JSON.stringify(value, null, 2) : '';
+}
+function worldDraftRuntimeBase() {
+  const value = worldDraftRuntimeValue();
+  const next = value ? cloneValue(value) : { version: 1, variables: [], collections: [], actions: [] };
+  next.version = Number.isInteger(next.version) ? next.version : 1;
+  next.variables = Array.isArray(next.variables) ? next.variables : [];
+  next.collections = Array.isArray(next.collections) ? next.collections : [];
+  next.actions = Array.isArray(next.actions) ? next.actions : [];
+  return next;
+}
+function worldDraftRuntimeRawMatchesForm() {
+  const raw = $('world-draft-runtime');
+  return !raw || raw.value.trim() === worldDraftRuntimeText();
+}
+function requireWorldDraftRuntimeRawSync() {
+  if (worldDraftRuntimeRawMatchesForm()) return true;
+  setWorldDraftStatus('高级 JSON 有未载入修改，请先点击“从 JSON 载入表单”。', 'error');
+  $('world-draft-runtime')?.focus();
+  return false;
+}
+function runtimeNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+function worldDraftRuntimeGeneratedItemAction(action, itemId) {
+  const effects = Array.isArray(action?.effects) ? action.effects : [];
+  const effect = effects[0];
+  const cost = Math.abs(runtimeNumber(effect?.delta?.durability, 0));
+  const availability = Array.isArray(action?.availability) ? action.availability : [];
+  return action?.id === `use-${itemId}` && action?.category === '物品'
+    && action.inputs === undefined && action.check === undefined
+    && effects.length === 1 && effect?.type === 'collection.patch'
+    && effect.collectionId === WORLD_DRAFT_DURABLE_ITEMS_ID && effect.entryId === itemId
+    && cost > 0 && effect?.delta?.durability === -cost && effect?.delta?.uses === 1
+    && Object.keys(effect.delta || {}).every(key => ['durability', 'uses'].includes(key))
+    && availability.length === 1 && availability[0]?.type === 'collection.number'
+    && availability[0]?.collectionId === WORLD_DRAFT_DURABLE_ITEMS_ID
+    && availability[0]?.entryId === itemId && availability[0]?.field === 'durability'
+    && availability[0]?.operator === '>=' && availability[0]?.value === cost;
+}
+function worldDraftRuntimeItemCollection(runtime) {
+  const collection = (Array.isArray(runtime?.collections) ? runtime.collections : []).find(item => item?.id === WORLD_DRAFT_DURABLE_ITEMS_ID);
+  const properties = collection?.entrySchema?.properties;
+  const expected = ['id', 'label', 'durability', 'maxDurability', 'uses'];
+  if (!collection || !properties || typeof properties !== 'object'
+    || collection?.entrySchema?.additionalProperties !== false
+    || Object.keys(properties).length !== expected.length
+    || expected.some(key => !properties[key])
+    || !Array.isArray(collection.entrySchema.required)
+    || collection.entrySchema.required.length !== expected.length
+    || expected.some(key => !collection.entrySchema.required.includes(key))
+    || properties.id?.type !== 'string' || properties.label?.type !== 'string'
+    || properties.durability?.type !== 'number' || properties.durability?.min !== 0 || properties.durability?.max !== 1000000
+    || properties.maxDurability?.type !== 'number' || properties.maxDurability?.min !== 0 || properties.maxDurability?.max !== 1000000
+    || properties.uses?.type !== 'number' || properties.uses?.min !== 0 || properties.uses?.max !== 1000000000) return null;
+  const items = Array.isArray(collection.initial) ? collection.initial : [];
+  const actions = Array.isArray(runtime?.actions) ? runtime.actions : [];
+  // An empty or partially authored collection may be intentional advanced JSON.
+  // Only take ownership of the exact complete template produced by this form.
+  if (!items.length || items.some(item => {
+    const itemId = typeof item?.id === 'string' ? item.id : '';
+    const action = actions.find(candidate => candidate?.id === `use-${itemId}`);
+    return !itemId || !worldDraftRuntimeGeneratedItemAction(action, itemId);
+  })) return null;
+  return collection;
+}
+function worldDraftRuntimeItemAction(runtime, itemId) {
+  return (Array.isArray(runtime?.actions) ? runtime.actions : []).find(action => {
+    return worldDraftRuntimeGeneratedItemAction(action, itemId);
+  }) || null;
+}
+function worldDraftRuntimeItemActionCost(action) {
+  const effect = Array.isArray(action?.effects) ? action.effects.find(item => item?.type === 'collection.patch') : null;
+  const cost = Math.abs(runtimeNumber(effect?.delta?.durability, 1));
+  return cost > 0 ? cost : 1;
+}
+function worldDraftRuntimeVariableIsReferenced(runtime, variableId) {
+  return (Array.isArray(runtime?.actions) ? runtime.actions : []).some(action => [
+    ...(Array.isArray(action?.availability) ? action.availability : []),
+    ...(Array.isArray(action?.effects) ? action.effects : []),
+  ].some(item => item?.variableId === variableId));
+}
+function worldDraftRuntimeVariableTemplate(variable, index) {
+  const type = WORLD_DRAFT_RUNTIME_FORM_TYPES.has(variable?.type) ? variable.type : 'number';
+  const initial = variable?.initial;
+  const min = variable?.min;
+  const max = variable?.max;
+  return `<article class="world-draft-entry world-draft-runtime-entry" data-world-runtime-variable data-world-runtime-source-id="${esc(variable?.sourceId || variable?.id || '')}" data-world-runtime-scope="${esc(variable?.scope || 'save')}">
+    <div class="world-draft-entry-head"><strong>变量 ${index + 1}</strong><button class="ghost-btn small danger" type="button" data-world-runtime-remove="variable">删除</button></div>
+    <div class="world-draft-entry-grid">
+      <label class="field"><span>ID</span><input data-runtime-variable-id value="${esc(variable?.id || '')}" maxlength="64" spellcheck="false" required /></label>
+      <label class="field"><span>名称</span><input data-runtime-variable-label value="${esc(variable?.label || '')}" maxlength="120" required /></label>
+      <label class="field"><span>类型</span><select data-runtime-variable-type><option value="number"${type === 'number' ? ' selected' : ''}>数值</option><option value="string"${type === 'string' ? ' selected' : ''}>文本</option><option value="boolean"${type === 'boolean' ? ' selected' : ''}>开关</option></select></label>
+      <label class="check world-draft-runtime-visible"><input data-runtime-variable-visible type="checkbox"${variable?.visible === false ? '' : ' checked'} /> 在状态面板中可见</label>
+    </div>
+    <div class="world-draft-entry-grid">
+      <label class="field" data-runtime-variable-number${type === 'number' ? '' : ' hidden'}><span>初始值</span><input data-runtime-variable-number-initial type="number" step="any" value="${esc(runtimeNumber(initial, 0))}" /></label>
+      <label class="field" data-runtime-variable-number${type === 'number' ? '' : ' hidden'}><span>最小值</span><input data-runtime-variable-min type="number" step="any" value="${min === undefined ? '' : esc(min)}" placeholder="不限制" /></label>
+      <label class="field" data-runtime-variable-number${type === 'number' ? '' : ' hidden'}><span>最大值</span><input data-runtime-variable-max type="number" step="any" value="${max === undefined ? '' : esc(max)}" placeholder="不限制" /></label>
+      <label class="field" data-runtime-variable-string${type === 'string' ? '' : ' hidden'}><span>初始文本</span><input data-runtime-variable-string-initial value="${esc(initial ?? '')}" maxlength="4000" /></label>
+      <label class="check world-draft-runtime-boolean" data-runtime-variable-boolean${type === 'boolean' ? '' : ' hidden'}><input data-runtime-variable-boolean-initial type="checkbox"${initial ? ' checked' : ''} /> 初始为开启</label>
+    </div>
+  </article>`;
+}
+function worldDraftRuntimeItemTemplate(item, index) {
+  return `<article class="world-draft-entry world-draft-runtime-entry" data-world-runtime-item data-world-runtime-source-id="${esc(item?.sourceId || item?.id || '')}">
+    <div class="world-draft-entry-head"><strong>物品 ${index + 1}</strong><button class="ghost-btn small danger" type="button" data-world-runtime-remove="item">删除</button></div>
+    <div class="world-draft-entry-grid">
+      <label class="field"><span>ID</span><input data-runtime-item-id value="${esc(item?.id || '')}" maxlength="60" spellcheck="false" required /></label>
+      <label class="field"><span>名称</span><input data-runtime-item-label value="${esc(item?.label || '')}" maxlength="120" required /></label>
+      <label class="field"><span>当前耐久</span><input data-runtime-item-durability type="number" min="0" step="1" value="${esc(runtimeNumber(item?.durability, 1))}" required /></label>
+      <label class="field"><span>最大耐久</span><input data-runtime-item-max-durability type="number" min="0" step="1" value="${esc(runtimeNumber(item?.maxDurability, item?.durability ?? 1))}" required /></label>
+    </div>
+    <div class="world-draft-entry-grid">
+      <label class="field"><span>每次使用消耗</span><input data-runtime-item-cost type="number" min="1" step="1" value="${esc(runtimeNumber(item?.cost, 1))}" required /></label>
+      <label class="field"><span>已使用次数</span><input data-runtime-item-uses type="number" min="0" step="1" value="${esc(runtimeNumber(item?.uses, 0))}" required /></label>
+      <label class="field"><span>使用动作名称</span><input data-runtime-item-use-label value="${esc(item?.useLabel || `使用${item?.label || ''}`)}" maxlength="120" required /></label>
+    </div>
+    <label class="field"><span>使用说明</span><input data-runtime-item-use-description value="${esc(item?.useDescription || `使用${item?.label || ''}，消耗 ${runtimeNumber(item?.cost, 1)} 点耐久。`)}" maxlength="2000" /></label>
+  </article>`;
+}
+function worldDraftRuntimeActionTemplate(action, index, variables) {
+  const effect = Array.isArray(action?.effects) ? action.effects.find(item => item?.type === 'variable.delta') : null;
+  const variableId = effect?.variableId || variables[0]?.id || '';
+  const options = variables.map(variable => `<option value="${esc(variable.id)}"${variable.id === variableId ? ' selected' : ''}>${esc(variable.label || variable.id)} (${esc(variable.id)})</option>`).join('');
+  return `<article class="world-draft-entry world-draft-runtime-entry" data-world-runtime-action data-world-runtime-source-id="${esc(action?.sourceId || action?.id || '')}">
+    <div class="world-draft-entry-head"><strong>动作 ${index + 1}</strong><button class="ghost-btn small danger" type="button" data-world-runtime-remove="action">删除</button></div>
+    <div class="world-draft-entry-grid">
+      <label class="field"><span>ID</span><input data-runtime-action-id value="${esc(action?.id || '')}" maxlength="64" spellcheck="false" required /></label>
+      <label class="field"><span>名称</span><input data-runtime-action-label value="${esc(action?.label || '')}" maxlength="120" required /></label>
+      <label class="field"><span>目标变量</span><select data-runtime-action-variable${options ? '' : ' disabled'}>${options || '<option value="">先添加数值变量</option>'}</select></label>
+      <label class="field"><span>数值变化</span><input data-runtime-action-delta type="number" step="any" value="${esc(runtimeNumber(effect?.delta, 1))}" required /></label>
+    </div>
+    <label class="field"><span>说明</span><input data-runtime-action-description value="${esc(action?.description || '')}" maxlength="2000" placeholder="例如：完成任务后提高声望…" /></label>
+  </article>`;
+}
+function worldDraftRuntimeFormAction(action) {
+  const effects = Array.isArray(action?.effects) ? action.effects : [];
+  return effects.length === 1 && effects[0]?.type === 'variable.delta'
+    && action?.inputs === undefined && action?.availability === undefined && action?.check === undefined
+    && (action?.category === undefined || action.category === '状态');
+}
+function worldDraftRuntimeAutoActionTemplate(item) {
+  return `<article class="world-draft-runtime-auto-action"><strong>${esc(item.useLabel)}</strong><span>使用 ${esc(item.label)}：耐久 −${item.cost}，次数 +1；耐久不足时自动禁用。</span></article>`;
+}
+function updateWorldDraftRuntimeVariableFields(row) {
+  const type = row?.querySelector('[data-runtime-variable-type]')?.value || 'number';
+  row?.querySelectorAll('[data-runtime-variable-number]').forEach(field => field.toggleAttribute('hidden', type !== 'number'));
+  row?.querySelector('[data-runtime-variable-string]')?.toggleAttribute('hidden', type !== 'string');
+  row?.querySelector('[data-runtime-variable-boolean]')?.toggleAttribute('hidden', type !== 'boolean');
+}
+function worldDraftRuntimeNumericVariablesFromForm() {
+  return [...document.querySelectorAll('#world-draft-runtime-variables [data-world-runtime-variable]')].map(row => ({
+    id: row.querySelector('[data-runtime-variable-id]')?.value.trim() || '',
+    label: row.querySelector('[data-runtime-variable-label]')?.value.trim() || '',
+    type: row.querySelector('[data-runtime-variable-type]')?.value || '',
+  })).filter(variable => variable.id && variable.type === 'number');
+}
+function refreshWorldDraftRuntimeActionVariables(previousId = '', nextId = '') {
+  const variables = worldDraftRuntimeNumericVariablesFromForm();
+  document.querySelectorAll('#world-draft-runtime-actions [data-runtime-action-variable]').forEach(select => {
+    const selectedId = select.value === previousId ? nextId : select.value;
+    select.replaceChildren();
+    if (!variables.length) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = '先添加数值变量';
+      select.appendChild(option);
+      select.disabled = true;
+      return;
+    }
+    variables.forEach(variable => {
+      const option = document.createElement('option');
+      option.value = variable.id;
+      option.textContent = `${variable.label || variable.id} (${variable.id})`;
+      select.appendChild(option);
+    });
+    select.disabled = false;
+    select.value = variables.some(variable => variable.id === selectedId) ? selectedId : variables[0].id;
+  });
+}
+function renderWorldDraftRuntimeForm() {
+  const runtime = worldDraftRuntimeValue() || {};
+  const variables = (Array.isArray(runtime.variables) ? runtime.variables : []).filter(variable => WORLD_DRAFT_RUNTIME_FORM_TYPES.has(variable?.type));
+  const unsupportedVariables = (Array.isArray(runtime.variables) ? runtime.variables : []).length - variables.length;
+  const variableHost = $('world-draft-runtime-variables');
+  if (variableHost) variableHost.innerHTML = variables.length
+    ? variables.map((variable, index) => worldDraftRuntimeVariableTemplate(variable, index)).join('')
+    : '<p class="world-draft-runtime-empty">还没有变量。添加后可在本局的所有动作中使用。</p>';
+
+  const itemCollection = worldDraftRuntimeItemCollection(runtime);
+  const items = (Array.isArray(itemCollection?.initial) ? itemCollection.initial : []).map(item => {
+    const action = worldDraftRuntimeItemAction(runtime, item.id);
+    const cost = worldDraftRuntimeItemActionCost(action);
+    return { ...item, sourceId: item.id, cost, useLabel: action?.label || `使用${item.label || item.id}`, useDescription: action?.description || `使用${item.label || item.id}，消耗 ${cost} 点耐久。` };
+  });
+  const itemHost = $('world-draft-runtime-items');
+  if (itemHost) {
+    itemHost.dataset.runtimeCollectionId = itemCollection?.id || WORLD_DRAFT_DURABLE_ITEMS_ID;
+    itemHost.dataset.runtimeScope = itemCollection?.scope || 'save';
+    itemHost.dataset.runtimeLabel = itemCollection?.label || '耐久物品';
+    itemHost.dataset.runtimeManaged = itemCollection ? 'true' : 'false';
+    itemHost.innerHTML = items.length
+      ? items.map((item, index) => worldDraftRuntimeItemTemplate(item, index)).join('')
+      : '<p class="world-draft-runtime-empty">还没有物品。添加后可为它创建使用动作。</p>';
+  }
+
+  const autoActionIds = new Set(items.map(item => `use-${item.id}`));
+  const actions = (Array.isArray(runtime.actions) ? runtime.actions : []).filter(action => {
+    return !autoActionIds.has(action?.id) && worldDraftRuntimeFormAction(action);
+  });
+  const actionHost = $('world-draft-runtime-actions');
+  if (actionHost) {
+    const numericVariables = variables.filter(variable => variable.type === 'number');
+    const auto = items.map(worldDraftRuntimeAutoActionTemplate).join('');
+    const editable = actions.map((action, index) => worldDraftRuntimeActionTemplate(action, index, numericVariables)).join('');
+    actionHost.innerHTML = auto || editable
+      ? `${auto}${editable}${unsupportedVariables ? `<p class="hint">另有 ${unsupportedVariables} 个复杂变量保留在高级 JSON 中。</p>` : ''}`
+      : '<p class="world-draft-runtime-empty">还没有动作。可从物品的“使用”动作开始。</p>';
+  }
+}
+function worldDraftRuntimeFormError(message, focus) {
+  setWorldDraftStatus(message, 'error');
+  focus?.focus();
+  return { ok: false, error: message, focus };
+}
+function worldDraftRuntimeSafeId(value) {
+  return WORLD_DRAFT_RUNTIME_ID_RE.test(String(value || '').trim());
+}
+function collectWorldDraftRuntimeForm() {
+  const runtime = worldDraftRuntimeBase();
+  const variableRows = [...document.querySelectorAll('#world-draft-runtime-variables [data-world-runtime-variable]')];
+  const variables = [];
+  const variableSourceIds = new Set();
+  for (const row of variableRows) {
+    const idInput = row.querySelector('[data-runtime-variable-id]');
+    const id = idInput?.value.trim() || '';
+    const label = row.querySelector('[data-runtime-variable-label]')?.value.trim() || '';
+    const type = row.querySelector('[data-runtime-variable-type]')?.value || '';
+    if (!worldDraftRuntimeSafeId(id)) return worldDraftRuntimeFormError('变量 ID 只能包含字母、数字、连字符或下划线，且必须以字母或数字开头。', idInput);
+    if (!label) return worldDraftRuntimeFormError('变量名称不能为空。', row.querySelector('[data-runtime-variable-label]'));
+    if (!WORLD_DRAFT_RUNTIME_FORM_TYPES.has(type)) return worldDraftRuntimeFormError('变量类型无效。', row.querySelector('[data-runtime-variable-type]'));
+    const sourceId = row.dataset.worldRuntimeSourceId || '';
+    if (sourceId) variableSourceIds.add(sourceId);
+    const variable = { id, label, scope: row.dataset.worldRuntimeScope || 'save', type, visible: !!row.querySelector('[data-runtime-variable-visible]')?.checked };
+    if (type === 'number') {
+      const initial = Number(row.querySelector('[data-runtime-variable-number-initial]')?.value);
+      const minText = row.querySelector('[data-runtime-variable-min]')?.value.trim() || '';
+      const maxText = row.querySelector('[data-runtime-variable-max]')?.value.trim() || '';
+      const min = minText === '' ? undefined : Number(minText);
+      const max = maxText === '' ? undefined : Number(maxText);
+      if (![initial, min, max].filter(value => value !== undefined).every(Number.isFinite)) return worldDraftRuntimeFormError('变量的初始值、最小值和最大值必须是有效数字。', row.querySelector('[data-runtime-variable-number-initial]'));
+      if (min !== undefined && max !== undefined && min > max) return worldDraftRuntimeFormError('变量最小值不能大于最大值。', row.querySelector('[data-runtime-variable-min]'));
+      if (min !== undefined && initial < min || max !== undefined && initial > max) return worldDraftRuntimeFormError('变量初始值必须落在最小值和最大值之间。', row.querySelector('[data-runtime-variable-number-initial]'));
+      Object.assign(variable, { initial, ...(min === undefined ? {} : { min }), ...(max === undefined ? {} : { max }) });
+    } else if (type === 'string') {
+      variable.initial = row.querySelector('[data-runtime-variable-string-initial]')?.value || '';
+    } else {
+      variable.initial = !!row.querySelector('[data-runtime-variable-boolean-initial]')?.checked;
+    }
+    variables.push(variable);
+  }
+  const ids = new Set();
+  for (const variable of [...runtime.variables.filter(variable => !variableSourceIds.has(variable?.id)), ...variables]) {
+    if (ids.has(variable.id)) return worldDraftRuntimeFormError(`变量 ID「${variable.id}」重复。`);
+    ids.add(variable.id);
+  }
+
+  const itemHost = $('world-draft-runtime-items');
+  const collectionId = itemHost?.dataset.runtimeCollectionId || WORLD_DRAFT_DURABLE_ITEMS_ID;
+  const managesItems = itemHost?.dataset.runtimeManaged === 'true';
+  const itemRows = [...document.querySelectorAll('#world-draft-runtime-items [data-world-runtime-item]')];
+  const items = [];
+  const itemSourceIds = new Set();
+  for (const row of itemRows) {
+    const idInput = row.querySelector('[data-runtime-item-id]');
+    const id = idInput?.value.trim() || '';
+    const label = row.querySelector('[data-runtime-item-label]')?.value.trim() || '';
+    const durability = Number(row.querySelector('[data-runtime-item-durability]')?.value);
+    const maxDurability = Number(row.querySelector('[data-runtime-item-max-durability]')?.value);
+    const cost = Number(row.querySelector('[data-runtime-item-cost]')?.value);
+    const uses = Number(row.querySelector('[data-runtime-item-uses]')?.value);
+    const useLabel = row.querySelector('[data-runtime-item-use-label]')?.value.trim() || '';
+    const useDescription = row.querySelector('[data-runtime-item-use-description]')?.value.trim() || '';
+    if (!worldDraftRuntimeSafeId(id) || id.length > 60) return worldDraftRuntimeFormError('物品 ID 无效；为生成使用动作，最多 60 个字符。', idInput);
+    if (!label || !useLabel) return worldDraftRuntimeFormError('物品名称和使用动作名称不能为空。', row.querySelector('[data-runtime-item-label]'));
+    if (![durability, maxDurability, cost, uses].every(Number.isFinite) || ![durability, maxDurability, cost, uses].every(Number.isInteger) || durability < 0 || maxDurability < 0 || cost < 1 || uses < 0) return worldDraftRuntimeFormError('耐久、最大耐久、消耗和使用次数必须是合法整数。', row.querySelector('[data-runtime-item-durability]'));
+    if (durability > maxDurability) return worldDraftRuntimeFormError('当前耐久不能大于最大耐久。', row.querySelector('[data-runtime-item-durability]'));
+    const sourceId = row.dataset.worldRuntimeSourceId || '';
+    if (sourceId) itemSourceIds.add(sourceId);
+    items.push({ id, label, durability, maxDurability, uses, cost, useLabel, useDescription });
+  }
+  const itemIds = new Set();
+  for (const item of items) {
+    if (itemIds.has(item.id)) return worldDraftRuntimeFormError(`物品 ID「${item.id}」重复。`);
+    itemIds.add(item.id);
+  }
+
+  const actionRows = [...document.querySelectorAll('#world-draft-runtime-actions [data-world-runtime-action]')];
+  const customActions = [];
+  const actionSourceIds = new Set();
+  const numericIds = new Set([...runtime.variables.filter(variable => !variableSourceIds.has(variable?.id)), ...variables].filter(variable => variable.type === 'number').map(variable => variable.id));
+  for (const row of actionRows) {
+    const idInput = row.querySelector('[data-runtime-action-id]');
+    const id = idInput?.value.trim() || '';
+    const label = row.querySelector('[data-runtime-action-label]')?.value.trim() || '';
+    const variableId = row.querySelector('[data-runtime-action-variable]')?.value || '';
+    const delta = Number(row.querySelector('[data-runtime-action-delta]')?.value);
+    const description = row.querySelector('[data-runtime-action-description]')?.value || '';
+    if (!worldDraftRuntimeSafeId(id)) return worldDraftRuntimeFormError('动作 ID 无效。', idInput);
+    if (!label) return worldDraftRuntimeFormError('动作名称不能为空。', row.querySelector('[data-runtime-action-label]'));
+    if (!numericIds.has(variableId)) return worldDraftRuntimeFormError('动作必须选择一个数值变量。', row.querySelector('[data-runtime-action-variable]'));
+    if (!Number.isFinite(delta)) return worldDraftRuntimeFormError('动作的数值变化必须是有效数字。', row.querySelector('[data-runtime-action-delta]'));
+    const sourceId = row.dataset.worldRuntimeSourceId || '';
+    if (sourceId) actionSourceIds.add(sourceId);
+    customActions.push({ id, label, ...(description.trim() ? { description: description.trim() } : {}), category: '状态', effects: [{ type: 'variable.delta', variableId, delta }] });
+  }
+
+  const durableActionSourceIds = new Set([...itemSourceIds].map(id => `use-${id}`));
+  const durableActions = items.map(item => ({
+    id: `use-${item.id}`,
+    label: item.useLabel,
+    description: item.useDescription || `使用${item.label}，消耗 ${item.cost} 点耐久。`,
+    category: '物品',
+    availability: [{ type: 'collection.number', collectionId, entryId: item.id, field: 'durability', operator: '>=', value: item.cost }],
+    effects: [{ type: 'collection.patch', collectionId, entryId: item.id, delta: { durability: -item.cost, uses: 1 } }],
+  }));
+  const nextVariables = [...runtime.variables.filter(variable => !variableSourceIds.has(variable?.id)), ...variables];
+  const nextCollections = (managesItems || items.length) ? runtime.collections.filter(collection => collection?.id !== collectionId) : runtime.collections;
+  if (items.length) nextCollections.push({
+    id: collectionId,
+    label: itemHost?.dataset.runtimeLabel || '耐久物品',
+    scope: itemHost?.dataset.runtimeScope || 'save',
+    entrySchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' }, label: { type: 'string' },
+        durability: { type: 'number', min: 0, max: 1000000 },
+        maxDurability: { type: 'number', min: 0, max: 1000000 },
+        uses: { type: 'number', min: 0, max: 1000000000 },
+      },
+      required: ['id', 'label', 'durability', 'maxDurability', 'uses'],
+      additionalProperties: false,
+    },
+    initial: items.map(({ cost, useLabel, useDescription, ...item }) => item),
+  });
+  const nextActions = [...runtime.actions.filter(action => !actionSourceIds.has(action?.id) && !durableActionSourceIds.has(action?.id) && !itemSourceIds.has(String(action?.id || '').replace(/^use-/, ''))), ...customActions, ...durableActions];
+  const actionIds = new Set();
+  for (const action of nextActions) {
+    if (actionIds.has(action.id)) return worldDraftRuntimeFormError(`动作 ID「${action.id}」重复。`);
+    actionIds.add(action.id);
+  }
+  if (!nextVariables.length && !nextCollections.length && !nextActions.length) return { ok: true, value: null };
+  return { ok: true, value: { ...runtime, version: runtime.version || 1, variables: nextVariables, collections: nextCollections, actions: nextActions } };
+}
+function syncWorldDraftRuntimeSourceIds() {
+  const rows = [
+    ['#world-draft-runtime-variables [data-world-runtime-variable]', '[data-runtime-variable-id]'],
+    ['#world-draft-runtime-items [data-world-runtime-item]', '[data-runtime-item-id]'],
+    ['#world-draft-runtime-actions [data-world-runtime-action]', '[data-runtime-action-id]'],
+  ];
+  rows.forEach(([rowSelector, idSelector]) => {
+    document.querySelectorAll(rowSelector).forEach(row => {
+      const id = row.querySelector(idSelector)?.value.trim();
+      if (id) row.dataset.worldRuntimeSourceId = id;
+    });
+  });
+}
+function syncWorldDraftRuntimeFromForm({ showError = false } = {}) {
+  if (!worldDraft) return { ok: true, value: null };
+  if (!requireWorldDraftRuntimeRawSync()) return { ok: false };
+  const result = collectWorldDraftRuntimeForm();
+  if (!result.ok) return result;
+  worldDraft.world.runtime = result.value;
+  const raw = $('world-draft-runtime');
+  if (raw) {
+    raw.value = worldDraftRuntimeText(result.value);
+    setWorldDraftJsonRawState(raw);
+  }
+  syncWorldDraftRuntimeSourceIds();
+  if (showError) setWorldDraftStatus('运行态表单已同步。', 'ok');
+  return result;
+}
+function loadWorldDraftRuntimeJson() {
+  const raw = $('world-draft-runtime');
+  if (!raw || !worldDraft) return;
+  try {
+    const text = raw.value.trim();
+    const value = text ? JSON.parse(text) : null;
+    if (value !== null && (!value || typeof value !== 'object' || Array.isArray(value))) throw new Error('运行态必须是 JSON 对象');
+    worldDraft.world.runtime = value;
+    raw.value = worldDraftRuntimeText(value);
+    setWorldDraftJsonRawState(raw);
+    worldDraftDirty = true;
+    renderWorldDraftRuntimeForm();
+    setWorldDraftStatus('已从高级 JSON 载入状态与物品表单。', 'ok');
+  } catch (error) {
+    setWorldDraftStatus(`RPG Runtime Schema 不是有效 JSON：${error.message}`, 'error');
+    raw.focus();
+  }
+}
+function mutateWorldDraftRuntime(mutator) {
+  if (!worldDraft || !requireWorldDraftRuntimeRawSync()) return false;
+  const result = syncWorldDraftRuntimeFromForm();
+  if (!result.ok) return false;
+  const runtime = worldDraftRuntimeBase();
+  mutator(runtime);
+  worldDraft.world.runtime = runtime;
+  const raw = $('world-draft-runtime');
+  if (raw) {
+    raw.value = worldDraftRuntimeText(runtime);
+    setWorldDraftJsonRawState(raw);
+  }
+  worldDraftDirty = true;
+  renderWorldDraftRuntimeForm();
+  return true;
+}
+function handleWorldDraftRuntimeClick(event) {
+  const button = event.target.closest('button');
+  if (!button || !worldDraft) return;
+  const add = button.dataset.worldRuntimeAdd;
+  if (add === 'variable') {
+    mutateWorldDraftRuntime(runtime => runtime.variables.push({ id: `variable-${uid()}`, label: '新变量', scope: 'save', type: 'number', initial: 0, visible: true }));
+    return;
+  }
+  if (add === 'item') {
+    mutateWorldDraftRuntime(runtime => {
+      let collection = worldDraftRuntimeItemCollection(runtime);
+      if (!collection) {
+        if (runtime.collections.some(item => item?.id === WORLD_DRAFT_DURABLE_ITEMS_ID)) {
+          setWorldDraftStatus('现有高级配置已使用 durable-items 集合；请先在高级 JSON 中改名后再添加耐久物品。', 'error');
+          return;
+        }
+        collection = { id: WORLD_DRAFT_DURABLE_ITEMS_ID, label: '耐久物品', scope: 'save', entrySchema: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, durability: { type: 'number', min: 0, max: 1000000 }, maxDurability: { type: 'number', min: 0, max: 1000000 }, uses: { type: 'number', min: 0, max: 1000000000 } }, required: ['id', 'label', 'durability', 'maxDurability', 'uses'], additionalProperties: false }, initial: [] };
+        runtime.collections.push(collection);
+      }
+      const id = `item-${uid()}`;
+      collection.initial.push({ id, label: '新物品', durability: 1, maxDurability: 1, uses: 0 });
+      runtime.actions.push({
+        id: `use-${id}`,
+        label: '使用新物品',
+        description: '使用新物品，消耗 1 点耐久。',
+        category: '物品',
+        availability: [{ type: 'collection.number', collectionId: WORLD_DRAFT_DURABLE_ITEMS_ID, entryId: id, field: 'durability', operator: '>=', value: 1 }],
+        effects: [{ type: 'collection.patch', collectionId: WORLD_DRAFT_DURABLE_ITEMS_ID, entryId: id, delta: { durability: -1, uses: 1 } }],
+      });
+    });
+    return;
+  }
+  if (add === 'action') {
+    const current = worldDraftRuntimeValue();
+    const variable = (Array.isArray(current?.variables) ? current.variables : []).find(item => item?.type === 'number');
+    if (!variable) return setWorldDraftStatus('请先添加一个数值变量，再创建变量动作。', 'error');
+    mutateWorldDraftRuntime(runtime => runtime.actions.push({ id: `action-${uid()}`, label: '新动作', category: '状态', effects: [{ type: 'variable.delta', variableId: variable.id, delta: 1 }] }));
+    return;
+  }
+  const kind = button.dataset.worldRuntimeRemove;
+  if (!kind) return;
+  const row = button.closest('[data-world-runtime-variable], [data-world-runtime-item], [data-world-runtime-action]');
+  const sourceId = row?.dataset.worldRuntimeSourceId || '';
+  if (!sourceId) return;
+  if (kind === 'variable' && worldDraftRuntimeVariableIsReferenced(worldDraftRuntimeValue(), sourceId)) {
+    setWorldDraftStatus(`变量「${sourceId}」仍被动作引用；请先改用其他变量或删除动作。`, 'error');
+    return;
+  }
+  mutateWorldDraftRuntime(runtime => {
+    if (kind === 'variable') runtime.variables = runtime.variables.filter(item => item?.id !== sourceId);
+    if (kind === 'item') {
+      const collection = worldDraftRuntimeItemCollection(runtime);
+      if (collection) {
+        collection.initial = (Array.isArray(collection.initial) ? collection.initial : []).filter(item => item?.id !== sourceId);
+        if (!collection.initial.length) runtime.collections = runtime.collections.filter(item => item !== collection);
+      }
+      runtime.actions = runtime.actions.filter(item => item?.id !== `use-${sourceId}`);
+    }
+    if (kind === 'action') runtime.actions = runtime.actions.filter(item => item?.id !== sourceId);
+  });
+}
+function handleWorldDraftRuntimeInput(event) {
+  const row = event.target.closest('[data-world-runtime-variable], [data-world-runtime-item], [data-world-runtime-action]');
+  if (!row) return;
+  if (event.target.matches('[data-runtime-variable-type]')) {
+    const id = row.querySelector('[data-runtime-variable-id]')?.value.trim() || '';
+    const changesToNonNumber = event.target.value !== 'number';
+    const isReferenced = id && [...document.querySelectorAll('#world-draft-runtime-actions [data-runtime-action-variable]')].some(select => select.value === id);
+    if (changesToNonNumber && isReferenced && !worldDraftRuntimeNumericVariablesFromForm().length) {
+      event.target.value = 'number';
+      setWorldDraftStatus('该数值变量仍被动作使用；请先改用其他数值变量或删除动作。', 'error');
+    }
+    updateWorldDraftRuntimeVariableFields(row);
+    refreshWorldDraftRuntimeActionVariables();
+  }
+  if (event.target.matches('[data-runtime-variable-id], [data-runtime-variable-label]')) {
+    const idInput = row.querySelector('[data-runtime-variable-id]');
+    const previousId = idInput?.dataset.runtimePreviousValue ?? row.dataset.worldRuntimeSourceId ?? '';
+    const nextId = idInput?.value.trim() || '';
+    refreshWorldDraftRuntimeActionVariables(previousId, nextId);
+    if (idInput) idInput.dataset.runtimePreviousValue = nextId;
+  }
+  syncWorldDraftRuntimeFromForm();
+}
 const WORLD_DRAFT_PLAYER_BUCKETS = [
   { key: 'fields', label: '身份字段', template: () => ({ id: 'field-' + uid(), label: '新字段', type: 'text', required: false, default: '' }) },
   { key: 'attributes', label: '属性', template: () => ({ id: 'attribute-' + uid(), label: '新属性', min: 0, max: 100, step: 1, default: 0 }) },
@@ -1268,7 +1841,7 @@ function handleWorldDraftPlayerCreationClick(event) {
     const schema = worldDraftPlayerSchema();
     if (!Array.isArray(schema[bucket])) schema[bucket] = [];
     schema[bucket].push(definition.template());
-    schema.mode ||= 'custom';
+    if (!schema.mode) schema.mode = 'custom';
     worldDraft.world.playerCreation = schema;
     worldDraftDirty = true;
     renderWorldDraftPlayerCreation();
@@ -1570,8 +2143,8 @@ function collectWorldDraftCollections() {
         actions = JSON.parse(actionsRaw);
         if (!Array.isArray(actions)) throw new Error('必须是数组');
       } catch (err) {
-        error ||= `NPC ${index + 1} 的主动行动模板不是有效 JSON：${err.message || '格式错误'}`;
-        focus ||= row.querySelector('[data-npc-actions]');
+        if (!error) error = `NPC ${index + 1} 的主动行动模板不是有效 JSON：${err.message || '格式错误'}`;
+        if (!focus) focus = row.querySelector('[data-npc-actions]');
         actions = Array.isArray(previous.actions) ? previous.actions : [];
       }
     }
@@ -1716,6 +2289,8 @@ function fillWorldDraftForm(draft) {
   fillWorldDraftExtensionEditor(world.ui?.extension);
   $('world-draft-regexes').value = world.regexes ? JSON.stringify(world.regexes, null, 2) : '';
   $('world-draft-runtime').value = world.runtime ? JSON.stringify(world.runtime, null, 2) : '';
+  setWorldDraftJsonRawState($('world-draft-runtime'));
+  renderWorldDraftRuntimeForm();
   renderWorldDraftPlayerCreation();
   $('world-draft-session-setup').value = world.sessionSetup ? JSON.stringify(world.sessionSetup, null, 2) : '';
   $('world-draft-turn-contract').value = world.turnContract ? JSON.stringify(world.turnContract, null, 2) : '';
@@ -1739,6 +2314,93 @@ function worldOpenStatusText(save = currentWorldSave) {
   if (save.setup?.status === 'planning') return `「${save.name}」已创建，当前处于待开局规划；规划完成前不会写入正式回合。`;
   if (!worldWorkspaceActive) return `已选择「${save.name}」；点击工作台返回这份存档的对话。`;
   return `存档已打开：「${save.name}」——世界状态、地图和叙事已绑定当前存档；当前存档 ID：${save.id}`;
+}
+function worldDraftRouteId() {
+  const value = new URL(location.href).searchParams.get('worldDraft') || '';
+  return WORLD_DRAFT_RUNTIME_ID_RE.test(value) ? value : '';
+}
+function writeWorldDraftRoute(worldId, { replace = false } = {}) {
+  const url = new URL(location.href);
+  url.searchParams.set('worldDraft', worldId);
+  const state = { ...(history.state || {}), worldDraftRoute: worldId };
+  history[replace ? 'replaceState' : 'pushState'](state, '', url);
+}
+function clearWorldDraftRoute({ replace = true } = {}) {
+  const url = new URL(location.href);
+  url.searchParams.delete('worldDraft');
+  const state = { ...(history.state || {}) };
+  delete state.worldDraftRoute;
+  history[replace ? 'replaceState' : 'pushState'](state, '', url);
+}
+function worldDraftEditorActive() {
+  return document.body.classList.contains('world-authoring-active') || !!$('world-draft-dialog')?.open;
+}
+function presentWorldDraftEditor(draft, { route = true, status = '' } = {}) {
+  const dialog = $('world-draft-dialog');
+  if (!dialog) return;
+  // A direct authoring URL owns the modal layer; pause any in-progress setup first.
+  closeWorldPlayerDialog();
+  closeWorldOpeningDialog();
+  worldDraft = draft;
+  worldDraftDirty = false;
+  worldDraftPublishId = null;
+  fillWorldDraftForm(draft);
+  document.body.classList.add('world-authoring-active');
+  document.title = `制卡 · ${draft?.world?.title || '世界草稿'} · Tavern`;
+  if (route && worldDraftRouteId() !== draft.worldId) writeWorldDraftRoute(draft.worldId);
+  if (!dialog.open) dialog.showModal();
+  if (status) setWorldDraftStatus(status);
+  requestAnimationFrame(() => $('world-draft-name')?.focus());
+}
+function dismissWorldDraftEditor({ restoreFocus = true } = {}) {
+  const dialog = $('world-draft-dialog');
+  if (dialog?.open) dialog.close('cancel');
+  document.body.classList.remove('world-authoring-active');
+  document.title = APP_DOCUMENT_TITLE;
+  if (restoreFocus) worldDraftOpener?.focus?.();
+  worldDraftOpener = null;
+}
+async function syncWorldDraftRoute({ fromPopstate = false } = {}) {
+  const routeId = worldDraftRouteId();
+  const dialog = $('world-draft-dialog');
+  if (!routeId) {
+    worldDraftRouteLoadToken += 1;
+    if (dialog?.open && worldDraftDirty && fromPopstate && !confirm('草稿还有未保存的修改，确定离开制卡页吗？')) {
+      writeWorldDraftRoute(worldDraft?.worldId || '', { replace: false });
+      return;
+    }
+    worldDraftDirty = false;
+    dismissWorldDraftEditor();
+    return;
+  }
+  if (dialog?.open && worldDraft?.worldId === routeId) {
+    document.body.classList.add('world-authoring-active');
+    document.title = `制卡 · ${worldDraft.world?.title || '世界草稿'} · Tavern`;
+    return;
+  }
+  const token = ++worldDraftRouteLoadToken;
+  document.body.classList.add('world-authoring-active');
+  try {
+    const res = await fetch('/api/world-drafts/' + encodeURIComponent(routeId));
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(worldApiError(data, '世界草稿读取失败（HTTP ' + res.status + '）'));
+    if (token !== worldDraftRouteLoadToken || worldDraftRouteId() !== routeId) return;
+    presentWorldDraftEditor(data, { route: false, status: '已从制卡页链接恢复草稿。' });
+  } catch (error) {
+    if (token !== worldDraftRouteLoadToken) return;
+    clearWorldDraftRoute({ replace: true });
+    dismissWorldDraftEditor({ restoreFocus: false });
+    showWorldError(error.message);
+  }
+}
+function leaveWorldDraftEditor() {
+  const routeId = worldDraftRouteId();
+  if (routeId && history.state?.worldDraftRoute === routeId) {
+    history.back();
+    return;
+  }
+  clearWorldDraftRoute({ replace: true });
+  dismissWorldDraftEditor();
 }
 function openWorldDraftChoice() {
   const dialog = $('world-draft-choice-dialog');
@@ -1783,15 +2445,9 @@ async function openWorldDraftEditor({ createNew = false } = {}) {
     });
     const data = await res.json().catch(() => null);
     if (!res.ok) throw new Error(worldApiError(data, '世界草稿读取失败（HTTP ' + res.status + '）'));
-    worldDraft = data;
-    worldDraftDirty = false;
-    worldDraftPublishId = null;
-    fillWorldDraftForm(data);
-    setWorldDraftStatus(data.createdAt === data.updatedAt
+    presentWorldDraftEditor(data, { status: data.createdAt === data.updatedAt
       ? (worldDraftIsNew(data) ? '新世界草稿已创建，修改后点击保存。' : '草稿已创建，修改后点击保存。')
-      : '已载入上次保存的草稿。');
-    if (!dialog.open) dialog.showModal();
-    requestAnimationFrame(() => $('world-draft-name')?.focus());
+      : '已载入上次保存的草稿。' });
   } catch (err) {
     setWorldDraftStatus(err.message, 'error');
   }
@@ -1801,9 +2457,7 @@ function requestCloseWorldDraft() {
   if (!dialog?.open) return;
   if (worldDraftDirty && !confirm('草稿还有未保存的修改，确定关闭吗？')) return;
   worldDraftDirty = false;
-  dialog.close('cancel');
-  worldDraftOpener?.focus?.();
-  worldDraftOpener = null;
+  leaveWorldDraftEditor();
 }
 async function saveWorldDraft() {
   if (!worldDraft) return false;
@@ -1859,12 +2513,9 @@ async function saveWorldDraft() {
     return false;
   }
   const { locations, npcs } = collections;
-  let runtime = null;
-  const runtimeText = $('world-draft-runtime').value.trim();
-  if (runtimeText) {
-    try { runtime = JSON.parse(runtimeText); }
-    catch { setWorldDraftStatus('RPG Runtime Schema 不是有效 JSON。', 'error'); $('world-draft-runtime').focus(); return false; }
-  }
+  const runtimeResult = syncWorldDraftRuntimeFromForm();
+  if (!runtimeResult.ok) return false;
+  const runtime = runtimeResult.value;
   let playerCreation = null;
   const playerCreationRaw = $('world-draft-player-creation').value.trim();
   const playerCreationPreviewBeforeSync = worldDraftPlayerSchema();
@@ -1974,7 +2625,7 @@ async function publishWorldDraft() {
   const nextVersion = isNewWorld ? 1 : Number(worldDraft.baseVersion) + 1;
   const publishLabel = isNewWorld ? '新的世界卡' : `v${nextVersion}`;
   if (!confirm(`将“${title}”发布为${publishLabel}？\n\n已发布版本不可覆盖；现有存档仍绑定各自原版本。`)) return;
-  worldDraftPublishId ||= 'publish-' + uid();
+  if (!worldDraftPublishId) worldDraftPublishId = 'publish-' + uid();
   const publishButton = $('world-draft-publish');
   const saveButton = $('world-draft-save');
   const oldLabel = publishButton.textContent;
@@ -1996,11 +2647,11 @@ async function publishWorldDraft() {
     }
     const published = data?.world;
     if (!published || published.id !== worldDraft.worldId || Number(published.version) !== nextVersion) throw new Error('发布响应缺少新世界版本');
-    worldDraft = null;
     worldDraftDirty = false;
     worldDraftPublishId = null;
-    $('world-draft-dialog').close('published');
-    worldDraftOpener = null;
+    clearWorldDraftRoute({ replace: true });
+    dismissWorldDraftEditor({ restoreFocus: false });
+    worldDraft = null;
     if (isNewWorld) {
       currentWorldId = published.id;
       localStorage.setItem(LS_CURRENT_WORLD, currentWorldId);
@@ -2380,7 +3031,7 @@ function confirmWorldEntryGate() {
 }
 function openWorldPlayerEditor(save = currentWorldSave) {
   const world = currentWorldCard();
-  if (!save || !world || !worldSavePlanning(save)) return;
+  if (!save || !world || !worldSavePlanning(save) || worldDraftEditorActive()) return;
   editingWorldPlayerSaveId = save.id;
   pendingWorldSaveName = save.name || '';
   pendingWorldPlayerPresetId = save.setup?.playerPresetId || '';
@@ -2520,7 +3171,7 @@ function renderWorldOpeningDialog(save = currentWorldSave) {
   renderWorldOpeningConfirmSummary(save, plan);
 }
 function openWorldOpeningDialog(save = currentWorldSave) {
-  if (!save || !worldSavePlanning(save)) return;
+  if (!save || !worldSavePlanning(save) || worldDraftEditorActive()) return;
   renderWorldOpeningDialog(save);
   const dialog = $('world-opening-dialog');
   if (dialog && !dialog.open) dialog.showModal();
@@ -2626,7 +3277,7 @@ async function generateWorldOpening(save) {
     const payload = buildPayload();
     const traceCommandId = 'opening-candidate-' + uid();
     payload.body.messages.push({ role: 'user', content: `【开局规划任务】这是一个新建世界存档。请严格依据以下当前存档开局规划生成候选：${JSON.stringify(save.setup?.plan || {})}。根据世界卡、玩家快照、起始地点、在场 NPC 与规则，生成可直接展示给玩家的开场叙事；不要替玩家决定未声明的核心意图，结尾停在玩家可以回应的局面。末尾输出唯一的 <tavern_state_update> JSON 更新块，protocol=tavern.rpg.turn、version=1、baseRevision=${save.revision}、updates=[]，并提供恰好 4 个具体行动选项。` });
-    setDebugTrace(save, { commandId: traceCommandId, status: '开场候选请求中', input: JSON.stringify({ kind: 'opening-plan', endpoint: payload.baseUrl + '/chat/completions', ...payload.body }, null, 2), output: '等待 AI 响应…' });
+    beginDebugRequest(save, payload, { label: '开场候选', kind: 'opening-plan', commandId: traceCommandId });
     let reply;
     if (payload.body.stream) reply = (await callAPIStream(payload)).content;
     else reply = (await callAPI(payload))?.choices?.[0]?.message?.content;
@@ -2987,7 +3638,7 @@ async function commitWorldSaveUpgrade() {
   const report = upgrade?.report;
   if (!report?.canUpgrade) return;
   if (!confirm(`将“${upgrade.save.name}”从 v${report.fromVersion} 升级到 v${report.targetVersion}？\n\n升级后保留当前进度，并在存档中记录迁移历史。`)) return;
-  upgrade.commandId ||= 'upgrade-' + uid();
+  if (!upgrade.commandId) upgrade.commandId = 'upgrade-' + uid();
   const button = $('world-upgrade-commit');
   button.disabled = true;
   button.textContent = '升级中…';
@@ -4020,6 +4671,7 @@ function worldPanelStateRoot(source) {
 function worldPanelStateDeltaKey(source, entry, field) {
   if (!field?.key || field.key === '$key') return '';
   const root = worldPanelStateRoot(source);
+  if (field.key === '$value') return root ? worldStatePathKey(root) : '';
   return root ? worldStatePathKey([...root, entry.key, ...String(field.key).split('.')]) : '';
 }
 
@@ -4142,6 +4794,54 @@ function applyWorldUiSlots() {
   if (extensionHost) extensionHost.dataset.uiOwner = customLayout ? 'world-card' : 'host';
 }
 
+function runtimeAuthoringDefaultPanels(world, configuredPanels = []) {
+  const configuredSources = new Set(configuredPanels.map(panel => String(panel?.source || '')));
+  const panels = [];
+  const add = panel => {
+    if (!configuredSources.has(panel.source) && panels.length < WORLD_DRAFT_AUTO_PANEL_LIMIT) {
+      panels.push(panel);
+      configuredSources.add(panel.source);
+      return true;
+    }
+    return false;
+  };
+  const collection = worldDraftRuntimeItemCollection(world?.runtime);
+  if (collection) {
+    add({
+      title: collection.label || '耐久物品',
+      side: 'right',
+      source: `runtime.collections.${collection.id}`,
+      layout: 'table',
+      fields: [
+        { key: 'durability', label: '耐久' },
+        { key: 'maxDurability', label: '最大耐久' },
+        { key: 'uses', label: '使用次数' },
+      ],
+    });
+    for (const item of Array.isArray(collection.initial) ? collection.initial : []) {
+      const action = worldDraftRuntimeItemAction(world.runtime, item?.id);
+      if (action && !add({
+        title: action.label || `使用${item?.label || item?.id || ''}`,
+        side: 'left',
+        source: `runtime.actions.${action.id}`,
+        layout: 'actions',
+      })) break;
+    }
+  }
+  for (const variable of Array.isArray(world?.runtime?.variables) ? world.runtime.variables : []) {
+    if (!variable?.id || variable.visible === false) continue;
+    add({
+      title: variable.label || variable.id,
+      side: 'right',
+      source: `runtime.variables.${variable.id}`,
+      layout: 'cards',
+      fields: [{ key: '$value', label: '当前值' }],
+      valueLabel: variable.label || variable.id,
+    });
+  }
+  return panels;
+}
+
 function renderWorldSidebarPanels() {
   const targets = { left: $('rpg-custom-left'), right: $('rpg-custom-right') };
   Object.values(targets).forEach(target => { if (target) target.replaceChildren(); });
@@ -4163,7 +4863,10 @@ function renderWorldSidebarPanels() {
     'save.state.player.traits': save.state?.player?.traits,
   };
   const runtime = save.state?.runtime;
-  for (const panel of Array.isArray(world.ui?.sidebar?.panels) ? world.ui.sidebar.panels : []) {
+  const configuredPanels = Array.isArray(world.ui?.sidebar?.panels) ? world.ui.sidebar.panels : [];
+  // A sidebar declaration is an explicit author choice, including panels: [].
+  const panels = world.ui?.sidebar ? configuredPanels : [...configuredPanels, ...runtimeAuthoringDefaultPanels(world, configuredPanels)];
+  for (const panel of panels) {
     const match = /^runtime\.(variables|collections|actions)\.([A-Za-z0-9][A-Za-z0-9_-]{0,63})$/.exec(String(panel?.source || ''));
     if (!match) continue;
     if (match[1] === 'variables' && currentWorldCard()?.runtime?.variables?.find(item => item.id === match[2])?.visible === false) continue;
@@ -4173,7 +4876,6 @@ function renderWorldSidebarPanels() {
         ? (runtime?.collections?.[match[2]] || [])
         : (currentWorldCard()?.runtime?.actions || []).find(item => item?.id === match[2]) || null;
   }
-  const panels = Array.isArray(world.ui?.sidebar?.panels) ? world.ui.sidebar.panels : [];
   for (const panel of panels) {
     if (!panel || !isSupportedRpgUiSource(panel.source)) continue;
     const target = targets[panel.side === 'left' ? 'left' : 'right'];
@@ -4283,7 +4985,10 @@ function renderWorldSidebarPanels() {
       ? Object.keys(entries[0].value).filter(key => !['id', 'name', 'title'].includes(key)).slice(0, 6).map(key => ({ key, label: key === 'status' ? '状态' : key }))
       : [];
     const fields = configuredFields.length ? configuredFields : inferredFields;
-    const valueForField = (entry, field) => rpgUiValueText(field.key === '$key' ? entry.key : readRpgUiField(entry.value, field.key), field.key);
+    const valueForField = (entry, field) => rpgUiValueText(field.key === '$key' ? entry.key : field.key === '$value' ? entry.value : readRpgUiField(entry.value, field.key), field.key);
+    const entryTitle = entry => entry.value && typeof entry.value === 'object'
+      ? entry.value?.name || entry.value?.label || entry.value?.title || entry.key
+      : panel.valueLabel || entry.key;
     const statusEntries = entries.filter(entry => entry.value && typeof entry.value === 'object' && ['confirmed', 'unconfirmed'].includes(entry.value.status));
     if (statusEntries.length) {
       const summary = document.createElement('span');
@@ -4314,7 +5019,7 @@ function renderWorldSidebarPanels() {
         const row = document.createElement('tr');
         const name = document.createElement('th');
         name.scope = 'row';
-        name.textContent = String(entry.value?.name || entry.value?.title || entry.key);
+        name.textContent = String(entryTitle(entry));
         row.appendChild(name);
         fields.forEach(field => {
           const cell = document.createElement('td');
@@ -4332,7 +5037,7 @@ function renderWorldSidebarPanels() {
         card.className = 'rpg-item';
         const title = document.createElement('div');
         title.className = 'rpg-item-name';
-        title.textContent = String(entry.value?.name || entry.value?.title || entry.key);
+        title.textContent = String(entryTitle(entry));
         card.appendChild(title);
         fields.forEach(field => {
           const line = document.createElement('div');
@@ -4432,6 +5137,13 @@ function worldExtensionContext() {
       locations: Array.isArray(world.locations) ? world.locations.filter(Boolean).map(item => ({ id: item.id, name: item.name || item.label, description: item.description })) : [],
       factions: Array.isArray(world.factions) ? world.factions.filter(Boolean).map(item => ({ id: item.id, name: item.name || item.label, description: item.description })) : [],
       npcs: Array.isArray(world.npcs) ? world.npcs.filter(Boolean).map(item => ({ id: item.id, name: item.name || item.label, description: item.description })) : [],
+      ending: world.ending && typeof world.ending === 'object' ? {
+        enabled: world.ending.enabled !== false,
+        allowPlayerEnd: world.ending.allowPlayerEnd !== false,
+        requireConfirm: world.ending.requireConfirm !== false,
+        defaultEndingId: world.ending.defaultEndingId || 'player-choice',
+        endings: (Array.isArray(world.ending.endings) ? world.ending.endings : []).filter(Boolean).slice(0, 32).map(item => ({ id: item.id, kind: item.kind, label: item.label, description: item.description, terminal: item.terminal === true })),
+      } : null,
     };
   }
   if (permissions.has('read.save') && save) {
@@ -4470,6 +5182,8 @@ function worldExtensionContext() {
         locationId: save.state?.locationId || null,
         time: save.state?.time || null,
         runtime: save.state?.runtime || null,
+        ending: save.state?.ending || null,
+        failure: save.state?.failure || null,
         player: save.state?.player && typeof save.state.player === 'object' ? {
           fields: save.state.player.fields || {},
           attributes: save.state.player.attributes || {},
@@ -4719,6 +5433,11 @@ function extensionBridgeSource(nonce) {
       choose: (text, options = {}) => send('turn.choose', {
         text,
         actionId: options && options.actionId,
+        input: options && options.input,
+      }),
+      endWorld: (options = {}) => send('world.end', {
+        endingId: options && options.endingId,
+        confirm: options && options.confirm === true,
       }),
       setup: {
         get: () => send('setup.get'),
@@ -4770,7 +5489,7 @@ function worldExtensionSrcdoc(extension, nonce, themeTokens = {}) {
   const theme = Object.entries(themeTokens && typeof themeTokens === 'object' ? themeTokens : {})
     .map(([key, value]) => `--${key}:${value}`).join(';');
   const css = `${theme ? `:root{${theme}}` : ''}${rawCss}`;
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"><style>html,body{width:100%;height:100%;margin:0;min-height:100%;overflow:hidden;background:transparent;color:#f2f2f7;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;scrollbar-width:thin;scrollbar-color:rgba(119,230,213,.7) transparent}*{scrollbar-width:thin;scrollbar-color:rgba(119,230,213,.7) transparent}*::-webkit-scrollbar{width:8px;height:8px}*::-webkit-scrollbar-track{background:rgba(255,255,255,.04);border-radius:8px}*::-webkit-scrollbar-thumb{background:linear-gradient(180deg,rgba(119,230,213,.85),rgba(93,139,202,.85));border:2px solid transparent;background-clip:padding-box;border-radius:8px}*::-webkit-scrollbar-thumb:hover{background:linear-gradient(180deg,#77e6d5,#6a9de5);border:1px solid transparent;background-clip:padding-box}#tavern-extension-root{width:100%;height:100%;min-height:100%;box-sizing:border-box}#tavern-extension-root>:first-child{box-sizing:border-box;min-height:100%}button,input,textarea,select{font:inherit}button{cursor:pointer}[data-tavern-messages]{display:flex;flex-direction:column;gap:10px;min-height:0;overflow:auto;overscroll-behavior:contain}[data-tavern-messages] .tavern-message{white-space:pre-wrap;overflow-wrap:anywhere}[data-tavern-messages] .tavern-message-user{align-self:flex-end}[data-tavern-messages] .tavern-message-assistant{align-self:flex-start}[data-tavern-narrative]{overflow-wrap:anywhere}[data-tavern-narrative][hidden]{display:none!important}[data-tavern-rendered] p{margin:.45em 0;line-height:1.7}[data-tavern-rendered] p:first-child{margin-top:0}[data-tavern-rendered] p:last-child{margin-bottom:0}[data-tavern-rendered] ul,[data-tavern-rendered] ol{padding-left:1.35em}[data-tavern-rendered] blockquote{margin:.7em 0;padding:.2em .8em;border-left:3px solid rgba(119,230,213,.7);background:rgba(119,230,213,.08)}[data-tavern-rendered] pre{max-width:100%;overflow:auto;padding:.7em;border-radius:8px;background:rgba(0,0,0,.28)}[data-tavern-rendered] code{overflow-wrap:anywhere}[data-tavern-options]{display:flex;flex-wrap:wrap;gap:10px}[data-tavern-options] .tavern-option{min-height:44px;padding:10px 14px;border-radius:10px}[data-tavern-input]{display:flex;gap:10px}[data-tavern-input] input,[data-tavern-input] textarea{min-width:0;flex:1;box-sizing:border-box}${css}</style></head><body><main id="tavern-extension-root">${html}</main><script>${extensionBridgeSource(nonce)}\n${js}</script></body></html>`;
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"><style>html,body{width:100%;height:100%;margin:0;min-height:100%;overflow:hidden;background:transparent;color:#f2f2f7;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;scrollbar-width:thin;scrollbar-color:rgba(119,230,213,.7) transparent}*{scrollbar-width:thin;scrollbar-color:rgba(119,230,213,.7) transparent}*::-webkit-scrollbar{width:8px;height:8px}*::-webkit-scrollbar-track{background:rgba(255,255,255,.04);border-radius:8px}*::-webkit-scrollbar-thumb{background:linear-gradient(180deg,rgba(119,230,213,.85),rgba(93,139,202,.85));border:2px solid transparent;background-clip:padding-box;border-radius:8px}*::-webkit-scrollbar-thumb:hover{background:linear-gradient(180deg,#77e6d5,#6a9de5);border:1px solid transparent;background-clip:padding-box;border-radius:8px}#tavern-extension-root{width:100%;height:100%;min-height:100%;box-sizing:border-box}#tavern-extension-root>:first-child{box-sizing:border-box;min-height:100%}button,input,textarea,select{font:inherit}button{cursor:pointer}[data-tavern-messages]{display:flex;flex-direction:column;gap:10px;min-height:0;overflow:auto;overscroll-behavior:contain}[data-tavern-messages] .tavern-message{white-space:pre-wrap;overflow-wrap:anywhere}[data-tavern-messages] .tavern-message-user{align-self:flex-end}[data-tavern-messages] .tavern-message-assistant{align-self:flex-start}[data-tavern-narrative]{overflow-wrap:anywhere}[data-tavern-narrative][hidden]{display:none!important}[data-tavern-rendered] p{margin:.45em 0;line-height:1.7}[data-tavern-rendered] p:first-child{margin-top:0}[data-tavern-rendered] p:last-child{margin-bottom:0}[data-tavern-rendered] ul,[data-tavern-rendered] ol{padding-left:1.35em}[data-tavern-rendered] blockquote{margin:.7em 0;padding:.2em .8em;border-left:3px solid rgba(119,230,213,.7);background:rgba(119,230,213,.08)}[data-tavern-rendered] pre{max-width:100%;overflow:auto;padding:.7em;border-radius:8px;background:rgba(0,0,0,.28)}[data-tavern-rendered] code{overflow-wrap:anywhere}[data-tavern-options]{display:flex;flex-wrap:wrap;gap:10px}[data-tavern-options] .tavern-option{min-height:44px;padding:10px 14px;border-radius:10px}[data-tavern-input]{display:flex;gap:10px}[data-tavern-input] input,[data-tavern-input] textarea{min-width:0;flex:1;box-sizing:border-box}${css}</style></head><body><main id="tavern-extension-root">${html}</main><script>${webview83CompatSource()}</script><script>${extensionBridgeSource(nonce)}\n${js}</script></body></html>`;
 }
 
 function postWorldExtensionContext() {
@@ -4863,6 +5582,31 @@ async function submitWorldExtensionChoice(text, actionId, input, updates) {
   return { revision: currentWorldSave?.revision ?? null };
 }
 
+async function submitWorldExtensionEnd(endingId, confirm = false) {
+  if (worldExtensionState.surface === 'setup') throw new Error('开局配置阶段不能结束世界线');
+  if (!worldModeActive() || !currentWorldSave) throw new Error('当前没有打开的世界存档');
+  if (!worldExtensionPermissions(currentWorldCard()?.ui?.extension || {}).has('read.save')) throw new Error('扩展没有 read.save 权限');
+  if (confirm !== true) throw new Error('结束世界线需要明确确认');
+  const value = typeof endingId === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(endingId) ? endingId : undefined;
+  const saveId = currentWorldSave.id;
+  const nonce = worldExtensionState.nonce;
+  const res = await fetch('/api/world-saves/' + encodeURIComponent(saveId) + '/end', {
+    method: 'POST', headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({ commandId: uid(), expectedRevision: currentWorldSave.revision, ...(value ? { endingId: value } : {}), confirm: true }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(worldApiError(data, '结束世界线失败（HTTP ' + res.status + '）'));
+  if (currentWorldSaveId !== saveId || worldExtensionState.nonce !== nonce) throw new Error('世界线已切换，结束响应已丢弃');
+  hydrateWorldSave(data);
+  currentWorldSave = data;
+  renderRPG();
+  renderMessages();
+  renderWorldDetail();
+  renderWorldList();
+  postWorldExtensionContext();
+  return { ended: true, revision: data.revision, ending: data.state?.ending || null };
+}
+
 function respondWorldExtension(event, requestId, ok, result, error) {
   if (!requestId || !event.source) return;
   event.source.postMessage({ channel: WORLD_EXTENSION_CHANNEL, version: 1, nonce: worldExtensionState.nonce, type: 'response', requestId, ok, result, ...(error ? { error } : {}) }, '*');
@@ -4921,6 +5665,15 @@ async function handleWorldExtensionMessage(event) {
   if (data.type === 'terminal.open') {
     openDebugTerminal();
     respondWorldExtension(event, data.requestId, true, { opened: true });
+    return;
+  }
+  if (data.type === 'world.end') {
+    try {
+      const result = await submitWorldExtensionEnd(data.endingId, data.confirm === true);
+      respondWorldExtension(event, data.requestId, true, result);
+    } catch (error) {
+      respondWorldExtension(event, data.requestId, false, null, error.message);
+    }
     return;
   }
   const extension = currentWorldCard()?.ui?.extension || {};
@@ -5689,7 +6442,9 @@ function normalizeTavernReplyOptions(value, preset = null) {
 }
 
 function hasTavernReplyOptionsProtocol(text) {
-  return /<tavern_options\b/i.test(String(text || ''));
+  // Markdown/模型有时会在隐藏标签前加反斜杠（例如 `\<tavern_options>`）。
+  // 反斜杠只是转义，不应让协议检测失效。
+  return /\\?<tavern_options\b/i.test(String(text || ''));
 }
 
 function builtInTavernReplyOptionsInstruction() {
@@ -5699,9 +6454,11 @@ function builtInTavernReplyOptionsInstruction() {
 /* Tavern 模式的选项协议：隐藏标签只负责把 AI 建议传给快捷栏，不进入正文。 */
 function parseTavernReplyOutput(reply, preset = null) {
   const text = String(reply || '');
-  const open = /<tavern_options\b[^>]*>/i.exec(text);
+  // 兼容模型为避免 Markdown 解析而输出的 `\<...>` / `\</...>`。
+  // 标签仍只作为控制块处理，绝不把转义符泄露到正文。
+  const open = /\\?<tavern_options\b[^>]*>/i.exec(text);
   if (!open) return { content: text.trim(), options: null, found: false, complete: true, errorCode: null };
-  const closeRe = /<\/tavern_options\s*>/ig;
+  const closeRe = /\\?<\/tavern_options\s*>/ig;
   closeRe.lastIndex = open.index + open[0].length;
   const close = closeRe.exec(text);
   if (!close) {
@@ -5715,13 +6472,13 @@ function parseTavernReplyOutput(reply, preset = null) {
     parsed = JSON.parse(raw);
   } catch (error) {
     return {
-      content: text.replace(/<tavern_options\b[^>]*>[\s\S]*?(?:<\/tavern_options\s*>|$)/gi, '').trim(),
+      content: text.replace(/\\?<tavern_options\b[^>]*>[\s\S]*?(?:\\?<\/tavern_options\s*>|$)/gi, '').trim(),
       options: null, found: true, complete: true, errorCode: 'options.invalid_json', errorMessage: error.message,
     };
   }
   const options = normalizeTavernReplyOptions(parsed, preset);
   // 即使模型重复输出协议标签，也全部从可见正文移除，避免把内部 JSON 泄露到聊天栏。
-  const visibleContent = text.replace(/<tavern_options\b[^>]*>[\s\S]*?(?:<\/tavern_options\s*>|$)/gi, '').trim();
+  const visibleContent = text.replace(/\\?<tavern_options\b[^>]*>[\s\S]*?(?:\\?<\/tavern_options\s*>|$)/gi, '').trim();
   return {
     content: visibleContent,
     options: options.length ? options : null,
@@ -5771,7 +6528,7 @@ function mergeRepairedReply(originalReply, repairedReply, targetMode = mode) {
   if (!original || !repaired) return repaired || original;
   if (targetMode !== 'rpg') {
     const visible = String(parseTavernReplyOutput(original, resolvePromptPreset()?.preset || null).content || original).trim();
-    const tag = repaired.match(/<tavern_options\b[^>]*>[\s\S]*?<\/tavern_options\s*>/i)?.[0];
+    const tag = repaired.match(/\\?<tavern_options\b[^>]*>[\s\S]*?\\?<\/tavern_options\s*>/i)?.[0];
     return tag ? `${visible}\n${tag}`.trim() : visible;
   }
   const visible = String(parseRpgOutput(original).narrative || original).trim();
@@ -5879,6 +6636,37 @@ function validateRpgPatchRuntimeActions(patch, world = currentWorldCard()) {
   const actionIds = new Set((Array.isArray(world?.runtime?.actions) ? world.runtime.actions : []).map(action => String(action?.id || '')));
   const unknown = patch.updates.find(update => update?.type === 'runtime.action.execute' && !actionIds.has(String(update.actionId || '').trim()));
   return unknown ? `patch.runtime.action.execute 未声明动作 ${String(unknown.actionId || '').trim() || '（空）'}` : null;
+}
+
+/*
+ * 卡内按钮或唯一精确匹配的自由输入已经把 actionId 作为玩家的明确意图提交给宿主。模型仍可能把
+ * 旧版 item.delta 等草稿塞进标签；这类草稿既不能执行，也不应阻断已声明
+ * 的卡动作。保留叙事、选项和顶层元数据，状态效果交由服务端按 actionId
+ * 的 availability / check / effects 重新结算。
+ */
+function recoverExplicitWorldActionPatch(patch, actionIntent, revision = currentWorldSave?.revision) {
+  if (!patch || !isExplicitWorldRuntimeActionIntent(actionIntent)) return null;
+  if (!Number.isSafeInteger(revision) || revision < 0) return null;
+  const actionId = String(actionIntent.actionId).trim();
+  const declared = (Array.isArray(currentWorldCard()?.runtime?.actions) ? currentWorldCard().runtime.actions : [])
+    .some(action => String(action?.id || '').trim() === actionId);
+  if (!declared) return null;
+  const normalized = normalizeRpgPatch(patch);
+  const rootContractValid = normalized
+    && typeof normalized === 'object'
+    && !Array.isArray(normalized)
+    && normalized.protocol === 'tavern.rpg.turn'
+    && Number(normalized.version) === 1
+    && Number(normalized.baseRevision) === Number(revision)
+    && Array.isArray(normalized.updates)
+    && !Object.keys(normalized).some(key => !['protocol', 'version', 'baseRevision', 'updates', 'options', 'createEntities', 'eventMemory'].includes(key));
+  if (!rootContractValid) return null;
+  const shapeError = validateRpgPatchShape(normalized) || validateRpgPatchRuntimeActions(normalized);
+  if (!shapeError) return null;
+  return {
+    patch: { protocol: 'tavern.rpg.turn', version: 1, baseRevision: revision, updates: [] },
+    reason: shapeError,
+  };
 }
 
 function applyRpgUpdate(payload) {
@@ -6722,7 +7510,7 @@ function tavernCardScriptFrame(css, markup, scripts, compatibility = {}, scrollM
     .replace(/<\/?style\b[^>]*>/gi, '')
     .replace(/<\/style/gi, '<\\/style');
   const bridge = tavernCardFrameBridgeSource(nonce, compatibility).replace(/<\/script/gi, '<\\/script');
-  const srcdoc = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;min-height:0;overflow:${frameOverflow}}#tavern-card-frame-root{width:100%;min-height:0;box-sizing:border-box}${safeCss}</style></head><body><main id="tavern-card-frame-root">${markup}</main><script>(function(){const nonce=${JSON.stringify(nonce)};function report(){try{const root=document.getElementById('tavern-card-frame-root');const rect=root?.getBoundingClientRect();const height=Math.ceil(Math.max(root?.scrollHeight||0,rect?.height||0));parent.postMessage({channel:'tavern.card.frame',type:'resize',nonce,height},'*')}catch(_){}}addEventListener('load',report);setTimeout(report,0);const root=document.getElementById('tavern-card-frame-root');if(typeof ResizeObserver==='function'&&root)new ResizeObserver(report).observe(root);})();</script><script>${bridge}</script>${scriptMarkup}<script>${bridge}</script></body></html>`;
+  const srcdoc = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;min-height:0;overflow:${frameOverflow}}#tavern-card-frame-root{width:100%;min-height:0;box-sizing:border-box}${safeCss}</style></head><body><main id="tavern-card-frame-root">${markup}</main><script>${webview83CompatSource()}</script><script>(function(){const nonce=${JSON.stringify(nonce)};function report(){try{const root=document.getElementById('tavern-card-frame-root');const rect=root?.getBoundingClientRect();const height=Math.ceil(Math.max(root?.scrollHeight||0,rect?.height||0));parent.postMessage({channel:'tavern.card.frame',type:'resize',nonce,height},'*')}catch(_){}}addEventListener('load',report);setTimeout(report,0);const root=document.getElementById('tavern-card-frame-root');if(typeof ResizeObserver==='function'&&root)new ResizeObserver(report).observe(root);})();</script><script>${bridge}</script>${scriptMarkup}<script>${bridge}</script></body></html>`;
   return `<div class="tavern-card-script-shell" data-tavern-card-script data-tavern-card-mode="full" data-tavern-card-scroll="${normalizedScrollMode}"><iframe class="tavern-card-script-frame" title="角色卡完整兼容运行区" data-tavern-card-nonce="${esc(nonce)}" referrerpolicy="no-referrer"${frameScrolling} srcdoc="${esc(srcdoc)}"></iframe></div>`;
 }
 
@@ -10129,7 +10917,7 @@ function buildWorldInfo({ dryRun = false, withOutlets = false } = {}) {
       const name = String(e.outletName || '').trim();
       if (!name) return '';
       if (settings.budget > 0 && !e.ignoreBudget && used + content.length > settings.budget) return '';
-      if (name) (outlets[name] ||= []).push(content);
+      if (name) (outlets[name] || (outlets[name] = [])).push(content);
       used += content.length;
       return '';
     }
@@ -10630,6 +11418,13 @@ function buildRpgPromptSections() {
       if (derivedValues.length) unshiftSection('save.derived-values', '【当前玩家只读派生值】\n' + derivedValues.map(item => `${item.id}: ${item.value === null ? 'N/A' : item.value}`).join('\n') + '\n这些值由属性/技能/资源实时计算，仅供阅读，禁止写回 ```rpg``` 状态块。');
       const optionRules = worldOptionRules();
       pushSection('turn.options-contract', `【回合契约】行动选项数量 ${optionRules.min}-${optionRules.max}；自由文本输入始终可用。AI 不得替玩家补写未表达的核心意图、台词或不可逆行动。`);
+      const intent = worldTurnPendingActive() ? currentWorldSave?.agentRuntime?.pending?.actionIntent || worldTurnPending?.actionIntent : null;
+      if (intent?.actionId) {
+        const intentAction = (Array.isArray(world.runtime?.actions) ? world.runtime.actions : []).find(action => action?.id === intent.actionId);
+        const intentAvailability = intentAction && !rpgRuntimeActionAvailabilityUsesInput(intentAction)
+          ? rpgRuntimeActionAvailabilityError(intentAction, currentWorldSave?.state?.runtime || {}) : '';
+        pushSection('turn.action-intent', `【玩家明确动作意图】本回合 actionId=${intent.actionId}${intentAction ? `（${intentAction.label || intentAction.id}）` : '（未声明，不能执行）'}。actionId 是玩家通过卡内按钮或自由输入精确匹配明确提交的动作，不得只当作叙事描述：动作已声明且可用时必须调用一次 runtime.action.execute；需要判定时先完成该 actionId 的 rules.check → dice.roll，只有达到目标才执行。绝不把该动作的效果手写成 item.delta、runtime.collection.patch 或其他等价 updates；卡内动作的状态效果只能由声明的 runtime.action.execute 结算。${intentAvailability ? `当前不可用：${intentAvailability}。不要调用、不要手写等价 updates，只在正文说明资源或条件不足。` : '若工具返回 accepted=candidate，最终提交必须保留该动作候选。'}`);
+      }
       pushSection('turn.side-effects', '【副作用边界】Markdown 叙事、NPC 台词、行动选项和普通文本中的骰子表达式都只是文本，不会自动执行骰子或改写状态；只有协议中通过服务端校验的结构化更新才可产生状态变化。');
       pushSection('turn.tool-candidates', agentProfile.mode === 'native'
         ? '【Agent 步骤协议】每一步只做一件事：需要信息/判定时调用工具并等待真实结果；已有结果时继续叙事。只有同时存在风险、不确定性与后果才判定，顺序固定为 context.retrieve → rules.check → dice.roll → 状态候选。dice.roll 只写基础 1dN，修正必须原样引用已声明的属性/技能/runtime 数值，禁止猜值。最终一步不得再调用工具：输出 Markdown 正文与唯一状态标签，正文不要列行动选项。'
@@ -10822,13 +11617,17 @@ function buildPromptBlocks() {
   const rollingHistory = mode === 'tavern' && tavernAutoMemoryConfig().enabled
     ? tavernTurnHistory()
     : null;
-  let history = includeHistory
-    ? (recentContext
-      ? recentContext.messages
-      : (rollingHistory || curMessages().slice(-Math.max(1, settings.history || 20))
-        .filter(m => m.role === 'user' || m.role === 'assistant')
-        .map(m => ({ role: m.role, content: m.content }))))
-    : [];
+  const historySource = recentContext
+    ? recentContext.messages
+    : (rollingHistory || curMessages().slice(-Math.max(1, settings.history || 20))
+      .filter(m => m.role === 'user' || m.role === 'assistant')
+      .map(m => ({ role: m.role, content: m.content })));
+  let history = includeHistory ? historySource : [];
+  // 禁用“聊天历史”只省略旧上下文，不能让本轮玩家输入从请求中消失。
+  if (!includeHistory) {
+    const latestUser = [...historySource].reverse().find(message => message.role === 'user' && String(message.content || '').trim());
+    if (latestUser) history = [{ role: 'user', content: latestUser.content }];
+  }
   if (mode === 'rpg' && defaults?.rpg?.exampleTurn) {
     const ex = defaults.rpg.exampleTurn;
     if (ex.user && ex.assistant) history.unshift({ role: 'user', content: ex.user }, { role: 'assistant', content: ex.assistant });
@@ -11551,6 +12350,7 @@ async function requestRpgAgentReply(payload, targetScope) {
       delete request.body.tools;
       delete request.body.tool_choice;
     }
+    if (step > 0) beginDebugRequest(targetScope, request, { label: finalOnly ? 'Agent 最终步骤' : `Agent 步骤 ${step + 1}` });
     let response;
     if (request.body.stream) {
       const stream = await callAPIStream(request, { render: false });
@@ -11647,6 +12447,7 @@ async function requestRpgCompatReply(payload, targetScope, session = createRpgAg
     const request = { ...payload, body: { ...payload.body, messages: requestMessages } };
     delete request.body.tools;
     delete request.body.tool_choice;
+    if (step > 0) beginDebugRequest(targetScope, request, { label: finalOnly ? '兼容 Agent 最终步骤' : `兼容 Agent 步骤 ${step + 1}` });
     let response;
     if (request.body.stream) {
       const stream = await callAPIStream(request, { render: false });
@@ -11726,13 +12527,21 @@ async function repairRpgOutput(payload, reply, optionRules, targetScope, toolTra
   };
   let repaired;
   try {
-    repaired = canonicalizeResponse(await callAPI({ ...payload, body }));
+    const structuredRequest = { ...payload, body };
+    beginDebugRequest(targetScope, structuredRequest, { label: 'RPG 协议修复' });
+    repaired = canonicalizeResponse(await callAPI(structuredRequest));
   } catch (structuredError) {
     // 强制工具调用被拒绝或返回不可解析内容时，才退回专用 JSON；结果仍须本地 canonicalize。
+    setDebugTrace(targetScope, {
+      status: 'RPG 协议修复工具调用失败，正在 JSON 回退',
+      error: String(structuredError?.message || '强制工具调用失败'),
+    });
     delete body.tools;
     delete body.tool_choice;
     if (deepSeekV4) body.response_format = { type: 'json_object' };
-    repaired = canonicalizeResponse(await callAPI({ ...payload, body }));
+    const fallbackRequest = { ...payload, body };
+    beginDebugRequest(targetScope, fallbackRequest, { label: 'RPG 协议修复（JSON 回退）' });
+    repaired = canonicalizeResponse(await callAPI(fallbackRequest));
   }
   setDebugTrace(targetScope, { status: '协议修复已收到', output: repaired });
   return repaired;
@@ -11762,7 +12571,9 @@ async function repairTavernReplyOptions(payload, reply, preset, targetScope) {
   // 修复请求只需要结构化正文，避免思维链占满预算后再次截断标签。
   delete body.thinking;
   delete body.reasoning_effort;
-  const data = await callAPI({ ...payload, body });
+  const repairRequest = { ...payload, body };
+  beginDebugRequest(targetScope, repairRequest, { label: 'RP 选项修复' });
+  const data = await callAPI(repairRequest);
   const message = data?.choices?.[0]?.message || {};
   const repaired = String(message.content || '').trim();
   if (!repaired) throw new Error('RP 选项协议修复没有返回内容');
@@ -12450,11 +13261,80 @@ function updateApiStatusFromSettings() {
   setApiStatus(`已接上：${s.baseUrl} · ${who}`);
 }
 
-/* ─────────── 调试终端：当前会话最近一次 AI 输入 / 原始输出 ─────────── */
+/* ─────────── 调试终端：当前会话的 AI 请求历史（仅本页内存） ─────────── */
+function ensureDebugTraceHistory(scope) {
+  if (!scope) return [];
+  const stored = debugTraces.get(scope.id);
+  if (!stored) return [];
+  if (Array.isArray(stored.history)) return stored.history;
+  const trace = { ...stored, id: stored.id || `trace-${uid()}`, createdAt: stored.createdAt || Date.now() };
+  debugTraces.set(scope.id, { ...trace, history: [trace] });
+  return [trace];
+}
+
+function writeDebugTraceHistory(scope, history) {
+  if (!scope) return;
+  const bounded = history.slice(-DEBUG_TRACE_HISTORY_LIMIT);
+  if (!bounded.length) {
+    debugTraces.delete(scope.id);
+    debugTraceSelection.delete(scope.id);
+    return;
+  }
+  if (!bounded.some(trace => trace.id === debugTraceSelection.get(scope.id))) {
+    debugTraceSelection.set(scope.id, bounded.at(-1).id);
+  }
+  // 兼容旧调用方：Map 顶层继续暴露最新一条 trace，同时新增 history。
+  debugTraces.set(scope.id, { ...bounded.at(-1), history: bounded });
+}
+
+function selectedDebugTrace(scope, history = ensureDebugTraceHistory(scope)) {
+  if (!history.length) return null;
+  return history.find(trace => trace.id === debugTraceSelection.get(scope?.id)) || history.at(-1);
+}
+
+function startDebugTrace(scope, patch = {}) {
+  if (!scope) return null;
+  const history = [...ensureDebugTraceHistory(scope)];
+  const trace = { ...patch, id: `trace-${uid()}`, createdAt: Date.now() };
+  history.push(trace);
+  debugTraceSelection.set(scope.id, trace.id);
+  writeDebugTraceHistory(scope, history);
+  if (scope === activeConversationScope()) renderDebugTerminal();
+  return trace;
+}
+
+function debugRequestInput(payload, kind = '') {
+  return JSON.stringify({
+    ...(kind ? { kind } : {}),
+    endpoint: String(payload?.baseUrl || '').replace(/\/$/, '') + '/chat/completions',
+    ...(payload?.body || {}),
+  }, null, 2);
+}
+
+function beginDebugRequest(scope, payload, { label = 'AI 请求', kind = '', ...patch } = {}) {
+  return startDebugTrace(scope, {
+    label,
+    status: '请求中',
+    input: debugRequestInput(payload, kind),
+    output: '等待 AI 响应…',
+    rawOutput: '等待 AI 响应…',
+    outputTag: '等待 AI 响应…',
+    reasoning: '',
+    error: '',
+    ...patch,
+  });
+}
+
 function setDebugTrace(session, patch) {
-  if (!session) return;
-  debugTraces.set(session.id, { ...(debugTraces.get(session.id) || {}), ...patch });
+  if (!session) return null;
+  if (Object.prototype.hasOwnProperty.call(patch || {}, 'input')) return startDebugTrace(session, patch);
+  const history = ensureDebugTraceHistory(session);
+  const trace = history.at(-1);
+  if (!trace) return startDebugTrace(session, patch);
+  Object.assign(trace, patch);
+  writeDebugTraceHistory(session, history);
   if (session === activeConversationScope()) renderDebugTerminal();
+  return trace;
 }
 
 function selectDebugTab(tab = 'output') {
@@ -12487,14 +13367,73 @@ function formatDebugOutput(trace) {
   ].join('\n\n');
 }
 
+function debugTracePreview(trace) {
+  try {
+    const messages = JSON.parse(trace?.input || '{}')?.messages;
+    const message = Array.isArray(messages) ? [...messages].reverse().find(item => item?.role === 'user' && String(item.content || '').trim()) : null;
+    const text = String(message?.content || '').replace(/\s+/g, ' ').trim();
+    if (text) return text.slice(0, 72) + (text.length > 72 ? '…' : '');
+  } catch {}
+  return String(trace?.status || trace?.label || '等待请求详情').slice(0, 72);
+}
+
+function debugTraceTimestamp(trace) {
+  const timestamp = Number(trace?.createdAt);
+  if (!Number.isFinite(timestamp)) return '';
+  return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(timestamp));
+}
+
+function renderDebugTraceHistory(history, selected) {
+  const host = $('debug-history');
+  if (!host) return;
+  host.replaceChildren();
+  host.classList.toggle('is-empty', !history.length);
+  if (!history.length) {
+    host.textContent = '当前会话尚无 AI 请求；发送消息后会按顺序保留在这里。';
+    return;
+  }
+  history.forEach((trace, index) => {
+    const button = document.createElement('button');
+    const label = String(trace.label || 'AI 请求');
+    const status = String(trace.status || '等待响应');
+    const preview = debugTracePreview(trace);
+    button.type = 'button';
+    button.className = 'debug-history-entry';
+    button.dataset.debugTraceId = trace.id;
+    button.setAttribute('aria-pressed', trace.id === selected?.id ? 'true' : 'false');
+    button.setAttribute('aria-label', `请求 ${index + 1}，${label}，${status}：${preview}`);
+    button.title = `${label} · ${status}\n${preview}`;
+    const meta = document.createElement('span');
+    meta.className = 'debug-history-meta';
+    meta.textContent = `#${index + 1} · ${debugTraceTimestamp(trace) || '刚刚'}`;
+    const name = document.createElement('strong');
+    name.textContent = label;
+    const text = document.createElement('span');
+    text.className = 'debug-history-preview';
+    text.textContent = preview;
+    button.append(meta, name, text);
+    host.appendChild(button);
+  });
+}
+
+function selectDebugTrace(traceId) {
+  const session = activeConversationScope();
+  const history = ensureDebugTraceHistory(session);
+  if (!session || !history.some(trace => trace.id === traceId)) return;
+  debugTraceSelection.set(session.id, traceId);
+  renderDebugTerminal();
+}
+
 function renderDebugTerminal() {
   const session = activeConversationScope();
-  const trace = session && debugTraces.get(session.id);
+  const history = ensureDebugTraceHistory(session);
+  const trace = selectedDebugTrace(session, history);
   const scope = $('debug-scope');
   if (!scope) return;
   scope.textContent = session
-    ? `${worldModeActive() ? (currentWorldCard()?.title || '世界') : (currentChar()?.name || '未命名角色')} · ${worldModeActive() ? '世界存档' : (session.kind === 'rpg' ? 'RPG' : '酒馆')} · ${session.name || session.id}${trace?.commandId ? ` · ${trace.commandId}` : ''}${trace?.status ? ` · ${trace.status}` : ''}`
+    ? `${worldModeActive() ? (currentWorldCard()?.title || '世界') : (currentChar()?.name || '未命名角色')} · ${worldModeActive() ? '世界存档' : (session.kind === 'rpg' ? 'RPG' : '酒馆')} · ${session.name || session.id} · 本页 ${history.length}/${DEBUG_TRACE_HISTORY_LIMIT} 条请求${trace?.commandId ? ` · ${trace.commandId}` : ''}${trace?.status ? ` · ${trace.status}` : ''}`
     : '当前会话 · 暂无记录';
+  renderDebugTraceHistory(history, trace);
   $('debug-input').textContent = trace?.input || '尚未向 AI 发送请求。';
   $('debug-output').textContent = formatDebugOutput(trace);
   $('debug-sections').textContent = trace?.promptSections?.length || trace?.agentEvents?.length
@@ -12595,18 +13534,26 @@ function closeDebugTerminal() {
 
 function clearDebugTerminal() {
   const session = activeConversationScope();
-  if (session) debugTraces.delete(session.id);
+  if (session) {
+    debugTraces.delete(session.id);
+    debugTraceSelection.delete(session.id);
+  }
   if (worldModeActive()) debugMemoryDiagnostics.delete(currentWorldSaveId);
   renderDebugTerminal();
 }
 
 function copyDebugTerminal() {
   const session = activeConversationScope();
-  const trace = session && debugTraces.get(session.id);
-  if (!trace) return;
+  const history = ensureDebugTraceHistory(session);
+  if (!history.length) return;
   const memory = worldModeActive() ? ($('debug-memory')?.textContent || '') : '';
-  const sections = trace.promptSections?.length ? JSON.stringify({ agentProfile: trace.agentProfile || null, sections: trace.promptSections }, null, 2) : '';
-  const text = `INPUT\n${trace.input || ''}\n\nOUTPUT\n${formatDebugOutput(trace)}${sections ? `\n\nSECTIONS\n${sections}` : ''}${memory ? `\n\nMEMORY\n${memory}` : ''}`;
+  const records = history.map((trace, index) => {
+    const sections = trace.promptSections?.length || trace.agentEvents?.length
+      ? JSON.stringify({ agentSessionId: trace.agentSessionId || null, agentEvents: trace.agentEvents || [], agentProfile: trace.agentProfile || null, agentContext: trace.agentContext || null, sections: trace.promptSections }, null, 2)
+      : '';
+    return `── 请求 ${index + 1}/${history.length} · ${trace.label || 'AI 请求'} · ${trace.status || '未知状态'} · ${debugTraceTimestamp(trace) || '刚刚'} ──\n\nINPUT\n${trace.input || ''}\n\nOUTPUT\n${formatDebugOutput(trace)}${sections ? `\n\nSECTIONS\n${sections}` : ''}`;
+  });
+  const text = records.join('\n\n') + (memory ? `\n\nMEMORY\n${memory}` : '');
   (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject(new Error('no clipboard')))
     .catch(() => { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); });
 }
@@ -13323,7 +14270,7 @@ function renderRpgNarrativeWithCheckpoints(content, checkpoints, { fromRaw = fal
     if (!segment) return;
     const rendered = renderSegment(segment);
     html += `<div class="rpg-prose-segment">${rendered.html}</div>`;
-    md ||= rendered.md;
+    if (!md) md = rendered.md;
   };
   for (const checkpoint of ordered) {
     const offset = Math.max(cursor, Math.min(source.length, checkpoint.offset));
@@ -13810,18 +14757,12 @@ async function requestReply() {
   let rpgResolvedCheck = null;
   try {
     payload = buildPayload();
-    setDebugTrace(targetScope, {
+    beginDebugRequest(targetScope, payload, {
+      label: mode === 'rpg' ? '玩家回合' : '玩家消息',
       commandId: worldTurnPendingActive() ? worldTurnPending.commandId : null,
-      status: '请求中',
-      input: JSON.stringify({ endpoint: payload.baseUrl + '/chat/completions', ...payload.body }, null, 2),
       promptSections: (payload.promptSections || []).map(section => ({ id: section.id, source: section.source, chars: section.text.length })),
       agentProfile: payload.agentProfile || null,
       agentContext: payload.rpgContext || null,
-      output: '等待 AI 响应…',
-      rawOutput: '等待 AI 响应…',
-      outputTag: '等待 AI 响应…',
-      reasoning: '',
-      error: '',
     });
     // 请求 / 响应日志输出到浏览器控制台
     console.debug('[Tavern] → 请求', payload.baseUrl + '/chat/completions', {
@@ -13926,6 +14867,11 @@ async function requestReply() {
     if (!processed.createEntities && nativeCandidate.createEntities) processed.createEntities = nativeCandidate.createEntities;
     if (!processed.eventMemory && nativeCandidate.eventMemory) processed.eventMemory = nativeCandidate.eventMemory;
     if (worldTurnPendingActive()) {
+      const recoveredActionPatch = recoverExplicitWorldActionPatch(processed.patch, worldTurnPending.actionIntent, currentWorldSave?.revision);
+      if (recoveredActionPatch) {
+        processed.patch = recoveredActionPatch.patch;
+        setDebugTrace(targetScope, { status: '已接管卡内声明动作结算', error: '', actionIntentRecovery: recoveredActionPatch.reason });
+      }
       const optionRules = worldOptionRules();
       let options = normalizeRpgOptions(processed.options, optionRules);
       processed.options = options.length ? options : null;
@@ -14033,6 +14979,9 @@ async function requestReply() {
       }
       await submitWorldTurn(worldTurnPending);
     } else {
+      // 请求期间先显示的是临时预览；正式消息入库前必须移除它，
+      // 否则正文会同时渲染“预览 + 历史”，快捷选项也会一直被“整理中”占位遮住。
+      clearResponsePreview();
       pushMessage('assistant', clean, extra);
       void maybeRollTavernMemory(curSession());
     }
@@ -14041,6 +14990,7 @@ async function requestReply() {
     if (ig && ig.enabled && ig.auto && ig.baseUrl) {
       generateImageFor(clean).catch(e => console.error('[Tavern] 文生图失败', e.message));
     }
+    return true;
   } catch (err) {
     const stopped = requestAbortRequested || err?.name === 'AbortError';
     if (stopped) {
@@ -14050,7 +15000,7 @@ async function requestReply() {
       if (mode === 'rpg' && worldTurnPendingActive()) failWorldTurnPending('已停止生成');
       setDebugTrace(targetScope, { status: '已停止生成', error: '' });
       setApiStatus('已停止生成');
-      return;
+      return false;
     }
     console.error('[Tavern] ✗ 请求失败', err.message);
     rpgAgentSession = rpgAgentSession || (payload ? rpgAgentRequestSessions.get(payload) : null) || null;
@@ -14080,6 +15030,7 @@ async function requestReply() {
     setDebugTrace(targetScope, { status: autoRetrying ? '失败，正在自动重试' : '失败', error: String(err.message || '请求失败') });
     if (!responseOutdated() && !keptWorldTurn) pushMessage('system', `⚠️ 请求失败：${err.message}`);
     setApiStatus(`最近一次请求失败：${err.message}`, true);
+    return false;
   } finally {
     sending = false;
     if (activeRequestController === requestController) activeRequestController = null;
@@ -14106,6 +15057,11 @@ async function submitWorldActionText(text, { throwOnError = false, kind = 'text'
     if (throwOnError) throw new Error('行动不能为空');
     return false;
   }
+  const matchedAction = !actionId && kind === 'text' && source === 'input'
+    ? matchExactWorldRuntimeAction(value)
+    : null;
+  const resolvedActionId = actionId || matchedAction?.id || null;
+  const resolvedKind = resolvedActionId ? 'action' : kind;
   worldTurnPreparing = true;
   try {
     await worldSaveWriteChain.catch(() => {});
@@ -14121,7 +15077,7 @@ async function submitWorldActionText(text, { throwOnError = false, kind = 'text'
       messages: [{ id: uid(), role: 'user', content: value, ts: Date.now() }],
       assistantMessage: null,
       agentSession: null,
-      actionIntent: buildRpgTurnIntent(value, { kind, source, optionId, actionId, input }),
+      actionIntent: buildRpgTurnIntent(value, { kind: resolvedKind, source, optionId, actionId: resolvedActionId, input }),
       options: null,
       createEntities: null,
       eventMemory: null,
@@ -14139,10 +15095,13 @@ async function submitWorldActionText(text, { throwOnError = false, kind = 'text'
     renderMessages();
     // RPG 判定由 Agent 先调用 rules.check 决定是否需要，再由 dice.roll 触发客户端随机。
     // 不在发送前扫描玩家文本，避免普通叙事中的 d20/d6 被误当成掷骰。
-    await requestReply();
-    return true;
+    const committed = await requestReply();
+    if (committed) return true;
+    const message = worldTurnError?.message || '本回合未提交';
+    if (throwOnError) throw new Error(message);
+    return false;
   } catch (err) {
-    failWorldTurnPending(err.message);
+    if (!worldTurnErrorActive()) failWorldTurnPending(err.message);
     setApiStatus(`最近一次请求失败：${err.message}`, true);
     if (throwOnError) throw err;
     return false;
@@ -15289,6 +16248,10 @@ function bindEvents() {
   $('debug-close').addEventListener('click', closeDebugTerminal);
   $('debug-clear').addEventListener('click', clearDebugTerminal);
   $('debug-copy').addEventListener('click', copyDebugTerminal);
+  $('debug-history')?.addEventListener('click', event => {
+    const button = event.target.closest('[data-debug-trace-id]');
+    if (button) selectDebugTrace(button.dataset.debugTraceId);
+  });
   $('debug-memory-rebuild').addEventListener('click', rebuildDebugMemory);
   $('debug-panel').addEventListener('cancel', e => { e.preventDefault(); closeDebugTerminal(); });
   $('debug-panel').addEventListener('click', e => { if (e.target === e.currentTarget) closeDebugTerminal(); });
@@ -15330,6 +16293,10 @@ function bindEvents() {
   $('world-lorebook-edit').addEventListener('click', () => openWorldDraftEditor({ createNew: false }));
   $('world-delete').addEventListener('click', event => deleteWorldCard(currentWorldId, event.currentTarget));
   $('world-draft-form').addEventListener('input', () => { worldDraftDirty = true; worldDraftPublishId = null; clearWorldDraftCheckReport(); });
+  $('world-draft-runtime-form')?.addEventListener('click', handleWorldDraftRuntimeClick);
+  $('world-draft-runtime-form')?.addEventListener('input', handleWorldDraftRuntimeInput);
+  $('world-draft-runtime').addEventListener('input', event => setWorldDraftJsonRawState(event.target));
+  $('world-draft-runtime-load-json')?.addEventListener('click', loadWorldDraftRuntimeJson);
   $('world-ui-load-template').addEventListener('click', loadWorldUiTemplate);
   $('world-extension-load-json').addEventListener('click', () => {
     const text = $('world-draft-ui').value.trim();
@@ -15373,6 +16340,7 @@ function bindEvents() {
   $('world-draft-cancel').addEventListener('click', requestCloseWorldDraft);
   $('world-draft-dialog').addEventListener('cancel', e => { e.preventDefault(); requestCloseWorldDraft(); });
   $('world-draft-dialog').addEventListener('click', e => { if (e.target === e.currentTarget) requestCloseWorldDraft(); });
+  window.addEventListener('popstate', () => { syncWorldDraftRoute({ fromPopstate: true }); });
   $('world-player-form').addEventListener('submit', async e => {
     e.preventDefault();
     const form = $('world-player-form');
@@ -15634,6 +16602,11 @@ function bindEvents() {
     if (!confirm('确定清空当前对话？将重新加载开场白。')) return;
     const s = curSession();
     if (!s) return;
+    // 清空时连同临时预览、思考占位和进行中的请求一起失效，避免旧回复在异步返回后残留。
+    if (sending) stopGeneration();
+    clearResponsePreview();
+    removeTyping();
+    clearRpgCheckAnimation();
     // 清空后重新加载开场白（getGreeting：char → preset → settings）
     const greeting = getGreeting();
     s.messages = greeting
@@ -15792,5 +16765,6 @@ async function init() {
   renderCharList();
   renderDevtools();
   updateApiStatusFromSettings();
+  await syncWorldDraftRoute();
 }
 init();

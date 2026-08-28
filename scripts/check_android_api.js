@@ -42,6 +42,7 @@ assert.ok(activity.includes('saveFile(rawName'), 'Android export bridge must rec
 assert.match(app, /async function downloadBlob\(blob, filename\)/);
 assert.ok(app.includes('bridge.saveFile(filename'), 'Frontend exports must use the Android bridge when available');
 assert.ok(workflow.includes('public/app.js public/mapgen.js'), 'APK assets must include mapgen.js alongside app.js');
+assert.ok(workflow.includes('node scripts/build_frontend.js --check'), 'APK build must reject stale generated frontend assets');
 assert.ok(!workflow.includes('cp -r public/data'), 'APK build must not copy runtime data or API keys');
 assert.match(workflow, /permissions:\s*\n\s+contents:\s+read\b/, 'APK workflow token must remain read-only');
 console.log('android API contract check passed');

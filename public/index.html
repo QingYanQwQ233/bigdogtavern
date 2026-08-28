@@ -7,12 +7,12 @@
   <link rel="manifest" href="manifest.json" />
   <title>Tavern · AI RP 框架演示</title>
   <link rel="icon" type="image/png" href="favicon.png" />
-  <link rel="stylesheet" href="styles.css?v=20260826a" />
+  <link rel="stylesheet" href="styles.css?v=20260828a" />
 </head>
 <body data-theme="vibrancy" data-layout="classic">
   <canvas id="bg-fx" aria-hidden="true"></canvas>
 
-  <!-- 旧 Android WebView 可能无法解析 app.js；这里故意使用 ES5 语法，保证提示仍能显示。 -->
+  <!-- 旧 Android WebView 可能无法解析 app.js；这里故意使用 ES5 语法，并在其他脚本前补齐 83 所缺 API。 -->
   <aside id="webview-compat-warning" class="webview-compat-warning" hidden role="alertdialog" aria-modal="true" aria-labelledby="webview-compat-title" aria-describedby="webview-compat-message">
     <div class="webview-compat-card">
       <div class="webview-compat-kicker">TAVERN / COMPATIBILITY</div>
@@ -22,21 +22,53 @@
       <button id="webview-compat-close" class="btn gold" type="button">知道了</button>
     </div>
   </aside>
-  <script>
-    // 只使用旧版 WebView 可解析的 ES5 语法；主 app.js 解析失败时也必须能提示用户。
+  <script id="webview-83-compat">
+    // 只使用 WebView 83 可解析的 ES5 语法；必须先于 vendor 和 app.js 执行。
     (function () {
+      if (typeof Array.prototype.at !== 'function') {
+        Object.defineProperty(Array.prototype, 'at', {
+          configurable: true,
+          writable: true,
+          value: function (index) {
+            'use strict';
+            if (this === null || this === undefined) throw new TypeError('Cannot convert undefined or null to object');
+            var length = Number(this.length) || 0;
+            var integer = Number(index);
+            if (isNaN(integer) || integer === 0) integer = 0;
+            integer = integer < 0 ? Math.ceil(integer) : Math.floor(integer);
+            var actual = integer < 0 ? length + integer : integer;
+            return actual < 0 || actual >= length ? undefined : this[actual];
+          }
+        });
+      }
+      if (typeof Object.hasOwn !== 'function') {
+        Object.hasOwn = function (object, property) {
+          if (object === null || object === undefined) throw new TypeError('Cannot convert undefined or null to object');
+          return Object.prototype.hasOwnProperty.call(object, property);
+        };
+      }
+      if (typeof Element !== 'undefined' && typeof Element.prototype.replaceChildren !== 'function') {
+        Element.prototype.replaceChildren = function () {
+          var index;
+          while (this.firstChild) this.removeChild(this.firstChild);
+          for (index = 0; index < arguments.length; index += 1) {
+            var child = arguments[index];
+            this.appendChild(child && typeof child.nodeType === 'number' ? child : document.createTextNode(String(child)));
+          }
+        };
+      }
       var ua = navigator.userAgent || '';
       var isAndroid = /Android/i.test(ua);
       var isWebView = isAndroid && (/\bwv\b/i.test(ua) || /;\s*wv\)/i.test(ua) || (/Version\/4\.0/i.test(ua) && /Chrome\//i.test(ua)));
       var match = ua.match(/(?:Chrome|Chromium)\/(\d+)/i);
       var major = match ? parseInt(match[1], 10) : 0;
-      var minimum = 92;
+      var minimum = 83;
       if (!isWebView || !major || major >= minimum) return;
       var warning = document.getElementById('webview-compat-warning');
       var version = document.getElementById('webview-compat-version');
       var close = document.getElementById('webview-compat-close');
       if (!warning) return;
-      if (version) version.textContent = '检测到：Android WebView / Chromium ' + major + '；建议更新至 92 或更高版本。';
+      if (version) version.textContent = '检测到：Android WebView / Chromium ' + major + '；本版本最低要求为 83，请更新 Android System WebView / Chrome。';
       warning.hidden = false;
       if (close) {
         close.addEventListener('click', function () { warning.hidden = true; });
@@ -1275,11 +1307,67 @@
             </div>
           </details>
         </div>
-        <div class="field" hidden>
-          <label for="world-draft-runtime">RPG GEN 3 运行态 <span class="hint-inline">可选 JSON；变量、集合、声明式动作</span></label>
-          <textarea id="world-draft-runtime" name="worldDraftRuntime" rows="10" maxlength="120000" spellcheck="false" placeholder='{"version":1,"variables":[{"id":"weather","label":"天气","scope":"world","type":"enum","options":["晴朗","降雨"],"initial":"晴朗"}],"collections":[{"id":"shop","label":"商城","scope":"save","initial":[{"id":"potion","name":"治疗药水","price":10}]}],"actions":[{"id":"restock","label":"补货","effects":[{"type":"collection.add","collectionId":"shop","value":{"id":"torch","name":"火把","price":3}}]}]}'></textarea>
-          <p class="hint">存档创建时会快照这份 Schema；AI 只能通过 <code>state.patch</code> 的 runtime 更新或声明式 action 修改，不能写任意路径。侧栏可读取 <code>runtime.variables.变量ID</code> / <code>runtime.collections.集合ID</code>。</p>
-        </div>
+        <section id="world-draft-runtime-form" class="world-draft-runtime" aria-labelledby="world-draft-runtime-title">
+          <div class="world-draft-collection-head">
+            <div>
+              <h3 id="world-draft-runtime-title">状态与物品</h3>
+              <p>为每个存档声明可追踪的变量、物品和动作；它们不会跨存档共享。</p>
+            </div>
+          </div>
+          <div class="world-draft-runtime-grid">
+            <section class="world-draft-runtime-panel" aria-labelledby="world-draft-runtime-variables-title">
+              <div class="world-draft-runtime-panel-head">
+                <div>
+                  <h4 id="world-draft-runtime-variables-title">存档全局变量</h4>
+                  <p>例如天气、声望或当前章节。</p>
+                </div>
+                <button class="ghost-btn small" type="button" data-world-runtime-add="variable" aria-controls="world-draft-runtime-variables">＋变量</button>
+              </div>
+              <div id="world-draft-runtime-variables" class="world-draft-runtime-list" aria-live="polite">
+                <p class="world-draft-runtime-empty">还没有变量。添加后可在本局的所有动作中使用。</p>
+              </div>
+            </section>
+            <section class="world-draft-runtime-panel" aria-labelledby="world-draft-runtime-items-title">
+              <div class="world-draft-runtime-panel-head">
+                <div>
+                  <h4 id="world-draft-runtime-items-title">物品</h4>
+                  <p>定义初始物品，以及耐久和使用次数等字段。</p>
+                </div>
+                <button class="ghost-btn small" type="button" data-world-runtime-add="item" aria-controls="world-draft-runtime-items">＋物品</button>
+              </div>
+              <div id="world-draft-runtime-items" class="world-draft-runtime-list" aria-live="polite">
+                <p class="world-draft-runtime-empty">还没有物品。添加后可为它创建使用动作。</p>
+              </div>
+            </section>
+            <section class="world-draft-runtime-panel" aria-labelledby="world-draft-runtime-actions-title">
+              <div class="world-draft-runtime-panel-head">
+                <div>
+                  <h4 id="world-draft-runtime-actions-title">动作</h4>
+                  <p>以声明式效果更新变量或物品，不执行脚本。</p>
+                </div>
+                <button class="ghost-btn small" type="button" data-world-runtime-add="action" aria-controls="world-draft-runtime-actions">＋动作</button>
+              </div>
+              <div id="world-draft-runtime-actions" class="world-draft-runtime-list" aria-live="polite">
+                <p class="world-draft-runtime-empty">还没有动作。可从物品的“使用”动作开始。</p>
+              </div>
+            </section>
+          </div>
+          <p class="hint">创建存档时会快照这份 Schema；AI 只能通过 <code>state.patch</code> 的 runtime 更新或声明式 action 修改，不能写任意路径。侧栏可读取 <code>runtime.variables.变量ID</code> / <code>runtime.collections.集合ID</code>。</p>
+          <details id="world-draft-runtime-advanced" class="world-draft-runtime-advanced">
+            <summary>高级 JSON 兼容 <span class="hint-inline">导入旧世界卡或排查复杂配置</span></summary>
+            <div class="world-draft-runtime-advanced-body">
+              <p class="hint">JSON 仅作为兼容入口。载入后会转换为上方表单；未表单化的字段会被保留。</p>
+              <div class="field">
+                <label for="world-draft-runtime">RPG GEN 3 运行态 <span class="hint-inline">变量、集合、声明式动作</span></label>
+                <textarea id="world-draft-runtime" name="worldDraftRuntime" rows="10" maxlength="120000" spellcheck="false" placeholder='{"version":1,"variables":[{"id":"weather","label":"天气","scope":"world","type":"enum","options":["晴朗","降雨"],"initial":"晴朗"}],"collections":[{"id":"shop","label":"商城","scope":"save","initial":[{"id":"potion","name":"治疗药水","price":10}]}],"actions":[{"id":"restock","label":"补货","effects":[{"type":"collection.add","collectionId":"shop","value":{"id":"torch","name":"火把","price":3}}]}]}'></textarea>
+              </div>
+              <div class="world-draft-runtime-advanced-actions">
+                <button class="ghost-btn small" id="world-draft-runtime-load-json" type="button">从 JSON 载入表单</button>
+                <span class="hint-inline">非法 JSON 不会覆盖当前表单内容。</span>
+              </div>
+            </div>
+          </details>
+        </section>
         <div class="field">
           <label for="world-draft-player-creation">玩家创建规则 <span class="hint-inline">可视化编辑；字段由世界卡声明</span></label>
           <div id="world-draft-player-schema" class="world-draft-player-schema" aria-label="玩家创建规则条目"></div>
@@ -1552,6 +1640,7 @@
         <button class="ghost-btn small" id="debug-close" type="button" aria-label="关闭 AI 调试终端">关闭</button>
       </div>
     </header>
+    <nav id="debug-history" class="debug-history is-empty" aria-label="当前会话的 AI 请求历史">当前会话尚无 AI 请求；发送消息后会按顺序保留在这里。</nav>
     <nav class="debug-tabs" role="tablist" aria-label="调试信息分区">
       <button class="debug-tab" id="debug-tab-output" type="button" role="tab" aria-controls="debug-pane-output" aria-selected="true" data-debug-tab="output">输出 <small>RAW</small></button>
       <button class="debug-tab" id="debug-tab-input" type="button" role="tab" aria-controls="debug-pane-input" aria-selected="false" data-debug-tab="input">输入 <small>REQUEST</small></button>
@@ -1614,13 +1703,13 @@
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
   <script src="vendor/mapgen2.bundle.js"></script>
-  <script src="mapgen.js?v=20260826a"></script>
-  <script src="app.js?v=20260826a"></script>
+  <script src="mapgen.js?v=20260828a"></script>
+  <script src="app.js?v=20260828a"></script>
   <script>
     // PWA：注册 service worker（仅 HTTPS / localhost 生效，套壳 APK 可用）
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js?v=20260826a').catch(() => {});
+    navigator.serviceWorker.register('sw.js?v=20260828a').catch(() => {});
       });
     }
   </script>

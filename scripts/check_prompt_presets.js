@@ -63,12 +63,38 @@ vm.runInContext(`
       return result;
     })(),
     tavernOptions: parseTavernReplyOutput('正文。<tavern_options>["A","B","A","C","D","E"]</tavern_options>', promptPresets['旧预设']),
+    tavernOptionsEscaped: parseTavernReplyOutput('正文。\\<tavern_options>["A","B","C","D"]\\</tavern_options>', promptPresets['旧预设']),
     tavernOptionsDuplicate: parseTavernReplyOutput('正文。<tavern_options>["A"]</tavern_options>尾部<tavern_options>["B"]</tavern_options>', promptPresets['旧预设']),
     tavernOptionsMalformed: parseTavernReplyOutput('正文。<tavern_options>{oops}</tavern_options>', promptPresets['旧预设']),
     tavernNeedsRepair: tavernReplyNeedsOptionRepair(parseTavernReplyOutput('正文。', promptPresets['旧预设']), promptPresets['旧预设']),
     tavernDoesNotNeedRepair: tavernReplyNeedsOptionRepair(parseTavernReplyOutput('正文。<tavern_options>["A","B","C","D"]</tavern_options>', promptPresets['旧预设']), promptPresets['旧预设']),
     debugTavernTag: extractDebugOutputTag('正文。<tavern_options>["A","B","C","D"]</tavern_options>'),
     payload: buildPayload(),
+    missingHistoryFallback: (() => {
+      const previousPreset = prefs.currentPresetByMode.tavern;
+      const previousMessages = sessions[0].messages;
+      promptPresets['无历史预设'] = normalizePromptPreset('无历史预设', {
+        version: PRESET_SCHEMA_VERSION,
+        mode: 'tavern',
+        prompts: [
+          { identifier: 'main', name: '主提示词', role: 'system', content: '只回应玩家最新行动。', marker: true },
+          { identifier: 'chatHistory', name: '聊天历史', role: 'system', content: '', marker: true },
+        ],
+        promptOrder: [
+          { identifier: 'main', enabled: true },
+          { identifier: 'chatHistory', enabled: false },
+        ],
+      });
+      prefs.currentPresetByMode.tavern = '无历史预设';
+      sessions[0].messages = [{ role: 'user', content: '向左走' }];
+      const first = buildPromptBlocks().history;
+      sessions[0].messages = [{ role: 'user', content: '向右走' }];
+      const second = buildPromptBlocks().history;
+      delete promptPresets['无历史预设'];
+      prefs.currentPresetByMode.tavern = previousPreset;
+      sessions[0].messages = previousMessages;
+      return { first, second };
+    })(),
     worldPrompt: (() => {
       mode = 'rpg';
       currentWorldId = 'world-aurora';
@@ -274,6 +300,8 @@ assert.doesNotMatch(context.check.embeddedOptionBlocks.post, /OPT 4/);
 assert.strictEqual((context.check.blocks.system.match(/月港终年有雾/g) || []).length, 1);
 assert.deepStrictEqual(JSON.parse(JSON.stringify(context.check.tavernOptions.options)), ['A', 'B', 'C', 'D']);
 assert.strictEqual(context.check.tavernOptions.content, '正文。');
+assert.deepStrictEqual(JSON.parse(JSON.stringify(context.check.tavernOptionsEscaped.options)), ['A', 'B', 'C', 'D']);
+assert.strictEqual(context.check.tavernOptionsEscaped.content, '正文。');
 assert.strictEqual(context.check.tavernOptionsDuplicate.content, '正文。尾部');
 assert.strictEqual(context.check.tavernOptionsMalformed.content, '正文。');
 assert.strictEqual(context.check.tavernNeedsRepair, true);
@@ -286,6 +314,12 @@ assert.deepStrictEqual(JSON.parse(JSON.stringify(context.check.blocks.history)),
   { role: 'user', content: '只推进一步。' },
 ]);
 assert.strictEqual(context.check.payload.body.messages.filter(x => x.role === 'system').length, 1);
+assert.deepStrictEqual(JSON.parse(JSON.stringify(context.check.missingHistoryFallback.first)), [{ role: 'user', content: '向左走' }]);
+assert.deepStrictEqual(JSON.parse(JSON.stringify(context.check.missingHistoryFallback.second)), [{ role: 'user', content: '向右走' }]);
+assert.notDeepStrictEqual(
+  JSON.parse(JSON.stringify(context.check.missingHistoryFallback.first)),
+  JSON.parse(JSON.stringify(context.check.missingHistoryFallback.second)),
+);
 assert.strictEqual(context.check.converted.report.prompts, 3);
 assert.strictEqual(context.check.converted.report.ordered, 2);
 assert.strictEqual(context.check.converted.report.regexes, 1);

@@ -8,15 +8,20 @@ const root = path.resolve(__dirname, '..');
 const scriptFiles = fs.readdirSync(__dirname)
   .filter(name => name.endsWith('.js'))
   .sort();
+const frontendFiles = fs.readdirSync(path.join(root, 'frontend'))
+  .filter(name => name.endsWith('.js'))
+  .sort();
 const syntaxFiles = [
   'server.js',
   'public/app.js',
   'public/mapgen.js',
   'public/sw.js',
+  ...frontendFiles.map(name => `frontend/${name}`),
   ...scriptFiles.map(name => `scripts/${name}`),
 ];
 const checks = scriptFiles.filter(name => /^check_.*\.js$/.test(name));
 const tasks = [
+  { label: 'frontend source split', args: ['scripts/build_frontend.js', '--check'] },
   ...syntaxFiles.map(file => ({ label: `syntax ${file}`, args: ['--check', file] })),
   ...checks.map(file => ({ label: file, args: [`scripts/${file}`] })),
 ];

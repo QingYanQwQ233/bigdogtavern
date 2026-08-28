@@ -2,6 +2,8 @@
 
 > 原则：**所有内容数据（提示词 / 示例 / 服务商 / 格式 / 文案）都在 JSON 文件，代码零写死**。
 > 本地开发用，server 无鉴权，勿部署公网。
+>
+> 本文同时保留旧存档/旧字段的兼容背景。新建 RPG 世界卡的可发布字段、Runtime 契约和当前 HTTP 端点以 [RPG 世界卡、运行时与 HTTP 接口参考](rpg-card-api.md) 为准；下文出现的 events、factions、conflicts、growth、地图等内容如未特别标为当前能力，均不应作为新卡写入方案。
 
 ## 一、存储位置总览
 
@@ -126,7 +128,7 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 
 `ui.extension` 的 HTML/CSS/JS 在隔离 iframe 中运行，只能读取当前世界 / 存档并提交玩家行动；扩展不能访问主页面、网络或其他存档。`surfaces` 可选为 `['play']`、`['setup']` 或 `['setup','play']`：声明 `setup` 后，创建存档会生成一个 `planning` 存档并把卡前端作为开局配置页加载；卡内通过 `TavernExtension.setup.get/patch/commit/cancel` 保存角色与规则草稿。游玩阶段可用 `TavernExtension.getContext()` 或 `TavernExtension.runtime.get()` 读取当前 runtime 快照，但不提供 runtime/MVU/action 直写桥；变量、集合与动作效果必须由 AI 回合提交声明式 patch，扩展不能创建第二套状态系统。
 
-正式游玩阶段的桥接 API `TavernExtension.choose(text)` 会复用主 RPG 回合管线；`context.turn.options` 与底部快捷回复使用同一份 AI 结构化选项，`context.turn.narrativeHtml` / `hasResponse` 用于把已清洗的 Markdown 正文重新绘制到自定义界面，`context.messages[].html` 提供当前存档最近 40 条用户 / AI 消息的安全 HTML。卡内 HTML 可放置 `data-tavern-messages`、`data-tavern-options`、`data-tavern-input` / `data-tavern-submit` 接入自定义界面；桥接会在卡自己的 DOM 内更新内容，选项和表单仍复用 Agent 回合。
+正式游玩阶段的桥接 API `TavernExtension.choose(text)` 会复用主 RPG 回合管线；`context.turn.options` 与底部快捷回复使用同一份 AI 结构化选项，`context.turn.narrativeHtml` / `hasResponse` 用于把已清洗的 Markdown 正文重新绘制到自定义界面，`context.messages[].html` 提供当前存档最近 40 条用户 / AI 消息的安全 HTML。卡内 HTML 可放置 `data-tavern-messages`、`data-tavern-options`、`data-tavern-input` / `data-tavern-submit` 接入自定义界面；桥接会在卡自己的 DOM 内更新内容，选项和表单仍复用 Agent 回合。`TavernExtension.fullscreen()` 与 `exitFullscreen()` 是可重复调用的进入/退出切换；`openTerminal()` 打开当前回合的 AI 往返终端；`endWorld({ endingId?, confirm: true })` 走宿主结束接口，服务端按 `world.ending`、确认标记和 revision 校验后写入 `state.ending`。
 
 `regexes[]` 是世界卡绑定的输出替换规则，按角色卡/世界卡、当前预设、当前模式自定义的顺序执行；客户端兼容 SillyTavern 的 `placement`（0 旧版显示、1 用户输入、2 AI 回复、3 斜杠命令、5 世界书、6 思维链）、`trimStrings`、`substituteRegex`（0 不替换、1 原值、2 正则转义）、`minDepth/maxDepth`、`markdownOnly`、`promptOnly` 与 `runOnEdit`，并提供聊天显示、历史/提示词和 System/后预设等细分阶段。自定义规则默认写入当前提示词预设作用域，切换预设时自动隔离；取消专属后才作为当前模式全局规则。提示词/显示阶段只改请求副本或渲染结果，不覆盖会话原文。服务端只接受有限正则字段并校验表达式，不执行脚本、EJS 或 MVU。消息另存 `rawContent` 作为正则前快照，角色卡兼容桥优先读取它，避免状态标签被显示正则覆盖后无法回读。
 
@@ -144,7 +146,7 @@ AI 调试终端以 `session.id` 为键仅在内存保存各会话最近一次最
 
 世界草稿编辑器对 `playerCreation.fields/attributes/skills/resources/traits` 提供分组条目操作；条目顺序就是数组顺序，新增、删除和排序只改变当前世界草稿，不会改写已发布世界版本或已有存档。每条可保留 schema 允许之外的扩展键，保存时仍由服务端 `validatePlayerCreationSchema` 负责最终校验；高级 JSON 可显式载入编辑器，若直接修改后保存也会按原始文本校验，解析失败不会覆盖最近一次有效草稿。
 
-世界草稿的 `locations[]` 与 `npcs[]` 使用结构化编辑器；`events[]`、`factions[]` 与 `conflicts[]` 使用条目编辑器，支持新增、删除、排序和 JSON 预览，嵌套的阶段 / 行动 / 判定、派系资源 / 时间行动保留在单条 JSON 内。`failure.modes[]`、`ending.endings[]` 与 `playerCreation.growth.sources / candidates` 也提供同一套嵌套条目编辑器，但始终写回各自的父 JSON。删除前端条目时会扫描 `start.locationId`、NPC / 事件 / 派系地点、关系 / 成长目标、失败 / 结局默认值、冲突初始状态和判定修正等稳定引用；仍被引用的 ID 会阻断删除并显示路径。服务端保存和发布时以稳定 ID 校验重复项，并检查事件、NPC 以及派系行动的 `locationId` 是否引用当前草稿已登记地点；发布后这些定义属于对应的不可变世界版本。
+当前世界草稿工作台把 `locations[]`、`npcs[]`、建角、Runtime、失败和结局作为正式作者入口。旧 `events[]`、`factions[]`、`conflicts[]`、成长/经济和地图编辑描述仅属于兼容历史；新草稿保存会清理这些投影。删除地点或 NPC 时，服务端仍会校验稳定 ID、重复项和 `locationId` 引用；发布后定义属于对应不可变世界版本。
 
 默认种子还包含 `world-grey-harbor` 与 `world-orbit-station` 两张不同题材卡；服务端加载世界库时只在内存补入缺失的默认世界，不覆盖用户已有的 `worlds.json` 内容；后续创建草稿、发布或导入等写操作才会按现有流程落盘。
 
@@ -380,22 +382,23 @@ DeepSeek V4 默认开启 thinking，但 thinking 模式不接受强制 `tool_cho
 | `GET /api/world-drafts/<worldId>` | 读取指定世界草稿 |
 | `GET /api/world-drafts/<worldId>/check` | 预检当前持久化草稿的发布条件，返回按世界定义、稳定引用、开局运行态和 Prompt 契约分组的 `report`；不修改草稿 |
 | `POST /api/world-drafts` | 默认从指定 `worldId` / `baseVersion` 创建或读取同一世界的幂等编辑草稿；提交 `mode: "new"` 与 `sourceWorldId` 会克隆为新的独立世界草稿，提交 `mode: "blank"` 会创建不绑定已有世界卡的空白草稿，二者发布后都会获得新的世界 ID |
-| `PUT /api/world-drafts/<worldId>` | 使用 `expectedUpdatedAt` 乐观锁保存标题、简介、标签、`lorebookIds`、`rpgPresetName`、声明式 `agent`、`regexes`、`ui`、地图生成参数、声明式 `playerCreation`、`turnContract`、`failure`、`ending`、`time`、`events`、`factions`、`conflicts`、`locations` 与 `npcs`；事件条件、建角字段、回合选项、Agent 工具白名单、输出正则、侧栏数据源、冲突骰子 / 目标、失败引用、结局条件、成长白名单、时间参数、地点/NPC ID 必须受服务端校验 |
+| `PUT /api/world-drafts/<worldId>` | 使用 `expectedUpdatedAt + baseVersion` 乐观锁保存标题、简介、标签、`lorebookIds`、`rpgPresetName`、`agent`、`regexes`、`ui`、`runtime`、`setting`、`rules`、`playerCreation`、`sessionSetup`、`turnContract`、`failure`、`ending`、`time`、`locations` 与 `npcs`；旧 `events/factions/conflicts/map/growth` 投影会被收敛，不是新卡写入入口。完整字段见 `docs/rpg-card-api.md` |
 | `POST /api/world-drafts/<worldId>/publish` | 提交 `commandId`、`expectedUpdatedAt` 与 `baseVersion`，服务端会再次执行同一份完整性检查；通过后把草稿发布为不可变的下一版本。命令可幂等重试；草稿落后最新版本时返回 409 并保留草稿 |
 | `POST /api/worlds/<worldId>/versions` | 显式把来源存档中的生成 NPC 收录进下一不可变世界版本；要求 `sourceSaveId`、`npcId`，可选 `expectedRevision` / `title` |
 | `GET /api/world-saves?worldId=<worldId>` | 列出指定世界的存档摘要 |
 | `POST /api/world-saves` | 按世界卡创建一个独立存档；可提交 `player: { fields, attributes, skills, resources, traits, relations }`，服务端按当前卡规则校验并分配 `saveId` |
 | `DELETE /api/world-saves/<saveId>` | 删除单个世界存档 JSON；不会删除世界卡或其他存档 |
-| `PUT /api/world-saves/<saveId>/setup` | 在 `planning` 状态下，以 `commandId + expectedRevision` 保存独立的开局规划草案；改动会清空尚未提交的候选 |
-| `POST /api/world-saves/<saveId>/opening-candidate` | 在 `planning` 状态下，以 `commandId + expectedRevision` 保存独立的 `OpeningCandidate`（叙事正文 + 4 个选项）；不写入正式开场 |
-| `POST /api/world-saves/<saveId>/opening` | 以 `commandId + expectedRevision` 幂等提交 AI 开场正文与 4 个选项；原子把 `setup.status` 切为 `active` 并更新当前存档的 `opening` / `openingOptions` |
+| `PATCH /api/world-saves/<saveId>/setup` | 仅在 `planning` 状态，以 `commandId + expectedRevision` 保存 `{ draft: { player?, game?, plan?, ui? } }`；不激活开局 |
+| `PUT /api/world-saves/<saveId>/setup` | 在 `planning` 状态，以 `commandId + expectedRevision` 提交最终 `player/playerPresetId/game/plan`；服务端校验建角与开局方案 |
+| `POST /api/world-saves/<saveId>/opening-candidate` | 在 `planning` 状态下，以 `commandId + expectedRevision` 保存独立的 OpeningCandidate（叙事正文 + 恰好 4 个非空字符串选项）；不写入正式开场 |
+| `POST /api/world-saves/<saveId>/opening` | 以 `commandId + expectedRevision` 幂等提交 AI 开场正文与恰好 4 个非空字符串选项；原子把 `setup.status` 切为 `active` 并更新当前存档的 `opening` / `openingOptions` |
 | `GET /api/world-saves/<saveId>` | 读取一个完整 WorldSave |
 | `PUT /api/world-saves/<saveId>` | 使用 `expectedRevision` 原子提交当前存档的 `state`、`turns` 与 `opening`；版本冲突返回 409 |
 | `POST /api/world-saves/<saveId>/reset` | 使用 `commandId + expectedRevision` 将当前 RPG 存档恢复到 `initialState` / `initialNpcStates` 基线，同时清空回合、MVU/runtime 动态值、事件记忆和 Agent 临时态 |
-| `POST /api/world-saves/<saveId>` | 提交一次 RPG 回合候选；新协议携带 `patch { protocol, version, baseRevision, updates }`，服务端在当前存档上严格校验、物化并按 revision 原子提交；同时校验 `commandId`、assistant 回合、卡片允许数量的唯一选项、版本化 `TurnIntent`，成功后推进时间、结算 `events`、把行动意图附着到本回合并记录 receipt；旧完整 `state` 提交与相同 commandId 继续兼容且幂等返回 |
+| `POST /api/world-saves/<saveId>` | 提交一次 RPG 正式回合；新协议携带 `patch { protocol, version, baseRevision, updates }`、`commandId`、`expectedRevision`、回合文本、选项和可选 actionIntent。服务端校验 Runtime/Typed Patch 后原子推进 revision；旧完整 state 提交仅兼容保留 |
 | `POST /api/world-saves/<saveId>/agent-execute` | 先执行 Typed Patch 与世界规则，结果写入带 `baseRevision` 的 `agentRuntime.pending`，不推进正式 revision；相同 commandId 幂等返回 |
 | `POST /api/world-saves/<saveId>/agent-cancel` | 使用 `commandId + expectedRevision` 清理未提交的 Agent pending，不改变正式 revision |
-| `POST /api/world-saves/<saveId>/growth` | 使用 `commandId + expectedRevision` 接受或拒绝一个当前存档的成长候选；接受时服务端应用能力 / 特质 / 关系 / 阵营声望 / 身份标签并追加人物经历，拒绝时只追加处理记录；相同 commandId 幂等返回 |
+| `POST /api/world-saves/<saveId>/growth` | 已移除，当前返回 `410`；请使用 `runtime.variables`、`runtime.collections`、`runtime.actions` 表达成长与解锁 |
 | `GET /api/world-saves/<saveId>/memory` | 只读返回当前存档的派生记忆统计、正式来源数量与脱敏重建预览；隐藏记忆不展开内容 |
 | `POST /api/world-saves/<saveId>/memory/rebuild` | 使用 `commandId + expectedRevision` 从世界事件、成长事实与 `eventLedger` 来源引用重建 `eventMemory`；不改变正式 world revision，重复 commandId 幂等 |
 | `GET /api/world-saves/<saveId>/summary` | 读取绑定当前存档 revision 的世界线总结；若正式事实已变化则标记 `stale` |

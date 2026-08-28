@@ -82,18 +82,36 @@ assert.deepStrictEqual(JSON.parse(JSON.stringify(context.processed.options)), ['
 assert.strictEqual(context.pushed.length, 0);
 
 vm.runInContext(`
-  debugTraces.clear(); renderDebugTerminal = () => {};
+  debugTraces.clear(); debugTraceSelection.clear(); renderDebugTerminal = () => {};
   const first = sessions[0];
   const second = { id: 'other-trace', charId: 'b', kind: 'rpg', messages: [] };
+  const sanitized = { id: 'sanitized-trace', charId: 'b', kind: 'rpg', messages: [] };
   setDebugTrace(first, { input: 'first input', output: 'first output' });
+  setDebugTrace(first, { input: 'first retry input', output: 'first retry output', status: '已完成' });
   setDebugTrace(second, { input: 'second input' });
+  beginDebugRequest(sanitized, {
+    baseUrl: 'https://example.test/v1',
+    apiKey: 'must-not-appear-in-terminal',
+    body: { model: 'test-model', messages: [{ role: 'user', content: 'sanitized request' }] },
+  });
   globalThis.traceCheck = {
     first: debugTraces.get(first.id),
     second: debugTraces.get(second.id),
+    firstHistory: debugTraces.get(first.id).history,
+    selectedFirst: debugTraceSelection.get(first.id),
+    sanitizedInput: debugTraces.get(sanitized.id).input,
     persisted: JSON.stringify(sessions).includes('first input'),
   };
 `, context);
-assert.strictEqual(context.traceCheck.first.output, 'first output');
+assert.strictEqual(context.traceCheck.first.output, 'first retry output');
 assert.strictEqual(context.traceCheck.second.input, 'second input');
+assert.strictEqual(context.traceCheck.firstHistory.length, 2);
+assert.strictEqual(context.traceCheck.firstHistory[0].input, 'first input');
+assert.strictEqual(context.traceCheck.firstHistory[0].output, 'first output');
+assert.strictEqual(context.traceCheck.firstHistory[1].input, 'first retry input');
+assert.strictEqual(context.traceCheck.firstHistory[1].output, 'first retry output');
+assert.strictEqual(context.traceCheck.selectedFirst, context.traceCheck.firstHistory[1].id);
+assert.match(context.traceCheck.sanitizedInput, /https:\/\/example\.test\/v1\/chat\/completions/);
+assert.doesNotMatch(context.traceCheck.sanitizedInput, /must-not-appear-in-terminal/);
 assert.strictEqual(context.traceCheck.persisted, false);
 console.log('session binding check passed');
