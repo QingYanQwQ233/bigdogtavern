@@ -343,6 +343,8 @@ docs/                          数据结构、世界卡与 Android 文档
 
 这些规划不会改变当前的核心约束：数据由 WorldCard / Preset / WorldSave 分层拥有，AI 只能提交候选，服务端才是状态权威源。
 
+项目总览（功能、架构、接口和开发命令）见 [docs/project-overview.md](docs/project-overview.md)；交给下一位 Harness 的接手提示词见 [docs/handoff-next-harness.md](docs/handoff-next-harness.md)。
+
 制作世界卡请先读 [从零创建一张可玩的 RPG 世界卡](docs/rpg-card-tutorial.md)，接口、Runtime 与回合协议见 [RPG 世界卡、运行时与 HTTP 接口参考](docs/rpg-card-api.md)。兼容历史见 [docs/data-structure.md](docs/data-structure.md)，世界卡 UI 美化声明见 [docs/ui-beauty-declaration.md](docs/ui-beauty-declaration.md)，产品路线见 [docs/rpg-card-product-roadmap.md](docs/rpg-card-product-roadmap.md)。
 
 ## 安全提醒
