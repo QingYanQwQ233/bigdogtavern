@@ -75,6 +75,9 @@ assert.match(app, /function setNavDrawerOpen\(open\)[\s\S]*?aria-expanded/, 'nav
 assert.match(app, /\$\('btn-nav-drawer'\)\.addEventListener\('click',[\s\S]*?openNavDrawer\(\)/, 'navigation trigger must bind the mobile drawer action');
 assert.match(css, /#nav-drawer\s*\{[^}]*position:\s*fixed;[^}]*top:\s*0;[^}]*right:\s*0;[^}]*bottom:\s*0;[^}]*left:\s*0;/, 'navigation drawer must keep physical edge fallbacks for WebView 83');
 assert.match(css, /#nav-drawer \.nd-mask\s*\{[^}]*position:\s*absolute;[^}]*top:\s*0;[^}]*right:\s*0;[^}]*bottom:\s*0;[^}]*left:\s*0;/, 'navigation mask must keep physical edge fallbacks for WebView 83');
+assert.match(app, /function openSettings\(\)\s*\{[\s\S]*?\$\('settings-modal'\)\.classList\.remove\('hidden'\);[\s\S]*?\}/, 'settings action must reveal the settings modal');
+assert.match(app, /document\.querySelectorAll\('\.js-settings'\)\.forEach\(b => b\.addEventListener\('click', openSettings\)\);/, 'settings triggers must bind the settings action');
+assert.match(css, /\.modal\s*\{[^}]*position:\s*fixed;[^}]*top:\s*0;[^}]*right:\s*0;[^}]*bottom:\s*0;[^}]*left:\s*0;/, 'modals must keep physical edge fallbacks for WebView 83');
 const customWorldHeader = css.match(/body\.world-custom-layout:not\(\.world-immersive\) \.chat-header\s*\{([\s\S]*?)\}/i);
 assert.ok(customWorldHeader, 'custom world header rule is missing');
 const customWorldHeaderDeclarations = customWorldHeader[1].replace(/\/\*[\s\S]*?\*\//g, '');

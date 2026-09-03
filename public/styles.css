@@ -1823,6 +1823,11 @@ body[data-mode="rpg"] .composer {
 
 .modal {
   position: fixed;
+  /* Android WebView 83 does not support the inset shorthand. */
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   background: var(--scrim);
   backdrop-filter: blur(4px);
