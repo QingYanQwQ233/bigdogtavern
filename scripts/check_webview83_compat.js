@@ -72,6 +72,9 @@ assert.strictEqual((app.match(/<script>\$\{webview83CompatSource\(\)\}<\/script>
 assert.match(html, /id="btn-nav-drawer"[^>]*type="button"[^>]*aria-controls="nav-drawer"[^>]*aria-expanded="false"/, 'navigation trigger must expose button and drawer semantics');
 assert.match(app, /function usesDesktopNavigation\(\)\s*\{[\s\S]*?window\.matchMedia\(NAVIGATION_DESKTOP_QUERY\)\.matches/, 'navigation breakpoint must use the same media-query model as CSS');
 assert.match(app, /function setNavDrawerOpen\(open\)[\s\S]*?aria-expanded/, 'navigation drawer state must update its accessibility state');
+assert.match(app, /\$\('btn-nav-drawer'\)\.addEventListener\('click',[\s\S]*?openNavDrawer\(\)/, 'navigation trigger must bind the mobile drawer action');
+assert.match(css, /#nav-drawer\s*\{[^}]*position:\s*fixed;[^}]*top:\s*0;[^}]*right:\s*0;[^}]*bottom:\s*0;[^}]*left:\s*0;/, 'navigation drawer must keep physical edge fallbacks for WebView 83');
+assert.match(css, /#nav-drawer \.nd-mask\s*\{[^}]*position:\s*absolute;[^}]*top:\s*0;[^}]*right:\s*0;[^}]*bottom:\s*0;[^}]*left:\s*0;/, 'navigation mask must keep physical edge fallbacks for WebView 83');
 const customWorldHeader = css.match(/body\.world-custom-layout:not\(\.world-immersive\) \.chat-header\s*\{([\s\S]*?)\}/i);
 assert.ok(customWorldHeader, 'custom world header rule is missing');
 const customWorldHeaderDeclarations = customWorldHeader[1].replace(/\/\*[\s\S]*?\*\//g, '');

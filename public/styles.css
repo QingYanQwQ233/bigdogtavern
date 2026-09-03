@@ -1464,9 +1464,28 @@ textarea#input:focus {
 
 /* ═══ 手机导航抽屉 ═══ */
 #btn-nav-drawer { display: inline-flex; font-size: 18px; padding: 6px 10px; } /* 移动优先：默认显示汉堡 */
-#nav-drawer { position: fixed; inset: 0; z-index: 80; display: none; }
+#nav-drawer {
+  position: fixed;
+  /* WebView 83 不支持 inset 简写；四边定位必须保留，确保抽屉拥有完整视口尺寸。 */
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  inset: 0;
+  z-index: 80;
+  display: none;
+}
 #nav-drawer.open { display: block; }
-#nav-drawer .nd-mask { position: absolute; inset: 0; background: var(--scrim); backdrop-filter: blur(2px); }
+#nav-drawer .nd-mask {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  inset: 0;
+  background: var(--scrim);
+  backdrop-filter: blur(2px);
+}
 #nav-drawer .nd-panel {
   position: absolute;
   top: 0; left: 0; bottom: 0;
