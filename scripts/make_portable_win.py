@@ -41,6 +41,7 @@ PORTABLE_README = r'''Tavern · Windows 便携版
 - 关闭启动后出现的 Tavern Server 窗口即可停止服务。
 - 默认地址：http://localhost:3000
 - 服务端默认无鉴权，只建议在本机使用，不要直接暴露到公网。
+- BigDogTavern 原创代码仅限非商业用途，完整条款见 LICENSE。
 
 如果 3000 端口被占用，请关闭已有 Tavern 进程后再启动。
 '''
@@ -140,7 +141,8 @@ def build_package(node_version: str, tavern_version: str, output: Path, node_zip
         data_dir = stage / "data"
         data_dir.mkdir()
         shutil.copy2(ROOT / "public" / "data" / "_defaults.json", data_dir / "_defaults.json")
-        shutil.copy2(ROOT / "LICENSE", stage / "LICENSE")
+        for filename in ("LICENSE", "LICENSE-MIT-LEGACY", "THIRD_PARTY_NOTICES.md"):
+            shutil.copy2(ROOT / filename, stage / filename)
         (stage / "启动 Tavern.bat").write_text(LAUNCHER, encoding="utf-8")
         (stage / "便携版说明.txt").write_text(PORTABLE_README, encoding="utf-8")
         extract_runtime(runtime_zip, stage / "runtime")

@@ -25,11 +25,12 @@ node server.js
 
 ```powershell
 $assets = 'android\app\src\main\assets'
-New-Item -ItemType Directory -Force "$assets\data" | Out-Null
+New-Item -ItemType Directory -Force "$assets\data", "$assets\licenses" | Out-Null
 node scripts\build_frontend.js
 Copy-Item public\index.html, public\styles.css, public\app.js, public\mapgen.js, public\manifest.json, public\sw.js, public\favicon.png -Destination $assets -Force
 Copy-Item public\vendor -Destination $assets -Recurse -Force
 Copy-Item public\icons -Destination $assets -Recurse -Force
+Copy-Item LICENSE, LICENSE-MIT-LEGACY, THIRD_PARTY_NOTICES.md -Destination "$assets\licenses" -Force
 Copy-Item public\data\_defaults.json "$assets\data\_defaults.json" -Force
 Push-Location android
 gradle assembleDebug --no-daemon -Pvc=1 -Pvn=alpha-local
@@ -346,6 +347,19 @@ docs/                          数据结构、世界卡与 Android 文档
 项目总览（功能、架构、接口和开发命令）见 [docs/project-overview.md](docs/project-overview.md)；交给下一位 Harness 的接手提示词见 [docs/handoff-next-harness.md](docs/handoff-next-harness.md)。
 
 制作世界卡请先读 [从零创建一张可玩的 RPG 世界卡](docs/rpg-card-tutorial.md)，接口、Runtime 与回合协议见 [RPG 世界卡、运行时与 HTTP 接口参考](docs/rpg-card-api.md)。兼容历史见 [docs/data-structure.md](docs/data-structure.md)，世界卡 UI 美化声明见 [docs/ui-beauty-declaration.md](docs/ui-beauty-declaration.md)，产品路线见 [docs/rpg-card-product-roadmap.md](docs/rpg-card-product-roadmap.md)。
+
+## 代码许可
+
+自 2026-09-04 的许可变更提交起，A2th0 拥有版权的 BigDogTavern 原创代码采用
+[PolyForm Noncommercial License 1.0.0](LICENSE) 授权。
+
+- 允许个人学习、研究、测试、私人娱乐、爱好项目以及许可证列明的非商业组织使用、修改和分发代码；
+- 任何不属于许可证列明非商业目的的使用，都必须事先取得版权持有人的书面商业授权；
+- 本许可证属于 source-available（源码可用）许可证，不属于 OSI 定义的开源许可证；
+- `public/vendor/` 中的第三方库不适用 PolyForm，继续遵循各自的上游许可证，详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)；
+- 用户自行创建或导入的角色卡、世界卡、预设、聊天和存档不因使用本软件而改为本项目许可证。
+
+截至并包括提交 `984446947993c7177bd7fb0c3dc133f1637a099b` 的历史版本已经按 MIT 许可证发布，既有授权不受本次变更影响；原 MIT 文本保存在 [LICENSE-MIT-LEGACY](LICENSE-MIT-LEGACY) 供历史版本查阅。商业授权请通过 GitHub Issues 联系版权持有人。
 
 ## 安全提醒
 
