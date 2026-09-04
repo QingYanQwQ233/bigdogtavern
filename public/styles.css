@@ -1401,7 +1401,7 @@ textarea#input:focus {
   font-size: 11.5px;
   letter-spacing: 0.5px;
 }
-.field input, .field select, .field textarea, .char-wizard input, .pg-post-history textarea, .pg-sequence-actions select {
+.field input, .field select, .field textarea, .char-wizard input, .pg-reply-options textarea, .pg-sequence-actions select {
   width: 100%;
   padding: 8px 10px;
   border-radius: 8px;
@@ -1413,7 +1413,7 @@ textarea#input:focus {
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s, background 0.4s ease;
 }
-.field input:focus, .field select:focus, .field textarea:focus, .char-wizard input:focus, .pg-post-history textarea:focus, .pg-sequence-actions select:focus {
+.field input:focus, .field select:focus, .field textarea:focus, .char-wizard input:focus, .pg-reply-options textarea:focus, .pg-sequence-actions select:focus {
   border-color: rgba(var(--accent-rgb), 0.55);
   box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.07);
 }
@@ -1464,9 +1464,28 @@ textarea#input:focus {
 
 /* ═══ 手机导航抽屉 ═══ */
 #btn-nav-drawer { display: inline-flex; font-size: 18px; padding: 6px 10px; } /* 移动优先：默认显示汉堡 */
-#nav-drawer { position: fixed; inset: 0; z-index: 80; display: none; }
+#nav-drawer {
+  position: fixed;
+  /* WebView 83 不支持 inset 简写；四边定位必须保留，确保抽屉拥有完整视口尺寸。 */
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  inset: 0;
+  z-index: 80;
+  display: none;
+}
 #nav-drawer.open { display: block; }
-#nav-drawer .nd-mask { position: absolute; inset: 0; background: var(--scrim); backdrop-filter: blur(2px); }
+#nav-drawer .nd-mask {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  inset: 0;
+  background: var(--scrim);
+  backdrop-filter: blur(2px);
+}
 #nav-drawer .nd-panel {
   position: absolute;
   top: 0; left: 0; bottom: 0;
@@ -1804,6 +1823,11 @@ body[data-mode="rpg"] .composer {
 
 .modal {
   position: fixed;
+  /* Android WebView 83 does not support the inset shorthand. */
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   background: var(--scrim);
   backdrop-filter: blur(4px);
@@ -2753,9 +2777,22 @@ body.world-setup-extension-mode .rpg-extension-head {
 .pg-side-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
 .pg-manager { display: grid; grid-template-columns: minmax(260px, 0.85fr) minmax(340px, 1.15fr); gap: 14px; min-height: 430px; }
 .pg-sequence, .pg-prompt-editor { min-width: 0; border: 1px solid var(--line); border-radius: 12px; background: rgba(var(--bg-0-rgb), 0.32); padding: 12px; }
-.pg-post-history { margin: 14px 0; padding: 12px; border: 1px solid rgba(var(--accent-rgb), 0.28); border-radius: 12px; background: rgba(var(--accent-rgb), 0.045); }
-.pg-post-history textarea { width: 100%; min-height: 112px; resize: vertical; }
-.pg-post-history .hint { margin: 7px 0 0; }
+.pg-architecture-note { margin: 12px 0 4px; padding: 9px 11px; border-left: 3px solid var(--accent); background: rgba(var(--accent-rgb), 0.05); }
+.pg-reply-options { margin: 14px 0; padding: 12px; border: 1px solid rgba(var(--accent-rgb), 0.28); border-radius: 12px; background: rgba(var(--accent-rgb), 0.045); }
+.pg-reply-options { transition: opacity 0.15s, border-color 0.15s; }
+.pg-reply-options.inactive { opacity: 0.62; border-color: var(--line); }
+.pg-reply-options-controls { display: grid; grid-template-columns: minmax(210px, 1fr) minmax(120px, 180px) auto; align-items: end; gap: 10px; margin-bottom: 10px; }
+.pg-reply-options-controls .check { min-height: 36px; }
+.pg-reply-options-controls .field { margin: 0; }
+.pg-reply-options-controls .ghost-btn { min-height: 36px; }
+.pg-reply-options textarea { width: 100%; min-height: 112px; resize: vertical; }
+.pg-reply-options .hint { margin: 7px 0 0; }
+.pg-st-settings { margin: 14px 0; border: 1px solid var(--line); border-radius: 12px; background: rgba(var(--bg-0-rgb), 0.24); padding: 0 12px 12px; }
+.pg-st-settings > summary { padding: 11px 0; color: var(--accent); cursor: pointer; font-family: var(--font-display); letter-spacing: 1px; }
+.pg-st-settings > .hint { margin: 0 0 10px; }
+.pg-st-settings-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 10px; }
+.pg-st-settings-grid .field { margin-bottom: 0; }
+.pg-st-settings textarea { width: 100%; resize: vertical; }
 .pg-regex-bindings { margin: 14px 0; padding: 12px; border: 1px solid rgba(var(--accent-rgb), 0.28); border-radius: 12px; background: rgba(var(--accent-rgb), 0.045); }
 .pg-regex-bindings .hint { margin: 7px 0 10px; }
 .pg-regex-binding-list { display: grid; gap: 6px; }
@@ -3088,7 +3125,14 @@ body.world-setup-extension-mode .rpg-extension-head {
   /* 管理页的列表占满剩余高度，新增/导入/导出等操作自然贴在底部。 */
   .char-mgr .cm-list { max-height: none; }
   .pg-manager { grid-template-columns: 1fr; }
-  .pg-post-history textarea, .pg-prompt-editor :is(input, textarea, select), .pg-sequence-actions select { font-size: 16px; }
+  .pg-reply-options-controls { grid-template-columns: 1fr; align-items: stretch; }
+  .pg-st-settings-grid { grid-template-columns: 1fr; }
+  .pg-reply-options input,
+  .pg-reply-options textarea,
+  .pg-prompt-editor input,
+  .pg-prompt-editor textarea,
+  .pg-prompt-editor select,
+  .pg-sequence-actions select { font-size: 16px; }
   .char-mgr { grid-template-rows: 1fr; }
   .cm-edit { padding: 12px; }
   .world-hero { flex-wrap: wrap; }

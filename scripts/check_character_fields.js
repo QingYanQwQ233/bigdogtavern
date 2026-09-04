@@ -25,8 +25,8 @@ const source = fs.readFileSync('public/app.js', 'utf8').replace(/\ninit\(\);\s*$
 vm.runInContext(source, context);
 vm.runInContext(`
   defaults = { gen: {}, rpg: {} };
-  promptPresets = {}; formatInstructions = {}; lorebooks = {}; userData = null;
-  prefs = { currentPreset: '', formatPreset: '', formatCustom: '' };
+  promptPresets = {}; lorebooks = {}; userData = null;
+  prefs = { currentPreset: '' };
   settings = { systemPrompt: '', postHistory: '', history: 20 };
   mode = 'tavern';
   characters = [{
@@ -173,7 +173,7 @@ vm.runInContext("sessions[0].messages[1].content = '秘密42 核心 钥匙'; cha
 assert.deepStrictEqual(JSON.parse(JSON.stringify(context.characterBookPrompt)), ['专属设定', '正则设定', '选择性设定']);
 
 vm.runInContext(`
-  // SillyTavern 预设可以完全不声明 worldInfoBefore/After；角色书仍必须进入唯一 system。
+  // 旧预设可以不声明 worldInfoBefore/After；归一化时会补齐动态槽位且不丢角色书。
   promptPresets = { '无世界书槽': {
     version: 2, mode: 'tavern',
     prompts: [{ identifier: 'main', name: '主提示词', role: 'system', content: '基础指令', marker: true }],
@@ -191,7 +191,7 @@ vm.runInContext(`
 `, context);
 const fallbackMessages = JSON.parse(JSON.stringify(context.fallbackPayload.body.messages));
 assert.strictEqual(context.fallbackPayload.wi[0], '旧卡固定世界书');
-assert.match(fallbackMessages[0].content, /旧卡固定世界书/);
+assert.ok(fallbackMessages.some(message => /旧卡固定世界书/.test(message.content)));
 
 const pngCard = { spec: 'chara_card_v3', spec_version: '3.0', data: {
   name: 'PNG V3 世界书',

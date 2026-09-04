@@ -28,23 +28,38 @@ const LS_GEN = 'rpg-airp:gen';
 const LS_CURRENT_WORLD = 'rpg-airp:current-world';
 const LS_CURRENT_WORLD_SAVE = 'rpg-airp:current-world-save';
 const GLOBAL_PRESET_KEY = '__global__';
-const PRESET_SCHEMA_VERSION = 2;
+const PRESET_SCHEMA_VERSION = 3;
+// SillyTavern Prompt Manager separates pinned/default prompts from runtime markers.
+// The third tuple value is true only when content comes from the active chat/card at request time.
 const PRESET_MARKERS = [
-  ['main', '主提示词'],
-  ['worldInfoBefore', '世界书（前）'],
-  ['personaDescription', '玩家设定'],
-  ['charDescription', '角色描述'],
-  ['charPersonality', '角色性格'],
-  ['scenario', '场景'],
-  ['tavernMemory', '记忆'],
-  ['tavernFormat', '格式指令'],
-  ['tavernRpg', 'RPG 状态与协议'],
-  ['worldInfoAfter', '世界书（后）'],
-  ['dialogueExamples', '对话示例'],
-  ['chatHistory', '聊天历史'],
-  ['jailbreak', '历史后指令'],
+  ['main', '主提示词', false],
+  ['worldInfoBefore', '世界书（前）', true],
+  ['personaDescription', '玩家设定', true],
+  ['charDescription', '角色描述', true],
+  ['charPersonality', '角色性格', true],
+  ['scenario', '场景', true],
+  ['enhanceDefinitions', '增强定义', false],
+  ['nsfw', '辅助提示词', false],
+  ['tavernMemory', '记忆', true],
+  ['tavernRpg', 'RPG 状态与协议', true],
+  ['worldInfoAfter', '世界书（后）', true],
+  ['dialogueExamples', '对话示例', true],
+  ['chatHistory', '聊天历史', true],
+  ['jailbreak', '历史后指令', false],
 ];
-const PRESET_MARKER_IDS = new Set(PRESET_MARKERS.map(([id]) => id));
+const PRESET_MARKER_IDS = new Set(PRESET_MARKERS.filter(([, , runtime]) => runtime).map(([id]) => id));
+const PRESET_PINNED_IDS = new Set(PRESET_MARKERS.map(([id]) => id));
+const ST_PRESET_SETTING_KEYS = Object.freeze([
+  'temperature', 'frequency_penalty', 'presence_penalty', 'top_p', 'top_k', 'top_a', 'min_p',
+  'repetition_penalty', 'openai_max_context', 'openai_max_tokens', 'max_tokens', 'max_completion_tokens',
+  'stop', 'seed', 'n', 'stream', 'stream_openai', 'reasoning_effort', 'verbosity',
+  'assistant_prefill', 'continue_prefill', 'continue_postfix', 'custom_prompt_post_processing',
+  'wi_format', 'scenario_format', 'personality_format', 'new_chat_prompt', 'new_group_chat_prompt',
+  'new_example_chat_prompt', 'continue_nudge_prompt', 'group_nudge_prompt', 'names_behavior',
+  'send_if_empty', 'squash_system_messages', 'use_sysprompt', 'media_inlining',
+  'chat_completion_source', 'openai_model', 'claude_model', 'openrouter_model', 'google_model',
+  'vertexai_model', 'mistralai_model', 'custom_model',
+]);
 
 
 /* 风格主题（色调）——UI 设计配置，保留在代码（驱动 CSS 变量） */
@@ -55,13 +70,12 @@ const DEFAULT_SETTINGS = {
   temperature: 0.9, maxTokens: 32000,
   topP: 1, frequencyPenalty: 0, presencePenalty: 0, seed: -1,
   history: 20, stream: true,
-  systemPrompt: '', postHistory: '', firstMes: '',
+  firstMes: '',
 };
 
-/* 服务预设 / 格式指令 / 界面偏好：从 public/data/_defaults.json 加载，代码不写死 */
+/* 服务预设 / 界面偏好：从 public/data/_defaults.json 加载，代码不写死 */
 let defaults = null;
 let providers = [];        // [{ id, label, baseUrl, model }]
-let formatInstructions = {}; // { key: 指令文字 }
 
 /* 空状态提示：从 _defaults.json 的 ui 段读取模板，{name}/{role} 插值当前角色，不写死文案 */
 function buildGuide() {
@@ -211,6 +225,8 @@ let lbEditingId = null;
 let pgEditingName = null;
 let pgEditingPreset = null;
 let pgEditingPromptId = null;
+// 提示词编辑器内存态：true 表示当前预设未声明 replyOptions，保存时继续继承项目默认。
+let pgReplyOptionsInherited = true;
 let regexEditingId = null;
 let regexEditingSource = 'custom';
 let rpgDrawerReturnFocus = null;

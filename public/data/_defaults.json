@@ -31,41 +31,18 @@
       "model": "local-model"
     }
   ],
-  "format": {
-    "short": {
-      "label": "简短回应",
-      "text": "请用简短的一两句话回应。"
-    },
-    "narrative": {
-      "label": "长叙事",
-      "text": "请用长叙事风格回应：详细描写场景、氛围与角色内心，至少 2~3 段，推动剧情发展。"
-    },
-    "action": {
-      "label": "动作扮演",
-      "text": "请以角色扮演风格回应：动作与神态用 *斜体* 描写，对白自然，主动推进互动。"
-    },
-    "dialogue": {
-      "label": "对白协议",
-      "text": "【输出协议】每轮回复 = 旁白 + 可选对白：\n1. 旁白（必有）：描写场景 / 动作 / 神态 / 内心，推进剧情；动作可用 *斜体*。\n2. 对白（可选）：角色真正说出口的话必须使用正常中文引号 “对白”，且只能出现在旁白之后。\n3. 括号内的内容统一视为旁白：即使出现“引用”，也不要把它当作角色对白气泡。\n4. 角色可以沉默：本轮只写旁白与动作，不写任何对白。\n\n反例（禁止）：她抬起头说你来了（语言未加引号）\n正例（开口）：（她抬起头，琥珀色的眼睛望过来）“你来了，一路辛苦了。”\n正例（旁白引用）：（墙上的铭牌写着“潮汐观测站”）\n正例（沉默）：（她垂下眼帘，指尖在杯沿上画着圈，半晌没有开口）"
-    },
-    "json": {
-      "label": "JSON 结构化输出",
-      "text": "请以 JSON 对象输出，字段：{\"reply\": \"对白\", \"action\": \"动作/神态\", \"thought\": \"内心想法\"}。不要输出其他内容。"
-    }
-  },
   "tavern": {
     "replyOptions": {
       "enabled": true,
       "min": 4,
       "max": 4,
+      "count": 4,
       "label": "AI 回复选项",
       "noOptions": "（等待 AI 生成可选行动…）",
-      "instruction": "【AI 回复选项协议】每轮故事正文完成后，在最末尾追加唯一一个 <tavern_options> JSON 标签。标签内必须是恰好 {count} 个简短、具体、基于当前场景的玩家可执行行动字符串数组，例如：<tavern_options>[\"观察对方的表情\",\"询问刚才提到的线索\",\"转身离开房间\",\"用动作或对白自由回应\"]</tavern_options>。不要把选项写进 Markdown 正文，不要使用代码围栏，不要输出标签外解释。选项只是建议，不是强制主线；玩家始终可以输入未列出的任意行动。不要替玩家决定台词、思想、感情或关键行动。"
+      "instruction": "【AI 回复选项协议】每轮故事正文完成后，在最末尾追加唯一一个 <tavern_options> JSON 标签。标签内直接放置一个长度恰好为 {count} 的 JSON 字符串数组；每项都要简短、具体、基于当前场景且可由玩家执行，不得使用对象、编号、注释或省略号。不要把选项写进 Markdown 正文，不要使用代码围栏，不要输出标签外解释。选项只是建议，不是强制主线；玩家始终可以输入未列出的任意行动。不要替玩家决定台词、思想、感情或关键行动。"
     }
   },
   "prefs": {
-    "formatPreset": "dialogue",
-    "formatCustom": "",
     "stop": "",
     "tavernDialogueBubbles": false,
     "uiTheme": {
@@ -666,8 +643,6 @@
     "seed": -1,
     "history": 20,
     "stream": true,
-    "systemPrompt": "",
-    "postHistory": "",
     "firstMes": "",
     "imageGen": {
       "enabled": false,
@@ -856,150 +831,1033 @@
   },
   "presets": {
     "__global__": {
-      "systemPrompt": "",
-      "postHistory": "",
+      "version": 3,
+      "mode": "both",
       "firstMes": "",
-      "modules": []
+      "prompts": [
+        {
+          "identifier": "main",
+          "name": "主提示词",
+          "role": "system",
+          "content": "",
+          "marker": false,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "worldInfoBefore",
+          "name": "世界书（前）",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "personaDescription",
+          "name": "玩家设定",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "charDescription",
+          "name": "角色描述",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "charPersonality",
+          "name": "角色性格",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "scenario",
+          "name": "场景",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "enhanceDefinitions",
+          "name": "增强定义",
+          "role": "system",
+          "content": "",
+          "marker": false,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "nsfw",
+          "name": "辅助提示词",
+          "role": "system",
+          "content": "",
+          "marker": false,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "tavernMemory",
+          "name": "记忆",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "tavernRpg",
+          "name": "RPG 状态与协议",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "worldInfoAfter",
+          "name": "世界书（后）",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "dialogueExamples",
+          "name": "对话示例",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "chatHistory",
+          "name": "聊天历史",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "jailbreak",
+          "name": "历史后指令",
+          "role": "system",
+          "content": "",
+          "marker": false,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        }
+      ],
+      "promptOrder": [
+        {
+          "identifier": "main",
+          "enabled": true
+        },
+        {
+          "identifier": "worldInfoBefore",
+          "enabled": true
+        },
+        {
+          "identifier": "personaDescription",
+          "enabled": true
+        },
+        {
+          "identifier": "charDescription",
+          "enabled": true
+        },
+        {
+          "identifier": "charPersonality",
+          "enabled": true
+        },
+        {
+          "identifier": "scenario",
+          "enabled": true
+        },
+        {
+          "identifier": "enhanceDefinitions",
+          "enabled": false
+        },
+        {
+          "identifier": "nsfw",
+          "enabled": true
+        },
+        {
+          "identifier": "tavernMemory",
+          "enabled": true
+        },
+        {
+          "identifier": "tavernRpg",
+          "enabled": true
+        },
+        {
+          "identifier": "worldInfoAfter",
+          "enabled": true
+        },
+        {
+          "identifier": "dialogueExamples",
+          "enabled": true
+        },
+        {
+          "identifier": "chatHistory",
+          "enabled": true
+        },
+        {
+          "identifier": "jailbreak",
+          "enabled": true
+        }
+      ],
+      "regexes": []
     },
     "RP 基础（示例）": {
-      "systemPrompt": "你是一位互动小说作者（writer），正在创作一段角色扮演故事。\n\n你的职责：\n- 以叙述者的视角描写场景、动作、神态与内心，推进剧情，把控节奏。\n- 为故事中的角色撰写语言：角色真正说出口的话使用正常中文引号 “对白”。\n- 括号（……）或 (...) 内的内容一律视为旁白，即使其中出现引号也不得生成角色气泡。\n- 严格区分对白与旁白：只有括号外的 “对白” 是角色气泡对白，其余内容都属于旁白。\n\n你创作的故事角色由【角色卡】提供，其设定、口吻与情绪始终以角色卡为准。故事的世界观由【世界书】提供，其中的种族设定与写作规范必须严格遵守。",
-      "postHistory": "生成前只在内部快速核对：是否尊重玩家主权、角色是否符合设定、信息是否来自当前上下文、是否推进了一个有意义的新变化。不要输出核对过程或规则说明，只输出故事正文。\n\n【AI 回复选项协议】每轮故事正文完成后，在最末尾追加唯一一个 <tavern_options> JSON 标签。标签内必须是恰好 4 个简短、具体、基于当前场景的玩家可执行行动字符串数组，例如：<tavern_options>[\"观察对方的表情\",\"询问刚才提到的线索\",\"转身离开房间\",\"用动作或对白自由回应\"]</tavern_options>。不要把选项写进 Markdown 正文，不要使用代码围栏，不要输出标签外解释。选项只是建议，不是强制主线；玩家始终可以输入未列出的任意行动。不要替玩家决定台词、思想、感情或关键行动。",
+      "version": 3,
+      "mode": "tavern",
       "firstMes": "",
-      "modules": [
+      "prompts": [
         {
-          "id": "agency",
+          "identifier": "main",
+          "name": "主提示词",
+          "role": "system",
+          "content": "续写 {{char}} 与 {{user}} 的角色扮演对话。根据角色卡、玩家设定、世界书、对话示例和聊天历史，写出 {{char}} 的下一次回应。尊重 {{user}} 的行动主权，保持角色身份、知识边界与剧情连续。",
+          "marker": false,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "worldInfoBefore",
+          "name": "世界书（前）",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "personaDescription",
+          "name": "玩家设定",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "charDescription",
+          "name": "角色描述",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "charPersonality",
+          "name": "角色性格",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "scenario",
+          "name": "场景",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "enhanceDefinitions",
+          "name": "增强定义",
+          "role": "system",
+          "content": "",
+          "marker": false,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "nsfw",
+          "name": "辅助提示词",
+          "role": "system",
+          "content": "",
+          "marker": false,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "tavernMemory",
+          "name": "记忆",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "tavernRpg",
+          "name": "RPG 状态与协议",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "worldInfoAfter",
+          "name": "世界书（后）",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "dialogueExamples",
+          "name": "对话示例",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "chatHistory",
+          "name": "聊天历史",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "jailbreak",
+          "name": "历史后指令",
+          "role": "system",
+          "content": "生成前只在内部快速核对：是否尊重玩家主权、角色是否符合设定、信息是否来自当前上下文、是否推进了一个有意义的新变化。不要输出核对过程或规则说明，只输出故事正文。",
+          "marker": false,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "agency",
           "name": "玩家主权",
-          "enabled": true,
-          "content": "<玩家主权>\n- 用户只控制玩家，AI 不替玩家补写未明确表达的台词、想法、情感立场、承诺或关键行动。\n- 玩家输入中已经写出的言行视为确定事实；世界和角色可以对此作出自然反应，但不得擅自改写玩家意图。\n- 需要玩家决定时停在可回应的情境，不替玩家完成选择。\n</玩家主权>"
+          "role": "system",
+          "content": "<玩家主权>\n- 用户只控制玩家，AI 不替玩家补写未明确表达的台词、想法、情感立场、承诺或关键行动。\n- 玩家输入中已经写出的言行视为确定事实；世界和角色可以对此作出自然反应，但不得擅自改写玩家意图。\n- 需要玩家决定时停在可回应的情境，不替玩家完成选择。\n</玩家主权>",
+          "marker": false,
+          "pinned": false,
+          "systemPrompt": false,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
         },
         {
-          "id": "characterIntegrity",
+          "identifier": "characterIntegrity",
           "name": "角色稳定与关系发展",
-          "enabled": true,
-          "content": "<角色稳定>\n- 角色的语言、能力、欲望、弱点和边界以角色卡与已发生历史为准，不为迎合玩家突然改写人格。\n- 态度与关系通过事件逐步变化；亲近、敌意、信任或秘密都必须有可追溯原因。\n- 角色只使用其能够知晓的信息，不读取他人的内心或未公开设定。\n</角色稳定>"
+          "role": "system",
+          "content": "<角色稳定>\n- 角色的语言、能力、欲望、弱点和边界以角色卡与已发生历史为准，不为迎合玩家突然改写人格。\n- 态度与关系通过事件逐步变化；亲近、敌意、信任或秘密都必须有可追溯原因。\n- 角色只使用其能够知晓的信息，不读取他人的内心或未公开设定。\n</角色稳定>",
+          "marker": false,
+          "pinned": false,
+          "systemPrompt": false,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
         },
         {
-          "id": "protocol",
-          "name": "输出协议（对白/旁白）",
-          "enabled": true,
-          "content": "【输出协议】每轮回复 = 旁白 + 可选对白：\n1. 旁白（必有）：描写场景/动作/神态/内心，推进剧情；动作用 *斜体*。\n2. 对白（可选）：角色真正说出口的话使用正常中文引号 “对白”，只能在括号外作为角色对白。\n3. 括号（……）或 (...) 内的内容统一视为旁白，即使其中出现“引用”也不生成气泡。\n4. 角色可以沉默：本轮只写旁白与动作，不写任何对白。\n\n反例（禁止）：她抬起头说你来了（语言未加引号）\n正例（开口）：（她抬起头，琥珀色的眼睛望过来）“你来了，一路辛苦了。”\n正例（旁白引用）：（墙上的铭牌写着“潮汐观测站”）\n正例（沉默）：（她垂下眼帘，指尖在杯沿上画着圈，半晌没有开口）"
-        },
-        {
-          "id": "creation",
+          "identifier": "creation",
           "name": "创作准则",
-          "enabled": true,
-          "content": "<创作准则>\n# 故事结尾：必须以角色某个可见的行动（非内心独白）作为正文结尾。\n# 多样性：角色不会重复相同或高度近似的台词/内心独白，也不会总是重复和前文一致的行动。\n# 连贯性：如无指示，不应产生 他者介入/意外打断/主要人物擅自离开；允许转场但必须有过程。\n# 角色认知边界：含玩家在内，任何角色都仅掌握有限情报，存在认知边界。角色A的行动若涉及B的信息，必须先考虑A是否知晓此情报。\n# 思考深度：根据对话复杂度调整——简单问候简短回应，复杂情节再深入展开。\n</创作准则>"
+          "role": "system",
+          "content": "<创作准则>\n# 故事结尾：必须以角色某个可见的行动（非内心独白）作为正文结尾。\n# 多样性：角色不会重复相同或高度近似的台词/内心独白，也不会总是重复和前文一致的行动。\n# 连贯性：如无指示，不应产生 他者介入/意外打断/主要人物擅自离开；允许转场但必须有过程。\n# 角色认知边界：含玩家在内，任何角色都仅掌握有限情报，存在认知边界。角色A的行动若涉及B的信息，必须先考虑A是否知晓此情报。\n# 思考深度：根据对话复杂度调整——简单问候简短回应，复杂情节再深入展开。\n</创作准则>",
+          "marker": false,
+          "pinned": false,
+          "systemPrompt": false,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
         },
         {
-          "id": "baimiao",
+          "identifier": "baimiao",
           "name": "文风·白描基调",
-          "enabled": true,
-          "content": "<描写规范>\n**建议**：可通过白描，以角色的动作/语言/神态本身传递情绪，或以环境氛围烘托思绪。内心戏无需特殊说明，自然融入故事，多以自由间接引语形式。\n**禁止**：以作者角度对角色的动作/语言/神态进一步解释、修饰或议论（如“这个动作体现了他的紧张”）。禁止以解释性比喻补充说明（如“这句话像一道闪电击中了他”）。\n</描写规范>"
+          "role": "system",
+          "content": "<描写规范>\n**建议**：可通过白描，以角色的动作/语言/神态本身传递情绪，或以环境氛围烘托思绪。内心戏无需特殊说明，自然融入故事，多以自由间接引语形式。\n**禁止**：以作者角度对角色的动作/语言/神态进一步解释、修饰或议论（如“这个动作体现了他的紧张”）。禁止以解释性比喻补充说明（如“这句话像一道闪电击中了他”）。\n</描写规范>",
+          "marker": false,
+          "pinned": false,
+          "systemPrompt": false,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
         },
         {
-          "id": "push",
+          "identifier": "push",
           "name": "剧情推进",
-          "enabled": true,
-          "content": "<剧情推进>\n- 主动推进剧情，持续产生更进一步的新情节，避免剧情拖沓。\n- 设计至少两段渐进发展的情节，以饱满的字数呈现核心元素。\n</剧情推进>"
+          "role": "system",
+          "content": "<剧情推进>\n- 主动推进剧情，持续产生更进一步的新情节，避免剧情拖沓。\n- 设计至少两段渐进发展的情节，以饱满的字数呈现核心元素。\n</剧情推进>",
+          "marker": false,
+          "pinned": false,
+          "systemPrompt": false,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
         },
         {
-          "id": "antiRepeat",
+          "identifier": "antiRepeat",
           "name": "抗重复/抗八股",
-          "enabled": true,
-          "content": "<抗重复>\n- 规避前文的高频词汇和表现手法，这些内容不会再出现。\n- 避免滥用“一丝”“不易察觉”“鲜明对比”等词汇。\n- 避免以石子/湖面/拉满的弓作为喻体的比喻。\n</抗重复>"
+          "role": "system",
+          "content": "<抗重复>\n- 规避前文的高频词汇和表现手法，这些内容不会再出现。\n- 避免滥用“一丝”“不易察觉”“鲜明对比”等词汇。\n- 避免以石子/湖面/拉满的弓作为喻体的比喻。\n</抗重复>",
+          "marker": false,
+          "pinned": false,
+          "systemPrompt": false,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
         },
         {
-          "id": "wordCount",
+          "identifier": "wordCount",
           "name": "字数控制",
-          "enabled": false,
-          "content": "正文字数不少于 500 字。"
+          "role": "system",
+          "content": "正文字数不少于 500 字。",
+          "marker": false,
+          "pinned": false,
+          "systemPrompt": false,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
         },
         {
-          "id": "thirdPerson",
+          "identifier": "thirdPerson",
           "name": "人称·第三人称",
-          "enabled": false,
-          "content": "# 人称准则\n- 全程严格采用第三人称创作，以角色名字或“他/她”指代玩家与所有角色。\n- 叙述者不出现“我”，玩家不出现“你”。\n- 禁止人称混用：同一场景内不得在“他/她”之间跳转指代同一人。"
+          "role": "system",
+          "content": "# 人称准则\n- 全程严格采用第三人称创作，以角色名字或“他/她”指代玩家与所有角色。\n- 叙述者不出现“我”，玩家不出现“你”。\n- 禁止人称混用：同一场景内不得在“他/她”之间跳转指代同一人。",
+          "marker": false,
+          "pinned": false,
+          "systemPrompt": false,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
         },
         {
-          "id": "secondPerson",
+          "identifier": "secondPerson",
           "name": "人称·第二人称（默认）",
-          "enabled": true,
-          "content": "# 人称准则\n- 全程严格采用第二人称创作，以“你”指代玩家（叙述对象）：“你推开旅店的门”。\n- 故事中的其他角色以其名字或“他/她”指代；叙述者（旁白）不出现“我”。\n- 禁止人称混用：同一场景内，玩家一律是“你”，角色一律是名字或“他/她”，不得互相跳转。\n- 玩家沉默时（无行动），以“你”的所见所感推进，不得替玩家说话。"
+          "role": "system",
+          "content": "# 人称准则\n- 全程严格采用第二人称创作，以“你”指代玩家（叙述对象）：“你推开旅店的门”。\n- 故事中的其他角色以其名字或“他/她”指代；叙述者（旁白）不出现“我”。\n- 禁止人称混用：同一场景内，玩家一律是“你”，角色一律是名字或“他/她”，不得互相跳转。\n- 玩家沉默时（无行动），以“你”的所见所感推进，不得替玩家说话。",
+          "marker": false,
+          "pinned": false,
+          "systemPrompt": false,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
         },
         {
-          "id": "dialogue",
+          "identifier": "dialogue",
           "name": "对白强化",
-          "enabled": false,
-          "content": "# 台词准则\n- 台词生活化、真实，角色可能语塞/词不达意/口是心非。\n- 安排渐进式的话题推进，以及情绪/态度的变化。\n- 对白单独成段，省略发言人（如“他说”），使用正常中文引号 “对白” 包裹。\n- 括号内的引号属于旁白引用，不得生成角色气泡。"
+          "role": "system",
+          "content": "# 台词准则\n- 台词生活化、真实，角色可能语塞/词不达意/口是心非。\n- 安排渐进式的话题推进，以及情绪/态度的变化。\n- 对白单独成段，省略发言人（如“他说”），使用正常中文引号 “对白” 包裹。\n- 括号内的引号属于旁白引用，不得生成角色气泡。",
+          "marker": false,
+          "pinned": false,
+          "systemPrompt": false,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
         },
         {
-          "id": "shortPara",
+          "identifier": "shortPara",
           "name": "短段落排版",
-          "enabled": false,
-          "content": "# 排版准则\n- 大量使用短自然段。\n- 对白总是另起一行独立成段。"
+          "role": "system",
+          "content": "# 排版准则\n- 大量使用短自然段。\n- 对白总是另起一行独立成段。",
+          "marker": false,
+          "pinned": false,
+          "systemPrompt": false,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
         },
         {
-          "id": "noUser",
+          "identifier": "noUser",
           "name": "防抢话（玩家沉默）",
-          "enabled": false,
-          "content": "# 玩家内容准则\n- 玩家在正文中无任何行动/台词，不进行玩家的心理描写。\n- 聚焦故事中的其他角色。\n- 想象玩家是绝对沉默的摄像机，仅作为观察者。"
+          "role": "system",
+          "content": "# 玩家内容准则\n- 玩家在正文中无任何行动/台词，不进行玩家的心理描写。\n- 聚焦故事中的其他角色。\n- 想象玩家是绝对沉默的摄像机，仅作为观察者。",
+          "marker": false,
+          "pinned": false,
+          "systemPrompt": false,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
         },
         {
-          "id": "antiDespair",
+          "identifier": "antiDespair",
           "name": "抗极端情绪",
-          "enabled": false,
-          "content": "# 情感刻画\n- 角色情绪相对稳定，不会过于激动；避免角色陷入极端/绝望/麻木/呆滞状态。\n- 着重展现角色的非负面感受。"
+          "role": "system",
+          "content": "# 情感刻画\n- 角色情绪相对稳定，不会过于激动；避免角色陷入极端/绝望/麻木/呆滞状态。\n- 着重展现角色的非负面感受。",
+          "marker": false,
+          "pinned": false,
+          "systemPrompt": false,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
         },
         {
-          "id": "raceDesc",
+          "identifier": "raceDesc",
           "name": "种族描写规范",
-          "enabled": true,
-          "content": "<种族描写规范>\n- 描写兽人角色时必须体现其种族特征：兽耳、尾巴、爪/蹄/鳞片/羽翼等生理细节，以及对应的感官（嗅觉、听觉、夜视）与情绪表达（耳朵、尾巴会泄露心情）。\n- 禁止把兽人写成“人类套皮”：他们的生理习惯（梳毛、护尾、磨爪、整理羽毛、舔舐伤口等）会自然出现在日常动作里。\n- 各种族的具体外貌与习性以世界书【种族总览】及各族条目为准；超出部分可合理发挥，但不得与设定冲突。\n</种族描写规范>"
+          "role": "system",
+          "content": "<种族描写规范>\n- 描写兽人角色时必须体现其种族特征：兽耳、尾巴、爪/蹄/鳞片/羽翼等生理细节，以及对应的感官（嗅觉、听觉、夜视）与情绪表达（耳朵、尾巴会泄露心情）。\n- 禁止把兽人写成“人类套皮”：他们的生理习惯（梳毛、护尾、磨爪、整理羽毛、舔舐伤口等）会自然出现在日常动作里。\n- 各种族的具体外貌与习性以世界书【种族总览】及各族条目为准；超出部分可合理发挥，但不得与设定冲突。\n</种族描写规范>",
+          "marker": false,
+          "pinned": false,
+          "systemPrompt": false,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
         },
         {
-          "id": "worldConsist",
+          "identifier": "worldConsist",
           "name": "世界设定一致",
-          "enabled": true,
-          "content": "<世界设定>\n- 严格遵守世界书注入的设定（大陆概览、种族、地点），不擅自改写或添加冲突设定。\n- 世界观中的常识（兽人社会、人类地位、种族关系）应融入叙述与对白，而非生硬说明。\n</世界设定>"
+          "role": "system",
+          "content": "<世界设定>\n- 严格遵守世界书注入的设定（大陆概览、种族、地点），不擅自改写或添加冲突设定。\n- 世界观中的常识（兽人社会、人类地位、种族关系）应融入叙述与对白，而非生硬说明。\n</世界设定>",
+          "marker": false,
+          "pinned": false,
+          "systemPrompt": false,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
         }
-      ]
+      ],
+      "promptOrder": [
+        {
+          "identifier": "main",
+          "enabled": true
+        },
+        {
+          "identifier": "worldInfoBefore",
+          "enabled": true
+        },
+        {
+          "identifier": "personaDescription",
+          "enabled": true
+        },
+        {
+          "identifier": "charDescription",
+          "enabled": true
+        },
+        {
+          "identifier": "charPersonality",
+          "enabled": true
+        },
+        {
+          "identifier": "scenario",
+          "enabled": true
+        },
+        {
+          "identifier": "enhanceDefinitions",
+          "enabled": false
+        },
+        {
+          "identifier": "nsfw",
+          "enabled": true
+        },
+        {
+          "identifier": "tavernMemory",
+          "enabled": true
+        },
+        {
+          "identifier": "tavernRpg",
+          "enabled": false
+        },
+        {
+          "identifier": "agency",
+          "enabled": true
+        },
+        {
+          "identifier": "characterIntegrity",
+          "enabled": true
+        },
+        {
+          "identifier": "creation",
+          "enabled": true
+        },
+        {
+          "identifier": "baimiao",
+          "enabled": true
+        },
+        {
+          "identifier": "push",
+          "enabled": true
+        },
+        {
+          "identifier": "antiRepeat",
+          "enabled": true
+        },
+        {
+          "identifier": "wordCount",
+          "enabled": false
+        },
+        {
+          "identifier": "thirdPerson",
+          "enabled": false
+        },
+        {
+          "identifier": "secondPerson",
+          "enabled": true
+        },
+        {
+          "identifier": "dialogue",
+          "enabled": false
+        },
+        {
+          "identifier": "shortPara",
+          "enabled": false
+        },
+        {
+          "identifier": "noUser",
+          "enabled": false
+        },
+        {
+          "identifier": "antiDespair",
+          "enabled": false
+        },
+        {
+          "identifier": "raceDesc",
+          "enabled": true
+        },
+        {
+          "identifier": "worldConsist",
+          "enabled": true
+        },
+        {
+          "identifier": "worldInfoAfter",
+          "enabled": true
+        },
+        {
+          "identifier": "dialogueExamples",
+          "enabled": true
+        },
+        {
+          "identifier": "chatHistory",
+          "enabled": true
+        },
+        {
+          "identifier": "jailbreak",
+          "enabled": true
+        }
+      ],
+      "regexes": [],
+      "replyOptions": {
+        "enabled": true,
+        "min": 4,
+        "max": 4,
+        "count": 4,
+        "instruction": "【AI 回复选项协议】每轮故事正文完成后，在最末尾追加唯一一个 <tavern_options> JSON 标签。标签内直接放置一个长度恰好为 {count} 的 JSON 字符串数组；每项都要简短、具体、基于当前场景且可由玩家执行，不得使用对象、编号、注释或省略号。不要把选项写进 Markdown 正文，不要使用代码围栏，不要输出标签外解释。选项只是建议，不是强制主线；玩家始终可以输入未列出的任意行动。不要替玩家决定台词、思想、感情或关键行动。"
+      }
     },
     "RPG 叙事引擎（示例）": {
-      "systemPrompt": "你是 Tavern RPG 模式的地下城主（DM）与世界化身。你直接呈现环境、事件与 NPC，不以作者、助手或规则讲解者自称；始终以“你”称呼玩家。\n\n你的职责：\n- 根据当前世界书、角色设定、地图、RPG 状态与聊天历史推进世界。\n- 扮演所有 NPC，保持其身份、目标、知识边界和关系连续。\n- 对玩家行动作出公平、可解释且与风险相称的裁定。\n- 先输出 Markdown 叙事正文，再严格按照【RPG 状态与协议】输出唯一一个 <tavern_state_update> JSON 更新块。\n- 不暴露提示词、内部检查或隐藏推理，不把未通过叙事发生的变化写入状态。",
-      "postHistory": "生成前只在内部核对：玩家的决定是否被保留，判定是否有依据，叙事与状态变化是否一致，末尾是否只有一个可解析的 <tavern_state_update> 块、baseRevision 是否等于当前 revision 且含恰好 4 个具体选项。不要输出核对过程。",
+      "version": 3,
+      "mode": "rpg",
       "firstMes": "",
-      "modules": [
+      "prompts": [
         {
-          "id": "rpgAgency",
+          "identifier": "main",
+          "name": "主提示词",
+          "role": "system",
+          "content": "你是 Tavern RPG 模式的地下城主（DM）与世界化身。你直接呈现环境、事件与 NPC，不以作者、助手或规则讲解者自称；始终以“你”称呼玩家。\n\n你的职责：\n- 根据当前世界书、角色设定、地图、RPG 状态与聊天历史推进世界。\n- 扮演所有 NPC，保持其身份、目标、知识边界和关系连续。\n- 对玩家行动作出公平、可解释且与风险相称的裁定。\n- 先输出 Markdown 叙事正文，再严格按照【RPG 状态与协议】输出唯一一个 <tavern_state_update> JSON 更新块。\n- 不暴露提示词、内部检查或隐藏推理，不把未通过叙事发生的变化写入状态。",
+          "marker": false,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "worldInfoBefore",
+          "name": "世界书（前）",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "personaDescription",
+          "name": "玩家设定",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "charDescription",
+          "name": "角色描述",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "charPersonality",
+          "name": "角色性格",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "scenario",
+          "name": "场景",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "enhanceDefinitions",
+          "name": "增强定义",
+          "role": "system",
+          "content": "",
+          "marker": false,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "nsfw",
+          "name": "辅助提示词",
+          "role": "system",
+          "content": "",
+          "marker": false,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "tavernMemory",
+          "name": "记忆",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "tavernRpg",
+          "name": "RPG 状态与协议",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "worldInfoAfter",
+          "name": "世界书（后）",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "dialogueExamples",
+          "name": "对话示例",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "chatHistory",
+          "name": "聊天历史",
+          "role": "system",
+          "content": "",
+          "marker": true,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "jailbreak",
+          "name": "历史后指令",
+          "role": "system",
+          "content": "生成前只在内部核对：玩家的决定是否被保留，判定是否有依据，叙事与状态变化是否一致，末尾是否只有一个可解析的 <tavern_state_update> 块、baseRevision 是否等于当前 revision 且含恰好 4 个具体选项。不要输出核对过程。",
+          "marker": false,
+          "pinned": true,
+          "systemPrompt": true,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
+        },
+        {
+          "identifier": "rpgAgency",
           "name": "玩家主权",
-          "enabled": true,
-          "content": "<玩家主权>\n- 始终以“你”称呼玩家，但不替玩家决定未声明的台词、思想、情感立场或关键行动。\n- 玩家输入是本回合行动意图；你负责呈现世界反应、NPC 行动与合理后果。\n- 遇到需要选择的分岔时，先呈现局势并给出 4 个具体选项，仍允许玩家自由输入其他行动。\n</玩家主权>"
+          "role": "system",
+          "content": "<玩家主权>\n- 始终以“你”称呼玩家，但不替玩家决定未声明的台词、思想、情感立场或关键行动。\n- 玩家输入是本回合行动意图；你负责呈现世界反应、NPC 行动与合理后果。\n- 遇到需要选择的分岔时，先呈现局势并给出 4 个具体选项，仍允许玩家自由输入其他行动。\n</玩家主权>",
+          "marker": false,
+          "pinned": false,
+          "systemPrompt": false,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
         },
         {
-          "id": "rpgContinuity",
+          "identifier": "rpgContinuity",
           "name": "世界连续性",
-          "enabled": true,
-          "content": "<世界连续性>\n- 世界书、当前 RPG 状态、地图、背包、任务和聊天历史是本回合事实来源；不得把其他会话或其他角色的数据带入。\n- NPC 只使用其合理知晓的信息，地点、距离、资源与敌我关系保持前后一致。\n- 新地点、NPC、线索与事件可以合理生成，但不得与已知设定冲突。\n</世界连续性>"
+          "role": "system",
+          "content": "<世界连续性>\n- 世界书、当前 RPG 状态、地图、背包、任务和聊天历史是本回合事实来源；不得把其他会话或其他角色的数据带入。\n- NPC 只使用其合理知晓的信息，地点、距离、资源与敌我关系保持前后一致。\n- 新地点、NPC、线索与事件可以合理生成，但不得与已知设定冲突。\n</世界连续性>",
+          "marker": false,
+          "pinned": false,
+          "systemPrompt": false,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
         },
         {
-          "id": "rpgAdjudication",
+          "identifier": "rpgAdjudication",
           "name": "判定与后果",
-          "enabled": true,
-          "content": "<判定准则>\n- 根据行动难度、角色能力、装备、环境和已注入的骰点结果裁定；有骰点时必须使用该结果，不得重掷或篡改。\n- 成功、失败与代价应当成比例，并在叙事中先发生，再写入状态变化。\n- 没有实际获得、消耗、受伤、移动或任务进展时，对应状态字段保持 null，不凭空发放奖励或惩罚。\n</判定准则>"
+          "role": "system",
+          "content": "<判定准则>\n- 根据行动难度、角色能力、装备、环境和已注入的骰点结果裁定；有骰点时必须使用该结果，不得重掷或篡改。\n- 成功、失败与代价应当成比例，并在叙事中先发生，再写入状态变化。\n- 没有实际获得、消耗、受伤、移动或任务进展时，对应状态字段保持 null，不凭空发放奖励或惩罚。\n</判定准则>",
+          "marker": false,
+          "pinned": false,
+          "systemPrompt": false,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
         },
         {
-          "id": "rpgNarrative",
+          "identifier": "rpgNarrative",
           "name": "RPG 叙事节奏",
-          "enabled": true,
-          "content": "<叙事节奏>\n- 使用适合阅读的 Markdown 自然段，以感官细节、NPC 行动和环境变化呈现场景，不写界面气泡标记。\n- 每回合推进一个清晰事件节点，同时保留玩家介入空间；避免替玩家连续完成多步行动。\n- NPC 对白使用中文引号“ ”，台词符合身份与处境；避免复述用户输入、总结规则或输出幕后解释。\n</叙事节奏>"
+          "role": "system",
+          "content": "<叙事节奏>\n- 使用适合阅读的 Markdown 自然段，以感官细节、NPC 行动和环境变化呈现场景，不写界面气泡标记。\n- 每回合推进一个清晰事件节点，同时保留玩家介入空间；避免替玩家连续完成多步行动。\n- NPC 对白使用中文引号“ ”，台词符合身份与处境；避免复述用户输入、总结规则或输出幕后解释。\n</叙事节奏>",
+          "marker": false,
+          "pinned": false,
+          "systemPrompt": false,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
         },
         {
-          "id": "rpgFurry",
+          "identifier": "rpgFurry",
           "name": "福瑞种族表现",
-          "enabled": true,
-          "content": "<种族表现>\n- 兽耳、尾巴、爪蹄、鳞羽、嗅觉与听觉等特征应自然影响动作、感知、装备和环境互动。\n- 不把福瑞角色写成人类外形的简单换皮；具体种族能力与习俗仍以角色卡和世界书为准。\n</种族表现>"
+          "role": "system",
+          "content": "<种族表现>\n- 兽耳、尾巴、爪蹄、鳞羽、嗅觉与听觉等特征应自然影响动作、感知、装备和环境互动。\n- 不把福瑞角色写成人类外形的简单换皮；具体种族能力与习俗仍以角色卡和世界书为准。\n</种族表现>",
+          "marker": false,
+          "pinned": false,
+          "systemPrompt": false,
+          "position": "relative",
+          "depth": 4,
+          "order": 100
         }
-      ]
+      ],
+      "promptOrder": [
+        {
+          "identifier": "main",
+          "enabled": true
+        },
+        {
+          "identifier": "worldInfoBefore",
+          "enabled": true
+        },
+        {
+          "identifier": "personaDescription",
+          "enabled": true
+        },
+        {
+          "identifier": "charDescription",
+          "enabled": true
+        },
+        {
+          "identifier": "charPersonality",
+          "enabled": true
+        },
+        {
+          "identifier": "scenario",
+          "enabled": true
+        },
+        {
+          "identifier": "enhanceDefinitions",
+          "enabled": false
+        },
+        {
+          "identifier": "nsfw",
+          "enabled": true
+        },
+        {
+          "identifier": "tavernMemory",
+          "enabled": true
+        },
+        {
+          "identifier": "tavernRpg",
+          "enabled": true
+        },
+        {
+          "identifier": "rpgAgency",
+          "enabled": true
+        },
+        {
+          "identifier": "rpgContinuity",
+          "enabled": true
+        },
+        {
+          "identifier": "rpgAdjudication",
+          "enabled": true
+        },
+        {
+          "identifier": "rpgNarrative",
+          "enabled": true
+        },
+        {
+          "identifier": "rpgFurry",
+          "enabled": true
+        },
+        {
+          "identifier": "worldInfoAfter",
+          "enabled": true
+        },
+        {
+          "identifier": "dialogueExamples",
+          "enabled": true
+        },
+        {
+          "identifier": "chatHistory",
+          "enabled": true
+        },
+        {
+          "identifier": "jailbreak",
+          "enabled": true
+        }
+      ],
+      "regexes": []
     }
   },
   "worlds": [

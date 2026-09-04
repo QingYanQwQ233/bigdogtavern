@@ -39,6 +39,24 @@ Pop-Location
 
 APK 输出路径：`android/app/build/outputs/apk/debug/app-debug.apk`。
 
+## 本次更新 · 2026-09-04
+
+- RP 提示词预设升级为 v3：`prompts` 保存素材，`promptOrder` 同时决定开关与实际消息顺序；固定可编辑提示词与运行时 Marker 分离。
+- 删除无法单独关闭的全局“对白输出协议”和 `tavernFormat` 隐式槽位；Post-History 改为预设列表中可见、可编辑、可排序、可关闭的 `jailbreak` 项。
+- 世界书 Before / After、示例前后和 At Depth 按位置注入；角色卡 main / Post-History 覆盖支持 `{{original}}`。
+- 预设页新增 ST 生成参数与 Utility Prompt 配置；导入的采样参数、格式模板、新聊天提示和 assistant prefill 会进入实际请求，模型/服务商字段只做无损往返。
+- SillyTavern 导入正确区分 `system_prompt` 与 `marker`，保留多个 `prompt_order` Profile；v1/v2 预设和旧全局提示词会自动迁移。
+- 当前玩家输入独立于旧聊天历史组装：即使关闭 Chat History、缩短历史窗口或启用自动摘要，也会在请求中准确保留一次。
+- 本轮实现依据 SillyTavern 官方的 [Prompt Manager](https://docs.sillytavern.app/usage/prompts/prompt-manager/)、[World Info](https://docs.sillytavern.app/usage/core-concepts/worldinfo/) 与 [Character Design](https://docs.sillytavern.app/usage/core-concepts/characterdesign/) 结构；完整仓库检查为 84/84 通过，包括 Android WebView 83 兼容检查。
+
+## 本次更新 · 2026-09-03
+
+- 酒馆提示词预设新增独立的「普通 RP 回复预设选项」配置：可按预设开启/关闭、设置每轮 1–8 个选项，并自定义选项偏好提示词；未改动时继承项目默认，导入/导出通过 `tavern_meta.replyOptions` 保留配置。
+- 自定义提示词可以只描述选项风格；若省略 `<tavern_options>` 机器协议，运行时自动补入默认结构要求。关闭后不注入、不修复，也不显示等待提示。
+- 旧版写在 `postHistory` 尾部的「AI 回复选项协议」会迁入独立字段，普通后预设原文保留，避免重复注入。
+- RP 请求把已完成历史和当前玩家回合分开组装；历史条数、关闭聊天历史、自动摘要或骰点附加记录都不会挤掉当前输入。当前玩家内容在 Chat History 边界只注入一次；排在历史后的 Relative / In-Chat 提示词仍按预设有意跟随。
+- 上述配置只属于酒馆 RP；RPG 的 WorldSave、`<tavern_state_update>` 与行动选项协议保持独立。
+
 ## 本次更新 · 2026-08-26
 
 - RPG 回合的 `runtime.collection.add` 统一要求使用 `value: { id: "stable-entry-id", ... }`；字段平铺或漏掉条目 ID 会在提交前触发精确的协议修复，不再直接落到服务端报错。
@@ -135,13 +153,13 @@ world-deleted.json         已删除世界卡 ID（防止默认模板重新出�
 - 角色卡创建、编辑、删除，以及 Character Card V1/V2/V3 JSON 导入导出；支持读取 PNG 内嵌的 `ccv3` / `chara` 元数据，V3 的角色书与扩展字段按角色卡绑定保存；导出时会把角色绑定的世界书一并写入 `data.character_book`；
 - 三步 AI 写卡：一句话定角色 → JSON Schema 动态填表 → 生成完整结构化角色卡；
 - 动态角色字段、可自定义栏目和运行时保存，不把世界观字段写死在前端；
-- SillyTavern 风格提示词预设：System、历史前/后指令、In-Chat、Relative、宏、排序和导入导出；
-- 独立「后预设 / Post-History」栏目：预设组装完成后追加高优先级指令；RP 基础示例已内置 AI 回复选项协议，其他预设仍按全局配置自动追加；
+- SillyTavern 风格提示词预设：固定提示词、运行时 Marker、世界书前后、Post-History、In-Chat、Relative、宏、Prompt Order、生成参数和导入导出；
+- Post-History 作为提示词顺序中的 `jailbreak` 固定项显示，可编辑、排序和关闭；回复选项协议由同一预设的独立 `replyOptions` 配置管理，不占用普通 Post-History；
 - 独立「正则」设置：RP / RPG 分模式保存自定义规则，兼容 SillyTavern `extensions.regex_scripts` 的 `placement`、`trimStrings`、`substituteRegex`、深度、`markdownOnly`、`promptOnly`、`runOnEdit` 等字段；规则可作用于用户输入、AI 原始回复、聊天显示、历史/提示词、System/后预设、世界书、思维链和斜杠命令。自定义规则默认绑定当前提示词预设，切换预设不会串用其他预设规则，也可改为模式全局；提示词/显示专用规则只改请求副本或渲染结果，不覆盖存档原文；预设编辑页可绑定当前模式自定义正则，保存或导出预设时会一并写入 ST 的 `extensions.regex_scripts`，运行时避免重复执行；
 - 多本世界书：兼容 SillyTavern World Info JSON 的主 / secondary 关键词、四种选择性逻辑、正则、常驻、概率、分组、递归、Sticky / Cooldown / Delay、扫描设置、Outlet 宏、角色绑定，以及 ST JSON 导入 / 导出；
-- 玩家设定、手动记忆、消息编辑/删除/复制/重生成；可在「记忆」页开启 RP 自动滚动记忆：每 20 个完整对话轮次把最早 15 轮压缩为约 100 字摘要，也可随时手动触发总结；原始消息仍保留在当前会话；窗口、总结轮数和摘要字数均可调整；
-- 可选旁白/对白拆分：默认整条回复作为连续正文，按需在「设置 → 格式」开启对白气泡；
-- AI 回复选项：RP 与 RPG 都由模型生成结构化快捷行动，点击后直接发送；RP 缺少标签时最多自动修复一次；选项标签不会进入正文，也不再使用写死的快捷按钮；
+- 玩家设定、手动记忆、消息编辑/删除/复制/重生成；可在「记忆」页开启 RP 自动滚动记忆：每 20 个完整对话轮次把最早 15 轮压缩为约 100 字摘要，也可随时手动触发总结；原始消息仍保留在当前会话；窗口、总结轮数和摘要字数均可调整；尚未收到 AI 回复的当前玩家回合不会进入摘要覆盖，也不会因历史窗口裁剪而丢失；
+- 可选旁白/对白拆分：默认整条回复作为连续正文，按需在「设置 → 输出」开启对白气泡；
+- AI 回复选项：RP 与 RPG 都由模型生成结构化快捷行动，点击后直接发送；酒馆预设可独立开启/关闭、指定 1–8 个选项并自定义提示词，缺少标签时最多自动修复一次；关闭后不注入协议、不请求修复、不显示等待提示。RP 的 `<tavern_options>` 与 RPG 的 `<tavern_state_update>` 分别解析，互不复用；
 - 「设置 → 排版」热调整聊天正文：字体、字号、行间距、段间距、段首缩进（空两格）与左右间距，拖动即时预览、自动保存；RPG 默认工作区同样继承这些设置；
 - 「设置 → 界面」可即时调整 Tavern 的颜色 token、边框透明度、圆角、应用侧栏/RPG 两侧栏宽度和界面缩放；RPG 默认工作区同样继承，世界卡显式声明的同名 token 才会覆盖对应项；支持受校验的高级 CSS 变量 JSON，并可一键恢复默认，刷新后自动恢复；
 - 「设置 → 界面」内置 macOS 深色、Nord、Dracula、Catppuccin Mocha、Tokyo Night 五套界面预设；预设来自公开主题调色板，套用后仍可继续微调并自动保存；

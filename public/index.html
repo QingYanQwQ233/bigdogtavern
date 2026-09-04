@@ -7,7 +7,7 @@
   <link rel="manifest" href="manifest.json" />
   <title>Tavern · AI RP 框架演示</title>
   <link rel="icon" type="image/png" href="favicon.png" />
-  <link rel="stylesheet" href="styles.css?v=20260828a" />
+  <link rel="stylesheet" href="styles.css?v=20260903c" />
 </head>
 <body data-theme="vibrancy" data-layout="classic">
   <canvas id="bg-fx" aria-hidden="true"></canvas>
@@ -364,11 +364,50 @@
         <div class="field"><label for="pg-mode">适用模式</label><select id="pg-mode"><option value="tavern">酒馆</option><option value="rpg">RPG</option><option value="both">两种模式</option></select></div>
         <div class="field"><label for="pg-first-mes">开场白（新会话）</label><textarea id="pg-first-mes" rows="2"></textarea></div>
       </div>
-      <section class="pg-post-history" aria-labelledby="pg-post-history-title">
-        <div class="pg-section-head"><strong id="pg-post-history-title">后预设 / Post-History Instructions</strong><span class="hint-inline">预设组装完成后追加</span></div>
-        <textarea id="pg-post-history" rows="5" placeholder="写入需要在本次预设之后追加的指令…"></textarea>
-          <p class="hint">RP 基础示例已把 AI 回复选项协议写入这里；其他预设若未提供同类协议会自动追加。旧角色卡的历史后指令会兼容迁移到此处，内容仍会与唯一 System 消息合并发送。</p>
+      <p class="hint pg-architecture-note">叙事提示词正文只从下方 prompts 读取；顺序与开关只由 prompt_order 决定。回复选项是上方可关闭的显式扩展。“历史后指令 / Post-History Instructions”现在也是列表中的固定提示词，可直接关闭。</p>
+      <section id="pg-reply-options" class="pg-reply-options" aria-labelledby="pg-reply-options-title">
+        <div class="pg-section-head"><strong id="pg-reply-options-title">普通 RP 回复预设选项</strong><span class="hint-inline">随本预设保存 / 导出</span></div>
+        <div class="pg-reply-options-controls">
+          <label class="check" for="pg-reply-options-enabled"><input id="pg-reply-options-enabled" type="checkbox" />开启底部 AI 回复选项</label>
+          <div class="field pg-reply-options-count"><label for="pg-reply-options-count">每轮选项数（1–8）</label><input id="pg-reply-options-count" type="number" min="1" max="8" step="1" value="4" /></div>
+          <button class="ghost-btn small" id="pg-reply-options-reset" type="button">恢复默认</button>
+        </div>
+        <div class="field"><label for="pg-reply-options-prompt">回复选项提示词</label><textarea id="pg-reply-options-prompt" rows="5" placeholder="告诉 AI 如何在正文末尾生成回复选项…"></textarea></div>
+        <p id="pg-reply-options-note" class="hint">可用 {count}、{min}、{max} 代入选项数量；省略标签协议时会自动补上默认结构要求。</p>
       </section>
+      <details id="pg-st-settings" class="pg-st-settings">
+        <summary>SillyTavern 预设设置</summary>
+        <p class="hint">采样参数留空时继承“连接”页；填写后随当前预设应用。模板字段使用 ST 原字段名与占位符；其余已导入但尚未实现的 ST 字段仍会原样导出。</p>
+        <div class="pg-st-settings-grid">
+          <div class="field"><label for="pg-param-temperature">temperature</label><input id="pg-param-temperature" type="number" min="0" max="2" step="0.05" placeholder="继承连接设置" /></div>
+          <div class="field"><label for="pg-param-max-tokens">openai_max_tokens</label><input id="pg-param-max-tokens" type="number" min="1" max="1000000" step="1" placeholder="继承连接设置" /></div>
+          <div class="field"><label for="pg-param-top-p">top_p</label><input id="pg-param-top-p" type="number" min="0" max="1" step="0.01" placeholder="继承连接设置" /></div>
+          <div class="field"><label for="pg-param-frequency-penalty">frequency_penalty</label><input id="pg-param-frequency-penalty" type="number" min="-2" max="2" step="0.05" placeholder="继承连接设置" /></div>
+          <div class="field"><label for="pg-param-presence-penalty">presence_penalty</label><input id="pg-param-presence-penalty" type="number" min="-2" max="2" step="0.05" placeholder="继承连接设置" /></div>
+          <div class="field"><label for="pg-param-seed">seed</label><input id="pg-param-seed" type="number" min="-1" max="2147483647" step="1" placeholder="继承连接设置" /></div>
+          <div class="field"><label for="pg-param-top-k">top_k</label><input id="pg-param-top-k" type="number" min="0" max="1000" step="1" placeholder="不发送" /></div>
+          <div class="field"><label for="pg-param-top-a">top_a</label><input id="pg-param-top-a" type="number" min="0" max="1" step="0.01" placeholder="不发送" /></div>
+          <div class="field"><label for="pg-param-min-p">min_p</label><input id="pg-param-min-p" type="number" min="0" max="1" step="0.01" placeholder="不发送" /></div>
+          <div class="field"><label for="pg-param-repetition-penalty">repetition_penalty</label><input id="pg-param-repetition-penalty" type="number" min="0.01" max="2" step="0.01" placeholder="不发送" /></div>
+          <div class="field"><label for="pg-param-stream">stream_openai</label><select id="pg-param-stream"><option value="">继承连接设置</option><option value="true">开启</option><option value="false">关闭</option></select></div>
+          <div class="field"><label for="pg-squash-system">squash_system_messages</label><select id="pg-squash-system"><option value="">关闭 / 不指定</option><option value="true">合并相邻 System</option><option value="false">明确不合并</option></select></div>
+        </div>
+        <div class="field row2">
+          <div class="field"><label for="pg-param-reasoning-effort">reasoning_effort</label><select id="pg-param-reasoning-effort"><option value="">不指定</option><option value="minimal">minimal</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></div>
+          <div class="field"><label for="pg-param-stop">stop <span class="hint-inline">JSON 数组，或每行一个</span></label><textarea id="pg-param-stop" rows="3" placeholder='["\\n\\n", "User:"]'></textarea></div>
+        </div>
+        <div class="field"><label for="pg-format-world-info">wi_format <span class="hint-inline">用 {0} 插入世界书正文；留空为原文</span></label><textarea id="pg-format-world-info" rows="2"></textarea></div>
+        <div class="field row2">
+          <div class="field"><label for="pg-format-scenario">scenario_format</label><textarea id="pg-format-scenario" rows="2"></textarea></div>
+          <div class="field"><label for="pg-format-personality">personality_format</label><textarea id="pg-format-personality" rows="2"></textarea></div>
+        </div>
+        <div class="field row2">
+          <div class="field"><label for="pg-new-chat-prompt">new_chat_prompt</label><textarea id="pg-new-chat-prompt" rows="2" placeholder="例如：[Start a new Chat]"></textarea></div>
+          <div class="field"><label for="pg-new-example-prompt">new_example_chat_prompt</label><textarea id="pg-new-example-prompt" rows="2" placeholder="例如：[Example Chat]"></textarea></div>
+        </div>
+        <div class="field"><label for="pg-assistant-prefill">assistant_prefill <span class="hint-inline">可空；作为最后一条 Assistant 消息</span></label><textarea id="pg-assistant-prefill" rows="2"></textarea></div>
+        <button class="ghost-btn small" id="pg-st-settings-reset" type="button">恢复 ST 模板默认并继承采样参数</button>
+      </details>
       <section id="pg-regex-bindings" class="pg-regex-bindings" aria-labelledby="pg-regex-bindings-title">
         <div class="pg-section-head"><strong id="pg-regex-bindings-title">绑定输出正则</strong><span class="hint-inline">随本预设保存 / 导出</span></div>
         <p class="hint">勾选当前模式的自定义正则后，它会复制到本预设；运行时只执行一次。导入 ST 预设自带的正则会显示在下方并保留。</p>
@@ -377,7 +416,7 @@
       <div class="pg-manager">
         <section class="pg-sequence" aria-labelledby="pg-sequence-title">
           <div class="pg-section-head"><strong id="pg-sequence-title">提示词顺序</strong><div class="pg-sequence-actions"><select id="pg-library" aria-label="从素材库插入提示词"><option value="">插入素材…</option></select><button class="ghost-btn small" id="pg-prompt-new" type="button">＋ 新条目</button></div></div>
-          <p class="hint">越靠上越早组装；固定槽位由角色卡、世界书、历史和状态动态填充。</p>
+          <p class="hint">越靠上越早发送；“动态槽位”由角色卡、世界书、历史和状态填充，“固定提示词”可直接编辑。</p>
           <div id="pg-prompts" class="pg-prompts"></div>
         </section>
         <section id="pg-prompt-editor" class="pg-prompt-editor" aria-labelledby="pg-prompt-title">
@@ -398,7 +437,7 @@
       <div class="cm-edit-actions">
         <button class="btn gold" id="pg-save">保存预设</button>
       </div>
-      <p class="hint" style="margin-top:10px">运行时仍合并为唯一一条 system 消息；User / Assistant 条目按顺序进入上下文。未知宏会原样保留。</p>
+      <p class="hint" style="margin-top:10px">运行时按 prompts / prompt_order 生成消息；Post-History 默认位于聊天历史之后，移动后遵循新顺序。未知宏会原样保留。</p>
     </div>
   </div>
 
@@ -682,7 +721,7 @@
   </div>
 
   <!-- ═══ 浮动控制面板 ═══ -->
-  <!-- ═══ 设置弹窗（连接 / 格式） ═══ -->
+  <!-- ═══ 设置弹窗（连接 / 输出） ═══ -->
   <div id="settings-modal" class="modal hidden" data-ui-level="1" data-ui-region="overlay.settings" data-ui-owner="host">
     <div class="modal-box">
       <div class="modal-head">
@@ -691,7 +730,7 @@
       </div>
       <div class="settings-tabs" role="tablist" aria-label="设置分类">
         <button class="st-tab active" id="st-tab-conn" role="tab" aria-selected="true" aria-controls="st-panel-conn" data-st="conn">连接</button>
-        <button class="st-tab" id="st-tab-format" role="tab" aria-selected="false" aria-controls="st-panel-format" data-st="format">格式</button>
+        <button class="st-tab" id="st-tab-format" role="tab" aria-selected="false" aria-controls="st-panel-format" data-st="format">输出</button>
         <button class="st-tab" id="st-tab-typo" role="tab" aria-selected="false" aria-controls="st-panel-typo" data-st="typo">排版</button>
         <button class="st-tab" id="st-tab-ui" role="tab" aria-selected="false" aria-controls="st-panel-ui" data-st="ui">界面</button>
         <button class="st-tab" id="st-tab-image" role="tab" aria-selected="false" aria-controls="st-panel-image" data-st="image">文生图</button>
@@ -789,18 +828,9 @@
           <p class="hint" id="test-result"></p>
         </div>
 
-        <!-- ── Tab 格式 ── -->
+        <!-- ── Tab 输出 ── -->
         <div id="st-panel-format" class="hidden" role="tabpanel" aria-labelledby="st-tab-format">
-          <div class="field">
-            <label for="f-preset">回复格式预设 <span class="hint-inline">附加到 System Prompt 的输出指令</span></label>
-            <select id="f-preset">
-              <!-- 选项由 app.js 从 public/data/_defaults.json 动态渲染 -->
-            </select>
-          </div>
-          <div class="field">
-            <label for="f-custom">自定义格式指令 <span class="hint-inline">追加到 System Prompt 末尾</span></label>
-            <textarea id="f-custom" rows="3" placeholder="例如：每次回复先描写 1 句环境，再给出对白；控制在 200 字内…"></textarea>
-          </div>
+          <p class="hint">回复风格和格式提示词统一在“提示词预设”中管理，不再从这里隐式追加输出协议。</p>
           <div class="field">
             <label for="f-stop">停止序列（stop，逗号分隔）</label>
             <input id="f-stop" placeholder="例如：\n\n, 玩家：" />
@@ -1703,13 +1733,13 @@
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
   <script src="vendor/mapgen2.bundle.js"></script>
-  <script src="mapgen.js?v=20260828a"></script>
-  <script src="app.js?v=20260828a"></script>
+  <script src="mapgen.js?v=20260903c"></script>
+  <script src="app.js?v=20260903c"></script>
   <script>
     // PWA：注册 service worker（仅 HTTPS / localhost 生效，套壳 APK 可用）
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js?v=20260828a').catch(() => {});
+    navigator.serviceWorker.register('sw.js?v=20260903c').catch(() => {});
       });
     }
   </script>

@@ -1173,16 +1173,19 @@ function ensureTavernMessageIds(session) {
 function getTavernTurns(session) {
   if (!session || session.kind !== 'tavern' || !Array.isArray(session.messages)) return [];
   const turns = [];
-  let pendingUser = null;
+  let pendingMessages = [];
   for (const message of session.messages) {
-    if (!message || message.meta) continue;
+    if (!message) continue;
     if (message.role === 'user') {
-      pendingUser = message;
+      // 骰点等 meta 用户消息属于当前玩家回合，必须随该回合一起总结和保留。
+      // 连续的用户消息也视作同一轮，避免在异常恢复后静默覆盖较早输入。
+      if (!message.meta || pendingMessages.some(item => !item.meta)) pendingMessages.push(message);
       continue;
     }
-    if (message.role !== 'assistant' || !pendingUser) continue;
-    turns.push({ messages: [pendingUser, message] });
-    pendingUser = null;
+    if (message.role !== 'assistant') continue;
+    if (!pendingMessages.some(item => !item.meta)) { pendingMessages = []; continue; }
+    turns.push({ messages: [...pendingMessages, message] });
+    pendingMessages = [];
   }
   return turns;
 }
@@ -1198,11 +1201,16 @@ function getTavernUnsummarizedTurns(session) {
 }
 
 function tavernTurnHistory(session = curSession()) {
-  if (!session) return [];
-  return getTavernUnsummarizedTurns(session).flatMap(turn => turn.messages.map(message => ({
-    role: message.role,
-    content: message.content || '',
-  })));
+  if (!session || !Array.isArray(session.messages)) return [];
+  const summarizedIds = getTavernSummarizedIds(session);
+  // 历史请求不能只展开“完整回合”：发送请求时最新玩家输入天然还没有 AI 配对。
+  return session.messages
+    .filter(message => message && (message.role === 'user' || message.role === 'assistant') && !summarizedIds.has(message.id))
+    .map(message => ({
+      role: message.role,
+      content: message.content || '',
+      ...(message.meta ? { meta: true } : {}),
+    }));
 }
 
 function buildTavernAutoMemoryPromptPart(session = curSession()) {
@@ -1687,8 +1695,95 @@ function presetMode(name, preset) {
   return /RPG/i.test(name || '') ? 'rpg' : 'tavern';
 }
 
+function presetPromptEnabledByDefault(identifier, targetMode = mode) {
+  if (identifier === 'enhanceDefinitions') return false;
+  if (identifier === 'tavernRpg') return targetMode !== 'tavern';
+  return true;
+}
+
 function makePresetMarker(identifier, name, content = '') {
-  return { identifier, name, role: 'system', content, marker: true, position: 'relative', depth: 4, order: 100 };
+  const marker = PRESET_MARKER_IDS.has(identifier);
+  return {
+    identifier,
+    name,
+    role: 'system',
+    content,
+    marker,
+    pinned: true,
+    systemPrompt: true,
+    position: 'relative',
+    depth: 4,
+    order: 100,
+  };
+}
+
+function normalizeSTPresetSettings(...sources) {
+  const normalized = {};
+  for (const key of ST_PRESET_SETTING_KEYS) {
+    for (const source of sources) {
+      if (!source || typeof source !== 'object' || Array.isArray(source)) continue;
+      if (!Object.prototype.hasOwnProperty.call(source, key) || source[key] === undefined) continue;
+      normalized[key] = cloneValue(source[key]);
+      break;
+    }
+  }
+  return normalized;
+}
+
+function normalizePromptOrderProfiles(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map(profile => {
+    const source = profile && typeof profile === 'object' ? profile : {};
+    const order = Array.isArray(source.order) ? source.order.map(item => {
+      const entry = typeof item === 'string' ? { identifier: item } : (item || {});
+      return { identifier: String(entry.identifier || entry.id || ''), enabled: entry.enabled !== false };
+    }).filter(item => item.identifier && item.identifier !== 'tavernFormat') : [];
+    return { ...source, character_id: source.character_id ?? source.characterId ?? source.id, order };
+  }).filter(profile => profile.character_id !== undefined && profile.order.length);
+}
+
+function insertPinnedPromptOrder(promptOrder, identifier, targetMode) {
+  const definitionIndex = PRESET_MARKERS.findIndex(([id]) => id === identifier);
+  const laterIds = new Set(PRESET_MARKERS.slice(definitionIndex + 1).map(([id]) => id));
+  const before = promptOrder.findIndex(item => laterIds.has(item.identifier));
+  const item = { identifier, enabled: presetPromptEnabledByDefault(identifier, targetMode) };
+  promptOrder.splice(before < 0 ? promptOrder.length : before, 0, item);
+}
+
+function splitTavernReplyOptionsPostHistory(value) {
+  const text = String(value || '');
+  const marker = '【AI 回复选项协议】';
+  const markerIndex = text.lastIndexOf(marker);
+  if (markerIndex < 0) return { postHistory: text, instruction: '' };
+  const instruction = text.slice(markerIndex).trim();
+  // 只迁移确实包含隐藏标签协议的尾段，避免误拆用户碰巧使用同名标题的普通提示词。
+  if (!hasTavernReplyOptionsProtocol(instruction)) return { postHistory: text, instruction: '' };
+  return { postHistory: text.slice(0, markerIndex).trimEnd(), instruction };
+}
+
+function normalizeTavernReplyOptionsOverride(value, migratedInstruction = '') {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  const migrated = String(migratedInstruction || '').trim();
+  if (!source && !migrated) return null;
+  const normalized = {};
+  if (source && Object.prototype.hasOwnProperty.call(source, 'enabled')) normalized.enabled = source.enabled !== false;
+  else if (migrated) normalized.enabled = true;
+
+  const numeric = {};
+  for (const key of ['min', 'max', 'count']) {
+    const parsed = Number(source?.[key]);
+    if (Number.isFinite(parsed)) numeric[key] = Math.max(1, Math.min(8, Math.floor(parsed)));
+  }
+  if (numeric.count !== undefined && numeric.min === undefined && numeric.max === undefined) {
+    numeric.min = numeric.count;
+    numeric.max = numeric.count;
+  }
+  Object.assign(normalized, numeric);
+
+  const instruction = String(source?.instruction || migrated).trim();
+  if (instruction) normalized.instruction = instruction;
+  if (source && Object.prototype.hasOwnProperty.call(source, 'noOptions')) normalized.noOptions = String(source.noOptions || '');
+  return Object.keys(normalized).length ? normalized : null;
 }
 
 function normalizePromptPreset(name, source) {
@@ -1697,13 +1792,17 @@ function normalizePromptPreset(name, source) {
     ?? src.extensions?.regex_scripts
     ?? src.extensions?.regexScripts
     ?? src.regexScripts;
-  if (src.version === PRESET_SCHEMA_VERSION && Array.isArray(src.prompts) && Array.isArray(src.promptOrder)) {
+  if (Array.isArray(src.prompts) && Array.isArray(src.promptOrder)) {
     const seen = new Set();
-    const prompts = src.prompts.map((p, i) => {
+    const prompts = src.prompts.filter(p => String(p?.identifier || p?.id || '') !== 'tavernFormat').map((p, i) => {
       let identifier = String(p.identifier || p.id || `prompt-${i + 1}`);
       while (seen.has(identifier)) identifier += '-copy';
       seen.add(identifier);
-      const marker = !!p.marker || PRESET_MARKER_IDS.has(identifier);
+      // In ST, system_prompt marks a pinned/default prompt; marker alone means runtime content.
+      // Older Tavern data marked main/jailbreak as runtime slots, so force those editable again.
+      const marker = !['main', 'jailbreak', 'enhanceDefinitions', 'nsfw'].includes(identifier)
+        && (!!p.marker || PRESET_MARKER_IDS.has(identifier));
+      const pinned = p.pinned === true || p.systemPrompt === true || p.system_prompt === true || PRESET_PINNED_IDS.has(identifier);
       return {
         ...p,
         identifier,
@@ -1711,29 +1810,67 @@ function normalizePromptPreset(name, source) {
         role: marker ? 'system' : (['system', 'user', 'assistant'].includes(p.role) ? p.role : 'system'),
         content: String(p.content || ''),
         marker,
+        pinned,
+        systemPrompt: pinned,
         position: marker ? 'relative' : (p.position === 'in_chat' ? 'in_chat' : 'relative'),
         depth: Math.max(0, Number(p.depth ?? p.injection_depth ?? 4) || 0),
         order: Number(p.order ?? p.injection_order ?? 100) || 0,
       };
     });
     const ids = new Set(prompts.map(p => p.identifier));
+    const orderedIds = new Set();
     const promptOrder = src.promptOrder
-      .filter(o => o && ids.has(o.identifier))
-      .map(o => ({ identifier: o.identifier, enabled: o.enabled !== false }));
-    for (const [identifier, label] of PRESET_MARKERS.filter(([id]) => ['tavernMemory', 'tavernFormat', 'tavernRpg'].includes(id))) {
-      if (ids.has(identifier)) continue;
-      prompts.push(makePresetMarker(identifier, label));
-      const beforeHistory = promptOrder.findIndex(o => o.identifier === 'chatHistory');
-      promptOrder.splice(beforeHistory < 0 ? promptOrder.length : beforeHistory, 0, { identifier, enabled: identifier !== 'tavernRpg' || presetMode(name, src) !== 'tavern' });
-      ids.add(identifier);
+      .map(o => typeof o === 'string' ? { identifier: o } : o)
+      .filter(o => o && o.identifier !== 'tavernFormat' && ids.has(o.identifier) && !orderedIds.has(o.identifier))
+      .map(o => {
+        orderedIds.add(o.identifier);
+        return { identifier: o.identifier, enabled: o.enabled !== false };
+      });
+    const targetMode = presetMode(name, src);
+    for (const [identifier, label] of PRESET_MARKERS) {
+      if (!ids.has(identifier)) {
+        prompts.push(makePresetMarker(identifier, label));
+        ids.add(identifier);
+      }
+      if (!orderedIds.has(identifier)) {
+        insertPinnedPromptOrder(promptOrder, identifier, targetMode);
+        orderedIds.add(identifier);
+      }
     }
     const jailbreak = prompts.find(prompt => prompt.identifier === 'jailbreak');
-    const jailbreakOrder = promptOrder.find(item => item.identifier === 'jailbreak');
     const explicitPostHistory = String(src.postHistory || '');
-    const migratedPostHistory = explicitPostHistory.trim() || (jailbreakOrder?.enabled !== false ? String(jailbreak?.content || '') : '');
-    // 旧版把后指令放在 jailbreak 固定条目；迁移到独立字段后清空旧条目，避免保存编辑器后重复注入。
-    if (!explicitPostHistory.trim() && jailbreak?.content) jailbreak.content = '';
-    return { ...src, version: PRESET_SCHEMA_VERSION, mode: presetMode(name, src), firstMes: String(src.firstMes || ''), postHistory: migratedPostHistory, prompts, promptOrder, regexes: normalizeOutputRegexRules(sourceRegexes, 'preset') };
+    const jailbreakContent = String(jailbreak?.content || '');
+    let migratedPostHistory = jailbreakContent;
+    if (explicitPostHistory.trim()) {
+      migratedPostHistory = jailbreakContent.trim() && jailbreakContent.trim() !== explicitPostHistory.trim()
+        ? `${jailbreakContent.trim()}\n\n${explicitPostHistory.trim()}`
+        : explicitPostHistory;
+    }
+    const separated = splitTavernReplyOptionsPostHistory(migratedPostHistory);
+    if (jailbreak) jailbreak.content = separated.postHistory;
+    const replyOptions = normalizeTavernReplyOptionsOverride(src.replyOptions, separated.instruction);
+    const modelParameters = normalizeSTPresetSettings(src.modelParameters, src);
+    const promptOrderProfiles = normalizePromptOrderProfiles(src.promptOrderProfiles);
+    const normalized = {
+      ...src,
+      version: PRESET_SCHEMA_VERSION,
+      mode: targetMode,
+      firstMes: String(src.firstMes || ''),
+      prompts,
+      promptOrder,
+      regexes: normalizeOutputRegexRules(sourceRegexes, 'preset'),
+    };
+    delete normalized.systemPrompt;
+    delete normalized.postHistory;
+    delete normalized.modules;
+    delete normalized.modelParameters;
+    delete normalized.promptOrderProfiles;
+    delete normalized.replyOptions;
+    for (const key of ST_PRESET_SETTING_KEYS) delete normalized[key];
+    if (Object.keys(modelParameters).length) normalized.modelParameters = modelParameters;
+    if (promptOrderProfiles.length) normalized.promptOrderProfiles = promptOrderProfiles;
+    if (replyOptions) normalized.replyOptions = replyOptions;
+    return normalized;
   }
 
   const prompts = PRESET_MARKERS.map(([id, label]) => makePresetMarker(
@@ -1741,18 +1878,34 @@ function normalizePromptPreset(name, source) {
     label,
     id === 'main' ? String(src.systemPrompt || '') : '',
   ));
-  const promptOrder = prompts.map(p => ({ identifier: p.identifier, enabled: p.identifier !== 'tavernRpg' || presetMode(name, src) !== 'tavern' }));
-  const formatIndex = promptOrder.findIndex(o => o.identifier === 'tavernFormat');
+  const targetMode = presetMode(name, src);
+  const promptOrder = prompts.map(p => ({ identifier: p.identifier, enabled: presetPromptEnabledByDefault(p.identifier, targetMode) }));
+  const moduleIndex = promptOrder.findIndex(o => o.identifier === 'worldInfoAfter');
   for (const [i, module] of (Array.isArray(src.modules) ? src.modules : []).entries()) {
     let identifier = String(module.id || `module-${i + 1}`);
     while (prompts.some(p => p.identifier === identifier)) identifier += '-copy';
-    prompts.push({ identifier, name: String(module.name || identifier), role: 'system', content: String(module.content || ''), marker: false, position: 'relative', depth: 4, order: 100 });
-    promptOrder.splice(formatIndex + i, 0, { identifier, enabled: module.enabled !== false });
+    prompts.push({ identifier, name: String(module.name || identifier), role: 'system', content: String(module.content || ''), marker: false, pinned: false, systemPrompt: false, position: 'relative', depth: 4, order: 100 });
+    promptOrder.splice(moduleIndex + i, 0, { identifier, enabled: module.enabled !== false });
   }
-  return { version: PRESET_SCHEMA_VERSION, mode: presetMode(name, src), firstMes: String(src.firstMes || ''), postHistory: String(src.postHistory || ''), prompts, promptOrder, regexes: normalizeOutputRegexRules(sourceRegexes, 'preset'), ...(src.agent && typeof src.agent === 'object' && !Array.isArray(src.agent) ? { agent: cloneValue(src.agent) } : {}) };
+  const separated = splitTavernReplyOptionsPostHistory(src.postHistory);
+  const jailbreak = prompts.find(prompt => prompt.identifier === 'jailbreak');
+  if (jailbreak) jailbreak.content = separated.postHistory;
+  const replyOptions = normalizeTavernReplyOptionsOverride(src.replyOptions, separated.instruction);
+  const modelParameters = normalizeSTPresetSettings(src.modelParameters, src);
+  return {
+    version: PRESET_SCHEMA_VERSION,
+    mode: targetMode,
+    firstMes: String(src.firstMes || ''),
+    prompts,
+    promptOrder,
+    regexes: normalizeOutputRegexRules(sourceRegexes, 'preset'),
+    ...(Object.keys(modelParameters).length ? { modelParameters } : {}),
+    ...(replyOptions ? { replyOptions } : {}),
+    ...(src.agent && typeof src.agent === 'object' && !Array.isArray(src.agent) ? { agent: cloneValue(src.agent) } : {}),
+  };
 }
 
-function ensurePromptPresetsV2() {
+function ensurePromptPresetsV3() {
   let changed = false;
   for (const name of Object.keys(promptPresets)) {
     const before = JSON.stringify(promptPresets[name]);
@@ -1763,7 +1916,59 @@ function ensurePromptPresetsV2() {
   return changed;
 }
 
-// 仅替换未被用户改写的旧内置酒馆预设，并把回复选项协议迁移到 RP 基础预设后预设。
+function migrateLegacyGlobalPromptSettings() {
+  const hadLegacyFields = Object.prototype.hasOwnProperty.call(settings || {}, 'systemPrompt')
+    || Object.prototype.hasOwnProperty.call(settings || {}, 'postHistory');
+  const legacyMain = String(settings?.systemPrompt || '').trim();
+  const legacyPost = String(settings?.postHistory || '').trim();
+  if (legacyMain || legacyPost) {
+    const globalPreset = normalizePromptPreset(GLOBAL_PRESET_KEY, promptPresets[GLOBAL_PRESET_KEY] || {});
+    const main = globalPreset.prompts.find(prompt => prompt.identifier === 'main');
+    const jailbreak = globalPreset.prompts.find(prompt => prompt.identifier === 'jailbreak');
+    if (legacyMain && main && !main.content.trim()) main.content = legacyMain;
+    if (legacyPost && jailbreak && !jailbreak.content.trim()) jailbreak.content = legacyPost;
+    promptPresets[GLOBAL_PRESET_KEY] = globalPreset;
+  }
+  delete settings.systemPrompt;
+  delete settings.postHistory;
+  return hadLegacyFields;
+}
+
+function migrateLegacyFormatPreferences() {
+  const hadLegacyFields = Object.prototype.hasOwnProperty.call(prefs || {}, 'formatPreset')
+    || Object.prototype.hasOwnProperty.call(prefs || {}, 'formatCustom');
+  if (!hadLegacyFields) return false;
+  const selected = String(prefs.formatPreset || '');
+  const legacyPresetText = {
+    short: '请用简短的一两句话回应。',
+    narrative: '请用长叙事风格回应：详细描写场景、氛围与角色内心，至少 2~3 段，推动剧情发展。',
+    action: '请以角色扮演风格回应：动作与神态用 *斜体* 描写，对白自然，主动推进互动。',
+    json: '请以 JSON 对象输出，字段：{"reply": "对白", "action": "动作/神态", "thought": "内心想法"}。不要输出其他内容。',
+  }[selected] || '';
+  // dialogue 是本次明确删除的旧内置输出协议；用户亲自填写的 custom 仍迁为可关闭提示词。
+  const content = [legacyPresetText, String(prefs.formatCustom || '').trim()].filter(Boolean).join('\n\n');
+  if (content) {
+    if (!Object.keys(promptPresets).length) promptPresets[GLOBAL_PRESET_KEY] = normalizePromptPreset(GLOBAL_PRESET_KEY, {});
+    for (const name of Object.keys(promptPresets)) {
+      const preset = normalizePromptPreset(name, promptPresets[name]);
+      if (preset.prompts.some(prompt => prompt.identifier === 'legacy-format-migrated')) continue;
+      preset.prompts.push({
+        identifier: 'legacy-format-migrated', name: '已迁移的旧格式指令', role: 'system', content,
+        marker: false, pinned: false, systemPrompt: false, position: 'relative', depth: 4, order: 100,
+      });
+      const historyIndex = preset.promptOrder.findIndex(item => item.identifier === 'chatHistory');
+      preset.promptOrder.splice(historyIndex < 0 ? preset.promptOrder.length : historyIndex, 0, {
+        identifier: 'legacy-format-migrated', enabled: true,
+      });
+      promptPresets[name] = preset;
+    }
+  }
+  delete prefs.formatPreset;
+  delete prefs.formatCustom;
+  return true;
+}
+
+// 只清理旧内置模板中可明确识别的隐藏/重复协议；用户自建提示词不按名称猜测删除。
 function migrateBuiltInTavernPreset(defaults) {
   const name = 'RP 基础（示例）';
   const builtin = defaults?.presets?.[name];
@@ -1776,15 +1981,25 @@ function migrateBuiltInTavernPreset(defaults) {
       changed = true;
     }
   }
-  const target = promptPresets[name];
-  const optionConfig = defaults?.tavern?.replyOptions;
-  // 兼容旧版 server.js：/api/data/seed 暂时没有 tavern 段时，仍从内置 RP 预设取协议。
-  const builtinOptionInstruction = builtInTavernReplyOptionsInstruction() || String(builtin?.postHistory || '').match(/【AI 回复选项协议】[\s\S]*$/)?.[0] || '';
-  const optionInstruction = String(optionConfig?.instruction || builtinOptionInstruction).trim();
-  if (target && optionConfig?.enabled !== false && optionInstruction && !hasTavernReplyOptionsProtocol(target.postHistory)) {
-    const rules = optionConfig ? tavernReplyOptionRules() : { enabled: true, min: 4, max: 4, count: 4 };
-    target.postHistory = [String(target.postHistory || '').trim(), formatTavernReplyOptionsInstruction(optionInstruction, rules)].filter(Boolean).join('\n\n');
-    changed = true;
+  if (promptPresets[name]) {
+    const before = JSON.stringify(promptPresets[name]);
+    const normalized = normalizePromptPreset(name, promptPresets[name]);
+    const obsoleteProtocol = normalized.prompts.find(prompt => prompt.identifier === 'protocol'
+      && /^【输出协议】每轮回复\s*=\s*旁白\s*\+\s*可选对白/.test(String(prompt.content || '').trim()));
+    if (obsoleteProtocol) {
+      normalized.prompts = normalized.prompts.filter(prompt => prompt !== obsoleteProtocol);
+      normalized.promptOrder = normalized.promptOrder.filter(item => item.identifier !== obsoleteProtocol.identifier);
+    }
+    const normalizedBuiltin = builtin ? normalizePromptPreset(name, builtin) : null;
+    const currentMain = normalized.prompts.find(prompt => prompt.identifier === 'main');
+    const builtinMain = normalizedBuiltin?.prompts.find(prompt => prompt.identifier === 'main');
+    if (currentMain && builtinMain
+      && currentMain.content.includes('你是一位互动小说作者（writer）')
+      && currentMain.content.includes('严格区分对白与旁白')) {
+      currentMain.content = builtinMain.content;
+    }
+    promptPresets[name] = normalized;
+    if (before !== JSON.stringify(normalized)) changed = true;
   }
   return changed;
 }
@@ -1876,15 +2091,247 @@ function selectPresetForEdit(name) {
   setMobilePromptPanel('sequence');
   pgEditingName = name || GLOBAL_PRESET_KEY;
   pgEditingPreset = normalizePromptPreset(pgEditingName, promptPresets[pgEditingName]);
-  pgEditingPromptId = pgEditingPreset.promptOrder.find(item => item.identifier !== 'jailbreak')?.identifier || null;
+  pgEditingPromptId = pgEditingPreset.promptOrder[0]?.identifier || null;
   $('pg-edit-title').textContent = pgEditingName === GLOBAL_PRESET_KEY ? '编辑全局默认' : '编辑预设：' + pgEditingName;
   $('pg-mode').value = pgEditingPreset.mode;
   $('pg-first-mes').value = pgEditingPreset.firstMes;
-  $('pg-post-history').value = pgEditingPreset.postHistory || '';
+  fillPGReplyOptions();
+  fillPGSTPresetSettings();
   fillPGActive();
   renderPGPrompts();
   renderPGRegexBindings();
   renderPGList();
+}
+
+function fillPGReplyOptions() {
+  const enabledInput = $('pg-reply-options-enabled');
+  const countInput = $('pg-reply-options-count');
+  const promptInput = $('pg-reply-options-prompt');
+  if (!enabledInput || !countInput || !promptInput) return;
+  pgReplyOptionsInherited = !pgEditingPreset?.replyOptions || typeof pgEditingPreset.replyOptions !== 'object';
+  const config = tavernReplyOptionsConfig(pgEditingPreset) || {};
+  const configuredCount = Number(config.count ?? config.max ?? config.min);
+  enabledInput.checked = config.enabled !== false;
+  countInput.value = String(Number.isFinite(configuredCount) ? Math.max(1, Math.min(8, Math.floor(configuredCount))) : 4);
+  promptInput.value = String(config.instruction || builtInTavernReplyOptionsInstruction() || '');
+  syncPGReplyOptionsEditor();
+}
+
+function syncPGReplyOptionsEditor() {
+  const section = $('pg-reply-options');
+  const enabledInput = $('pg-reply-options-enabled');
+  const countInput = $('pg-reply-options-count');
+  const promptInput = $('pg-reply-options-prompt');
+  const resetButton = $('pg-reply-options-reset');
+  const note = $('pg-reply-options-note');
+  if (!section || !enabledInput || !countInput || !promptInput) return;
+  const selectedMode = $('pg-mode')?.value || pgEditingPreset?.mode || 'tavern';
+  const appliesToTavern = selectedMode !== 'rpg';
+  enabledInput.disabled = !appliesToTavern;
+  countInput.disabled = !appliesToTavern || !enabledInput.checked;
+  promptInput.disabled = !appliesToTavern || !enabledInput.checked;
+  if (resetButton) resetButton.disabled = !appliesToTavern;
+  section.classList.toggle('inactive', !appliesToTavern);
+  if (note) {
+    note.textContent = appliesToTavern
+      ? (enabledInput.checked
+        ? `${pgReplyOptionsInherited ? '当前继承项目默认；修改任一项后改为随本预设保存。' : '当前使用本预设的独立配置。'} 可用 {count}、{min}、{max} 代入数量；若省略 <tavern_options> 标签协议，运行时会自动补上默认结构要求。`
+        : '已关闭：不会要求或修复普通 RP 的回复选项，底部快捷选项栏也不会等待选项。')
+      : '此开关只控制普通 RP（酒馆）回复选项；RPG 世界模式的选项属于状态协议，不受这里影响。';
+  }
+}
+
+function markPGReplyOptionsCustomized() {
+  pgReplyOptionsInherited = false;
+  syncPGReplyOptionsEditor();
+}
+
+function capturePGReplyOptions() {
+  if (!pgEditingPreset) return;
+  const selectedMode = $('pg-mode')?.value || pgEditingPreset.mode || 'tavern';
+  // 纯 RPG 预设不读取这组字段；保存 RPG 编辑内容时也不能凭禁用控件捏造 RP 配置。
+  if (selectedMode === 'rpg') return;
+  if (pgReplyOptionsInherited) {
+    delete pgEditingPreset.replyOptions;
+    return;
+  }
+  const enabledInput = $('pg-reply-options-enabled');
+  const countInput = $('pg-reply-options-count');
+  const promptInput = $('pg-reply-options-prompt');
+  if (!enabledInput || !countInput || !promptInput) return;
+  const count = Math.max(1, Math.min(8, Math.floor(Number(countInput.value) || 4)));
+  let instruction = String(promptInput.value || '').trim();
+  if (enabledInput.checked && !instruction) {
+    instruction = String(defaults?.tavern?.replyOptions?.instruction || builtInTavernReplyOptionsInstruction() || '').trim();
+    promptInput.value = instruction;
+  }
+  const previous = normalizeTavernReplyOptionsOverride(pgEditingPreset.replyOptions) || {};
+  pgEditingPreset.replyOptions = {
+    enabled: enabledInput.checked,
+    min: count,
+    max: count,
+    count,
+    ...(instruction ? { instruction } : {}),
+    ...(Object.prototype.hasOwnProperty.call(previous, 'noOptions') ? { noOptions: previous.noOptions } : {}),
+  };
+}
+
+function resetPGReplyOptions() {
+  if (!pgEditingPreset) return;
+  delete pgEditingPreset.replyOptions;
+  fillPGReplyOptions();
+}
+
+function stPresetUtilityDefaults() {
+  return {
+    wi_format: '{0}',
+    scenario_format: '{{scenario}}',
+    personality_format: '{{personality}}',
+    new_chat_prompt: '',
+    new_example_chat_prompt: '',
+    assistant_prefill: '',
+  };
+}
+
+function fillPGSTPresetSettings() {
+  if (!pgEditingPreset) return;
+  const parameters = pgEditingPreset.modelParameters && typeof pgEditingPreset.modelParameters === 'object'
+    ? pgEditingPreset.modelParameters : {};
+  const numberValues = {
+    'pg-param-temperature': parameters.temperature,
+    'pg-param-max-tokens': parameters.max_completion_tokens ?? parameters.openai_max_tokens ?? parameters.max_tokens,
+    'pg-param-top-p': parameters.top_p,
+    'pg-param-frequency-penalty': parameters.frequency_penalty,
+    'pg-param-presence-penalty': parameters.presence_penalty,
+    'pg-param-seed': parameters.seed,
+    'pg-param-top-k': parameters.top_k,
+    'pg-param-top-a': parameters.top_a,
+    'pg-param-min-p': parameters.min_p,
+    'pg-param-repetition-penalty': parameters.repetition_penalty,
+  };
+  for (const [id, value] of Object.entries(numberValues)) {
+    const input = $(id);
+    if (input) input.value = value === undefined || value === null ? '' : String(value);
+  }
+  const defaultsMap = stPresetUtilityDefaults();
+  const textValues = {
+    'pg-format-world-info': parameters.wi_format ?? defaultsMap.wi_format,
+    'pg-format-scenario': parameters.scenario_format ?? defaultsMap.scenario_format,
+    'pg-format-personality': parameters.personality_format ?? defaultsMap.personality_format,
+    'pg-new-chat-prompt': parameters.new_chat_prompt ?? defaultsMap.new_chat_prompt,
+    'pg-new-example-prompt': parameters.new_example_chat_prompt ?? defaultsMap.new_example_chat_prompt,
+    'pg-assistant-prefill': parameters.assistant_prefill ?? defaultsMap.assistant_prefill,
+    'pg-param-stop': Array.isArray(parameters.stop) ? JSON.stringify(parameters.stop) : (parameters.stop ?? ''),
+  };
+  for (const [id, value] of Object.entries(textValues)) {
+    const input = $(id);
+    if (input) input.value = String(value || '');
+  }
+  const fillSelect = (id, value) => {
+    const select = $(id);
+    if (!select) return;
+    select.querySelectorAll('option[data-imported]').forEach(option => option.remove());
+    const stringValue = value === undefined || value === null ? '' : String(value);
+    if (stringValue && ![...select.options].some(option => option.value === stringValue)) {
+      const option = document.createElement('option');
+      option.value = stringValue;
+      option.textContent = `导入值：${stringValue}`;
+      option.dataset.imported = 'true';
+      select.appendChild(option);
+    }
+    select.value = stringValue;
+  };
+  fillSelect('pg-param-stream', parameters.stream_openai ?? parameters.stream);
+  fillSelect('pg-squash-system', parameters.squash_system_messages);
+  fillSelect('pg-param-reasoning-effort', parameters.reasoning_effort);
+}
+
+function capturePGSTPresetSettings() {
+  if (!pgEditingPreset) return;
+  const parameters = normalizeSTPresetSettings(pgEditingPreset.modelParameters);
+  const captureNumber = (id, key, { min = -Infinity, max = Infinity, integer = false } = {}) => {
+    const input = $(id);
+    if (!input) return;
+    const raw = String(input.value || '').trim();
+    if (!raw) { delete parameters[key]; return; }
+    let value = Number(raw);
+    if (!Number.isFinite(value)) { delete parameters[key]; return; }
+    value = Math.max(min, Math.min(max, integer ? Math.floor(value) : value));
+    parameters[key] = value;
+  };
+  captureNumber('pg-param-temperature', 'temperature', { min: 0, max: 2 });
+  delete parameters.max_tokens;
+  delete parameters.max_completion_tokens;
+  captureNumber('pg-param-max-tokens', 'openai_max_tokens', { min: 1, max: 1000000, integer: true });
+  captureNumber('pg-param-top-p', 'top_p', { min: 0, max: 1 });
+  captureNumber('pg-param-frequency-penalty', 'frequency_penalty', { min: -2, max: 2 });
+  captureNumber('pg-param-presence-penalty', 'presence_penalty', { min: -2, max: 2 });
+  captureNumber('pg-param-seed', 'seed', { min: -1, max: 2147483647, integer: true });
+  captureNumber('pg-param-top-k', 'top_k', { min: 0, max: 1000, integer: true });
+  captureNumber('pg-param-top-a', 'top_a', { min: 0, max: 1 });
+  captureNumber('pg-param-min-p', 'min_p', { min: 0, max: 1 });
+  captureNumber('pg-param-repetition-penalty', 'repetition_penalty', { min: 0.01, max: 2 });
+
+  const streamValue = String($('pg-param-stream')?.value || '');
+  delete parameters.stream;
+  if (streamValue) parameters.stream_openai = streamValue === 'true';
+  else delete parameters.stream_openai;
+  const squashValue = String($('pg-squash-system')?.value || '');
+  if (squashValue) parameters.squash_system_messages = squashValue === 'true';
+  else delete parameters.squash_system_messages;
+  const reasoningEffort = String($('pg-param-reasoning-effort')?.value || '').trim();
+  if (reasoningEffort) parameters.reasoning_effort = reasoningEffort;
+  else delete parameters.reasoning_effort;
+  const stopValue = String($('pg-param-stop')?.value || '').trim();
+  if (!stopValue) delete parameters.stop;
+  else if (stopValue.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(stopValue);
+      parameters.stop = Array.isArray(parsed) ? parsed.map(value => String(value)).filter(Boolean).slice(0, 16) : stopValue;
+    } catch {
+      parameters.stop = stopValue;
+    }
+  } else {
+    const lines = stopValue.split(/\r?\n/).map(value => value.trim()).filter(Boolean).slice(0, 16);
+    parameters.stop = lines.length > 1 ? lines : stopValue;
+  }
+
+  const textFields = {
+    'pg-format-world-info': 'wi_format',
+    'pg-format-scenario': 'scenario_format',
+    'pg-format-personality': 'personality_format',
+    'pg-new-chat-prompt': 'new_chat_prompt',
+    'pg-new-example-prompt': 'new_example_chat_prompt',
+    'pg-assistant-prefill': 'assistant_prefill',
+  };
+  for (const [id, key] of Object.entries(textFields)) {
+    const input = $(id);
+    if (input) parameters[key] = String(input.value || '');
+  }
+  pgEditingPreset.modelParameters = parameters;
+}
+
+function resetPGSTPresetSettings() {
+  if (!pgEditingPreset) return;
+  const preserved = normalizeSTPresetSettings(pgEditingPreset.modelParameters);
+  for (const key of [
+    'temperature', 'openai_max_tokens', 'max_tokens', 'max_completion_tokens', 'top_p',
+    'frequency_penalty', 'presence_penalty', 'seed', 'top_k', 'top_a', 'min_p',
+    'repetition_penalty', 'stream', 'stream_openai', 'squash_system_messages', 'reasoning_effort',
+    'stop', 'wi_format', 'scenario_format', 'personality_format', 'new_chat_prompt',
+    'new_example_chat_prompt', 'assistant_prefill',
+  ]) delete preserved[key];
+  Object.assign(preserved, stPresetUtilityDefaults());
+  pgEditingPreset.modelParameters = preserved;
+  fillPGSTPresetSettings();
+}
+
+function capturePGPresetMetadata() {
+  if (!pgEditingPreset) return;
+  pgEditingPreset.mode = $('pg-mode').value;
+  pgEditingPreset.firstMes = $('pg-first-mes').value;
+  capturePGReplyOptions();
+  capturePGSTPresetSettings();
 }
 
 function presetRegexBindingModes() {
@@ -2007,9 +2454,7 @@ function pgSave() {
   const name = pgEditingName || GLOBAL_PRESET_KEY;
   if (!pgEditingPreset) return;
   capturePGPromptEditor();
-  pgEditingPreset.mode = $('pg-mode').value;
-  pgEditingPreset.firstMes = $('pg-first-mes').value;
-  pgEditingPreset.postHistory = $('pg-post-history').value;
+  capturePGPresetMetadata();
   promptPresets[name] = JSON.parse(JSON.stringify(pgEditingPreset));
   savePresets();
   renderPGRegexBindings();
@@ -2037,7 +2482,7 @@ function renderPGLibrary() {
 function renderPGPrompts() {
   const box = $('pg-prompts');
   box.innerHTML = '';
-  const visibleOrder = (pgEditingPreset?.promptOrder || []).map((item, index) => ({ item, index })).filter(({ item }) => item.identifier !== 'jailbreak');
+  const visibleOrder = (pgEditingPreset?.promptOrder || []).map((item, index) => ({ item, index }));
   if (!visibleOrder.length) box.innerHTML = '<div class="hint">提示词顺序为空。请新建条目或从素材库插入。</div>';
   const promptMap = new Map(pgEditingPreset?.prompts.map(p => [p.identifier, p]) || []);
   visibleOrder.forEach(({ item, index: promptIndex }) => {
@@ -2048,7 +2493,7 @@ function renderPGPrompts() {
     el.tabIndex = 0;
     el.setAttribute('role', 'button');
     el.innerHTML = `<input type="checkbox" data-enable="${promptIndex}" aria-label="启用 ${esc(p.name)}" ${item.enabled ? 'checked' : ''} />
-      <div class="pg-prompt-main"><span class="pg-prompt-name">${esc(p.name)}</span><span class="pg-prompt-meta"><span>${esc(p.role)}</span><span>${p.marker ? '固定槽位' : (p.position === 'in_chat' ? `历史深度 ${p.depth}` : '相对位置')}</span></span></div>
+      <div class="pg-prompt-main"><span class="pg-prompt-name">${esc(p.name)}</span><span class="pg-prompt-meta"><span>${esc(p.role)}</span><span>${p.marker ? '动态槽位' : (p.pinned ? '固定提示词' : (p.position === 'in_chat' ? `历史深度 ${p.depth}` : '相对位置'))}</span></span></div>
       <div class="pg-prompt-move"><button class="ghost-btn" type="button" data-move="-1" data-index="${promptIndex}" aria-label="上移 ${esc(p.name)}">↑</button><button class="ghost-btn" type="button" data-move="1" data-index="${promptIndex}" aria-label="下移 ${esc(p.name)}">↓</button></div>`;
     const selectPrompt = () => {
       capturePGPromptEditor();
@@ -2090,7 +2535,7 @@ function fillPGPromptEditor() {
   const editor = $('pg-prompt-editor');
   editor.classList.toggle('hidden', !p);
   if (!p) return;
-  const dynamicMarker = p.marker && !['main', 'jailbreak'].includes(p.identifier);
+  const dynamicMarker = p.marker === true;
   editor.classList.toggle('is-marker', p.marker);
   $('pg-prompt-name').value = p.name;
   $('pg-prompt-role').value = p.role;
@@ -2101,11 +2546,11 @@ function fillPGPromptEditor() {
   $('pg-prompt-role').disabled = p.marker;
   $('pg-prompt-position').disabled = p.marker;
   $('pg-prompt-content').disabled = dynamicMarker;
-  $('pg-prompt-del').disabled = p.marker;
+  $('pg-prompt-del').disabled = p.marker || p.pinned;
   $('pg-inchat-fields').classList.toggle('hidden', p.position !== 'in_chat' || p.marker);
   $('pg-prompt-note').textContent = dynamicMarker
-    ? '固定槽位由运行时数据填充，不在预设中复制角色、世界书、历史或状态。'
-    : (p.marker ? '固定槽位不可删除，但可编辑内容、调整顺序或关闭。' : '自定义条目可使用常用 SillyTavern 宏。');
+    ? '动态槽位由当前角色卡、玩家设定、世界书、记忆或聊天历史填充；可排序和关闭，内容不写入预设。'
+    : (p.pinned ? 'SillyTavern 固定提示词：可编辑、排序和关闭，但不可删除。' : '自定义条目可使用常用 SillyTavern 宏。');
 }
 
 function capturePGPromptEditor() {
@@ -2126,7 +2571,7 @@ function pgPromptNew() {
   setMobilePromptPanel('entry');
   capturePGPromptEditor();
   const identifier = uid();
-  pgEditingPreset.prompts.push({ identifier, name: '新提示词', role: 'system', content: '', marker: false, position: 'relative', depth: 4, order: 100 });
+  pgEditingPreset.prompts.push({ identifier, name: '新提示词', role: 'system', content: '', marker: false, pinned: false, systemPrompt: false, position: 'relative', depth: 4, order: 100 });
   pgEditingPreset.promptOrder.push({ identifier, enabled: true });
   pgEditingPromptId = identifier;
   renderPGPrompts();
@@ -2136,7 +2581,7 @@ function pgPromptNew() {
 
 function pgPromptDelete() {
   const p = currentPGPrompt();
-  if (!p || p.marker) return;
+  if (!p || p.marker || p.pinned) return;
   pgEditingPreset.promptOrder = pgEditingPreset.promptOrder.filter(o => o.identifier !== p.identifier);
   pgEditingPreset.prompts = pgEditingPreset.prompts.filter(x => x.identifier !== p.identifier);
   pgEditingPromptId = pgEditingPreset.promptOrder[0]?.identifier || null;
@@ -2176,33 +2621,36 @@ function convertSTPresetData(data) {
   if (rawOrder.length > 2000) throw new Error('提示词顺序超过 2000 条，拒绝导入');
   const prompts = promptList.map((rawPrompt, i) => {
     const p = rawPrompt && typeof rawPrompt === 'object' ? rawPrompt : {};
+    const identifier = String(p.identifier || p.id || `prompt-${i + 1}`);
+    const marker = !['main', 'jailbreak', 'enhanceDefinitions', 'nsfw'].includes(identifier)
+      && (p.marker === true || PRESET_MARKER_IDS.has(identifier));
+    const pinned = p.system_prompt === true || p.systemPrompt === true || p.pinned === true || PRESET_PINNED_IDS.has(identifier);
     return {
-    ...p,
-    identifier: String(p.identifier || p.id || `prompt-${i + 1}`),
-    name: String(p.name || p.title || p.identifier || p.id || `提示词 ${i + 1}`),
-    role: ['system', 'user', 'assistant'].includes(p.role) ? p.role : (p.role === 'ai' ? 'assistant' : 'system'),
-    content: String(p.content || ''),
-    marker: !!p.marker || p.system_prompt === true || PRESET_MARKER_IDS.has(p.identifier || p.id),
-    position: Number(p.injection_position ?? p.position) === 1 || String(p.position || '').toLowerCase() === 'in_chat' ? 'in_chat' : 'relative',
-    depth: Math.max(0, Number(p.injection_depth ?? p.depth ?? 4) || 0),
-    order: Number(p.injection_order ?? p.order ?? 100) || 0,
+      ...p,
+      identifier,
+      name: String(p.name || p.title || p.identifier || p.id || `提示词 ${i + 1}`),
+      role: marker ? 'system' : (['system', 'user', 'assistant'].includes(p.role) ? p.role : (p.role === 'ai' ? 'assistant' : 'system')),
+      content: String(p.content || ''),
+      marker,
+      pinned,
+      systemPrompt: pinned,
+      position: marker ? 'relative' : (Number(p.injection_position ?? p.position) === 1 || String(p.position || '').toLowerCase() === 'in_chat' ? 'in_chat' : 'relative'),
+      depth: Math.max(0, Number(p.injection_depth ?? p.depth ?? 4) || 0),
+      order: Number(p.injection_order ?? p.order ?? 100) || 0,
     };
   });
   const promptOrder = rawOrder.map(o => {
     const item = typeof o === 'string' ? { identifier: o } : (o || {});
     return { identifier: String(item.identifier || item.id || ''), enabled: item.enabled !== false };
   }).filter(item => item.identifier);
-  const modelParameters = Object.fromEntries([
-    'temperature', 'frequency_penalty', 'presence_penalty', 'top_p', 'top_k', 'top_a', 'min_p',
-    'repetition_penalty', 'openai_max_context', 'openai_max_tokens', 'max_tokens', 'max_completion_tokens', 'stop', 'seed', 'n', 'stream', 'stream_openai',
-    'reasoning_effort', 'verbosity', 'assistant_prefill', 'continue_prefill', 'continue_postfix',
-    'chat_completion_source', 'openai_model', 'custom_prompt_post_processing',
-  ].filter(key => data[key] !== undefined).map(key => [key, data[key]]));
+  const modelParameters = normalizeSTPresetSettings(data);
   const importedMode = ['tavern', 'rpg', 'both'].includes(data.tavern_meta?.mode) ? data.tavern_meta.mode : 'tavern';
   const regexes = normalizeOutputRegexRules(data.extensions?.regex_scripts ?? data.extensions?.regexScripts, 'preset');
   const importedPostHistory = String(data.tavern_meta?.postHistory || '') || String(prompts.find(prompt => prompt.identifier === 'jailbreak')?.content || '');
+  const importedReplyOptions = data.tavern_meta?.replyOptions ?? data.replyOptions;
+  const promptOrderProfiles = normalizePromptOrderProfiles(rawOrders);
   return {
-    preset: { version: PRESET_SCHEMA_VERSION, mode: importedMode, firstMes: String(data.tavern_meta?.firstMes || ''), postHistory: importedPostHistory, prompts, promptOrder, regexes, modelParameters, source: { format: 'sillytavern-chat-completion', profile: profile.character_id ?? profile.characterId ?? profile.id, unusedPrompts: Math.max(0, prompts.length - promptOrder.length) } },
+    preset: { version: PRESET_SCHEMA_VERSION, mode: importedMode, firstMes: String(data.tavern_meta?.firstMes || ''), ...(importedPostHistory ? { postHistory: importedPostHistory } : {}), prompts, promptOrder, promptOrderProfiles, regexes, modelParameters, ...(importedReplyOptions && typeof importedReplyOptions === 'object' ? { replyOptions: cloneValue(importedReplyOptions) } : {}), source: { format: 'sillytavern-chat-completion', profile: profile.character_id ?? profile.characterId ?? profile.id, unusedPrompts: Math.max(0, prompts.length - promptOrder.length) } },
     report: { prompts: prompts.length, ordered: promptOrder.length, regexes: regexes.length },
   };
 }
@@ -2221,14 +2669,18 @@ function importSTPreset(data, filename) {
 async function exportPromptPreset() {
   if (!pgEditingPreset || pgEditingName === GLOBAL_PRESET_KEY) return;
   capturePGPromptEditor();
+  capturePGPresetMetadata();
   const regexes = normalizeOutputRegexRules(pgEditingPreset.regexes, 'preset');
   const prompts = pgEditingPreset.prompts.map(p => ({
-    name: p.name, system_prompt: p.marker, role: p.role, content: p.identifier === 'jailbreak' ? (pgEditingPreset.postHistory || p.content) : p.content,
+    name: p.name, system_prompt: p.systemPrompt === true || p.pinned === true, role: p.role, content: p.content,
     identifier: p.identifier, marker: p.marker || undefined,
     injection_position: p.position === 'in_chat' ? 1 : 0,
     injection_depth: p.depth, injection_order: p.order,
   }));
-  const payload = { ...(pgEditingPreset.modelParameters || {}), prompts, prompt_order: [{ character_id: 100001, order: pgEditingPreset.promptOrder }], extensions: { regex_scripts: regexes.map(serializeOutputRegexRule) }, tavern_meta: { version: PRESET_SCHEMA_VERSION, mode: pgEditingPreset.mode, firstMes: pgEditingPreset.firstMes, postHistory: pgEditingPreset.postHistory || '' } };
+  const preservedProfiles = normalizePromptOrderProfiles(pgEditingPreset.promptOrderProfiles)
+    .filter(profile => String(profile.character_id) !== '100001');
+  const promptOrderProfiles = [...preservedProfiles, { character_id: 100001, order: pgEditingPreset.promptOrder }];
+  const payload = { ...(pgEditingPreset.modelParameters || {}), prompts, prompt_order: promptOrderProfiles, extensions: { regex_scripts: regexes.map(serializeOutputRegexRule) }, tavern_meta: { version: PRESET_SCHEMA_VERSION, mode: pgEditingPreset.mode, firstMes: pgEditingPreset.firstMes, ...(pgEditingPreset.replyOptions ? { replyOptions: cloneValue(pgEditingPreset.replyOptions) } : {}) } };
   await downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }), pgEditingName.replace(/[\\/:*?"<>|]/g, '_') + '.json');
 }
 
@@ -3193,27 +3645,63 @@ function buildWorldInfo({ dryRun = false, withOutlets = false } = {}) {
     || (Number(a.order || 0) - Number(b.order || 0)));
   let used = 0;
   const outlets = {};
-  const entries = allHits.map(e => {
+  const positions = {
+    before: [],
+    after: [],
+    exampleTop: [],
+    exampleBottom: [],
+    anTop: [],
+    anBottom: [],
+    atDepth: [],
+  };
+  const entries = [];
+  for (const e of allHits) {
     const content = String(e.content || '').trim();
-    if (!content) return '';
-    if (normalizeWorldInfoPosition(e.wiPosition ?? e.position) === WORLD_INFO_POSITION.outlet) {
+    if (!content) continue;
+    const position = normalizeWorldInfoPosition(e.wiPosition ?? e.position);
+    if (position === WORLD_INFO_POSITION.outlet) {
       const name = String(e.outletName || '').trim();
-      if (!name) return '';
-      if (settings.budget > 0 && !e.ignoreBudget && used + content.length > settings.budget) return '';
+      if (!name) continue;
+      if (settings.budget > 0 && !e.ignoreBudget && used + content.length > settings.budget) continue;
       if (name) (outlets[name] || (outlets[name] = [])).push(content);
       used += content.length;
-      return '';
+      continue;
     }
-    if (settings.budget > 0 && !e.ignoreBudget && used + content.length > settings.budget) return '';
+    if (settings.budget > 0 && !e.ignoreBudget && used + content.length > settings.budget) continue;
     used += content.length;
-    return content;
-  }).filter(Boolean);
-  return withOutlets ? { entries, outlets: Object.fromEntries(Object.entries(outlets).map(([name, values]) => [name, values.join('\n\n')])) } : entries;
+    entries.push(content);
+    if (position === WORLD_INFO_POSITION.before) positions.before.push(content);
+    else if (position === WORLD_INFO_POSITION.after) positions.after.push(content);
+    else if (position === WORLD_INFO_POSITION.exampleTop) positions.exampleTop.push(content);
+    else if (position === WORLD_INFO_POSITION.exampleBottom) positions.exampleBottom.push(content);
+    else if (position === WORLD_INFO_POSITION.anTop) positions.anTop.push(content);
+    else if (position === WORLD_INFO_POSITION.anBottom) positions.anBottom.push(content);
+    else if (position === WORLD_INFO_POSITION.atDepth) positions.atDepth.push({
+      content,
+      role: worldInfoRoleValue(e.role) === WORLD_INFO_ROLE.user ? 'user'
+        : (worldInfoRoleValue(e.role) === WORLD_INFO_ROLE.assistant ? 'assistant' : 'system'),
+      depth: Math.max(0, Number(e.depth ?? 4) || 0),
+      order: Number(e.order ?? 100) || 0,
+    });
+  }
+  return withOutlets ? {
+    entries,
+    positions,
+    outlets: Object.fromEntries(Object.entries(outlets).map(([name, values]) => [name, values.join('\n\n')])),
+  } : entries;
 }
 
-/* ─────────── 提示词构建管线（ST 风格素材库 + 顺序，运行时保持唯一 system） ─────────── */
-function buildCharacterPromptParts(char) {
-  if (!char) return { description: '', personality: '', scenario: '' };
+/* ─────────── 提示词构建管线（SillyTavern prompts + prompt_order） ─────────── */
+function applySTFormatTemplate(template, marker, content) {
+  const value = String(content || '').trim();
+  if (!value) return '';
+  const format = template === undefined || template === null ? marker : String(template);
+  if (!format) return value;
+  return format.split(marker).join(value).trim();
+}
+
+function buildCharacterPromptParts(char, presetSettings = {}) {
+  if (!char) return { description: '', personality: '', scenario: '', rawDescription: '', rawPersonality: '', rawScenario: '' };
   const lines = [];
   if (char.name?.trim()) lines.push('名字：' + char.name.trim());
   if (char.race?.trim()) lines.push('种族：' + char.race.trim());
@@ -3225,11 +3713,16 @@ function buildCharacterPromptParts(char) {
     if (!coreKeys.has(field.key) && field.value) lines.push(field.label.trim() + '：' + field.value.trim());
   }
   if (mode === 'rpg' && char.systemPrompt?.trim()) lines.push('角色专属指令：' + char.systemPrompt.trim());
+  const rawDescription = lines.join('\n');
+  const rawPersonality = String(char.personality != null ? char.personality : (char.description == null ? char.persona : '') || '').trim();
+  const rawScenario = String(char.scenario || '').trim();
   return {
-    description: lines.length ? '【角色描述】\n' + lines.join('\n') : '',
-    personality: (char.personality != null ? char.personality : (char.description == null ? char.persona : ''))?.trim()
-      ? '【角色性格】\n' + (char.personality != null ? char.personality : char.persona).trim() : '',
-    scenario: char.scenario?.trim() ? '【当前场景】\n' + char.scenario.trim() : '',
+    description: rawDescription,
+    personality: applySTFormatTemplate(presetSettings.personality_format, '{{personality}}', rawPersonality),
+    scenario: applySTFormatTemplate(presetSettings.scenario_format, '{{scenario}}', rawScenario),
+    rawDescription,
+    rawPersonality,
+    rawScenario,
   };
 }
 
@@ -3253,26 +3746,79 @@ function buildMemoryPromptPart() {
   return parts.join('\n\n');
 }
 
-function buildFormatPromptPart() {
-  const lines = [];
-  const fi = formatInstructions[prefs.formatPreset];
-  if (fi) lines.push(typeof fi === 'string' ? fi : (fi.text || ''));
-  if (prefs.formatCustom?.trim()) lines.push(prefs.formatCustom.trim());
-  return lines.filter(Boolean).join('\n');
+function formatWorldInfoPrompt(entries, presetSettings = {}) {
+  const content = (Array.isArray(entries) ? entries : []).filter(Boolean).join('\n\n');
+  return applySTFormatTemplate(presetSettings.wi_format, '{0}', content);
+}
+
+function parseDialogueExampleBlock(block, userName, charName) {
+  const userLabels = new Set(['{{user}}', 'user', '玩家', String(userName || '').trim().toLowerCase()].filter(Boolean));
+  const charLabels = new Set(['{{char}}', 'assistant', 'ai', '角色', String(charName || '').trim().toLowerCase()].filter(Boolean));
+  const messages = [];
+  let role = 'system';
+  let lines = [];
+  const flush = () => {
+    const content = lines.join('\n').trim();
+    if (content) messages.push({ role, content });
+    lines = [];
+  };
+  for (const line of String(block || '').split(/\r?\n/)) {
+    const match = line.match(/^\s*([^:：\n]{1,80})\s*[:：]\s*(.*)$/);
+    const label = String(match?.[1] || '').trim().toLowerCase();
+    const nextRole = userLabels.has(label) ? 'user' : (charLabels.has(label) ? 'assistant' : '');
+    if (!nextRole) {
+      lines.push(line);
+      continue;
+    }
+    flush();
+    role = nextRole;
+    lines.push(match[2] || '');
+  }
+  flush();
+  return messages;
+}
+
+function buildDialogueExampleMessages(rawExamples, beforeEntries = [], afterEntries = [], presetSettings = {}, macroContext = {}) {
+  const blocks = [
+    ...(Array.isArray(beforeEntries) ? beforeEntries : []),
+    ...String(rawExamples || '').split(/\s*<START>\s*/i),
+    ...(Array.isArray(afterEntries) ? afterEntries : []),
+  ].map(value => String(value || '').trim()).filter(Boolean);
+  const separator = String(presetSettings.new_example_chat_prompt || '').trim();
+  const messages = [];
+  for (const block of blocks) {
+    if (separator) messages.push({ role: 'system', content: separator, _example: true });
+    messages.push(...parseDialogueExampleBlock(block, macroContext.user, macroContext.char)
+      .map(message => ({ ...message, _example: true })));
+  }
+  return messages;
+}
+
+function resolveCharacterPromptOverride(value, original) {
+  const override = String(value || '').trim();
+  const fallback = String(original || '').trim();
+  if (!override) return fallback;
+  return /\{\{original\}\}/i.test(override)
+    ? override.replace(/\{\{original\}\}/gi, fallback)
+    : override;
 }
 
 function tavernReplyOptionsConfig(preset = null) {
-  const base = defaults?.tavern?.replyOptions;
-  const override = preset?.replyOptions;
+  const base = defaults?.tavern?.replyOptions && typeof defaults.tavern.replyOptions === 'object'
+    ? defaults.tavern.replyOptions : null;
+  const override = preset?.replyOptions && typeof preset.replyOptions === 'object'
+    ? preset.replyOptions : null;
   if (!base && !override) {
-    // 兼容旧版 server.js 返回的 seed：内置 RP 预设已经带有协议时，解析仍需启用选项。
+    // 兼容旧版 server.js 返回的 seed：仍可从内置 RP 预设恢复协议。
     const instruction = mode === 'tavern' ? builtInTavernReplyOptionsInstruction() : '';
     return instruction ? { enabled: true, min: 4, max: 4, count: 4, instruction, noOptions: '（等待 AI 生成可选行动…）' } : null;
   }
-  return {
-    ...(base && typeof base === 'object' ? base : {}),
-    ...(override && typeof override === 'object' ? override : {}),
-  };
+  const merged = { ...(base || {}), ...(override || {}) };
+  // 自定义提示词留空表示继承全局默认；不能让“已开启”悄悄退化成没有协议提示。
+  if (!String(merged.instruction || '').trim()) {
+    merged.instruction = String(base?.instruction || builtInTavernReplyOptionsInstruction() || '').trim();
+  }
+  return merged;
 }
 
 function tavernReplyOptionRules(preset = null) {
@@ -3293,7 +3839,14 @@ function buildTavernReplyOptionsPrompt(preset = null) {
   const rules = tavernReplyOptionRules(preset);
   const instruction = String(config?.instruction || '').trim();
   if (!rules.enabled || !instruction) return '';
-  return formatTavernReplyOptionsInstruction(instruction, rules);
+  const customized = formatTavernReplyOptionsInstruction(instruction, rules);
+  if (hasTavernReplyOptionsProtocol(customized)) return customized;
+  // 自定义内容可以只描述选项风格；机器可解析的标签契约仍由 JSON 默认模板兜底。
+  const fallbackInstruction = String(defaults?.tavern?.replyOptions?.instruction || builtInTavernReplyOptionsInstruction() || '').trim();
+  const fallback = formatTavernReplyOptionsInstruction(fallbackInstruction, rules);
+  return fallback && hasTavernReplyOptionsProtocol(fallback)
+    ? [customized, fallback].filter(Boolean).join('\n\n')
+    : customized;
 }
 
 function formatTavernReplyOptionsInstruction(instruction, rules) {
@@ -3792,15 +4345,49 @@ function mergeHistoryInjections(history, injections) {
     if (!grouped.has(index)) grouped.set(index, []);
     grouped.get(index).push(item);
   }
-  const roleOrder = { user: 0, assistant: 1 };
+  const roleOrder = { user: 0, assistant: 1, system: 2 };
   const result = [];
   for (let i = 0; i <= history.length; i++) {
     const group = grouped.get(i) || [];
-    group.sort((a, b) => a.order - b.order || roleOrder[a.role] - roleOrder[b.role]);
+    group.sort((a, b) => a.order - b.order || (roleOrder[a.role] ?? 3) - (roleOrder[b.role] ?? 3));
     result.push(...group.map(({ role, content }) => ({ role, content })));
     if (i < history.length) result.push(history[i]);
   }
   return result;
+}
+
+function tavernPromptHistoryMessages(session = curSession()) {
+  if (!session || !Array.isArray(session.messages)) return [];
+  if (tavernAutoMemoryConfig().enabled) return tavernTurnHistory(session);
+  return session.messages
+    .filter(message => message && (message.role === 'user' || message.role === 'assistant'))
+    .map(message => ({
+      role: message.role,
+      content: message.content || '',
+      ...(message.meta ? { meta: true } : {}),
+    }));
+}
+
+function splitLatestPlayerTurn(messages) {
+  const source = (Array.isArray(messages) ? messages : [])
+    .filter(message => message && (message.role === 'user' || message.role === 'assistant'))
+    .map(message => ({ role: message.role, content: String(message.content || ''), ...(message.meta ? { meta: true } : {}) }));
+  let lastAssistantIndex = -1;
+  for (let i = source.length - 1; i >= 0; i--) {
+    if (source[i].role === 'assistant') { lastAssistantIndex = i; break; }
+  }
+  const relativeStart = source.slice(lastAssistantIndex + 1).findIndex(message => message.role === 'user' && !message.meta && message.content.trim());
+  if (relativeStart < 0) return { history: source, current: [] };
+  const currentStart = lastAssistantIndex + 1 + relativeStart;
+  const pending = source.slice(currentStart);
+  const playerInputs = pending.filter(message => message.role === 'user' && !message.meta && message.content.trim()).map(message => message.content.trim());
+  const extraRecords = pending.filter(message => message.role === 'user' && message.meta && message.content.trim()).map(message => message.content.trim());
+  let content = playerInputs.join('\n\n');
+  if (extraRecords.length) content += `${content ? '\n\n' : ''}【本轮附加记录】\n${extraRecords.join('\n')}`;
+  return {
+    history: source.slice(0, currentStart),
+    current: content ? [{ role: 'user', content }] : [],
+  };
 }
 
 function buildPromptBlocks() {
@@ -3808,38 +4395,43 @@ function buildPromptBlocks() {
   const promptChar = worldModeActive() ? null : char;
   const { preset: rawPreset } = resolvePromptPreset();
   const preset = normalizePromptPreset('', rawPreset);
+  const presetSettings = preset.modelParameters && typeof preset.modelParameters === 'object' ? preset.modelParameters : {};
   const wiResult = buildWorldInfo({ withOutlets: true });
   // 提示词正则只作用于本次请求副本；世界书/历史原文与会话存档保持不变。
   const wi = wiResult.entries.map(entry => applyRegexStage(entry, 'world_info', { includePromptOnly: false }));
-  const charParts = worldModeActive() ? { description: '', personality: '', scenario: '' } : buildCharacterPromptParts(promptChar);
+  const formatWorldInfoEntries = entries => (Array.isArray(entries) ? entries : [])
+    .map(entry => applyRegexStage(entry, 'world_info', { includePromptOnly: false }));
+  const wiPositions = wiResult.positions || { before: wi, after: [], exampleTop: [], exampleBottom: [], anTop: [], anBottom: [], atDepth: [] };
+  const charParts = worldModeActive()
+    ? { description: '', personality: '', scenario: '', rawDescription: '', rawPersonality: '', rawScenario: '' }
+    : buildCharacterPromptParts(promptChar, presetSettings);
   const userPart = worldModeActive() ? '' : buildUserPromptPart();
   const rpgSections = buildRpgPromptSections();
   const macroMessages = (worldModeActive() ? worldTimelineMessages() : curMessages())
-    .filter(message => message && (message.role === 'user' || message.role === 'assistant'));
+    // 骰点等 meta 是本轮附加记录，不应覆盖 {{lastMessage}} 或增加 {{messageCount}}。
+    .filter(message => message && !message.meta && (message.role === 'user' || message.role === 'assistant'));
   const lastMacroMessage = macroMessages.at(-1)?.content || '';
-  const lastMacroUserMessage = [...macroMessages].reverse().find(message => message.role === 'user')?.content || '';
+  const lastMacroUserMessage = [...macroMessages].reverse().find(message => message.role === 'user' && !message.meta)?.content || '';
   const lastMacroCharMessage = [...macroMessages].reverse().find(message => message.role === 'assistant')?.content || '';
   const runtime = {
-    worldInfoBefore: wi.length ? '【世界设定】\n' + wi.join('\n\n') : '',
-    worldInfoAfter: '',
+    worldInfoBefore: formatWorldInfoPrompt(formatWorldInfoEntries(wiPositions.before), presetSettings),
+    worldInfoAfter: formatWorldInfoPrompt(formatWorldInfoEntries(wiPositions.after), presetSettings),
     personaDescription: userPart,
     charDescription: charParts.description,
     charPersonality: charParts.personality,
     scenario: charParts.scenario,
     tavernMemory: buildMemoryPromptPart(),
-    tavernFormat: buildFormatPromptPart(),
     tavernRpg: rpgSections.map(section => section.text).join('\n\n'),
     tavernRpgSections: rpgSections,
     outlets: wiResult.outlets,
-    dialogueExamples: promptChar?.mesExample || promptChar?.mes_example || '',
   };
   const macroContext = {
     user: currentUserPreset()?.name || '玩家',
     char: worldModeActive() ? (currentWorldCard()?.title || '世界') : (promptChar?.name || '角色'),
     persona: currentUserPreset()?.persona || '',
-    description: charParts.description,
-    personality: promptChar?.personality != null ? promptChar.personality : (promptChar?.description == null ? (promptChar?.persona || '') : ''),
-    scenario: promptChar?.scenario || '',
+    description: charParts.rawDescription,
+    personality: charParts.rawPersonality,
+    scenario: charParts.rawScenario,
     mesExamples: promptChar?.mesExample || promptChar?.mes_example || '',
     mesExamplesRaw: promptChar?.mesExample || promptChar?.mes_example || '',
     lastMessage: lastMacroMessage,
@@ -3855,11 +4447,11 @@ function buildPromptBlocks() {
   const systemParts = [];
   const beforeHistory = [];
   const afterHistory = [];
+  const relativeBefore = [];
+  const relativeAfter = [];
   const injections = [];
-  let worldInfoInjected = false;
-  const charPostHistory = String(promptChar?.postHistory || '').trim();
-  const presetPostHistory = String(preset.postHistory || '').trim();
-  const hasStandalonePostHistory = !!(charPostHistory || presetPostHistory);
+  const postParts = [];
+  let optionProtocolIncluded = false;
   let includeHistory = false;
   let reachedHistory = false;
 
@@ -3870,69 +4462,102 @@ function buildPromptBlocks() {
     if (prompt.identifier === 'chatHistory') {
       includeHistory = true;
       reachedHistory = true;
+      const newChatPrompt = expandPresetMacros(presetSettings.new_chat_prompt || '', macroContext, variables);
+      if (newChatPrompt) {
+        systemParts.push(newChatPrompt);
+        relativeBefore.push({ role: 'system', content: newChatPrompt });
+      }
+      continue;
+    }
+    if (prompt.identifier === 'dialogueExamples' && prompt.marker) {
+      const exampleMessages = buildDialogueExampleMessages(
+        promptChar?.mesExample || promptChar?.mes_example || '',
+        formatWorldInfoEntries(wiPositions.exampleTop),
+        formatWorldInfoEntries(wiPositions.exampleBottom),
+        presetSettings,
+        macroContext,
+      );
+      for (const message of exampleMessages) {
+        const content = expandPresetMacros(message.content, macroContext, variables);
+        if (!content) continue;
+        if (hasTavernReplyOptionsProtocol(content)) optionProtocolIncluded = true;
+        if (message.role === 'system') systemParts.push(content);
+        else (reachedHistory ? afterHistory : beforeHistory).push({ role: message.role, content });
+        (reachedHistory ? relativeAfter : relativeBefore).push({ role: message.role, content, _example: true });
+      }
       continue;
     }
     let content = prompt.marker ? runtime[prompt.identifier] ?? prompt.content : prompt.content;
     if (prompt.identifier === 'main') {
-      content = (mode === 'tavern' && promptChar?.systemPrompt?.trim()) || prompt.content || (mode === 'rpg' ? RPG_TASK_FALLBACK : settings.systemPrompt) || '';
+      const base = prompt.content || (mode === 'rpg' ? RPG_TASK_FALLBACK : '');
+      content = mode === 'tavern' ? resolveCharacterPromptOverride(promptChar?.systemPrompt, base) : base;
     }
     if (prompt.identifier === 'jailbreak') {
-      // 新版后预设独立于提示词顺序；有独立字段时跳过旧 jailbreak 固定槽位，避免重复注入。
-      if (hasStandalonePostHistory) continue;
-      content = prompt.content || settings.postHistory || '';
+      content = mode === 'tavern'
+        ? resolveCharacterPromptOverride(promptChar?.postHistory, prompt.content)
+        : prompt.content;
     }
     content = expandPresetMacros(content, macroContext, variables);
     if (!content) continue;
+    if (hasTavernReplyOptionsProtocol(content)) optionProtocolIncluded = true;
     if (prompt.position === 'in_chat' && !prompt.marker) {
-      if (prompt.role === 'system') systemParts.push(`【历史深度 ${prompt.depth} 的 System 指令】\n${content}`);
-      else injections.push({ role: prompt.role, content, depth: prompt.depth, order: prompt.order });
+      injections.push({ role: prompt.role, content, depth: prompt.depth, order: prompt.order });
+      if (prompt.role === 'system') systemParts.push(content);
     } else if (prompt.role === 'system' || prompt.marker) {
-      if (prompt.marker && (prompt.identifier === 'worldInfoBefore' || prompt.identifier === 'worldInfoAfter') && wi.length) {
-        worldInfoInjected = true;
-      }
       systemParts.push(content);
+      (reachedHistory ? relativeAfter : relativeBefore).push({ role: 'system', content });
     } else {
       (reachedHistory ? afterHistory : beforeHistory).push({ role: prompt.role, content });
+      (reachedHistory ? relativeAfter : relativeBefore).push({ role: prompt.role, content });
     }
   }
 
-  const recentContext = worldModeActive() ? buildWorldRecentContext() : null;
-  const rollingHistory = mode === 'tavern' && tavernAutoMemoryConfig().enabled
-    ? tavernTurnHistory()
-    : null;
-  const historySource = recentContext
-    ? recentContext.messages
-    : (rollingHistory || curMessages().slice(-Math.max(1, settings.history || 20))
-      .filter(m => m.role === 'user' || m.role === 'assistant')
-      .map(m => ({ role: m.role, content: m.content })));
-  let history = includeHistory ? historySource : [];
-  // 禁用“聊天历史”只省略旧上下文，不能让本轮玩家输入从请求中消失。
-  if (!includeHistory) {
-    const latestUser = [...historySource].reverse().find(message => message.role === 'user' && String(message.content || '').trim());
-    if (latestUser) history = [{ role: 'user', content: latestUser.content }];
+  for (const entry of Array.isArray(wiPositions.atDepth) ? wiPositions.atDepth : []) {
+    const content = expandPresetMacros(applyRegexStage(entry.content, 'world_info', { includePromptOnly: false }), macroContext, variables);
+    if (!content) continue;
+    injections.push({ role: entry.role, content, depth: entry.depth, order: entry.order });
+    if (entry.role === 'system') systemParts.push(content);
   }
+
+  const recentContext = worldModeActive() ? buildWorldRecentContext() : null;
+  const historySource = recentContext ? recentContext.messages : tavernPromptHistoryMessages();
+  const splitTurn = splitLatestPlayerTurn(historySource);
+  let previousHistory = splitTurn.history;
+  const currentTurn = splitTurn.current;
+  if (!recentContext) {
+    // 先过滤对话消息、再限制历史，并为本轮输入保留一个固定槽位；meta 骰点不再挤掉玩家输入。
+    const historyLimit = Math.max(1, Math.floor(Number(settings.history) || 20));
+    const previousLimit = Math.max(0, historyLimit - currentTurn.length);
+    previousHistory = previousLimit ? previousHistory.slice(-previousLimit) : [];
+  }
+  // “聊天历史”只控制已完成的旧上下文；本轮玩家输入是当前请求参数，始终保留。
+  const exampleHistory = [];
   if (mode === 'rpg' && defaults?.rpg?.exampleTurn) {
     const ex = defaults.rpg.exampleTurn;
-    if (ex.user && ex.assistant) history.unshift({ role: 'user', content: ex.user }, { role: 'assistant', content: ex.assistant });
+    if (ex.user && ex.assistant) exampleHistory.push({ role: 'user', content: ex.user }, { role: 'assistant', content: ex.assistant });
   }
+  let history = [...exampleHistory, ...(includeHistory ? previousHistory : [])];
   history = mergeHistoryInjections(history, injections);
-  const standalonePost = [];
-  if (charPostHistory) standalonePost.push(expandPresetMacros(charPostHistory, macroContext, variables));
-  if (presetPostHistory) standalonePost.push(expandPresetMacros(presetPostHistory, macroContext, variables));
-  const optionPrompt = hasTavernReplyOptionsProtocol(presetPostHistory)
-    ? ''
-    : buildTavernReplyOptionsPrompt(preset);
-  if (optionPrompt) standalonePost.push(expandPresetMacros(optionPrompt, macroContext, variables));
-  const promptHistory = [...beforeHistory, ...history, ...afterHistory].map((message, index, list) => ({
-    ...message,
+  const orderedChat = mergeHistoryInjections([...exampleHistory, ...(includeHistory ? previousHistory : []), ...currentTurn], injections);
+  const optionPrompt = optionProtocolIncluded ? '' : buildTavernReplyOptionsPrompt(preset);
+  if (optionPrompt) postParts.push(expandPresetMacros(optionPrompt, macroContext, variables));
+  // 兼容调试投影仍把本轮玩家输入保留为最后一条 user；真实请求使用下方 orderedPromptMessages。
+  const promptHistory = [...beforeHistory, ...history, ...afterHistory, ...currentTurn].map((message, index, list) => ({
+    role: message.role,
     content: applyRegexStage(message.content, 'prompt_history', { depth: Math.max(0, list.length - index - 1) }),
+  }));
+  const orderedPromptMessages = [...relativeBefore, ...orderedChat, ...relativeAfter].map((message, index, list) => ({
+    role: message.role,
+    content: applyRegexStage(message.content, message.role === 'system' ? 'system_prompt' : 'prompt_history', { depth: Math.max(0, list.length - index - 1) }),
+    ...(message._example ? { _example: true } : {}),
   }));
   return {
     system: applyRegexStage(systemParts.join('\n\n'), 'system_prompt'),
     wi,
     history: promptHistory,
-    post: applyRegexStage(standalonePost.filter(Boolean).join('\n\n'), 'system_prompt'),
-    worldInfoInSystem: worldInfoInjected,
+    promptMessages: orderedPromptMessages,
+    post: applyRegexStage(postParts.filter(Boolean).join('\n\n'), 'system_prompt'),
+    assistantPrefill: expandPresetMacros(presetSettings.assistant_prefill || '', macroContext, variables),
     recentContext,
     rpgSections,
   };

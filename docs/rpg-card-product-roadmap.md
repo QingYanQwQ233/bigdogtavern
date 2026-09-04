@@ -21,7 +21,7 @@
 
 当前 RPG 仍使用兼容的 `tavern.rpg.turn v1` 回合协议和现有 Typed Patch，Agent 化改造暂不替换状态真相源：
 
-- RPG Prompt 已按稳定 ID 组织为 Sections，并继续合并为唯一一条 system 消息；每次请求的 Section ID、来源和字符数只进入内存调试记录。
+- RPG Prompt 已按稳定 ID 组织为 Sections，并聚合到 `tavernRpg` 运行时 Marker；整体消息仍由当前预设的 Prompt Order 排列。每次请求的 Section ID、来源和字符数只进入内存调试记录。
 - AI 叙事 Markdown、NPC 台词和行动选项中的 `d20` 等文本不会触发骰子；骰子仍只能由玩家明确输入或受控规则流程产生。
 - 回合协议支持受限的 `toolCalls` 候选（`dice.roll`、`rules.check`、`state.patch`、`entity.create`、`memory.record`）；RPG Agent Profile 现在可声明 OpenAI-compatible `tools` Schema，原生模式按 `maxSteps` 循环解析流式 `tool_calls`，兼容模式从状态块读取 `toolCalls` 后执行同一工具并回传 `tavern.rpg.agent.tool_result`，两者都将状态 / 实体 / 记忆候选接入服务端 Agent 执行入口。`context.retrieve` 仅读取当前存档允许的知识作用域，不进入服务端提交。
 - 服务端在正式回合 receipt 中生成 `tavern.rpg.agent v1` 执行摘要，记录兼容状态提交、实体创建、事件记忆、规则结算和世界时间推进等工具类别及提交状态。

@@ -1,4 +1,54 @@
 /* ─────────── API ─────────── */
+function applyPromptPresetRequestSettings(body, preset) {
+  const parameters = preset?.modelParameters;
+  if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters)) return body;
+  const assignNumber = (sourceKey, targetKey = sourceKey, test = () => true) => {
+    if (!Object.prototype.hasOwnProperty.call(parameters, sourceKey)) return;
+    const value = Number(parameters[sourceKey]);
+    if (Number.isFinite(value) && test(value)) body[targetKey] = value;
+  };
+  assignNumber('temperature', 'temperature', value => value >= 0 && value <= 2);
+  assignNumber('top_p', 'top_p', value => value >= 0 && value <= 1);
+  assignNumber('frequency_penalty', 'frequency_penalty', value => value >= -2 && value <= 2);
+  assignNumber('presence_penalty', 'presence_penalty', value => value >= -2 && value <= 2);
+  const maxTokens = parameters.max_completion_tokens ?? parameters.openai_max_tokens ?? parameters.max_tokens;
+  if (Number.isFinite(Number(maxTokens)) && Number(maxTokens) > 0) body.max_tokens = Math.floor(Number(maxTokens));
+  if (Object.prototype.hasOwnProperty.call(parameters, 'seed')) {
+    const seed = Number(parameters.seed);
+    if (Number.isInteger(seed) && seed >= 0) body.seed = seed;
+    else delete body.seed;
+  }
+  if (typeof parameters.stream_openai === 'boolean') body.stream = parameters.stream_openai;
+  else if (typeof parameters.stream === 'boolean') body.stream = parameters.stream;
+  for (const key of ['top_k', 'top_a', 'min_p']) {
+    const value = Number(parameters[key]);
+    if (Number.isFinite(value) && value > 0) body[key] = value;
+  }
+  const repetitionPenalty = Number(parameters.repetition_penalty);
+  if (Number.isFinite(repetitionPenalty) && repetitionPenalty > 0 && repetitionPenalty !== 1) body.repetition_penalty = repetitionPenalty;
+  if (Array.isArray(parameters.stop)) body.stop = parameters.stop.map(value => String(value)).filter(Boolean).slice(0, 16);
+  else if (typeof parameters.stop === 'string' && parameters.stop.trim()) body.stop = parameters.stop.trim();
+  if (typeof parameters.reasoning_effort === 'string' && parameters.reasoning_effort) body.reasoning_effort = parameters.reasoning_effort;
+  if (typeof parameters.verbosity === 'string' && parameters.verbosity) body.verbosity = parameters.verbosity;
+  return body;
+}
+
+function squashConsecutiveSystemMessages(messages) {
+  const result = [];
+  for (const message of Array.isArray(messages) ? messages : []) {
+    const previous = result[result.length - 1];
+    if (message?.role === 'system' && previous?.role === 'system' && !message._example && !previous._example) {
+      previous.content = [previous.content, message.content].filter(Boolean).join('\n\n');
+    } else {
+      result.push({
+        role: message?.role || 'user', content: String(message?.content || ''),
+        ...(message?._example ? { _example: true } : {}),
+      });
+    }
+  }
+  return result;
+}
+
 function buildPayload({ test = false } = {}) {
   const s = settings;
   if (!s.baseUrl) throw new Error('请先在设置 → 连接中填写 Base URL');
@@ -12,6 +62,8 @@ function buildPayload({ test = false } = {}) {
     stream: test ? false : !!s.stream,
   };
   if (s.seed != null && s.seed >= 0) body.seed = s.seed;
+  const activePromptPreset = test ? null : resolvePromptPreset()?.preset;
+  if (!test) applyPromptPresetRequestSettings(body, activePromptPreset);
   if (!test && prefs.cotEnabled) {
     body.thinking = { type: 'enabled' };
     body.reasoning_effort = prefs.cotEffort || 'low';
@@ -24,20 +76,22 @@ function buildPayload({ test = false } = {}) {
     body.messages = [{ role: 'user', content: 'ping' }];
     return { baseUrl: s.baseUrl, apiKey: s.apiKey, body, wi: [] };
   }
-  const { system, wi, history, post, worldInfoInSystem, rpgSections } = buildPromptBlocks();
+  const { system, wi, history, promptMessages, post, assistantPrefill, rpgSections } = buildPromptBlocks();
   const agentProfile = mode === 'rpg' ? buildRpgAgentProfile() : null;
   const rpgContext = mode === 'rpg' ? buildRpgAgentContext(agentProfile) : null;
-  // 唯一 system 消息：身份 + 角色卡 + 模块 + 格式 + 世界设定 + 后预设 合并为一条，
-  // 避免多条 system 穿插在 user/assistant 之间导致模型混淆 role 边界（DeepSeek/本地模型尤其敏感）
-  const sysParts = [];
-  if (system && system.trim()) sysParts.push(system);
-  if (!worldInfoInSystem && wi && wi.length) {
-    sysParts.push('【世界设定】\n' + wi.map(entry => applyRegexStage(entry, 'system_prompt')).join('\n\n'));
+  // prompts / prompt_order 决定真实消息顺序；显式的 RP 回复选项扩展随后追加。
+  // 只有预设启用 squash_system_messages 时才合并相邻 system 消息。
+  body.messages = Array.isArray(promptMessages) ? [...promptMessages] : [];
+  if (!body.messages.length) {
+    if (system && system.trim()) body.messages.push({ role: 'system', content: system });
+    body.messages.push(...history);
   }
-  if (post && post.trim()) sysParts.push('【后预设 / Post-History】\n' + post);
-  body.messages = [];
-  if (sysParts.length) body.messages.push({ role: 'system', content: sysParts.join('\n\n') });
-  body.messages.push(...history);
+  if (post && post.trim()) body.messages.push({ role: 'system', content: post });
+  if (assistantPrefill && assistantPrefill.trim()) body.messages.push({ role: 'assistant', content: assistantPrefill });
+  if (activePromptPreset?.modelParameters?.squash_system_messages === true) {
+    body.messages = squashConsecutiveSystemMessages(body.messages);
+  }
+  body.messages = body.messages.map(message => ({ role: message.role, content: message.content }));
   const nativeTools = mode === 'rpg' ? buildRpgNativeToolDefinitions(agentProfile) : [];
   if (nativeTools.length && agentProfile?.mode === 'native') {
     body.tools = nativeTools;

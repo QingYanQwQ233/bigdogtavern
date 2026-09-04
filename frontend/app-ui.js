@@ -394,9 +394,6 @@ function fillSettingsForm() {
   $('s-seed').value = s.seed;
   $('s-history').value = s.history;
   $('s-stream').checked = !!s.stream;
-  // 格式偏好
-  $('f-preset').value = prefs.formatPreset || '';
-  $('f-custom').value = prefs.formatCustom || '';
   $('f-stop').value = prefs.stop || '';
   $('f-bubbles').checked = !!prefs.tavernDialogueBubbles;
   $('s-cot').checked = !!prefs.cotEnabled;
@@ -443,8 +440,6 @@ function readSettingsForm() {
   if (!Number.isFinite(settings.seed)) settings.seed = -1; // 热保存下空输入不能落成 NaN
   settings.history = parseInt($('s-history').value, 10) || 20;
   settings.stream = $('s-stream').checked;
-  prefs.formatPreset = $('f-preset').value;
-  prefs.formatCustom = $('f-custom').value;
   prefs.stop = $('f-stop').value;
   prefs.tavernDialogueBubbles = $('f-bubbles').checked;
   prefs.cotEnabled = $('s-cot').checked;
@@ -2393,17 +2388,29 @@ async function sendMessage() {
   if (sending || worldTurnPreparing || worldTurnPending || (worldModeActive() && (worldSavePlanning() || currentWorldSave?.state?.ending?.status === 'ended' || currentWorldSave?.state?.failure?.status === 'terminal'))) return;
   if (mode === 'rpg' && !worldModeActive()) { openWorldLibrary(); return; }
   const input = $('input');
-  const rawText = input.value.trim();
+  const inputSnapshot = input.value;
+  const rawText = inputSnapshot.trim();
   if (!rawText) return;
-  input.value = '';
   if (worldModeActive()) {
-    await submitWorldActionText(rawText);
+    const accepted = await submitWorldActionText(rawText);
+    // 前置校验失败时保留输入；若等待期间用户已开始写下一条，也不能清掉新草稿。
+    if ((accepted || worldTurnPendingActive() || worldTurnErrorActive()) && input.value === inputSnapshot) input.value = '';
     return;
   }
   const text = applyRegexStage(rawText, 'user_input');
-  if (!text) return;
+  if (!text) {
+    setApiStatus('输入经“用户输入”正则处理后为空，未发送且已保留原文。', true);
+    input.focus();
+    return;
+  }
+  if (!curSession()) {
+    setApiStatus('当前没有可用的 RP 会话，输入未发送且已保留。', true);
+    input.focus();
+    return;
+  }
   pushMessage('user', text);
-  // 掷骰：玩家输入含 d20+5 / 2d6-1 → 自动掷骰并显示结果（不进 AI 上下文）
+  input.value = '';
+  // 掷骰：玩家输入含 d20+5 / 2d6-1 → 自动掷骰并显示结果。
   const rolls = rollDiceIn(text);
   for (const r of rolls) {
     const detail = r.rolls.length > 1 ? `（${r.rolls.join(' + ')}${r.bonus ? (r.bonus >= 0 ? ' + ' + r.bonus : ' - ' + Math.abs(r.bonus)) : ''}）` : (r.bonus ? `（+${r.bonus}）` : '');
@@ -2491,7 +2498,7 @@ function handleManagerBack(button) {
       return;
     }
     setMobileManagerPanel(manager.id, 'list', { focus: false });
-    requestAnimationFrame(() => manager.querySelector('.cm-side :is(.cm-item, button, input, select, textarea)')?.focus());
+    requestAnimationFrame(() => manager.querySelector('.cm-side .cm-item, .cm-side button, .cm-side input, .cm-side select, .cm-side textarea')?.focus());
     return;
   }
   switchView('chat');
@@ -3447,7 +3454,12 @@ function bindEvents() {
   $('pg-new').addEventListener('click', pgNew);
   $('pg-del').addEventListener('click', () => { if (pgEditingName) pgDelete(pgEditingName); });
   $('pg-save').addEventListener('click', pgSave);
-  $('pg-mode').addEventListener('change', () => renderPGRegexBindings());
+  $('pg-mode').addEventListener('change', () => { syncPGReplyOptionsEditor(); renderPGRegexBindings(); });
+  $('pg-reply-options-enabled').addEventListener('change', markPGReplyOptionsCustomized);
+  $('pg-reply-options-count').addEventListener('input', markPGReplyOptionsCustomized);
+  $('pg-reply-options-prompt').addEventListener('input', markPGReplyOptionsCustomized);
+  $('pg-reply-options-reset').addEventListener('click', resetPGReplyOptions);
+  $('pg-st-settings-reset').addEventListener('click', resetPGSTPresetSettings);
   $('pg-prompt-new').addEventListener('click', pgPromptNew);
   $('pg-prompt-del').addEventListener('click', pgPromptDelete);
   $('pg-library').addEventListener('change', () => { insertPGLibraryPrompt($('pg-library').value); $('pg-library').value = ''; });
@@ -3955,7 +3967,7 @@ function bindEvents() {
     b.addEventListener('click', () => handleManagerBack(b)));
 }
 
-/* 服务预设 / 格式指令下拉：从 JSON 数据动态渲染，不写死选项 */
+/* 服务预设下拉：从 JSON 数据动态渲染，不写死选项 */
 function renderProviderOptions() {
   const sel = $('s-preset');
   if (!sel) return;
@@ -3964,23 +3976,13 @@ function renderProviderOptions() {
     + providers.map(p => `<option value="${esc(p.id)}">${esc(p.label)}</option>`).join('');
   sel.value = cur;
 }
-function renderFormatOptions() {
-  const sel = $('f-preset');
-  if (!sel) return;
-  const cur = sel.value;
-  sel.innerHTML = '<option value="">自由对话（无附加指令）</option>'
-    + Object.entries(formatInstructions).map(([k, v]) =>
-      `<option value="${esc(k)}">${esc((v && v.label) || k)}</option>`).join('');
-  sel.value = cur;
-}
 
 /* ─────────── 启动 ─────────── */
 async function init() {
-  // 从 server 加载默认模板（服务预设 / 格式指令 / 偏好），失败回退空结构
+  // 从 server 加载默认模板（服务预设 / 偏好），失败回退空结构
   defaults = await fetchDefaults();
-  if (!defaults) defaults = { characters: [], presets: {}, lorebooks: {}, settings: {}, prefs: {}, format: {}, providers: [] };
+  if (!defaults) defaults = { characters: [], presets: {}, lorebooks: {}, settings: {}, prefs: {}, providers: [] };
   providers = Array.isArray(defaults.providers) ? defaults.providers : [];
-  formatInstructions = (defaults.format && typeof defaults.format === 'object') ? defaults.format : {};
 
   settings = { ...DEFAULT_SETTINGS, ...settings };
   prefs = { ...(defaults.prefs || {}), ...prefs };
@@ -4019,7 +4021,6 @@ async function init() {
   }
 
   renderProviderOptions();
-  renderFormatOptions();
 
   ensureChars();
   ensureLorebooks();
@@ -4033,8 +4034,13 @@ async function init() {
     localStorage.removeItem(LS_CURRENT_CHAR);
     saveChars();
   }
-  let presetsMigrated = ensurePromptPresetsV2();
+  let presetsMigrated = ensurePromptPresetsV3();
   if (migrateBuiltInTavernPreset(defaults)) presetsMigrated = true;
+  if (migrateLegacyFormatPreferences()) presetsMigrated = true;
+  if (migrateLegacyGlobalPromptSettings()) {
+    presetsMigrated = true;
+    saveSettings();
+  }
   prefs.currentPresetByMode = { ...(prefs.currentPresetByMode || {}) };
   for (const targetMode of ['tavern', 'rpg']) {
     const hasSavedPreset = Object.prototype.hasOwnProperty.call(prefs.currentPresetByMode, targetMode);

@@ -72,12 +72,20 @@ assert.strictEqual((app.match(/<script>\$\{webview83CompatSource\(\)\}<\/script>
 assert.match(html, /id="btn-nav-drawer"[^>]*type="button"[^>]*aria-controls="nav-drawer"[^>]*aria-expanded="false"/, 'navigation trigger must expose button and drawer semantics');
 assert.match(app, /function usesDesktopNavigation\(\)\s*\{[\s\S]*?window\.matchMedia\(NAVIGATION_DESKTOP_QUERY\)\.matches/, 'navigation breakpoint must use the same media-query model as CSS');
 assert.match(app, /function setNavDrawerOpen\(open\)[\s\S]*?aria-expanded/, 'navigation drawer state must update its accessibility state');
+assert.match(app, /\$\('btn-nav-drawer'\)\.addEventListener\('click',[\s\S]*?openNavDrawer\(\)/, 'navigation trigger must bind the mobile drawer action');
+assert.doesNotMatch(app, /querySelector\([^\n]*:is\(/, 'WebView 83 interaction paths must not depend on the newer :is() DOM selector');
+assert.match(css, /#nav-drawer\s*\{[^}]*position:\s*fixed;[^}]*top:\s*0;[^}]*right:\s*0;[^}]*bottom:\s*0;[^}]*left:\s*0;/, 'navigation drawer must keep physical edge fallbacks for WebView 83');
+assert.match(css, /#nav-drawer \.nd-mask\s*\{[^}]*position:\s*absolute;[^}]*top:\s*0;[^}]*right:\s*0;[^}]*bottom:\s*0;[^}]*left:\s*0;/, 'navigation mask must keep physical edge fallbacks for WebView 83');
+assert.match(app, /function openSettings\(\)\s*\{[\s\S]*?\$\('settings-modal'\)\.classList\.remove\('hidden'\);[\s\S]*?\}/, 'settings action must reveal the settings modal');
+assert.match(app, /document\.querySelectorAll\('\.js-settings'\)\.forEach\(b => b\.addEventListener\('click', openSettings\)\);/, 'settings triggers must bind the settings action');
+assert.match(css, /\.modal\s*\{[^}]*position:\s*fixed;[^}]*top:\s*0;[^}]*right:\s*0;[^}]*bottom:\s*0;[^}]*left:\s*0;/, 'modals must keep physical edge fallbacks for WebView 83');
 const customWorldHeader = css.match(/body\.world-custom-layout:not\(\.world-immersive\) \.chat-header\s*\{([\s\S]*?)\}/i);
 assert.ok(customWorldHeader, 'custom world header rule is missing');
 const customWorldHeaderDeclarations = customWorldHeader[1].replace(/\/\*[\s\S]*?\*\//g, '');
 assert.doesNotMatch(customWorldHeaderDeclarations, /^\s*pointer-events\s*:\s*none\s*;/im, 'custom world header must not disable its WebView 83 menu hit target');
 assert.match(customWorldHeaderDeclarations, /^\s*pointer-events\s*:\s*auto\s*;/im, 'custom world header must keep its menu hit target active');
 assert.match(css, /#btn-nav-drawer\s*\{[^}]*min-width:\s*44px;[^}]*min-height:\s*44px;[^}]*touch-action:\s*manipulation;/, 'mobile menu trigger must remain a reliable touch target');
+assert.match(css, /\.pg-reply-options input,[\s\S]*?\.pg-reply-options textarea,[\s\S]*?font-size:\s*16px/, 'RP option fields need an explicit WebView 83 mobile selector fallback');
 
 const navSource = app.match(/const NAVIGATION_DESKTOP_QUERY[\s\S]*?function closeNavDrawer\(\) \{ setNavDrawerOpen\(false\); \}/);
 assert.ok(navSource, 'navigation drawer helpers are missing');

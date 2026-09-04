@@ -19,9 +19,10 @@ Tavern 是一个本地运行的 AI 角色扮演 Web 应用。它把两种体验�
 
 - Character Card V1/V2/V3 JSON 导入、导出、PNG 元数据读取和角色绑定世界书。
 - 角色创建、编辑、删除、动态自定义字段和 AI 辅助三步制卡。
-- SillyTavern 风格提示词预设：System、世界书前后、历史前后、In-Chat、Relative、宏、排序、后预设和导入导出。
+- SillyTavern 风格提示词预设：固定可编辑提示词、运行时 Marker、世界书位置、Post-History、In-Chat、Relative、宏、Prompt Order、生成参数和导入导出。
 - 多本世界书：关键词、secondary 条件、常驻、概率、分组、递归、Sticky/Cooldown/Delay、正则、Outlet 和角色绑定。
-- 会话消息编辑、删除、复制、重生成、预设回复选项、手动记忆和可选自动摘要。
+- 会话消息编辑、删除、复制、重生成、手动记忆和可选自动摘要；尚未配对 AI 回复的当前玩家回合始终保留在本次请求末尾。
+- 每个酒馆/通用提示词预设可独立开启或关闭回复选项、设置 1–8 个选项并自定义提示词；未声明时继承项目默认，旧 `postHistory` 尾部协议自动迁移，ST 导入/导出通过 `tavern_meta.replyOptions` 往返保留。
 - 输出正则按模式、预设和阶段隔离，可作用于输入、原始 AI 输出、显示、Prompt、世界书和思维链；规则只替换文本，不执行脚本。
 - GFM Markdown 安全渲染；经用户明确确认的角色卡 HTML/CSS/JS 才进入同源兼容 iframe。未确认的卡片脚本不执行。
 - 可选对白气泡、消息操作、图片消息和 OpenAI/Stable Diffusion 兼容文生图。
@@ -56,6 +57,10 @@ RPG 流程为：
 - AI 调试终端保留当前页面的请求历史、完整 INPUT/OUTPUT、正则前原文、结构化标签、Prompt 分区、Agent trace 和 RPG 记忆诊断。
 - PWA 离线资源、Android 内嵌 NanoHTTPD 服务和 Android System WebView/Chromium 83 起的兼容补丁。
 - 手机端左右工具抽屉、消息窗口位置保持、轻量回合状态增减动画和响应式布局。
+
+酒馆请求会先把消息拆成“已完成的旧上下文”和“尚未收到 AI 回复的当前玩家回合”。`chatHistory` 开关与历史条数只裁剪旧上下文；自动摘要只覆盖完整的用户/AI 回合；骰点等 `meta` 记录附在当前玩家内容之后。当前玩家内容在 Chat History 边界只注入一次，因此关闭历史、极小历史窗口、摘要滚动或请求失败后连续输入都不会静默丢失；预设明确放在历史之后的 Relative / In-Chat 条目仍按 Prompt Order 跟随。该结构不参与 RPG 的 WorldSave 回合提交。
+
+RP 预设以 `prompts + promptOrder` 作为唯一提示词来源：顺序表直接生成模型消息，Post-History 是其中可见且可关闭的 `jailbreak` 项。旧的全局格式选择器、默认“对白输出协议”和 `tavernFormat` 隐式槽位已删除；v1/v2 数据只在迁移阶段读取。ST 导入的采样参数和 Utility Prompt 模板会随当前预设应用，但预设内的服务商/模型标识不会越权切换当前连接。
 
 ## 3. 架构与代码入口
 

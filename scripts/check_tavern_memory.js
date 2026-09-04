@@ -68,6 +68,21 @@ if (probe.unsummarized(session).length !== 20) throw new Error('第二个滚动�
 const secondBatch = probe.unsummarized(session).slice(0, 15);
 probe.ensure(session).summaries.push({ id: 'summary-2', text: '第二批摘要', sourceMessageIds: secondBatch.flatMap(turn => turn.messages.map(message => message.id)) });
 if (probe.ensure(session).summaries.length !== 2 || probe.unsummarized(session).length !== 5 || probe.history(session).length !== 10) throw new Error('第二次滚动总结后窗口未收敛');
+const diceSession = {
+  id: 'dice-session', kind: 'tavern',
+  messages: [
+    { role: 'user', content: '尝试撬锁', id: 'dice-u-1' },
+    { role: 'user', content: '🎲 d20 = 17', id: 'dice-meta-1', meta: true },
+    { role: 'assistant', content: '锁应声而开', id: 'dice-a-1' },
+    { role: 'user', content: '进入房间', id: 'dice-u-2' },
+    { role: 'user', content: '🎲 d6 = 5', id: 'dice-meta-2', meta: true },
+  ],
+};
+const diceTurns = probe.turns(diceSession);
+if (diceTurns.length !== 1 || diceTurns[0].messages.length !== 3 || diceTurns[0].messages[1].id !== 'dice-meta-1') throw new Error('骰点记录没有归入对应的完整 RP 回合');
+probe.ensure(diceSession).summaries.push({ id: 'dice-summary', text: '撬锁成功', sourceMessageIds: diceTurns[0].messages.map(message => message.id) });
+const pendingHistory = probe.history(diceSession);
+if (pendingHistory.length !== 2 || pendingHistory[0].content !== '进入房间' || pendingHistory[1].content !== '🎲 d6 = 5' || pendingHistory[1].meta !== true) throw new Error('自动记忆开启时丢失了未配对的本轮输入或骰点');
 if (probe.ensure({ id: 'rpg-session', kind: 'rpg', messages: [] }) !== null) throw new Error('自动记忆不应进入 RPG 会话');
 probe.setPrefs({ tavernAutoMemory: { enabled: false, windowTurns: 20, summarizeTurns: 15, summaryChars: 100 } });
 if (probe.config().enabled !== false) throw new Error('关闭自动记忆配置未生效');

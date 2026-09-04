@@ -412,7 +412,13 @@ function hasTavernReplyOptionsProtocol(text) {
 }
 
 function builtInTavernReplyOptionsInstruction() {
-  return String(defaults?.presets?.['RP 基础（示例）']?.postHistory || '').match(/【AI 回复选项协议】[\s\S]*$/)?.[0] || '';
+  const configured = String(defaults?.tavern?.replyOptions?.instruction || '').trim();
+  if (configured) return configured;
+  const preset = defaults?.presets?.['RP 基础（示例）'];
+  const explicit = String(preset?.replyOptions?.instruction || '').trim();
+  if (explicit) return explicit;
+  // 兼容尚未升级的 seed：旧版把协议塞在 postHistory 尾部。
+  return String(preset?.postHistory || '').match(/【AI 回复选项协议】[\s\S]*$/)?.[0] || '';
 }
 
 /* Tavern 模式的选项协议：隐藏标签只负责把 AI 建议传给快捷栏，不进入正文。 */
