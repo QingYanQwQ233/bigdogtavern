@@ -1208,7 +1208,7 @@ function tavernTurnHistory(session = curSession()) {
     .filter(message => message && (message.role === 'user' || message.role === 'assistant') && !summarizedIds.has(message.id))
     .map(message => ({
       role: message.role,
-      content: message.content || '',
+      content: regexHistoryContent(message),
       ...(message.meta ? { meta: true } : {}),
     }));
 }
@@ -1407,9 +1407,8 @@ function canonicalRegexStage(value) {
 function normalizeRegexStages(value, raw = {}) {
   const values = Array.isArray(value) ? value : (value === undefined || value === null || value === '' ? [] : [value]);
   const stages = values.map(canonicalRegexStage).filter(Boolean);
-  if (raw.onlyFormatDisplay === true || raw.onlyFormatVisual === true || raw.only_format_visual === true || raw.markdownOnly === true) stages.push('chat_display');
-  if (raw.onlyFormatPrompt === true || raw.only_format_prompt === true || raw.promptOnly === true) stages.push('prompt');
-  if (!stages.length) stages.push('ai_response');
+  // Placement selects the source; ephemerality selects the destination independently.
+  if (value === undefined || value === null) stages.push('ai_response');
   return [...new Set(stages)];
 }
 
@@ -1429,7 +1428,7 @@ function normalizeOutputRegexRule(source, index = 0, origin = 'custom') {
   const stages = normalizeRegexStages(raw.stages ?? raw.tavernStages ?? raw.targets ?? placement, raw);
   const parseDepth = value => value === null || value === undefined || value === ''
     ? null
-    : (Number.isFinite(Number(value)) ? Number(value) : null);
+    : (Number.isFinite(Number(value)) && Number(value) >= 0 ? Math.floor(Number(value)) : null);
   return {
     id: String(raw.id || `${origin}-regex-${index + 1}`),
     // SillyTavern uses scriptName; keep accepting the app's older name field.
@@ -1522,27 +1521,27 @@ function currentRegexPresetScope(targetMode = mode) {
   return resolvePromptPreset()?.name || GLOBAL_PRESET_KEY;
 }
 
-function regexRuleAppliesToStage(rule, stage, { depth = null, editing = false, includePromptOnly = true } = {}) {
+function regexRuleAppliesToStage(rule, stage, { depth = null, editing = false, includePromptOnly = true, role = 'assistant' } = {}) {
   if (!rule || rule.enabled === false) return false;
   if (editing && rule.runOnEdit !== true) return false;
-  if (depth !== null && depth !== undefined) {
+  if (depth !== null && depth !== undefined && !['system_prompt', 'world_info'].includes(stage)) {
     if (rule.minDepth !== null && depth < rule.minDepth) return false;
     if (rule.maxDepth !== null && depth > rule.maxDepth) return false;
   }
   const target = canonicalRegexStage(stage);
-  const stages = Array.isArray(rule.stages) && rule.stages.length ? rule.stages : ['ai_response'];
-  if (rule.onlyFormatDisplay && !['chat_display', 'chat_display_persisted'].includes(target) && rule.source !== 'character') return false;
-  if (rule.onlyFormatPrompt && !['prompt_history', 'system_prompt', 'world_info'].includes(target)) return false;
+  const stages = Array.isArray(rule.stages) ? rule.stages : ['ai_response'];
+  const has = value => stages.includes(value) || stages.includes('all');
+  const ephemeral = rule.onlyFormatDisplay || rule.onlyFormatPrompt;
+  const display = ['chat_display', 'chat_display_persisted'].includes(target);
+  const prompt = ['prompt_history', 'system_prompt', 'world_info'].includes(target);
+  if (ephemeral && !(display && rule.onlyFormatDisplay) && !(prompt && rule.onlyFormatPrompt)) return false;
   if (!includePromptOnly && rule.onlyFormatPrompt) return false;
-  if (target === 'chat_display') return stages.includes('chat_display') || stages.includes('ai_response') || rule.onlyFormatDisplay;
-  if (target === 'chat_display_persisted') return stages.includes('chat_display') || rule.onlyFormatDisplay;
-  // 角色卡的 legacy regex 常用 markdownOnly 生成整块 HTML；保留它在首轮响应时落盘，
-  // 否则状态栏会在历史消息中失去结构。普通 ST 预设仍遵循“仅显示”语义。
-  if (target === 'ai_response') return stages.includes('ai_response') && (!rule.onlyFormatDisplay || rule.source === 'character') && !rule.onlyFormatPrompt;
-  if (target === 'prompt_history') return stages.includes('prompt') || stages.includes('prompt_history') || rule.onlyFormatPrompt;
-  if (target === 'system_prompt') return stages.includes('prompt') || stages.includes('system_prompt') || rule.onlyFormatPrompt;
-  if (target === 'world_info') return stages.includes('world_info') || stages.includes('prompt') || rule.onlyFormatPrompt;
-  return stages.includes(target) || stages.includes('all');
+  const source = role === 'user' ? 'user_input' : 'ai_response';
+  if (display) return has('chat_display') || (has(source) && (target === 'chat_display' || rule.onlyFormatDisplay));
+  if (target === 'prompt_history') return has('prompt') || has('prompt_history') || (rule.onlyFormatPrompt && has(source));
+  if (target === 'system_prompt') return has('prompt') || has('system_prompt');
+  if (target === 'world_info') return has('world_info') || has('prompt');
+  return has(target);
 }
 
 function activeRegexRules(targetMode = mode) {
@@ -1567,8 +1566,8 @@ function activeOutputRegexRules(targetMode = mode, stage = 'ai_response', option
   return activeRegexRules(targetMode).filter(rule => regexRuleAppliesToStage(rule, stage, options));
 }
 
-function applyRegexStage(text, stage, { targetMode = mode, depth = null, editing = false, includePromptOnly = true } = {}) {
-  const rules = activeOutputRegexRules(targetMode, stage, { depth, editing, includePromptOnly });
+function applyRegexStage(text, stage, { targetMode = mode, depth = null, editing = false, includePromptOnly = true, role = 'assistant' } = {}) {
+  const rules = activeOutputRegexRules(targetMode, stage, { depth, editing, includePromptOnly, role });
   return rules.length ? applyOutputRegexRules(text, rules) : String(text ?? '');
 }
 
@@ -1598,12 +1597,6 @@ function applyOutputRegexRules(text, rules) {
     if (!regex) continue;
     output = applyOutputRegexRule(output, rule, regex);
   }
-  // A broad imported rule must not erase an otherwise visible response. The
-  // known hidden protocol blocks are the only intentional empty result.
-  const visibleOriginal = original
-    .replace(/<(?:think|analysis|reasoning|tavern_state_update|tavern_options)\b[^>]*>[\s\S]*?<\/(?:think|analysis|reasoning|tavern_state_update|tavern_options)\s*>/gi, '')
-    .trim();
-  if (!output.trim() && visibleOriginal) return original.trim();
   return output.trim();
 }
 
@@ -1639,9 +1632,9 @@ function recoverStructuredTagOutput(text) {
 }
 
 /* 渲染旧消息时重新检查当前规则；避免消息首次生成时规则尚未载入而永久保留原始标签。 */
-function renderOutputContent(text, targetMode = mode, { fromRaw = true } = {}) {
+function renderOutputContent(text, targetMode = mode, { fromRaw = true, role = 'assistant', depth = null } = {}) {
   const source = String(text || '');
-  const rules = activeOutputRegexRules(targetMode, fromRaw ? 'chat_display' : 'chat_display_persisted');
+  const rules = activeOutputRegexRules(targetMode, fromRaw ? 'chat_display' : 'chat_display_persisted', { role, depth });
   const needsRegex = rules.some(rule => {
     const regex = buildOutputRegex(rule);
     if (!regex) return false;
@@ -1652,19 +1645,19 @@ function renderOutputContent(text, targetMode = mode, { fromRaw = true } = {}) {
 }
 
 function applyCharacterCardOutputRegex(text) {
-  return recoverStructuredTagOutput(applyOutputRegexRules(text, activeOutputRegexRules('tavern', 'ai_response').filter(rule => rule.source === 'character')));
+  return recoverStructuredTagOutput(applyOutputRegexRules(text, activeOutputRegexRules('tavern', 'chat_display').filter(rule => rule.source === 'character')));
 }
 
 function applyOutputRegex(text, targetMode = mode) {
-  return recoverStructuredTagOutput(applyOutputRegexRules(text, activeOutputRegexRules(targetMode, 'ai_response')));
+  return applyOutputRegexRules(text, activeOutputRegexRules(targetMode, 'ai_response'));
 }
 
 function serializeOutputRegexRule(rule) {
   const substituteRegex = rule.substituteRegex === false
     ? 0
     : (Number.isFinite(Number(rule.substituteRegex)) ? Number(rule.substituteRegex) : 1);
-  const stages = Array.isArray(rule.stages) ? rule.stages : [];
-  const exportPlacement = [...new Set((stages.length ? stages : (Array.isArray(rule.placement) ? rule.placement : [2]))
+  const stages = Array.isArray(rule.stages) ? rule.stages : (Array.isArray(rule.placement) ? rule.placement.map(canonicalRegexStage) : ['ai_response']);
+  const exportPlacement = [...new Set(stages
     .map(value => REGEX_STAGE_TO_ST_PLACEMENT[canonicalRegexStage(value)] ?? Number(value))
     .filter(value => Number.isFinite(value) && value >= 0 && value <= 6))];
   return {
@@ -1676,7 +1669,7 @@ function serializeOutputRegexRule(rule) {
     replaceString: rule.replaceString,
     trimStrings: Array.isArray(rule.trimStrings) ? rule.trimStrings : [],
     disabled: rule.enabled === false,
-    placement: exportPlacement.length ? exportPlacement : [2],
+    placement: exportPlacement,
     tavernStages: stages,
     markdownOnly: rule.markdownOnly === true,
     promptOnly: rule.promptOnly === true,
@@ -2203,6 +2196,7 @@ function fillPGSTPresetSettings() {
   const parameters = pgEditingPreset.modelParameters && typeof pgEditingPreset.modelParameters === 'object'
     ? pgEditingPreset.modelParameters : {};
   const numberValues = {
+    'pg-param-context': parameters.openai_max_context,
     'pg-param-temperature': parameters.temperature,
     'pg-param-max-tokens': parameters.max_completion_tokens ?? parameters.openai_max_tokens ?? parameters.max_tokens,
     'pg-param-top-p': parameters.top_p,
@@ -2216,7 +2210,14 @@ function fillPGSTPresetSettings() {
   };
   for (const [id, value] of Object.entries(numberValues)) {
     const input = $(id);
-    if (input) input.value = value === undefined || value === null ? '' : String(value);
+    if (input) {
+      input.value = value === undefined || value === null ? '' : String(value);
+      const inherited = effectiveChatParameters(null);
+      const keys = { 'pg-param-temperature': 'temperature', 'pg-param-max-tokens': 'max_tokens',
+        'pg-param-top-p': 'top_p', 'pg-param-frequency-penalty': 'frequency_penalty',
+        'pg-param-presence-penalty': 'presence_penalty', 'pg-param-seed': 'seed' };
+      if (keys[id]) input.placeholder = `继承：${inherited[keys[id]] ?? (id === 'pg-param-seed' ? -1 : '不发送')}`;
+    }
   }
   const defaultsMap = stPresetUtilityDefaults();
   const textValues = {
@@ -2264,6 +2265,7 @@ function capturePGSTPresetSettings() {
     value = Math.max(min, Math.min(max, integer ? Math.floor(value) : value));
     parameters[key] = value;
   };
+  captureNumber('pg-param-context', 'openai_max_context', { min: 1, max: 10000000, integer: true });
   captureNumber('pg-param-temperature', 'temperature', { min: 0, max: 2 });
   delete parameters.max_tokens;
   delete parameters.max_completion_tokens;
@@ -2320,7 +2322,7 @@ function resetPGSTPresetSettings() {
   if (!pgEditingPreset) return;
   const preserved = normalizeSTPresetSettings(pgEditingPreset.modelParameters);
   for (const key of [
-    'temperature', 'openai_max_tokens', 'max_tokens', 'max_completion_tokens', 'top_p',
+    'openai_max_context', 'temperature', 'openai_max_tokens', 'max_tokens', 'max_completion_tokens', 'top_p',
     'frequency_penalty', 'presence_penalty', 'seed', 'top_k', 'top_a', 'min_p',
     'repetition_penalty', 'stream', 'stream_openai', 'squash_system_messages', 'reasoning_effort',
     'stop', 'wi_format', 'scenario_format', 'personality_format', 'new_chat_prompt',
@@ -2713,7 +2715,7 @@ function renderRegexEditor(rule = null, source = 'custom') {
   $('regex-name').value = rule?.name || '';
   $('regex-find').value = rule?.findRegex || '';
   $('regex-replace').value = rule?.replaceString || '';
-  $('regex-trim').value = (rule?.trimStrings || []).join(', ');
+  $('regex-trim').value = (rule?.trimStrings || []).join('\n');
   document.querySelectorAll('#regex-stages input[type="checkbox"]').forEach(input => {
     input.checked = (rule?.stages || ['ai_response']).includes(input.value);
     input.disabled = readOnly;
@@ -2798,13 +2800,13 @@ function saveRegexEditor() {
     name,
     findRegex,
     replaceString: $('regex-replace').value,
-    trimStrings: $('regex-trim').value.split(',').map(value => value.trim()).filter(Boolean),
-    stages: selectedStages.length ? selectedStages : ['ai_response'],
+    trimStrings: $('regex-trim').value.split(/\r?\n/).filter(Boolean),
+    stages: selectedStages,
     onlyFormatDisplay: $('regex-display-only').checked,
     onlyFormatPrompt: $('regex-prompt-only').checked,
     substituteRegex: Number($('regex-substitute').value) || 0,
-    minDepth: Number.isFinite(minDepth) ? Math.max(0, minDepth) : null,
-    maxDepth: Number.isFinite(maxDepth) ? Math.max(0, maxDepth) : null,
+    minDepth: Number.isFinite(minDepth) ? (minDepth < 0 ? null : Math.floor(minDepth)) : null,
+    maxDepth: Number.isFinite(maxDepth) ? (maxDepth < 0 ? null : Math.floor(maxDepth)) : null,
     runOnEdit: $('regex-run-on-edit').checked,
     presetScope: $('regex-preset-scope').checked ? currentPreset : null,
     enabled: $('regex-enabled').checked,
@@ -4370,6 +4372,17 @@ function mergeHistoryInjections(history, injections) {
   return result;
 }
 
+function regexHistoryContent(message) {
+  const saved = String(message?.content || '');
+  if (message?.role !== 'assistant' || typeof message.rawContent !== 'string') return saved;
+  const raw = message.rawContent;
+  const displayRules = activeOutputRegexRules(mode, 'chat_display');
+  const display = applyOutputRegexRules(raw, displayRules);
+  // Old clients persisted markdownOnly and structured-tag fallback HTML.
+  if (saved === display || saved === recoverStructuredTagOutput(display)) return applyOutputRegex(raw);
+  return saved;
+}
+
 function tavernPromptHistoryMessages(session = curSession()) {
   if (!session || !Array.isArray(session.messages)) return [];
   if (tavernAutoMemoryConfig().enabled) return tavernTurnHistory(session);
@@ -4377,7 +4390,7 @@ function tavernPromptHistoryMessages(session = curSession()) {
     .filter(message => message && (message.role === 'user' || message.role === 'assistant'))
     .map(message => ({
       role: message.role,
-      content: message.content || '',
+      content: regexHistoryContent(message),
       ...(message.meta ? { meta: true } : {}),
     }));
 }
@@ -4412,9 +4425,9 @@ function buildPromptBlocks() {
   const presetSettings = preset.modelParameters && typeof preset.modelParameters === 'object' ? preset.modelParameters : {};
   const wiResult = buildWorldInfo({ withOutlets: true });
   // 提示词正则只作用于本次请求副本；世界书/历史原文与会话存档保持不变。
-  const wi = wiResult.entries.map(entry => applyRegexStage(entry, 'world_info', { includePromptOnly: false }));
+  const wi = wiResult.entries.map(entry => applyRegexStage(entry, 'world_info', { includePromptOnly: true }));
   const formatWorldInfoEntries = entries => (Array.isArray(entries) ? entries : [])
-    .map(entry => applyRegexStage(entry, 'world_info', { includePromptOnly: false }));
+    .map(entry => applyRegexStage(entry, 'world_info', { includePromptOnly: true }));
   const wiPositions = wiResult.positions || { before: wi, after: [], exampleTop: [], exampleBottom: [], anTop: [], anBottom: [], atDepth: [] };
   const charParts = worldModeActive()
     ? { description: '', personality: '', scenario: '', rawDescription: '', rawPersonality: '', rawScenario: '' }
@@ -4524,7 +4537,7 @@ function buildPromptBlocks() {
   }
 
   for (const entry of Array.isArray(wiPositions.atDepth) ? wiPositions.atDepth : []) {
-    const content = expandPresetMacros(applyRegexStage(entry.content, 'world_info', { includePromptOnly: false }), macroContext, variables);
+    const content = expandPresetMacros(applyRegexStage(entry.content, 'world_info', { includePromptOnly: true }), macroContext, variables);
     if (!content) continue;
     injections.push({ role: entry.role, content, depth: entry.depth, order: entry.order });
     if (entry.role === 'system') systemParts.push(content);
@@ -4541,6 +4554,7 @@ function buildPromptBlocks() {
     const previousLimit = Math.max(0, historyLimit - currentTurn.length);
     previousHistory = previousLimit ? previousHistory.slice(-previousLimit) : [];
   }
+  previousHistory = previousHistory.map(message => ({ ...message, _history: true }));
   // “聊天历史”只控制已完成的旧上下文；本轮玩家输入是当前请求参数，始终保留。
   const exampleHistory = [];
   if (mode === 'rpg' && defaults?.rpg?.exampleTurn) {
@@ -4555,12 +4569,13 @@ function buildPromptBlocks() {
   // 兼容调试投影仍把本轮玩家输入保留为最后一条 user；真实请求使用下方 orderedPromptMessages。
   const promptHistory = [...beforeHistory, ...history, ...afterHistory, ...currentTurn].map((message, index, list) => ({
     role: message.role,
-    content: applyRegexStage(message.content, 'prompt_history', { depth: Math.max(0, list.length - index - 1) }),
+    content: applyRegexStage(message.content, 'prompt_history', { role: message.role, depth: Math.max(0, list.filter(item => item.role !== 'system').length - list.slice(0, index + 1).filter(item => item.role !== 'system').length) }),
   }));
   const orderedPromptMessages = [...relativeBefore, ...orderedChat, ...relativeAfter].map((message, index, list) => ({
     role: message.role,
-    content: applyRegexStage(message.content, message.role === 'system' ? 'system_prompt' : 'prompt_history', { depth: Math.max(0, list.length - index - 1) }),
+    content: applyRegexStage(message.content, message.role === 'system' ? 'system_prompt' : 'prompt_history', { role: message.role, depth: Math.max(0, list.filter(item => item.role !== 'system').length - list.slice(0, index + 1).filter(item => item.role !== 'system').length) }),
     ...(message._example ? { _example: true } : {}),
+    ...(message._history ? { _history: true } : {}),
   }));
   return {
     system: applyRegexStage(systemParts.join('\n\n'), 'system_prompt'),

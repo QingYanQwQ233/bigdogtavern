@@ -790,3 +790,92 @@ assert.strictEqual(exampleState.protocol, 'tavern.rpg.turn');
 assert.strictEqual(exampleState.options.length, 4);
 
 console.log('prompt preset check passed');
+
+// Imported generation settings -> editor -> saved preset -> actual request and settings summary.
+vm.runInContext(`
+  mode = 'tavern'; currentWorldId = null; currentWorldSave = null; currentWorldSaveId = null;
+  defaults = { gen: {}, rpg: {}, tavern: { replyOptions: { enabled: false } } };
+  settings = { ...DEFAULT_SETTINGS, baseUrl: 'https://example.test', temperature: 0.9, maxTokens: 32000 };
+  prefs = { currentPresetByMode: { tavern: 'roundtrip' }, cotEnabled: true, cotEffort: 'high', stop: 'GLOBAL' };
+  characters = [{ id: 'c', name: 'Char' }]; currentCharId = 'c'; currentSessionId = 's';
+  userData = { currentPreset: 'default', presets: { default: { name: 'User', persona: '' } }, memories: [] }; lorebooks = {};
+  const historyMessages = [{ role: 'user', content: 'old'.repeat(1000) }, { role: 'assistant', content: 'old reply'.repeat(1000) }, { role: 'user', content: 'KEEP CURRENT INPUT' }];
+  sessions = [{ id: 's', charId: 'c', kind: 'tavern', messages: historyMessages }];
+  const imported = convertSTPresetData({
+    temperature: 0, top_p: 0.83, frequency_penalty: -0.35, presence_penalty: 0.42,
+    openai_max_tokens: 256, openai_max_context: 2048, reasoning_effort: 'low', stop: [], stream_openai: false,
+    prompts: [{ identifier: 'main', content: 'Keep this system.' }, { identifier: 'chatHistory', marker: true }],
+    prompt_order: [{ character_id: 100001, order: [{ identifier: 'main', enabled: true }, { identifier: 'chatHistory', enabled: true }] }],
+  }).preset;
+  pgEditingPreset = imported;
+  const controls = {};
+  document.getElementById = id => controls[id] || (controls[id] = { value: '', textContent: '', innerHTML: '', options: [], querySelectorAll: () => [], appendChild(option) { this.options.push(option); } });
+  document.createElement = () => ({ dataset: {} });
+  fillPGSTPresetSettings();
+  globalThis.importedValues = { temp: controls['pg-param-temperature'].value, tokens: controls['pg-param-max-tokens'].value, context: controls['pg-param-context'].value };
+  controls['pg-param-max-tokens'].value = '128';
+  controls['pg-param-temperature'].value = '0';
+  capturePGSTPresetSettings();
+  promptPresets = { roundtrip: normalizePromptPreset('roundtrip', JSON.parse(JSON.stringify(pgEditingPreset))) };
+  globalThis.savedParameters = promptPresets.roundtrip.modelParameters;
+  globalThis.roundtripPayload = buildPayload().body;
+  globalThis.pingPayload = buildPayload({ test: true }).body;
+  renderEffectiveParameters();
+  globalThis.parameterDisplay = controls['s-effective-params'].innerHTML;
+  globalThis.originalHistoryLength = historyMessages.length;
+  globalThis.budgetError = '';
+  promptPresets.roundtrip.modelParameters.openai_max_context = 10;
+  try { buildPayload(); } catch (error) { globalThis.budgetError = error.message; }
+  globalThis.inputStillPresent = sessions[0].messages.at(-1).content;
+`, context);
+assert.deepStrictEqual(JSON.parse(JSON.stringify(context.importedValues)), { temp: '0', tokens: '256', context: '2048' });
+assert.strictEqual(context.savedParameters.openai_max_tokens, 128);
+assert.strictEqual(context.roundtripPayload.temperature, 0);
+assert.strictEqual(context.roundtripPayload.max_tokens, 128, 'CoT must not silently raise the reply budget');
+assert.strictEqual(context.roundtripPayload.reasoning_effort, 'low');
+assert.deepStrictEqual([...context.roundtripPayload.stop], [], 'explicit empty preset stops disable global stops');
+assert.strictEqual(context.roundtripPayload.stream, false);
+assert.strictEqual(context.roundtripPayload.frequency_penalty, -0.35);
+assert.match(context.parameterDisplay, /128/);
+assert.match(context.parameterDisplay, /-0.35/);
+assert.match(context.parameterDisplay, /预设/);
+assert.strictEqual(context.roundtripPayload.messages.at(-1).content, 'KEEP CURRENT INPUT');
+assert.ok(!context.roundtripPayload.messages.some(message => message.content.includes('old reply')));
+assert.ok(context.roundtripPayload.messages.every(message => !('_history' in message)));
+assert.strictEqual(context.originalHistoryLength, 3);
+assert.match(context.budgetError, /上下文预算不足/);
+assert.strictEqual(context.inputStillPresent, 'KEEP CURRENT INPUT');
+assert.strictEqual(context.pingPayload.max_tokens, 16);
+assert.ok(!context.pingPayload.thinking);
+assert.ok(!context.pingPayload.stop);
+
+vm.runInContext(`
+  delete promptPresets.roundtrip.modelParameters.openai_max_context;
+  characters[0].cardExtensions = { regex_scripts: [{ placement: [2], markdownOnly: true, findRegex: '<aether>(.*?)</aether>', replaceString: '<style>.card{color:red}</style><div>$1</div>' }] };
+  sessions[0].messages = [{ role: 'assistant', content: '<style>.card{color:red}</style><div>STATE</div>', rawContent: '<aether>STATE</aether>' }, { role: 'user', content: 'CURRENT' }];
+  globalThis.displayOnlyRequest = buildPayload().body;
+  prefs.outputRegex = { tavern: [{ placement: [2], promptOnly: true, findRegex: '<aether>(.*?)</aether>', replaceString: '' }] };
+  globalThis.promptOnlyRequest = buildPayload().body;
+  globalThis.historyAfterRequest = sessions[0].messages[0].content;
+  // Exercise form persistence of zero, independently of a preset override.
+  readGenerationForm = () => true; readTypographyForm = () => {}; saveSettings = () => {};
+  controls['s-temperature'] = { value: '0' }; controls['s-top-p'] = { value: '0' };
+  controls['s-freq-p'] = { value: '-0.35' }; controls['s-pres-p'] = { value: '0.42' };
+  readSettingsForm();
+  globalThis.connectionZeros = { temperature: settings.temperature, topP: settings.topP, frequencyPenalty: settings.frequencyPenalty };
+`, context);
+assert.ok(context.displayOnlyRequest.messages.some(message => message.content === '<aether>STATE</aether>'));
+assert.ok(!context.displayOnlyRequest.messages.some(message => /<style>/.test(message.content)));
+assert.ok(!context.promptOnlyRequest.messages.some(message => /STATE|<style>/.test(message.content)));
+assert.strictEqual(context.promptOnlyRequest.messages.at(-1).content, 'CURRENT');
+assert.match(context.historyAfterRequest, /<style>/, 'request regex must not rewrite the original chat');
+assert.deepStrictEqual(JSON.parse(JSON.stringify(context.connectionZeros)), { temperature: 0, topP: 0, frequencyPenalty: -0.35 });
+
+const groupedBudget = vm.runInContext(`applyPresetContextBudget([
+  { role: 'user', content: 'L'.repeat(1000), _history: true },
+  { role: 'system', content: 'Keep injection' },
+  { role: 'user', content: 'same turn continued', _history: true },
+  { role: 'assistant', content: 'same turn reply', _history: true },
+  { role: 'user', content: 'new input' }
+], { modelParameters: { openai_max_context: 200 } }, 50)`, context);
+assert.deepStrictEqual(Array.from(groupedBudget, message => message.content), ['Keep injection', 'new input']);

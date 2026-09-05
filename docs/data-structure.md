@@ -308,7 +308,7 @@ RP 消息显示会优先识别缩进的 HTML 布局与 HTML 代码块，再交�
       { identifier: 'jailbreak', enabled: false },
     ],
     modelParameters: {         // 可选；从 ST 导入或在预设编辑器配置
-      temperature: 0.8, top_p: 0.95, openai_max_tokens: 2048,
+      temperature: 0.8, top_p: 0.95, openai_max_tokens: 2048, openai_max_context: 32768,
       wi_format: '{0}', scenario_format: '{{scenario}}',
     },
   },
@@ -500,3 +500,12 @@ API additions: `POST /api/rpg-migrations` (preview/seal), `GET /api/rpg-migratio
 ### Android 内嵌服务器同步（R6.11）
 
 Android 内嵌服务器按 URL 的 `path` 与查询参数分开路由，因此 `worldId`、`version`、`targetVersion` 等查询参数与 Web 端一致。`PUT /api/world-saves/<saveId>` 的 `turns` 是完整快照替换，`POST` 才是增量回合追加；Agent 执行暂存会保留 `turns`、`options`、`agentToolTrace` 与阶段历史，重启后可继续 narrate 阶段。
+
+
+### RP 请求中的正则与参数优先级（2026-09-05）
+
+`placement/stages` 只选择来源，`markdownOnly/onlyFormatDisplay` 与 `promptOnly/onlyFormatPrompt` 独立选择显示和请求副本；两者都开时不修改存档，两者都关才在输入/回复接收阶段修改保存文本。明确的空 placement 不回落到 AI。`minDepth/maxDepth` 的空值或 -1 归一为 null，0 是最后一条对话消息；System/世界书内容不计入深度。`rawContent` 保存正则前正文，`content` 保存非临时正则结果，结构标签兜底 HTML 只在渲染时生成。旧 HTML 只有精确匹配当前显示规则时才从 rawContent 重新构建请求文本，不写回原存档。
+
+`effectiveChatParameters()` 是聊天请求与设置页数值的共用来源：连接设置与全局思考/停止词为默认，当前预设显式参数最后覆盖；空停止词数组表示清除停止词，温度 0 有效。连接测试保持 16 Token 且不应用预设。预设模型 ID 仍不切换连接。
+
+`modelParameters.openai_max_context` 是上下文总预算；未填写不增加 Token 裁剪。填写时在正则处理之后扣除实际回复上限，使用离线估算（ASCII 约 4 字符/Token，非 ASCII 约 1.5 Token/字符，加消息开销）移除最旧的历史回合；提示词、本轮输入、末尾 char 引导保留。无法满足时在发送前报错，用户存档不变。该预算不是服务端 tokenizer 的精确计数。内部 `_history` 标记只用于请求副本裁剪，发往 API 前移除。

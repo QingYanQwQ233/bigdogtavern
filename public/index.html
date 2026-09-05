@@ -7,7 +7,7 @@
   <link rel="manifest" href="manifest.json" />
   <title>Tavern · AI RP 框架演示</title>
   <link rel="icon" type="image/png" href="favicon.png" />
-  <link rel="stylesheet" href="styles.css?v=20260905c" />
+  <link rel="stylesheet" href="styles.css?v=20260905d" />
 </head>
 <body data-theme="vibrancy" data-layout="classic">
   <canvas id="bg-fx" aria-hidden="true"></canvas>
@@ -372,23 +372,13 @@
         <div class="field"><label for="pg-first-mes">开场白（新会话）</label><textarea id="pg-first-mes" rows="2"></textarea></div>
       </div>
       <p class="hint pg-architecture-note">叙事提示词正文只从下方 prompts 读取；顺序与开关只由 prompt_order 决定。回复选项是上方可关闭的显式扩展。“历史后指令 / Post-History Instructions”现在也是列表中的固定提示词，可直接关闭。</p>
-      <section id="pg-reply-options" class="pg-reply-options" aria-labelledby="pg-reply-options-title">
-        <div class="pg-section-head"><strong id="pg-reply-options-title">普通 RP 回复预设选项</strong><span class="hint-inline">随本预设保存 / 导出</span></div>
-        <div class="pg-reply-options-controls">
-          <label class="check" for="pg-reply-options-enabled"><input id="pg-reply-options-enabled" type="checkbox" />开启底部 AI 回复选项</label>
-          <div class="field pg-reply-options-count"><label for="pg-reply-options-count">每轮选项数（1–8）</label><input id="pg-reply-options-count" type="number" min="1" max="8" step="1" value="4" /></div>
-          <button class="ghost-btn small" id="pg-reply-options-reset" type="button">恢复默认</button>
-        </div>
-        <div class="field"><label for="pg-reply-options-prompt">回复选项提示词</label><textarea id="pg-reply-options-prompt" rows="5" placeholder="告诉 AI 如何在正文末尾生成回复选项…"></textarea></div>
-        <div class="field"><label for="pg-reply-options-assistant">末尾 char 引导消息</label><textarea id="pg-reply-options-assistant" rows="3" placeholder="留空继承默认；支持 {count}、{min}、{max}"></textarea><p class="hint">作为临时 Assistant 历史加入请求，不显示、不存档；与 assistant_prefill 合成一条消息。掉格式不会追加纠正请求。若接口要求 User 结尾，请调整接口消息兼容配置。</p></div>
-        <p id="pg-reply-options-note" class="hint">可用 {count}、{min}、{max} 代入选项数量；省略标签协议时会自动补上默认结构要求。</p>
-      </section>
-      <details id="pg-st-settings" class="pg-st-settings">
-        <summary>SillyTavern 预设设置</summary>
-        <p class="hint">采样参数留空时继承“连接”页；填写后随当前预设应用。模板字段使用 ST 原字段名与占位符；其余已导入但尚未实现的 ST 字段仍会原样导出。</p>
+      <details id="pg-st-settings" class="pg-st-settings" open>
+        <summary>生成参数与 Token · SillyTavern 预设</summary>
+        <p class="hint">采样参数留空时继承“连接”页；填写后随当前预设应用，保存后生效；优先于连接默认值。上下文上限包含回复预算：使用本地估算裁剪最旧历史，保留本轮输入与提示词；估算可能与模型分词不同。模板字段使用 ST 原字段名与占位符；其余已导入但尚未实现的 ST 字段仍会原样导出。</p>
         <div class="pg-st-settings-grid">
-          <div class="field"><label for="pg-param-temperature">temperature</label><input id="pg-param-temperature" type="number" min="0" max="2" step="0.05" placeholder="继承连接设置" /></div>
-          <div class="field"><label for="pg-param-max-tokens">openai_max_tokens</label><input id="pg-param-max-tokens" type="number" min="1" max="1000000" step="1" placeholder="继承连接设置" /></div>
+          <div class="field"><label for="pg-param-context">上下文 Token 上限</label><input id="pg-param-context" type="number" min="1" max="10000000" step="1" placeholder="不限，仍受发送历史条数限制" /></div>
+          <div class="field"><label for="pg-param-temperature">温度 temperature</label><input id="pg-param-temperature" type="number" min="0" max="2" step="0.05" placeholder="继承连接设置" /></div>
+          <div class="field"><label for="pg-param-max-tokens">回复 Token 上限</label><input id="pg-param-max-tokens" type="number" min="1" max="1000000" step="1" placeholder="继承连接设置" /></div>
           <div class="field"><label for="pg-param-top-p">top_p</label><input id="pg-param-top-p" type="number" min="0" max="1" step="0.01" placeholder="继承连接设置" /></div>
           <div class="field"><label for="pg-param-frequency-penalty">frequency_penalty</label><input id="pg-param-frequency-penalty" type="number" min="-2" max="2" step="0.05" placeholder="继承连接设置" /></div>
           <div class="field"><label for="pg-param-presence-penalty">presence_penalty</label><input id="pg-param-presence-penalty" type="number" min="-2" max="2" step="0.05" placeholder="继承连接设置" /></div>
@@ -414,8 +404,21 @@
           <div class="field"><label for="pg-new-example-prompt">new_example_chat_prompt</label><textarea id="pg-new-example-prompt" rows="2" placeholder="例如：[Example Chat]"></textarea></div>
         </div>
         <div class="field"><label for="pg-assistant-prefill">assistant_prefill <span class="hint-inline">可空；作为最后一条 Assistant 消息</span></label><textarea id="pg-assistant-prefill" rows="2"></textarea></div>
+        <button class="btn gold" id="pg-params-save" type="button">保存预设参数</button>
+        <p id="pg-params-status" class="hint" role="status"></p>
         <button class="ghost-btn small" id="pg-st-settings-reset" type="button">恢复 ST 模板默认并继承采样参数</button>
       </details>
+      <section id="pg-reply-options" class="pg-reply-options" aria-labelledby="pg-reply-options-title">
+        <div class="pg-section-head"><strong id="pg-reply-options-title">普通 RP 回复预设选项</strong><span class="hint-inline">随本预设保存 / 导出</span></div>
+        <div class="pg-reply-options-controls">
+          <label class="check" for="pg-reply-options-enabled"><input id="pg-reply-options-enabled" type="checkbox" />开启底部 AI 回复选项</label>
+          <div class="field pg-reply-options-count"><label for="pg-reply-options-count">每轮选项数（1–8）</label><input id="pg-reply-options-count" type="number" min="1" max="8" step="1" value="4" /></div>
+          <button class="ghost-btn small" id="pg-reply-options-reset" type="button">恢复默认</button>
+        </div>
+        <div class="field"><label for="pg-reply-options-prompt">回复选项提示词</label><textarea id="pg-reply-options-prompt" rows="5" placeholder="告诉 AI 如何在正文末尾生成回复选项…"></textarea></div>
+        <div class="field"><label for="pg-reply-options-assistant">末尾 char 引导消息</label><textarea id="pg-reply-options-assistant" rows="3" placeholder="留空继承默认；支持 {count}、{min}、{max}"></textarea><p class="hint">作为临时 Assistant 历史加入请求，不显示、不存档；与 assistant_prefill 合成一条消息。掉格式不会追加纠正请求。若接口要求 User 结尾，请调整接口消息兼容配置。</p></div>
+        <p id="pg-reply-options-note" class="hint">可用 {count}、{min}、{max} 代入选项数量；省略标签协议时会自动补上默认结构要求。</p>
+      </section>
       <section id="pg-regex-bindings" class="pg-regex-bindings" aria-labelledby="pg-regex-bindings-title">
         <div class="pg-section-head"><strong id="pg-regex-bindings-title">绑定输出正则</strong><span class="hint-inline">随本预设保存 / 导出</span></div>
         <p class="hint">勾选当前模式的自定义正则后，它会复制到本预设；运行时只执行一次。导入 ST 预设自带的正则会显示在下方并保留。</p>
@@ -467,7 +470,7 @@
       <div class="field"><label for="regex-name">名称</label><input id="regex-name" placeholder="例如：隐藏思维链标签" /></div>
       <div class="field"><label for="regex-find">匹配表达式 <span class="hint-inline">支持 /表达式/gi 或普通正则</span></label><input id="regex-find" placeholder="例如：/<think>[\\s\\S]*?<\\/think>/g" /></div>
       <div class="field"><label for="regex-replace">替换为</label><input id="regex-replace" placeholder="留空表示删除匹配内容" /></div>
-      <div class="field"><label for="regex-trim">额外移除片段 <span class="hint-inline">逗号分隔</span></label><input id="regex-trim" placeholder="例如：<analysis>, </analysis>" /></div>
+      <div class="field"><label for="regex-trim">额外移除片段 <span class="hint-inline">每行一段（Trim Out）</span></label><textarea id="regex-trim" rows="2" placeholder="例如：&lt;analysis&gt;"></textarea></div>
       <fieldset class="regex-stage-field"><legend>作用于（对标 SillyTavern）</legend><div id="regex-stages" class="regex-stage-grid">
         <label class="check"><input type="checkbox" value="user_input" /> 用户输入</label>
         <label class="check"><input type="checkbox" value="ai_response" /> AI 原始回复</label>
@@ -484,8 +487,8 @@
         <label class="field regex-substitute-field"><span>匹配宏</span><select id="regex-substitute"><option value="0">不替换</option><option value="1" selected>替换（原值）</option><option value="2">替换（正则转义）</option></select></label>
       </div>
       <div class="field row-inline regex-depth-row">
-        <label for="regex-min-depth">最小深度</label><input id="regex-min-depth" type="number" min="0" placeholder="不限" />
-        <label for="regex-max-depth">最大深度</label><input id="regex-max-depth" type="number" min="0" placeholder="不限" />
+        <label for="regex-min-depth">最小深度</label><input id="regex-min-depth" type="number" min="-1" placeholder="不限" />
+        <label for="regex-max-depth">最大深度</label><input id="regex-max-depth" type="number" min="-1" placeholder="不限" />
         <label class="check"><input id="regex-run-on-edit" type="checkbox" /> 编辑消息时运行</label>
       </div>
       <div class="field row-inline">
@@ -498,6 +501,7 @@
         <button class="ghost-btn" id="regex-del">删除正则</button>
         <button class="ghost-btn" id="regex-reset">＋ 新建</button>
       </div>
+      <p class="hint">生成 HTML/CSS：勾选 AI 原始回复 + 仅显示格式化。删除请求中的片段：替换为空 + 仅提示词格式化。两个格式化开关都勾选时修改显示和请求，不改存档。深度 0 是最后一条消息，留空或 -1 才是不限。旧规则已永久改写且无原始回复时，无法自动还原。</p>
       <p id="regex-note" class="hint">预设正则只读；点击「复制为自定义」后可调整。导入/导出兼容 SillyTavern regex_scripts。</p>
     </div>
   </div>
@@ -779,30 +783,36 @@
               <option value="qwen2.5"></option>
             </datalist>
           </div>
+          <section class="effective-parameters" aria-label="聊天实际生效参数">
+            <strong>聊天实际生效参数</strong><p id="s-effective-source" class="hint"></p>
+            <dl id="s-effective-params"></dl>
+            <button id="s-edit-active-preset" class="ghost-btn" type="button">编辑当前预设参数</button>
+            <p class="hint">下方为连接默认值；预设留空才继承。API 测试和摘要使用各自的小额预算。</p>
+          </section>
           <div class="field row2">
             <div class="field">
               <label for="s-temperature">温度 <span id="s-temp-val" class="hint-inline">0.9</span></label>
-              <input id="s-temperature" type="range" min="0" max="2" step="0.1" value="0.9" />
+              <input id="s-temperature" type="range" min="0" max="2" step="any" value="0.9" />
             </div>
             <div class="field">
-              <label for="s-max-tokens">最大 Token <span class="hint-inline">所有文本生成请求共用</span></label>
-              <input id="s-max-tokens" type="number" min="64" max="32768" step="16" value="32000" />
+              <label for="s-max-tokens">回复 Token 上限 <span class="hint-inline">连接默认，预设可覆盖</span></label>
+              <input id="s-max-tokens" type="number" min="1" max="1000000" step="1" value="32000" />
             </div>
           </div>
           <div class="field row2">
             <div class="field">
               <label for="s-top-p">top_p <span id="s-top-p-val" class="hint-inline">1.0</span></label>
-              <input id="s-top-p" type="range" min="0" max="1" step="0.05" value="1" />
+              <input id="s-top-p" type="range" min="0" max="1" step="any" value="1" />
             </div>
             <div class="field">
-              <label for="s-freq-p">频率惩罚 frequency_penalty</label>
-              <input id="s-freq-p" type="range" min="-2" max="2" step="0.1" value="0" />
+              <label for="s-freq-p">频率惩罚 <span id="s-freq-p-val" class="hint-inline">0</span></label>
+              <input id="s-freq-p" type="range" min="-2" max="2" step="any" value="0" />
             </div>
           </div>
           <div class="field row2">
             <div class="field">
-              <label for="s-pres-p">存在惩罚 presence_penalty</label>
-              <input id="s-pres-p" type="range" min="-2" max="2" step="0.1" value="0" />
+              <label for="s-pres-p">存在惩罚 <span id="s-pres-p-val" class="hint-inline">0</span></label>
+              <input id="s-pres-p" type="range" min="-2" max="2" step="any" value="0" />
             </div>
             <div class="field">
               <label for="s-seed">seed <span class="hint-inline">-1 随机</span></label>
@@ -1776,8 +1786,8 @@
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
   <script src="vendor/mapgen2.bundle.js"></script>
-  <script src="mapgen.js?v=20260905c"></script>
-  <script src="app.js?v=20260905c"></script>
+  <script src="mapgen.js?v=20260905d"></script>
+  <script src="app.js?v=20260905d"></script>
   <script>
     // PWA：注册 service worker（仅 HTTPS / localhost 生效，套壳 APK 可用）
     if ('serviceWorker' in navigator) {

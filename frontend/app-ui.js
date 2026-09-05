@@ -591,6 +591,23 @@ function removeChatBackground() {
   saveChatBackgroundSettings();
 }
 
+function renderEffectiveParameters() {
+  const host = $('s-effective-params');
+  if (!host) return;
+  const resolved = resolvePromptPreset();
+  const body = effectiveChatParameters(resolved.preset);
+  const base = effectiveChatParameters(null);
+  $('s-effective-source').textContent = `当前预设：${resolved.name || '全局默认'}；角色 / 世界卡绑定优先于模式选择。`;
+  const fields = { temperature: '温度', max_tokens: '回复 Token', top_p: 'top_p', frequency_penalty: '频率惩罚', presence_penalty: '存在惩罚', seed: 'seed', stream: '流式', top_k: 'top_k', top_a: 'top_a', min_p: 'min_p', repetition_penalty: '重复惩罚', reasoning_effort: '思考强度', stop: '停止词' };
+  const params = resolved.preset?.modelParameters || {};
+  host.innerHTML = Object.entries(fields).map(([key, label]) => {
+    const presetKey = key === 'max_tokens' ? ['max_completion_tokens', 'openai_max_tokens', 'max_tokens'] : key === 'stream' ? ['stream_openai', 'stream'] : [key];
+    const override = presetKey.some(name => params[name] !== undefined && params[name] !== null && params[name] !== '');
+    const value = body[key] === undefined ? '不发送' : JSON.stringify(body[key]);
+    return `<dt>${esc(label)}</dt><dd>${esc(value)} <small>${override ? '预设' : (base[key] === undefined ? '' : '连接默认')}</small></dd>`;
+  }).join('') + `<dt>上下文 Token</dt><dd>${esc(String(params.openai_max_context || '不限'))} <small>本地估算</small></dd>`;
+}
+
 function fillSettingsForm() {
   const s = settings;
   $('s-preset').value = s.preset || '';
@@ -604,6 +621,8 @@ function fillSettingsForm() {
   $('s-top-p-val').textContent = s.topP;
   $('s-freq-p').value = s.frequencyPenalty;
   $('s-pres-p').value = s.presencePenalty;
+  if ($('s-freq-p-val')) $('s-freq-p-val').textContent = s.frequencyPenalty;
+  if ($('s-pres-p-val')) $('s-pres-p-val').textContent = s.presencePenalty;
   $('s-seed').value = s.seed;
   $('s-history').value = s.history;
   $('s-stream').checked = !!s.stream;
@@ -639,6 +658,7 @@ function fillSettingsForm() {
   fillUiThemeForm();
   fillChatBackgroundForm();
   fillUiTransparencyForm();
+  renderEffectiveParameters();
 }
 
 function readSettingsForm() {
@@ -646,9 +666,11 @@ function readSettingsForm() {
   settings.baseUrl = $('s-base-url').value.trim();
   settings.apiKey = $('s-api-key').value.trim();
   settings.model = $('s-model').value.trim();
-  settings.temperature = parseFloat($('s-temperature').value) || 0.9;
+  const temperature = parseFloat($('s-temperature').value);
+  settings.temperature = Number.isFinite(temperature) ? temperature : 0.9;
   settings.maxTokens = parseInt($('s-max-tokens').value, 10) || 1024;
-  settings.topP = parseFloat($('s-top-p').value) ?? 1;
+  const topP = parseFloat($('s-top-p').value);
+  settings.topP = Number.isFinite(topP) ? topP : 1;
   settings.frequencyPenalty = parseFloat($('s-freq-p').value) || 0;
   settings.presencePenalty = parseFloat($('s-pres-p').value) || 0;
   settings.seed = parseInt($('s-seed').value, 10);
@@ -682,6 +704,7 @@ function readSettingsForm() {
   readTypographyForm();
   saveSettings();
   saveJSON(LS_PREFS, prefs);
+  renderEffectiveParameters();
   return true;
 }
 
@@ -1579,7 +1602,7 @@ function renderMessages() {
         chat.appendChild(el);
         continue;
       }
-      const tavernContent = renderOutputContent(m.rawContent ?? m.content, 'tavern', { fromRaw: typeof m.rawContent === 'string' });
+      const tavernContent = renderOutputContent(m.rawContent ?? m.content, 'tavern', { fromRaw: typeof m.rawContent === 'string', depth: msgs.length - msgs.indexOf(m) - 1 });
       const bubbleDialogue = !!prefs.tavernDialogueBubbles;
       const segs = bubbleDialogue ? splitNarration(tavernContent) : [{ type: 'narration', text: tavernContent }];
       segs.forEach((seg, si) => {
@@ -1625,7 +1648,7 @@ function renderMessages() {
       if (sb) sb.addEventListener('click', () => saveEdit(m));
       if (cb) cb.addEventListener('click', () => cancelEdit(m));
     } else {
-      const { html, md } = renderBubble(m.content);
+      const { html, md } = renderBubble(applyRegexStage(m.content, 'chat_display_persisted', { role: 'user', depth: msgs.length - msgs.indexOf(m) - 1 }));
       el.innerHTML = `<div class="bubble${md ? ' md' : ''}" data-tavern-rendered>${html}</div>`;
       attachMsgActions(el, m,
         m.role === 'user' ? { edit: true, copy: true, del: true }
@@ -3672,6 +3695,11 @@ function bindEvents() {
   $('pg-new').addEventListener('click', pgNew);
   $('pg-del').addEventListener('click', () => { if (pgEditingName) pgDelete(pgEditingName); });
   $('pg-save').addEventListener('click', pgSave);
+  $('pg-params-save').addEventListener('click', () => {
+    pgSave();
+    const active = resolvePromptPreset().name || GLOBAL_PRESET_KEY;
+    $('pg-params-status').textContent = active === pgEditingName ? '已保存，下一次聊天请求使用这些参数。' : '已保存。当前聊天使用另一预设；请在预设列表选择使用，或修改角色卡绑定。';
+  });
   $('pg-mode').addEventListener('change', () => { syncPGReplyOptionsEditor(); renderPGRegexBindings(); });
   $('pg-reply-options-enabled').addEventListener('change', markPGReplyOptionsCustomized);
   $('pg-reply-options-count').addEventListener('input', markPGReplyOptionsCustomized);
@@ -4141,6 +4169,18 @@ function bindEvents() {
   });
   $('s-temperature').addEventListener('input', () => { $('s-temp-val').textContent = $('s-temperature').value; });
   $('s-top-p').addEventListener('input', () => { $('s-top-p-val').textContent = $('s-top-p').value; });
+  ['s-freq-p', 's-pres-p'].forEach(id => $(id).addEventListener('input', () => { $(`${id}-val`).textContent = $(id).value; }));
+  $('s-edit-active-preset').addEventListener('click', () => {
+    if (readSettingsForm() === false) return;
+    const name = resolvePromptPreset().name || GLOBAL_PRESET_KEY;
+    closeSettings();
+    switchView('prompts');
+    selectPresetForEdit(name);
+    setMobileManagerPanel('prompt-mgr', 'detail');
+    $('pg-st-settings').open = true;
+    $('pg-st-settings').scrollIntoView({ block: 'start' });
+    $('pg-param-temperature').focus();
+  });
   $('btn-fetch-models').addEventListener('click', fetchModels);
   $('s-profile').addEventListener('change', profileSwitch);
   $('btn-profile-save').addEventListener('click', profileSave);

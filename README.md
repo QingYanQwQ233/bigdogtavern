@@ -17,6 +17,16 @@ node server.js
 
 打开 <http://localhost:3000>，然后在「设置 → 连接」中填写 OpenAI 兼容接口的 Base URL、API Key 和模型。支持 OpenAI、DeepSeek、OpenRouter、Ollama、LM Studio 以及其他 `/chat/completions` 兼容服务。
 
+## RP 正则与预设参数
+
+「设置 → 连接」显示当前聊天的实际参数及来源，可直接打开当前预设；角色卡绑定的预设优先。预设中的生成参数留空继承连接默认，填写后保存即可覆盖，温度 `0` 和空停止词数组 `[]` 都有效。回复 Token 是输出上限；上下文 Token 包含输入与回复预算，按本地估算裁剪最旧历史回合，保留本轮输入。估算不等于模型实际分词，提示词与本轮输入本身超预算时会提示调整设置。
+
+- **只美化聊天**：AI 原始回复 + 仅显示格式化；HTML/CSS 不应勾选历史/System/世界书作为替换目标。
+- **从请求中删除片段**：选择对应的 AI/用户来源，替换为空，勾选仅提示词格式化。显示格式化与提示词格式化都勾选时，同时改变两处但不写回存档。
+- **深度范围**：`0` 仅最后一条，留空或 `-1` 表示不限；所有来源都不勾选时不自动执行。Trim Out 每行一段。
+
+旧版已保存的显示 HTML，仅在有原始快照且能精确匹配当前规则时恢复请求文本；无法推断被永久替换的原文。兼容语义参考 [SillyTavern 正则文档](https://docs.sillytavern.app/extensions/regex/) 与 [生成设置](https://docs.sillytavern.app/usage/common-settings/)。未实现的 ST 字段仍仅保留用于导出，不代表支持所有 ST 功能。
+
 ## Android APK
 
 推送到 `main` 会触发 [Build Tavern APK](.github/workflows/android-apk.yml)。功能分支已推送时，可在 GitHub 的 **Actions → Build Tavern APK → Run workflow** 选择该分支手动构建。构建完成后，在对应运行页下载 `tavern-apk` artifact；当前产物是已签名的 Debug APK，不会自动发布为 GitHub Release。

@@ -4,6 +4,7 @@ function applyPromptPresetRequestSettings(body, preset) {
   if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters)) return body;
   const assignNumber = (sourceKey, targetKey = sourceKey, test = () => true) => {
     if (!Object.prototype.hasOwnProperty.call(parameters, sourceKey)) return;
+    if (parameters[sourceKey] === null || parameters[sourceKey] === '') return;
     const value = Number(parameters[sourceKey]);
     if (Number.isFinite(value) && test(value)) body[targetKey] = value;
   };
@@ -49,9 +50,8 @@ function squashConsecutiveSystemMessages(messages) {
   return result;
 }
 
-function buildPayload({ test = false } = {}) {
+function effectiveChatParameters(preset = resolvePromptPreset()?.preset, { test = false } = {}) {
   const s = settings;
-  if (!s.baseUrl) throw new Error('请先在设置 → 连接中填写 Base URL');
   const body = {
     model: s.model || 'default',
     temperature: s.temperature,
@@ -62,16 +62,52 @@ function buildPayload({ test = false } = {}) {
     stream: test ? false : !!s.stream,
   };
   if (s.seed != null && s.seed >= 0) body.seed = s.seed;
-  const activePromptPreset = test ? null : resolvePromptPreset()?.preset;
-  if (!test) applyPromptPresetRequestSettings(body, activePromptPreset);
   if (!test && prefs.cotEnabled) {
     body.thinking = { type: 'enabled' };
     body.reasoning_effort = prefs.cotEffort || 'low';
-    body.max_tokens = Math.max(body.max_tokens || 1024, 2048); // 思维链模式需要更多生成预算
   }
   if (!test && prefs.stop && prefs.stop.trim()) {
     body.stop = prefs.stop.split(',').map(x => x.trim()).filter(Boolean);
   }
+  if (!test) applyPromptPresetRequestSettings(body, preset);
+  return body;
+}
+
+// Offline estimate, not a provider tokenizer. Never truncate an individual message.
+function estimateChatTokens(messages) {
+  return 3 + messages.reduce((total, message) => {
+    const text = String(message.content || '');
+    const ascii = (text.match(/[\x00-\x7f]/g) || []).length;
+    return total + 4 + Math.ceil(ascii / 4 + (Array.from(text).length - ascii) * 1.5);
+  }, 0);
+}
+
+function applyPresetContextBudget(messages, preset, responseTokens) {
+  const context = Number(preset?.modelParameters?.openai_max_context);
+  if (!Number.isFinite(context) || context <= 0) return messages;
+  const budget = Math.floor(context) - Number(responseTokens || 0);
+  const result = messages.slice();
+  while (estimateChatTokens(result) > budget) {
+    const first = result.findIndex(message => message._history);
+    if (first < 0) throw new Error('预设上下文预算不足以容纳提示词、本轮输入和回复预算。请增加上下文上限或减少回复 Token；本轮输入已保留。');
+    // Remove the oldest history turn together, leaving prompts and current input intact.
+    let seenAssistant = result[first].role === 'assistant';
+    result.splice(first, 1);
+    let next = result.findIndex(message => message._history);
+    while (next >= 0 && !(seenAssistant && result[next].role === 'user')) {
+      if (result[next].role === 'assistant') seenAssistant = true;
+      result.splice(next, 1);
+      next = result.findIndex(message => message._history);
+    }
+  }
+  return result;
+}
+
+function buildPayload({ test = false } = {}) {
+  const s = settings;
+  if (!s.baseUrl) throw new Error('请先在设置 → 连接中填写 Base URL');
+  const activePromptPreset = test ? null : resolvePromptPreset()?.preset;
+  const body = effectiveChatParameters(activePromptPreset, { test });
   if (test) {
     body.messages = [{ role: 'user', content: 'ping' }];
     return { baseUrl: s.baseUrl, apiKey: s.apiKey, body, wi: [] };
@@ -91,6 +127,8 @@ function buildPayload({ test = false } = {}) {
   const assistantTail = [buildTavernReplyOptionsAssistantMessage(activePromptPreset), assistantPrefill]
     .filter(value => value && value.trim()).join('\n\n');
   if (assistantTail) body.messages.push({ role: 'assistant', content: assistantTail });
+  body.messages = body.messages.filter(message => String(message.content ?? '').trim());
+  body.messages = applyPresetContextBudget(body.messages, activePromptPreset, body.max_tokens);
   if (activePromptPreset?.modelParameters?.squash_system_messages === true) {
     body.messages = squashConsecutiveSystemMessages(body.messages);
   }

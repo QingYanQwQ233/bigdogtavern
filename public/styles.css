@@ -2864,6 +2864,11 @@ body.world-setup-extension-mode .rpg-extension-head {
 .pg-st-settings-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 10px; }
 .pg-st-settings-grid .field { margin-bottom: 0; }
 .pg-st-settings textarea { width: 100%; resize: vertical; }
+.effective-parameters { margin: 12px 0; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+.effective-parameters dl { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); margin: 10px 0; }
+.effective-parameters dt, .effective-parameters dd { margin: 0; padding: 4px 0; overflow-wrap: anywhere; }
+.effective-parameters dd small { color: var(--muted); margin-left: 6px; }
+#pg-params-save, #s-edit-active-preset { min-height: 44px; }
 .pg-regex-bindings { margin: 14px 0; padding: 12px; border: 1px solid rgba(var(--accent-rgb), 0.28); border-radius: 12px; background: rgba(var(--accent-rgb), 0.045); }
 .pg-regex-bindings .hint { margin: 7px 0 10px; }
 .pg-regex-binding-list { display: grid; gap: 6px; }

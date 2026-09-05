@@ -57,3 +57,39 @@ assert.strictEqual(JSON.stringify([...context.check.exportRule.placement]), JSON
 assert.strictEqual(context.check.exportRule.substituteRegex, 2);
 assert.strictEqual(context.switchCheck, 'Abbg');
 console.log('regex pipeline check passed');
+
+// ST source placement and ephemerality are independent, including both flags and no sources.
+for (const markdownOnly of [false, true]) for (const promptOnly of [false, true]) {
+  const result = vm.runInContext(`(() => {
+    const rule = normalizeOutputRegexRule({ placement: [2], markdownOnly: ${markdownOnly}, promptOnly: ${promptOnly} }, 0, 'character');
+    return ['ai_response', 'chat_display', 'prompt_history', 'system_prompt', 'world_info', 'user_input'].map(stage => regexRuleAppliesToStage(rule, stage));
+  })()`, context);
+  assert.deepStrictEqual([...result], [!markdownOnly && !promptOnly, markdownOnly || !promptOnly, promptOnly, false, false, false]);
+}
+assert.strictEqual(vm.runInContext(`regexRuleAppliesToStage(normalizeOutputRegexRule({ placement: [2], promptOnly: true }), 'prompt_history', { role: 'user' })`, context), false);
+assert.strictEqual(vm.runInContext(`regexRuleAppliesToStage(normalizeOutputRegexRule({ placement: [1], promptOnly: true }), 'prompt_history', { role: 'user' })`, context), true);
+assert.strictEqual(vm.runInContext(`regexRuleAppliesToStage(normalizeOutputRegexRule({ placement: [], markdownOnly: true, promptOnly: true }), 'chat_display')`, context), false);
+assert.strictEqual(vm.runInContext(`serializeOutputRegexRule(normalizeOutputRegexRule({ placement: [] })).placement.length`, context), 0);
+assert.strictEqual(vm.runInContext(`normalizeOutputRegexRule({ maxDepth: -1 }).maxDepth`, context), null);
+assert.strictEqual(vm.runInContext(`regexRuleAppliesToStage(normalizeOutputRegexRule({ placement: [2], promptOnly: true, maxDepth: 0 }), 'prompt_history', { depth: 1 })`, context), false);
+assert.strictEqual(vm.runInContext(`applyOutputRegexRules('REMOVE ALL', normalizeOutputRegexRules([{ findRegex: '.*', flags: 'gs', replaceString: '' }]))`, context), '');
+
+vm.runInContext(`
+  prefs.outputRegex = { tavern: [] };
+  characters[0].cardExtensions = { regex_scripts: [{ placement: [2], markdownOnly: true, findRegex: '/<aether>(.*?)<\\/aether>/g', replaceString: '<style>.card{color:red}</style><div>$1</div>' }] };
+  const original = '<aether>RAW STATE</aether>';
+  const savedDisplay = '<style>.card{color:red}</style><div>RAW STATE</div>';
+  const message = { role: 'assistant', content: savedDisplay, rawContent: original };
+  globalThis.isolation = {
+    persisted: processAIOutput(original).content,
+    display: renderOutputContent(original),
+    repairedHistory: regexHistoryContent(message),
+    stored: message.content,
+    edited: regexHistoryContent({ ...message, content: 'manual edit' }),
+  };
+`, context);
+assert.strictEqual(context.isolation.persisted, '<aether>RAW STATE</aether>');
+assert.match(context.isolation.display, /<style>/);
+assert.strictEqual(context.isolation.repairedHistory, '<aether>RAW STATE</aether>');
+assert.match(context.isolation.stored, /<style>/, 'request recovery must not mutate storage');
+assert.strictEqual(context.isolation.edited, 'manual edit');
