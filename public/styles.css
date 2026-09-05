@@ -1974,6 +1974,31 @@ body[data-theme="vibrancy"] .dropdown { box-shadow: none; }
 .settings-ui-intro { display: grid; gap: 4px; padding: 10px 12px; margin-bottom: 14px; border: 1px solid rgba(var(--accent-rgb), 0.24); border-radius: var(--radius); background: rgba(var(--accent-rgb), 0.06); }
 .settings-ui-intro strong { color: var(--accent); }
 .settings-ui-intro span { color: var(--muted); font-size: 12px; line-height: 1.5; }
+/* 背景只绘制在聊天滚动容器上，不增加覆盖点击的层，也不改变消息透明度。 */
+#chat.has-chat-background, .chat-background-preview.has-chat-background {
+  background-color: var(--bg-0);
+  background-image: linear-gradient(rgba(var(--bg-0-rgb), var(--chat-background-overlay)), rgba(var(--bg-0-rgb), var(--chat-background-overlay))), var(--chat-background-image);
+  background-size: 100% 100%, var(--chat-background-fit);
+  background-position: center, var(--chat-background-position);
+  background-repeat: no-repeat;
+  background-attachment: scroll;
+}
+.chat-background-settings { margin-bottom: 20px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); }
+.chat-background-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+.chat-background-heading h3 { margin: 0; font-size: 15px; color: var(--text); }
+.chat-background-preview { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 12px; min-height: 180px; padding: 16px; overflow: hidden; border: 1px solid var(--line-soft); border-radius: var(--radius); background: var(--bg-0); }
+.chat-background-preview-note { align-self: center; padding: 4px 8px; border-radius: 6px; background: rgba(var(--panel-rgb), .9); color: var(--muted); font-size: 11px; text-align: center; }
+.chat-background-sample { max-width: 90%; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--text); font-size: 13px; line-height: 1.6; }
+.chat-background-sample.user { align-self: flex-end; border-color: rgba(var(--accent-rgb), .4); }
+.chat-background-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+#chat-background-name { flex: 1 1 160px; min-width: 0; overflow-wrap: anywhere; }
+.chat-background-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.chat-background-controls select { width: 100%; min-width: 0; }
+#chat-background-status.err { color: var(--danger); }
+@media (max-width: 480px) {
+  .chat-background-settings { padding: 10px; }
+  .chat-background-controls { grid-template-columns: 1fr; gap: 0; }
+}
 .ui-theme-preset-info { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 42px; padding: 8px 10px; border: 1px solid var(--line-soft); border-radius: var(--radius); background: rgba(var(--bg-0-rgb), 0.22); }
 .ui-theme-preset-info .hint { flex: 1; line-height: 1.45; }
 .theme-color-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }

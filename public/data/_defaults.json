@@ -38,6 +38,7 @@
       "max": 4,
       "count": 4,
       "label": "AI 回复选项",
+      "assistantMessage": "好的，我会先继续当前剧情并完整写出本轮角色扮演正文，再在末尾追加唯一的 <tavern_options> 标签，内含恰好 {count} 个行动建议组成的 JSON 字符串数组。我会遵守上述选项要求，不使用代码围栏，也不替玩家决定行动。现在开始本轮回复。",
       "noOptions": "（等待 AI 生成可选行动…）",
       "instruction": "【AI 回复选项协议】每轮故事正文完成后，在最末尾追加唯一一个 <tavern_options> JSON 标签。标签内直接放置一个长度恰好为 {count} 的 JSON 字符串数组；每项都要简短、具体、基于当前场景且可由玩家执行，不得使用对象、编号、注释或省略号。不要把选项写进 Markdown 正文，不要使用代码围栏，不要输出标签外解释。选项只是建议，不是强制主线；玩家始终可以输入未列出的任意行动。不要替玩家决定台词、思想、感情或关键行动。"
     }
@@ -644,6 +645,14 @@
     "history": 20,
     "stream": true,
     "firstMes": "",
+    "chatBackground": {
+      "enabled": false,
+      "path": "",
+      "name": "",
+      "fit": "cover",
+      "position": "center",
+      "overlay": 0.55
+    },
     "imageGen": {
       "enabled": false,
       "kind": "openai",

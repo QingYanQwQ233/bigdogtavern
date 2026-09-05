@@ -89,8 +89,8 @@ vm.runInContext(`
     tavernOptionsEscaped: parseTavernReplyOutput('正文。\\<tavern_options>["A","B","C","D"]\\</tavern_options>', promptPresets['旧预设']),
     tavernOptionsDuplicate: parseTavernReplyOutput('正文。<tavern_options>["A"]</tavern_options>尾部<tavern_options>["B"]</tavern_options>', promptPresets['旧预设']),
     tavernOptionsMalformed: parseTavernReplyOutput('正文。<tavern_options>{oops}</tavern_options>', promptPresets['旧预设']),
-    tavernNeedsRepair: tavernReplyNeedsOptionRepair(parseTavernReplyOutput('正文。', promptPresets['旧预设']), promptPresets['旧预设']),
-    tavernDoesNotNeedRepair: tavernReplyNeedsOptionRepair(parseTavernReplyOutput('正文。<tavern_options>["A","B","C","D"]</tavern_options>', promptPresets['旧预设']), promptPresets['旧预设']),
+    tavernNeedsRepair: tavernReplyOptionsInvalid(parseTavernReplyOutput('正文。', promptPresets['旧预设']), promptPresets['旧预设']),
+    tavernDoesNotNeedRepair: tavernReplyOptionsInvalid(parseTavernReplyOutput('正文。<tavern_options>["A","B","C","D"]</tavern_options>', promptPresets['旧预设']), promptPresets['旧预设']),
     customReplyOptions: (() => {
       const custom = normalizePromptPreset('自定义选项', { mode: 'tavern', replyOptions: { enabled: true, count: 2, instruction: 'CUSTOM {count}/{min}/{max}' } });
       return { config: tavernReplyOptionsConfig(custom), rules: tavernReplyOptionRules(custom), prompt: buildTavernReplyOptionsPrompt(custom) };
@@ -100,7 +100,7 @@ vm.runInContext(`
       return {
         prompt: buildTavernReplyOptionsPrompt(disabled),
         parsed: parseTavernReplyOutput('正文。<tavern_options>["A","B"]</tavern_options>', disabled),
-        repair: tavernReplyNeedsOptionRepair(parseTavernReplyOutput('正文。', disabled), disabled),
+        repair: tavernReplyOptionsInvalid(parseTavernReplyOutput('正文。', disabled), disabled),
       };
     })(),
     migratedReplyOptions: normalizePromptPreset('旧协议预设', {
@@ -601,8 +601,8 @@ assert.match(context.check.blocks.system, /保持轻快/);
 assert.doesNotMatch(context.check.blocks.post, /保持轻快/);
 assert.match(context.check.blocks.post, /OPT 4/);
 const embeddedOptionPrompt = JSON.stringify(context.check.embeddedOptionBlocks.promptMessages) + context.check.embeddedOptionBlocks.post;
-assert.strictEqual((embeddedOptionPrompt.match(/<tavern_options\b/gi) || []).length, 1);
-assert.doesNotMatch(embeddedOptionPrompt, /OPT 4/);
+assert.strictEqual((embeddedOptionPrompt.match(/<tavern_options\b/gi) || []).length, 2);
+assert.match(context.check.embeddedOptionBlocks.post, /OPT 4/);
 assert.strictEqual((context.check.blocks.system.match(/月港终年有雾/g) || []).length, 1);
 assert.deepStrictEqual(JSON.parse(JSON.stringify(context.check.tavernOptions.options)), ['A', 'B', 'C', 'D']);
 assert.strictEqual(context.check.tavernOptions.content, '正文。');

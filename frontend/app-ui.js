@@ -378,6 +378,169 @@ function resetUiTheme() {
   $('ui-theme-status').className = 'hint ok';
 }
 
+/* ─────────── 自定义聊天背景 ───────────
+ * 图片走两端已有的本地图片接口，settings 只保存路径；不进入角色、会话或模型请求。 */
+const CHAT_BACKGROUND_DEFAULTS = { enabled: false, path: '', name: '', fit: 'cover', position: 'center', overlay: 0.55 };
+let chatBackgroundImageState = { path: '', status: 'empty' };
+let chatBackgroundImportToken = 0;
+let chatBackgroundImporting = false;
+let chatBackgroundSaveTimer = null;
+let chatBackgroundSaveToken = 0;
+
+function normalizeChatBackground(value) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const base = CHAT_BACKGROUND_DEFAULTS;
+  // 只接受本机图片路径，配置导入不能把任意 URL/CSS 带入背景。
+  const path = typeof source.path === 'string' && /^\/images\/[A-Za-z0-9_-]+\.(?:png|jpe?g|webp|gif)$/i.test(source.path) ? source.path : '';
+  return {
+    enabled: source.enabled === true && !!path,
+    path,
+    name: path && typeof source.name === 'string' ? source.name.slice(0, 200) : '',
+    fit: ['cover', 'contain'].includes(source.fit) ? source.fit : base.fit,
+    position: ['center', 'top', 'bottom'].includes(source.position) ? source.position : base.position,
+    overlay: clampNum(source.overlay, 0, 1, base.overlay),
+  };
+}
+
+function chatBackgroundFromSettings() {
+  return normalizeChatBackground(settings.chatBackground);
+}
+
+function setChatBackgroundStatus(text, error = false) {
+  const status = $('chat-background-status');
+  if (status) { status.textContent = text; status.className = error ? 'hint err' : 'hint'; }
+}
+
+function renderChatBackground() {
+  const bg = chatBackgroundFromSettings();
+  const ready = bg.enabled && chatBackgroundImageState.path === bg.path && chatBackgroundImageState.status === 'ready';
+  for (const element of [$('chat'), $('chat-background-preview')]) {
+    if (!element) continue;
+    element.classList.toggle('has-chat-background', ready);
+    element.style.setProperty('--chat-background-image', ready ? `url("${bg.path}")` : 'none');
+    element.style.setProperty('--chat-background-fit', bg.fit);
+    element.style.setProperty('--chat-background-position', bg.position);
+    element.style.setProperty('--chat-background-overlay', String(bg.overlay));
+  }
+  const note = $('chat-background-preview-note');
+  if (note) note.textContent = !bg.path ? '选择一张喜欢的图片作为聊天背景' : !bg.enabled ? '背景已关闭，图片已保留' : chatBackgroundImageState.status === 'error' ? '图片无法加载，请重新选择' : ready ? '聊天效果预览' : '正在加载背景…';
+  if ($('chat-background-overlay-val')) $('chat-background-overlay-val').textContent = `${Math.round(bg.overlay * 100)}%`;
+}
+
+function loadChatBackgroundImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const finish = (error) => {
+      clearTimeout(timer);
+      img.onload = img.onerror = null;
+      if (error) reject(error); else resolve(img);
+    };
+    const timer = setTimeout(() => finish(new Error('图片加载超时，请重新选择')), 15000);
+    img.onload = () => finish(img.naturalWidth && img.naturalHeight ? null : new Error('图片内容无效'));
+    img.onerror = () => finish(new Error('无法读取图片，请选择 PNG、JPG、WebP 或 GIF'));
+    img.src = src;
+  });
+}
+
+function applyChatBackground() {
+  const bg = chatBackgroundFromSettings();
+  if (bg.enabled && bg.path !== chatBackgroundImageState.path) {
+    const state = chatBackgroundImageState = { path: bg.path, status: 'loading' };
+    loadChatBackgroundImage(bg.path).then(() => {
+      if (chatBackgroundImageState !== state) return;
+      state.status = 'ready';
+      renderChatBackground();
+    }).catch(() => {
+      if (chatBackgroundImageState !== state) return;
+      state.status = 'error';
+      renderChatBackground();
+    });
+  }
+  renderChatBackground();
+}
+
+function fillChatBackgroundForm() {
+  const bg = chatBackgroundFromSettings();
+  if (!$('chat-background-enabled')) return;
+  $('chat-background-enabled').checked = bg.enabled;
+  $('chat-background-fit').value = bg.fit;
+  $('chat-background-position').value = bg.position;
+  $('chat-background-overlay').value = bg.overlay;
+  $('chat-background-name').textContent = bg.path ? bg.name || '已选择背景图片' : '尚未选择图片';
+  $('btn-chat-background-upload').disabled = chatBackgroundImporting;
+  $('btn-chat-background-upload').textContent = chatBackgroundImporting ? '正在导入…' : bg.path ? '更换图片' : '选择图片';
+  $('btn-chat-background-remove').disabled = !bg.path && !chatBackgroundImporting;
+  for (const id of ['enabled', 'fit', 'position', 'overlay']) $('chat-background-' + id).disabled = !bg.path || chatBackgroundImporting;
+  applyChatBackground();
+}
+
+async function saveChatBackgroundSettings() {
+  clearTimeout(chatBackgroundSaveTimer);
+  const token = ++chatBackgroundSaveToken;
+  let saved = false;
+  try { saved = await saveSettings(); } catch (error) { console.warn('[Tavern] 背景设置保存失败:', error.message); }
+  if (token !== chatBackgroundSaveToken) return;
+  if ($('btn-chat-background-retry')) $('btn-chat-background-retry').hidden = !!saved;
+  setChatBackgroundStatus(saved ? '聊天背景已保存。' : '背景已应用，但设置保存失败，请点击重试。', !saved);
+}
+
+function readChatBackgroundForm(save = false) {
+  settings.chatBackground = normalizeChatBackground({
+    ...chatBackgroundFromSettings(),
+    enabled: $('chat-background-enabled').checked,
+    fit: $('chat-background-fit').value,
+    position: $('chat-background-position').value,
+    overlay: $('chat-background-overlay').value,
+  });
+  applyChatBackground();
+  clearTimeout(chatBackgroundSaveTimer);
+  if (save) saveChatBackgroundSettings();
+  else chatBackgroundSaveTimer = setTimeout(saveChatBackgroundSettings, 400);
+}
+
+async function importChatBackground(file) {
+  if (!file) return;
+  const token = ++chatBackgroundImportToken;
+  chatBackgroundImporting = true;
+  fillChatBackgroundForm();
+  setChatBackgroundStatus('正在导入背景图片…');
+  try {
+    const types = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };
+    const type = file.type || types[String(file.name).split('.').pop().toLowerCase()];
+    if (!Object.values(types).includes(type)) throw new Error('请选择 PNG、JPG、WebP 或 GIF 图片');
+    if (!file.size || file.size > 12 * 1024 * 1024) throw new Error('请选择非空且不超过 12 MB 的图片');
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = reader.onabort = () => reject(new Error('图片读取失败，请重新选择'));
+      reader.readAsDataURL(new Blob([file], { type }));
+    });
+    await loadChatBackgroundImage(dataUrl);
+    if (token !== chatBackgroundImportToken) return;
+    const path = await saveImageLocally(dataUrl);
+    if (token !== chatBackgroundImportToken) return;
+    const next = normalizeChatBackground({ ...chatBackgroundFromSettings(), enabled: true, path, name: file.name });
+    if (!next.path) throw new Error('图片保存失败：未返回有效的本地路径');
+    settings.chatBackground = next;
+    chatBackgroundImageState = { path, status: 'ready' };
+    applyChatBackground();
+    await saveChatBackgroundSettings();
+  } catch (error) {
+    if (token === chatBackgroundImportToken) setChatBackgroundStatus(`导入失败：${error.message}。原背景已保留。`, true);
+  } finally {
+    if (token === chatBackgroundImportToken) { chatBackgroundImporting = false; fillChatBackgroundForm(); }
+  }
+}
+
+function removeChatBackground() {
+  ++chatBackgroundImportToken; // 导入尚未完成时移除，迟到的上传结果不能重新启用背景。
+  chatBackgroundImporting = false;
+  settings.chatBackground = { ...CHAT_BACKGROUND_DEFAULTS };
+  chatBackgroundImageState = { path: '', status: 'empty' };
+  fillChatBackgroundForm();
+  saveChatBackgroundSettings();
+}
+
 function fillSettingsForm() {
   const s = settings;
   $('s-preset').value = s.preset || '';
@@ -424,6 +587,7 @@ function fillSettingsForm() {
   $('ig-prompt-instr').value = ig.promptInstruction || '';
   fillTypographyForm();
   fillUiThemeForm();
+  fillChatBackgroundForm();
 }
 
 function readSettingsForm() {
@@ -2115,26 +2279,6 @@ async function requestReply() {
     setResponsePreview(mode === 'rpg' && rpgAgentSession?.previewNarrative ? rpgAgentSession.previewNarrative : reply, rpgResolvedCheck, targetKey, rpgAgentSession?.checkpoints);
     // RPG 模式：统一正则处理（```rpg``` 状态/掷骰），剔除 rpg 块
     let processed = processAIOutput(reply);
-    if (mode !== 'rpg' && tavernReplyNeedsOptionRepair(processed, resolvePromptPreset()?.preset || null)) {
-      const tavernPreset = resolvePromptPreset()?.preset || null;
-      setDebugTrace(targetScope, { status: 'RP 输出缺少行动选项，正在修复', output: String(reply || ''), rawOutput: String(reply || '') });
-      try {
-        const repaired = await repairTavernReplyOptions(payload, reply, tavernPreset, targetScope);
-        reply = mergeRepairedReply(reply, repaired.content, 'tavern');
-        processed = processAIOutput(reply);
-        if (repaired.cot) cot += (cot ? '\n\n' : '') + repaired.cot;
-        setResponsePreview(reply, rpgResolvedCheck, targetKey, rpgAgentSession?.checkpoints);
-      } catch (error) {
-        console.warn('[Tavern] RP 选项协议修复失败:', error.message);
-        setDebugTrace(targetScope, { status: 'RP 选项修复失败（保留原正文）', output: String(reply || ''), rawOutput: String(reply || ''), outputTag: extractDebugOutputTag(reply) });
-      }
-    }
-    if (responseOutdated()) {
-      setDebugTrace(targetScope, { status: '已完成（修复响应因切换存档/会话未写入历史）' });
-      console.warn('[Tavern] 修复期间切换了存档/会话，已丢弃迟到响应');
-      clearResponsePreview();
-      return;
-    }
     // 已通过执行器校验的原生工具候选先转换为内部协议；模型正文里的重复 patch 不能覆盖它。
     const nativeCandidate = mode === 'rpg' ? nativeCandidatesToRpgData(nativeCalls, currentWorldSave?.revision) : { patch: null, createEntities: null, eventMemory: null };
     if (nativeCandidate.patch) processed.patch = nativeCandidate.patch;
@@ -2631,6 +2775,7 @@ function applyTheme() {
   document.body.dataset.theme = theme;
   localStorage.setItem(LS_THEME, theme);
   applyUiTheme();
+  applyChatBackground();
   initBackground();
 }
 
@@ -3458,6 +3603,7 @@ function bindEvents() {
   $('pg-reply-options-enabled').addEventListener('change', markPGReplyOptionsCustomized);
   $('pg-reply-options-count').addEventListener('input', markPGReplyOptionsCustomized);
   $('pg-reply-options-prompt').addEventListener('input', markPGReplyOptionsCustomized);
+  $('pg-reply-options-assistant').addEventListener('input', markPGReplyOptionsCustomized);
   $('pg-reply-options-reset').addEventListener('click', resetPGReplyOptions);
   $('pg-st-settings-reset').addEventListener('click', resetPGSTPresetSettings);
   $('pg-prompt-new').addEventListener('click', pgPromptNew);
@@ -3816,6 +3962,10 @@ function bindEvents() {
   let uiThemeSaveTimer = null;
   $('settings-modal').addEventListener('input', e => {
     if (!e.target.closest) return;
+    if (e.target.closest('#chat-background-settings')) {
+      if (e.target.id === 'chat-background-overlay') readChatBackgroundForm();
+      return;
+    }
     if (e.target.closest('#st-panel-typo')) {
       readTypographyForm();
       clearTimeout(typoSaveTimer);
@@ -3831,6 +3981,10 @@ function bindEvents() {
     }
   });
   $('settings-modal').addEventListener('change', e => {
+    if (e.target.closest && e.target.closest('#chat-background-settings')) {
+      if (e.target.id !== 'chat-background-file') readChatBackgroundForm(true);
+      return;
+    }
     if (e.target.closest && e.target.closest('#st-panel-typo')) {
       clearTimeout(typoSaveTimer);
       saveJSON(LS_PREFS, prefs);
@@ -3846,6 +4000,14 @@ function bindEvents() {
     readSettingsForm();
     renderMessages();
   });
+  $('btn-chat-background-upload').addEventListener('click', () => $('chat-background-file').click());
+  $('chat-background-file').addEventListener('change', e => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ''; // 允许再次选择同一张图片，也支持 Android 文件选择器取消后重选。
+    importChatBackground(file);
+  });
+  $('btn-chat-background-remove').addEventListener('click', removeChatBackground);
+  $('btn-chat-background-retry').addEventListener('click', saveChatBackgroundSettings);
   $('btn-typo-reset').addEventListener('click', resetTypography);
   $('btn-ui-theme-reset').addEventListener('click', resetUiTheme);
   $('ui-theme-preset').addEventListener('change', e => {

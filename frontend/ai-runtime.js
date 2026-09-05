@@ -87,7 +87,10 @@ function buildPayload({ test = false } = {}) {
     body.messages.push(...history);
   }
   if (post && post.trim()) body.messages.push({ role: 'system', content: post });
-  if (assistantPrefill && assistantPrefill.trim()) body.messages.push({ role: 'assistant', content: assistantPrefill });
+  // 合成 char 历史只存在于请求副本，不写入会话或摘要；与已有 prefill 合成一个尾消息。
+  const assistantTail = [buildTavernReplyOptionsAssistantMessage(activePromptPreset), assistantPrefill]
+    .filter(value => value && value.trim()).join('\n\n');
+  if (assistantTail) body.messages.push({ role: 'assistant', content: assistantTail });
   if (activePromptPreset?.modelParameters?.squash_system_messages === true) {
     body.messages = squashConsecutiveSystemMessages(body.messages);
   }
@@ -944,44 +947,11 @@ async function repairRpgOutput(payload, reply, optionRules, targetScope, toolTra
   return repaired;
 }
 
-function tavernReplyNeedsOptionRepair(processed, preset = null) {
+function tavernReplyOptionsInvalid(processed, preset = null) {
   const rules = tavernReplyOptionRules(preset);
   if (!rules.enabled) return false;
   const options = Array.isArray(processed?.options) ? processed.options : [];
   return !!processed?.protocol?.errorCode || options.length < rules.min || options.length > rules.max;
-}
-
-/* Tavern 模式只修复一次缺失的选项标签，正文仍以模型输出为准，不在客户端臆造行动。 */
-async function repairTavernReplyOptions(payload, reply, preset, targetScope) {
-  const protocol = buildTavernReplyOptionsPrompt(preset) || '请在正文末尾追加唯一 <tavern_options>["行动 1","行动 2","行动 3","行动 4"]</tavern_options> 标签。';
-  const body = {
-    ...payload.body,
-    stream: false,
-    messages: [
-      ...(Array.isArray(payload.body?.messages) ? payload.body.messages.map(cloneValue) : []),
-      { role: 'assistant', content: String(reply || '') },
-      { role: 'user', content: `上一条酒馆回复缺少合规的行动选项标签。请保留已经写出的故事正文与剧情事实，只在正文末尾补齐唯一的结构化标签；不要解释修复过程，不要输出代码围栏，不要替玩家补写台词、思想或行动。${protocol}` },
-    ],
-  };
-  delete body.tools;
-  delete body.tool_choice;
-  // 修复请求只需要结构化正文，避免思维链占满预算后再次截断标签。
-  delete body.thinking;
-  delete body.reasoning_effort;
-  const repairRequest = { ...payload, body };
-  beginDebugRequest(targetScope, repairRequest, { label: 'RP 选项修复' });
-  const data = await callAPI(repairRequest);
-  const message = data?.choices?.[0]?.message || {};
-  const repaired = String(message.content || '').trim();
-  if (!repaired) throw new Error('RP 选项协议修复没有返回内容');
-  setDebugTrace(targetScope, {
-    status: 'RP 选项协议已修复',
-    output: repaired,
-    rawOutput: String(reply || ''),
-    outputTag: extractDebugOutputTag(repaired),
-    reasoning: String(message.reasoning_content || ''),
-  });
-  return { content: repaired, cot: String(message.reasoning_content || '') };
 }
 
 async function callAPIStream(payload, { previewPrefix = '', render = true } = {}) {

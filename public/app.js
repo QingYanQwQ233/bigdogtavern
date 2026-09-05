@@ -242,7 +242,7 @@ const tavernMemoryStatus = new Map();
 /* ─────────── 数据加载 / 保存（JSON 文件存储） ─────────── */
 function saveSettings() {
   localStorage.setItem(LS_SETTINGS, JSON.stringify(settings));
-  saveServerData('settings', settings);
+  return saveServerData('settings', settings);
 }
 function saveGenerationSettings() {
   localStorage.setItem(LS_GEN, JSON.stringify(genSettings));
@@ -268,8 +268,10 @@ async function saveServerData(type, data) {
         body: JSON.stringify(data),
       });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      return true;
     } catch (e) {
       console.error('[Tavern] 保存 ' + type + ' 失败:', e.message);
+      return false;
     }
   };
   // 首次写入立即发起；后续写入接在同一类型的前一个请求之后，避免旧快新慢覆盖。
@@ -6514,7 +6516,9 @@ function processAIOutput(reply) {
     const parsed = parseTavernReplyOutput(reply, resolvePromptPreset()?.preset || null);
     if (parsed.errorCode) console.warn('[Tavern] RP 选项标签解析失败:', parsed.errorCode, parsed.errorMessage || '');
     const rawContent = String(parsed.content || '');
-    return { content: applyOutputRegex(rawContent), rawContent, options: parsed.options, protocol: parsed };
+    const preset = resolvePromptPreset()?.preset || null;
+    const options = tavernReplyOptionsInvalid({ options: parsed.options, protocol: parsed }, preset) ? null : parsed.options;
+    return { content: applyOutputRegex(rawContent), rawContent, options, protocol: parsed };
   }
   const parsed = parseRpgOutput(reply);
   if (parsed.errorCode) console.warn('[Tavern] RPG 状态块解析失败:', parsed.errorCode, parsed.errorMessage || '');
@@ -9517,6 +9521,7 @@ function normalizeTavernReplyOptionsOverride(value, migratedInstruction = '') {
 
   const instruction = String(source?.instruction || migrated).trim();
   if (instruction) normalized.instruction = instruction;
+  if (source && Object.prototype.hasOwnProperty.call(source, 'assistantMessage')) normalized.assistantMessage = String(source.assistantMessage || '');
   if (source && Object.prototype.hasOwnProperty.call(source, 'noOptions')) normalized.noOptions = String(source.noOptions || '');
   return Object.keys(normalized).length ? normalized : null;
 }
@@ -9849,6 +9854,7 @@ function fillPGReplyOptions() {
   enabledInput.checked = config.enabled !== false;
   countInput.value = String(Number.isFinite(configuredCount) ? Math.max(1, Math.min(8, Math.floor(configuredCount))) : 4);
   promptInput.value = String(config.instruction || builtInTavernReplyOptionsInstruction() || '');
+  if ($('pg-reply-options-assistant')) $('pg-reply-options-assistant').value = String(config.assistantMessage || '');
   syncPGReplyOptionsEditor();
 }
 
@@ -9865,6 +9871,7 @@ function syncPGReplyOptionsEditor() {
   enabledInput.disabled = !appliesToTavern;
   countInput.disabled = !appliesToTavern || !enabledInput.checked;
   promptInput.disabled = !appliesToTavern || !enabledInput.checked;
+  if ($('pg-reply-options-assistant')) $('pg-reply-options-assistant').disabled = promptInput.disabled;
   if (resetButton) resetButton.disabled = !appliesToTavern;
   section.classList.toggle('inactive', !appliesToTavern);
   if (note) {
@@ -9907,6 +9914,8 @@ function capturePGReplyOptions() {
     max: count,
     count,
     ...(instruction ? { instruction } : {}),
+    ...($('pg-reply-options-assistant') ? { assistantMessage: String($('pg-reply-options-assistant').value || '') } :
+      (Object.prototype.hasOwnProperty.call(previous, 'assistantMessage') ? { assistantMessage: previous.assistantMessage } : {})),
     ...(Object.prototype.hasOwnProperty.call(previous, 'noOptions') ? { noOptions: previous.noOptions } : {}),
   };
 }
@@ -11575,13 +11584,22 @@ function buildTavernReplyOptionsPrompt(preset = null) {
   const instruction = String(config?.instruction || '').trim();
   if (!rules.enabled || !instruction) return '';
   const customized = formatTavernReplyOptionsInstruction(instruction, rules);
-  if (hasTavernReplyOptionsProtocol(customized)) return customized;
   // 自定义内容可以只描述选项风格；机器可解析的标签契约仍由 JSON 默认模板兜底。
   const fallbackInstruction = String(defaults?.tavern?.replyOptions?.instruction || builtInTavernReplyOptionsInstruction() || '').trim();
   const fallback = formatTavernReplyOptionsInstruction(fallbackInstruction, rules);
+  if (customized === fallback) return customized;
   return fallback && hasTavernReplyOptionsProtocol(fallback)
     ? [customized, fallback].filter(Boolean).join('\n\n')
     : customized;
+}
+
+function buildTavernReplyOptionsAssistantMessage(preset = null) {
+  if (mode !== 'tavern') return '';
+  const rules = tavernReplyOptionRules(preset);
+  if (!rules.enabled) return '';
+  const config = tavernReplyOptionsConfig(preset);
+  const template = String(config?.assistantMessage || defaults?.tavern?.replyOptions?.assistantMessage || '').trim();
+  return formatTavernReplyOptionsInstruction(template, rules);
 }
 
 function formatTavernReplyOptionsInstruction(instruction, rules) {
@@ -12186,7 +12204,6 @@ function buildPromptBlocks() {
   const relativeAfter = [];
   const injections = [];
   const postParts = [];
-  let optionProtocolIncluded = false;
   let includeHistory = false;
   let reachedHistory = false;
 
@@ -12215,7 +12232,6 @@ function buildPromptBlocks() {
       for (const message of exampleMessages) {
         const content = expandPresetMacros(message.content, macroContext, variables);
         if (!content) continue;
-        if (hasTavernReplyOptionsProtocol(content)) optionProtocolIncluded = true;
         if (message.role === 'system') systemParts.push(content);
         else (reachedHistory ? afterHistory : beforeHistory).push({ role: message.role, content });
         (reachedHistory ? relativeAfter : relativeBefore).push({ role: message.role, content, _example: true });
@@ -12234,7 +12250,6 @@ function buildPromptBlocks() {
     }
     content = expandPresetMacros(content, macroContext, variables);
     if (!content) continue;
-    if (hasTavernReplyOptionsProtocol(content)) optionProtocolIncluded = true;
     if (prompt.position === 'in_chat' && !prompt.marker) {
       injections.push({ role: prompt.role, content, depth: prompt.depth, order: prompt.order });
       if (prompt.role === 'system') systemParts.push(content);
@@ -12274,7 +12289,7 @@ function buildPromptBlocks() {
   let history = [...exampleHistory, ...(includeHistory ? previousHistory : [])];
   history = mergeHistoryInjections(history, injections);
   const orderedChat = mergeHistoryInjections([...exampleHistory, ...(includeHistory ? previousHistory : []), ...currentTurn], injections);
-  const optionPrompt = optionProtocolIncluded ? '' : buildTavernReplyOptionsPrompt(preset);
+  const optionPrompt = buildTavernReplyOptionsPrompt(preset);
   if (optionPrompt) postParts.push(expandPresetMacros(optionPrompt, macroContext, variables));
   // 兼容调试投影仍把本轮玩家输入保留为最后一条 user；真实请求使用下方 orderedPromptMessages。
   const promptHistory = [...beforeHistory, ...history, ...afterHistory, ...currentTurn].map((message, index, list) => ({
@@ -12386,7 +12401,10 @@ function buildPayload({ test = false } = {}) {
     body.messages.push(...history);
   }
   if (post && post.trim()) body.messages.push({ role: 'system', content: post });
-  if (assistantPrefill && assistantPrefill.trim()) body.messages.push({ role: 'assistant', content: assistantPrefill });
+  // 合成 char 历史只存在于请求副本，不写入会话或摘要；与已有 prefill 合成一个尾消息。
+  const assistantTail = [buildTavernReplyOptionsAssistantMessage(activePromptPreset), assistantPrefill]
+    .filter(value => value && value.trim()).join('\n\n');
+  if (assistantTail) body.messages.push({ role: 'assistant', content: assistantTail });
   if (activePromptPreset?.modelParameters?.squash_system_messages === true) {
     body.messages = squashConsecutiveSystemMessages(body.messages);
   }
@@ -13243,44 +13261,11 @@ async function repairRpgOutput(payload, reply, optionRules, targetScope, toolTra
   return repaired;
 }
 
-function tavernReplyNeedsOptionRepair(processed, preset = null) {
+function tavernReplyOptionsInvalid(processed, preset = null) {
   const rules = tavernReplyOptionRules(preset);
   if (!rules.enabled) return false;
   const options = Array.isArray(processed?.options) ? processed.options : [];
   return !!processed?.protocol?.errorCode || options.length < rules.min || options.length > rules.max;
-}
-
-/* Tavern 模式只修复一次缺失的选项标签，正文仍以模型输出为准，不在客户端臆造行动。 */
-async function repairTavernReplyOptions(payload, reply, preset, targetScope) {
-  const protocol = buildTavernReplyOptionsPrompt(preset) || '请在正文末尾追加唯一 <tavern_options>["行动 1","行动 2","行动 3","行动 4"]</tavern_options> 标签。';
-  const body = {
-    ...payload.body,
-    stream: false,
-    messages: [
-      ...(Array.isArray(payload.body?.messages) ? payload.body.messages.map(cloneValue) : []),
-      { role: 'assistant', content: String(reply || '') },
-      { role: 'user', content: `上一条酒馆回复缺少合规的行动选项标签。请保留已经写出的故事正文与剧情事实，只在正文末尾补齐唯一的结构化标签；不要解释修复过程，不要输出代码围栏，不要替玩家补写台词、思想或行动。${protocol}` },
-    ],
-  };
-  delete body.tools;
-  delete body.tool_choice;
-  // 修复请求只需要结构化正文，避免思维链占满预算后再次截断标签。
-  delete body.thinking;
-  delete body.reasoning_effort;
-  const repairRequest = { ...payload, body };
-  beginDebugRequest(targetScope, repairRequest, { label: 'RP 选项修复' });
-  const data = await callAPI(repairRequest);
-  const message = data?.choices?.[0]?.message || {};
-  const repaired = String(message.content || '').trim();
-  if (!repaired) throw new Error('RP 选项协议修复没有返回内容');
-  setDebugTrace(targetScope, {
-    status: 'RP 选项协议已修复',
-    output: repaired,
-    rawOutput: String(reply || ''),
-    outputTag: extractDebugOutputTag(repaired),
-    reasoning: String(message.reasoning_content || ''),
-  });
-  return { content: repaired, cot: String(message.reasoning_content || '') };
 }
 
 async function callAPIStream(payload, { previewPrefix = '', render = true } = {}) {
@@ -13794,6 +13779,169 @@ function resetUiTheme() {
   $('ui-theme-status').className = 'hint ok';
 }
 
+/* ─────────── 自定义聊天背景 ───────────
+ * 图片走两端已有的本地图片接口，settings 只保存路径；不进入角色、会话或模型请求。 */
+const CHAT_BACKGROUND_DEFAULTS = { enabled: false, path: '', name: '', fit: 'cover', position: 'center', overlay: 0.55 };
+let chatBackgroundImageState = { path: '', status: 'empty' };
+let chatBackgroundImportToken = 0;
+let chatBackgroundImporting = false;
+let chatBackgroundSaveTimer = null;
+let chatBackgroundSaveToken = 0;
+
+function normalizeChatBackground(value) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const base = CHAT_BACKGROUND_DEFAULTS;
+  // 只接受本机图片路径，配置导入不能把任意 URL/CSS 带入背景。
+  const path = typeof source.path === 'string' && /^\/images\/[A-Za-z0-9_-]+\.(?:png|jpe?g|webp|gif)$/i.test(source.path) ? source.path : '';
+  return {
+    enabled: source.enabled === true && !!path,
+    path,
+    name: path && typeof source.name === 'string' ? source.name.slice(0, 200) : '',
+    fit: ['cover', 'contain'].includes(source.fit) ? source.fit : base.fit,
+    position: ['center', 'top', 'bottom'].includes(source.position) ? source.position : base.position,
+    overlay: clampNum(source.overlay, 0, 1, base.overlay),
+  };
+}
+
+function chatBackgroundFromSettings() {
+  return normalizeChatBackground(settings.chatBackground);
+}
+
+function setChatBackgroundStatus(text, error = false) {
+  const status = $('chat-background-status');
+  if (status) { status.textContent = text; status.className = error ? 'hint err' : 'hint'; }
+}
+
+function renderChatBackground() {
+  const bg = chatBackgroundFromSettings();
+  const ready = bg.enabled && chatBackgroundImageState.path === bg.path && chatBackgroundImageState.status === 'ready';
+  for (const element of [$('chat'), $('chat-background-preview')]) {
+    if (!element) continue;
+    element.classList.toggle('has-chat-background', ready);
+    element.style.setProperty('--chat-background-image', ready ? `url("${bg.path}")` : 'none');
+    element.style.setProperty('--chat-background-fit', bg.fit);
+    element.style.setProperty('--chat-background-position', bg.position);
+    element.style.setProperty('--chat-background-overlay', String(bg.overlay));
+  }
+  const note = $('chat-background-preview-note');
+  if (note) note.textContent = !bg.path ? '选择一张喜欢的图片作为聊天背景' : !bg.enabled ? '背景已关闭，图片已保留' : chatBackgroundImageState.status === 'error' ? '图片无法加载，请重新选择' : ready ? '聊天效果预览' : '正在加载背景…';
+  if ($('chat-background-overlay-val')) $('chat-background-overlay-val').textContent = `${Math.round(bg.overlay * 100)}%`;
+}
+
+function loadChatBackgroundImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const finish = (error) => {
+      clearTimeout(timer);
+      img.onload = img.onerror = null;
+      if (error) reject(error); else resolve(img);
+    };
+    const timer = setTimeout(() => finish(new Error('图片加载超时，请重新选择')), 15000);
+    img.onload = () => finish(img.naturalWidth && img.naturalHeight ? null : new Error('图片内容无效'));
+    img.onerror = () => finish(new Error('无法读取图片，请选择 PNG、JPG、WebP 或 GIF'));
+    img.src = src;
+  });
+}
+
+function applyChatBackground() {
+  const bg = chatBackgroundFromSettings();
+  if (bg.enabled && bg.path !== chatBackgroundImageState.path) {
+    const state = chatBackgroundImageState = { path: bg.path, status: 'loading' };
+    loadChatBackgroundImage(bg.path).then(() => {
+      if (chatBackgroundImageState !== state) return;
+      state.status = 'ready';
+      renderChatBackground();
+    }).catch(() => {
+      if (chatBackgroundImageState !== state) return;
+      state.status = 'error';
+      renderChatBackground();
+    });
+  }
+  renderChatBackground();
+}
+
+function fillChatBackgroundForm() {
+  const bg = chatBackgroundFromSettings();
+  if (!$('chat-background-enabled')) return;
+  $('chat-background-enabled').checked = bg.enabled;
+  $('chat-background-fit').value = bg.fit;
+  $('chat-background-position').value = bg.position;
+  $('chat-background-overlay').value = bg.overlay;
+  $('chat-background-name').textContent = bg.path ? bg.name || '已选择背景图片' : '尚未选择图片';
+  $('btn-chat-background-upload').disabled = chatBackgroundImporting;
+  $('btn-chat-background-upload').textContent = chatBackgroundImporting ? '正在导入…' : bg.path ? '更换图片' : '选择图片';
+  $('btn-chat-background-remove').disabled = !bg.path && !chatBackgroundImporting;
+  for (const id of ['enabled', 'fit', 'position', 'overlay']) $('chat-background-' + id).disabled = !bg.path || chatBackgroundImporting;
+  applyChatBackground();
+}
+
+async function saveChatBackgroundSettings() {
+  clearTimeout(chatBackgroundSaveTimer);
+  const token = ++chatBackgroundSaveToken;
+  let saved = false;
+  try { saved = await saveSettings(); } catch (error) { console.warn('[Tavern] 背景设置保存失败:', error.message); }
+  if (token !== chatBackgroundSaveToken) return;
+  if ($('btn-chat-background-retry')) $('btn-chat-background-retry').hidden = !!saved;
+  setChatBackgroundStatus(saved ? '聊天背景已保存。' : '背景已应用，但设置保存失败，请点击重试。', !saved);
+}
+
+function readChatBackgroundForm(save = false) {
+  settings.chatBackground = normalizeChatBackground({
+    ...chatBackgroundFromSettings(),
+    enabled: $('chat-background-enabled').checked,
+    fit: $('chat-background-fit').value,
+    position: $('chat-background-position').value,
+    overlay: $('chat-background-overlay').value,
+  });
+  applyChatBackground();
+  clearTimeout(chatBackgroundSaveTimer);
+  if (save) saveChatBackgroundSettings();
+  else chatBackgroundSaveTimer = setTimeout(saveChatBackgroundSettings, 400);
+}
+
+async function importChatBackground(file) {
+  if (!file) return;
+  const token = ++chatBackgroundImportToken;
+  chatBackgroundImporting = true;
+  fillChatBackgroundForm();
+  setChatBackgroundStatus('正在导入背景图片…');
+  try {
+    const types = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };
+    const type = file.type || types[String(file.name).split('.').pop().toLowerCase()];
+    if (!Object.values(types).includes(type)) throw new Error('请选择 PNG、JPG、WebP 或 GIF 图片');
+    if (!file.size || file.size > 12 * 1024 * 1024) throw new Error('请选择非空且不超过 12 MB 的图片');
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = reader.onabort = () => reject(new Error('图片读取失败，请重新选择'));
+      reader.readAsDataURL(new Blob([file], { type }));
+    });
+    await loadChatBackgroundImage(dataUrl);
+    if (token !== chatBackgroundImportToken) return;
+    const path = await saveImageLocally(dataUrl);
+    if (token !== chatBackgroundImportToken) return;
+    const next = normalizeChatBackground({ ...chatBackgroundFromSettings(), enabled: true, path, name: file.name });
+    if (!next.path) throw new Error('图片保存失败：未返回有效的本地路径');
+    settings.chatBackground = next;
+    chatBackgroundImageState = { path, status: 'ready' };
+    applyChatBackground();
+    await saveChatBackgroundSettings();
+  } catch (error) {
+    if (token === chatBackgroundImportToken) setChatBackgroundStatus(`导入失败：${error.message}。原背景已保留。`, true);
+  } finally {
+    if (token === chatBackgroundImportToken) { chatBackgroundImporting = false; fillChatBackgroundForm(); }
+  }
+}
+
+function removeChatBackground() {
+  ++chatBackgroundImportToken; // 导入尚未完成时移除，迟到的上传结果不能重新启用背景。
+  chatBackgroundImporting = false;
+  settings.chatBackground = { ...CHAT_BACKGROUND_DEFAULTS };
+  chatBackgroundImageState = { path: '', status: 'empty' };
+  fillChatBackgroundForm();
+  saveChatBackgroundSettings();
+}
+
 function fillSettingsForm() {
   const s = settings;
   $('s-preset').value = s.preset || '';
@@ -13840,6 +13988,7 @@ function fillSettingsForm() {
   $('ig-prompt-instr').value = ig.promptInstruction || '';
   fillTypographyForm();
   fillUiThemeForm();
+  fillChatBackgroundForm();
 }
 
 function readSettingsForm() {
@@ -15531,26 +15680,6 @@ async function requestReply() {
     setResponsePreview(mode === 'rpg' && rpgAgentSession?.previewNarrative ? rpgAgentSession.previewNarrative : reply, rpgResolvedCheck, targetKey, rpgAgentSession?.checkpoints);
     // RPG 模式：统一正则处理（```rpg``` 状态/掷骰），剔除 rpg 块
     let processed = processAIOutput(reply);
-    if (mode !== 'rpg' && tavernReplyNeedsOptionRepair(processed, resolvePromptPreset()?.preset || null)) {
-      const tavernPreset = resolvePromptPreset()?.preset || null;
-      setDebugTrace(targetScope, { status: 'RP 输出缺少行动选项，正在修复', output: String(reply || ''), rawOutput: String(reply || '') });
-      try {
-        const repaired = await repairTavernReplyOptions(payload, reply, tavernPreset, targetScope);
-        reply = mergeRepairedReply(reply, repaired.content, 'tavern');
-        processed = processAIOutput(reply);
-        if (repaired.cot) cot += (cot ? '\n\n' : '') + repaired.cot;
-        setResponsePreview(reply, rpgResolvedCheck, targetKey, rpgAgentSession?.checkpoints);
-      } catch (error) {
-        console.warn('[Tavern] RP 选项协议修复失败:', error.message);
-        setDebugTrace(targetScope, { status: 'RP 选项修复失败（保留原正文）', output: String(reply || ''), rawOutput: String(reply || ''), outputTag: extractDebugOutputTag(reply) });
-      }
-    }
-    if (responseOutdated()) {
-      setDebugTrace(targetScope, { status: '已完成（修复响应因切换存档/会话未写入历史）' });
-      console.warn('[Tavern] 修复期间切换了存档/会话，已丢弃迟到响应');
-      clearResponsePreview();
-      return;
-    }
     // 已通过执行器校验的原生工具候选先转换为内部协议；模型正文里的重复 patch 不能覆盖它。
     const nativeCandidate = mode === 'rpg' ? nativeCandidatesToRpgData(nativeCalls, currentWorldSave?.revision) : { patch: null, createEntities: null, eventMemory: null };
     if (nativeCandidate.patch) processed.patch = nativeCandidate.patch;
@@ -16047,6 +16176,7 @@ function applyTheme() {
   document.body.dataset.theme = theme;
   localStorage.setItem(LS_THEME, theme);
   applyUiTheme();
+  applyChatBackground();
   initBackground();
 }
 
@@ -16874,6 +17004,7 @@ function bindEvents() {
   $('pg-reply-options-enabled').addEventListener('change', markPGReplyOptionsCustomized);
   $('pg-reply-options-count').addEventListener('input', markPGReplyOptionsCustomized);
   $('pg-reply-options-prompt').addEventListener('input', markPGReplyOptionsCustomized);
+  $('pg-reply-options-assistant').addEventListener('input', markPGReplyOptionsCustomized);
   $('pg-reply-options-reset').addEventListener('click', resetPGReplyOptions);
   $('pg-st-settings-reset').addEventListener('click', resetPGSTPresetSettings);
   $('pg-prompt-new').addEventListener('click', pgPromptNew);
@@ -17232,6 +17363,10 @@ function bindEvents() {
   let uiThemeSaveTimer = null;
   $('settings-modal').addEventListener('input', e => {
     if (!e.target.closest) return;
+    if (e.target.closest('#chat-background-settings')) {
+      if (e.target.id === 'chat-background-overlay') readChatBackgroundForm();
+      return;
+    }
     if (e.target.closest('#st-panel-typo')) {
       readTypographyForm();
       clearTimeout(typoSaveTimer);
@@ -17247,6 +17382,10 @@ function bindEvents() {
     }
   });
   $('settings-modal').addEventListener('change', e => {
+    if (e.target.closest && e.target.closest('#chat-background-settings')) {
+      if (e.target.id !== 'chat-background-file') readChatBackgroundForm(true);
+      return;
+    }
     if (e.target.closest && e.target.closest('#st-panel-typo')) {
       clearTimeout(typoSaveTimer);
       saveJSON(LS_PREFS, prefs);
@@ -17262,6 +17401,14 @@ function bindEvents() {
     readSettingsForm();
     renderMessages();
   });
+  $('btn-chat-background-upload').addEventListener('click', () => $('chat-background-file').click());
+  $('chat-background-file').addEventListener('change', e => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ''; // 允许再次选择同一张图片，也支持 Android 文件选择器取消后重选。
+    importChatBackground(file);
+  });
+  $('btn-chat-background-remove').addEventListener('click', removeChatBackground);
+  $('btn-chat-background-retry').addEventListener('click', saveChatBackgroundSettings);
   $('btn-typo-reset').addEventListener('click', resetTypography);
   $('btn-ui-theme-reset').addEventListener('click', resetUiTheme);
   $('ui-theme-preset').addEventListener('change', e => {

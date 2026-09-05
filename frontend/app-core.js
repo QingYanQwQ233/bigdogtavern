@@ -241,7 +241,7 @@ const tavernMemoryStatus = new Map();
 /* ─────────── 数据加载 / 保存（JSON 文件存储） ─────────── */
 function saveSettings() {
   localStorage.setItem(LS_SETTINGS, JSON.stringify(settings));
-  saveServerData('settings', settings);
+  return saveServerData('settings', settings);
 }
 function saveGenerationSettings() {
   localStorage.setItem(LS_GEN, JSON.stringify(genSettings));
@@ -267,8 +267,10 @@ async function saveServerData(type, data) {
         body: JSON.stringify(data),
       });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      return true;
     } catch (e) {
       console.error('[Tavern] 保存 ' + type + ' 失败:', e.message);
+      return false;
     }
   };
   // 首次写入立即发起；后续写入接在同一类型的前一个请求之后，避免旧快新慢覆盖。

@@ -329,7 +329,7 @@ RP 消息显示会优先识别缩进的 HTML 布局与 HTML 代码块，再交�
 
 常见采样参数、停止词、流式开关、seed、reasoning effort、utility templates、assistant prefill 和相邻 System 合并设置保存在 `modelParameters`，当前预设启用后会实际应用到请求；预设里的服务来源和模型 ID 只为无损往返保留，不会静默切换当前连接。支持安全宏 `{{user}}`、`{{char}}`、`{{persona}}`、`{{description}}`、`{{personality}}`、`{{scenario}}`、`{{mesExamples}}`、`{{mesExamplesRaw}}`、`{{lastMessage}}`、`{{lastUserMessage}}`、`{{lastCharMessage}}`、`{{messageCount}}`、`{{newline}}`、`{{space}}`、`{{setvar::名称::值}}` / `{{setglobalvar::名称::值}}`、`{{getvar::名称}}` / `{{getglobalvar::名称}}`、`{{random::甲::乙}}` / `{{pick::甲::乙}}` 和 `{{trim}}`；全局变量兼容宏只在本次请求内生效，未知宏原样保留。导入的输出正则会保留 ST 的 `placement/affects`、`trimStrings`、`markdownOnly`、`promptOnly`、`runOnEdit`、深度等元数据，并在用户输入、AI 回复、聊天显示、提示词/历史、世界书、思维链和斜杠命令阶段执行；侧栏「正则」可为酒馆 / RPG 分别添加自定义规则，默认绑定当前预设且可切为模式全局。角色卡 / 预设中的 EJS、MVU 仍保持原文保留；绑定角色卡的 HTML/CSS/JS 在用户确认后进入同源完整兼容 iframe，世界卡 `ui.extension` 检测到 EJS、MVU 或扩展脚本时则在现有隔离 sandbox iframe 中运行，拒绝授权时保持停用。授权按世界版本或角色卡代码内容哈希保存在本地，代码或版本改变会重新询问。
 
-`_defaults.json.tavern.replyOptions` 定义 RP 自动选项的项目默认（数量、提示词和无选项提示）；酒馆/通用预设的可选 `replyOptions` 以字段覆盖默认，纯 RPG 预设不读取也不会因保存而自动生成该字段。编辑器的“恢复默认”会重新进入继承状态；修改任一控件后才随当前预设保存。旧版写在 `postHistory` 尾部、带「AI 回复选项协议」标题的块会迁入 `replyOptions.instruction`，其余后预设原文保留。自定义提示词可只描述选项风格；若未包含 `<tavern_options>`，运行时在其后补入 JSON 默认模板中的机器协议。客户端解析并移除该标签，只把去重后的选项保存到 assistant 消息的 `options[]`，底部快捷栏据此渲染；关闭时不注入、不修复且不显示等待提示。RP 选项标签缺失时最多额外请求一次修复；RPG 控制块缺失或不合规时最多额外请求两次协议修复。已通过执行器校验的原生工具候选会先转换成内部 Typed Patch，模型正文里的重复 patch 不能覆盖它；协议修复也只替换坏字段，保留本回合已经合法的 options 或 patch。RPG 修复优先强制模型通过专用 function schema 返回控制数据；不支持 function calling 的兼容接口可回退为专用裸 JSON，再由客户端注入固定 `protocol`、`version` 与当前 `baseRevision`，最终仍经同一 Typed Patch 和服务端 revision 校验。修复失败仍保留已生成正文，不在客户端臆造选项。正文、正则和选项数据分开处理，AI 未返回标签时不再回退到写死按钮。兼容模型偶发返回的 `{ label, value }` 选项对象；客户端会在最终提交前统一为字符串，并确保顶层 `options` 与 `patch.options` 同源。RP 的 `<tavern_options>` 与 RPG 的 `<tavern_state_update>` 分别解析，不能互相替代。`variable.*` / `collection.*` 是世界卡 action effects 的内部名；若模型把这五种内部名复制到回合 `updates`，客户端与服务端只为它们补 `runtime.`（变量键同时从 `variableId` 规范为 `id`），随后仍执行完整 ID 与 Schema 校验；其他未知操作仍拒绝。
+`_defaults.json.tavern.replyOptions` 定义 RP 自动选项的项目默认（数量、提示词和无选项提示）；酒馆/通用预设的可选 `replyOptions` 以字段覆盖默认，纯 RPG 预设不读取也不会因保存而自动生成该字段。编辑器的“恢复默认”会重新进入继承状态；修改任一控件后才随当前预设保存。旧版写在 `postHistory` 尾部、带「AI 回复选项协议」标题的块会迁入 `replyOptions.instruction`，其余后预设原文保留。自定义提示词可只描述选项风格；若未包含 `<tavern_options>`，运行时在其后补入 JSON 默认模板中的机器协议。客户端解析并移除该标签，只把去重后的选项保存到 assistant 消息的 `options[]`，底部快捷栏据此渲染；关闭时不注入、不修复且不显示等待提示。RP 开启选项时在请求末尾追加临时 Assistant 承诺消息（replyOptions.assistantMessage，可编辑，留空继承默认，支持 {count}/{min}/{max}），与已有 assistant_prefill 合成一条消息；只存在于请求副本，不写入历史或摘要。掉格式只保留正文与合法选项，不追加纠正请求；普通提示词提到标签不会跳过正式协议；RPG 控制块缺失或不合规时最多额外请求两次协议修复。已通过执行器校验的原生工具候选会先转换成内部 Typed Patch，模型正文里的重复 patch 不能覆盖它；协议修复也只替换坏字段，保留本回合已经合法的 options 或 patch。RPG 修复优先强制模型通过专用 function schema 返回控制数据；不支持 function calling 的兼容接口可回退为专用裸 JSON，再由客户端注入固定 `protocol`、`version` 与当前 `baseRevision`，最终仍经同一 Typed Patch 和服务端 revision 校验。修复失败仍保留已生成正文，不在客户端臆造选项。正文、正则和选项数据分开处理，AI 未返回标签时不再回退到写死按钮。兼容模型偶发返回的 `{ label, value }` 选项对象；客户端会在最终提交前统一为字符串，并确保顶层 `options` 与 `patch.options` 同源。RP 的 `<tavern_options>` 与 RPG 的 `<tavern_state_update>` 分别解析，不能互相替代。`variable.*` / `collection.*` 是世界卡 action effects 的内部名；若模型把这五种内部名复制到回合 `updates`，客户端与服务端只为它们补 `runtime.`（变量键同时从 `variableId` 规范为 `id`），随后仍执行完整 ID 与 Schema 校验；其他未知操作仍拒绝。
 
 DeepSeek V4 默认开启 thinking，但 thinking 模式不接受强制 `tool_choice`；专用 RPG 协议修复请求会显式切换为 non-thinking，普通叙事请求仍遵循用户的思维链设置。强制工具请求被拒绝或返回不可解析内容时，官方 DeepSeek 接口才使用 `response_format: { type: "json_object" }` 兜底；JSON Output 仍可能为空，因此返回值不会直接提交，必须继续通过客户端协议解析和服务端校验。
 
@@ -363,8 +363,16 @@ DeepSeek V4 默认开启 thinking，但 thinking 模式不接受强制 `tool_cho
   systemPrompt: '',         // 仅旧缓存迁移；启动后写入 __global__.main 并清空
   postHistory: '',          // 仅旧缓存迁移；启动后写入 __global__.jailbreak 并清空
   firstMes: '',             // 旧开场白兜底
+  chatBackground: {        // RP / RPG 普通聊天区共用的本机背景，独立于界面主题预设
+    enabled: false, path: '', name: '', // path 仅接受 /images/ 下的本机图片
+    fit: 'cover',           // cover | contain
+    position: 'center',     // center | top | bottom
+    overlay: 0.55,          // 0–1，当前主题背景色遮罩强度
+  },
 }
 ```
+
+聊天背景在「设置 → 界面」选择图片后通过 `/api/image-save` 持久保存；JSON 与 localStorage 只存路径和显示参数，不保存图片 base64，也不参与模型请求。Android 使用系统文件选择器，图片位于 `filesDir/images/`，参数随 `settings.json` 恢复。导出的连接配置只包含图片路径，跨设备使用时需重新选择图片。关闭开关保留图片选择，移除恢复默认背景但不删除共享图片文件；加载失败回退主题背景。
 
 ## 四、提示词构建管线 buildPromptBlocks
 

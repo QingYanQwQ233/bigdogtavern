@@ -7,7 +7,7 @@
   <link rel="manifest" href="manifest.json" />
   <title>Tavern · AI RP 框架演示</title>
   <link rel="icon" type="image/png" href="favicon.png" />
-  <link rel="stylesheet" href="styles.css?v=20260903c" />
+  <link rel="stylesheet" href="styles.css?v=20260905b" />
 </head>
 <body data-theme="vibrancy" data-layout="classic">
   <canvas id="bg-fx" aria-hidden="true"></canvas>
@@ -373,6 +373,7 @@
           <button class="ghost-btn small" id="pg-reply-options-reset" type="button">恢复默认</button>
         </div>
         <div class="field"><label for="pg-reply-options-prompt">回复选项提示词</label><textarea id="pg-reply-options-prompt" rows="5" placeholder="告诉 AI 如何在正文末尾生成回复选项…"></textarea></div>
+        <div class="field"><label for="pg-reply-options-assistant">末尾 char 引导消息</label><textarea id="pg-reply-options-assistant" rows="3" placeholder="留空继承默认；支持 {count}、{min}、{max}"></textarea><p class="hint">作为临时 Assistant 历史加入请求，不显示、不存档；与 assistant_prefill 合成一条消息。掉格式不会追加纠正请求。若接口要求 User 结尾，请调整接口消息兼容配置。</p></div>
         <p id="pg-reply-options-note" class="hint">可用 {count}、{min}、{max} 代入选项数量；省略标签协议时会自动补上默认结构要求。</p>
       </section>
       <details id="pg-st-settings" class="pg-st-settings">
@@ -906,6 +907,31 @@
 
         <!-- ── Tab 界面 ── -->
         <div id="st-panel-ui" class="hidden" role="tabpanel" aria-labelledby="st-tab-ui">
+          <section id="chat-background-settings" class="chat-background-settings" aria-labelledby="chat-background-heading">
+            <div class="chat-background-heading">
+              <h3 id="chat-background-heading">聊天背景</h3>
+              <label class="check"><input id="chat-background-enabled" type="checkbox" /> 启用背景</label>
+            </div>
+            <div id="chat-background-preview" class="chat-background-preview">
+              <span id="chat-background-preview-note" class="chat-background-preview-note">选择一张喜欢的图片作为聊天背景</span>
+              <span class="chat-background-sample">窗边的光落在书页上，故事正要开始。</span>
+              <span class="chat-background-sample user">继续我们的故事。</span>
+            </div>
+            <div class="chat-background-actions">
+              <button id="btn-chat-background-upload" class="btn gold small" type="button">选择图片</button>
+              <button id="btn-chat-background-remove" class="ghost-btn" type="button" disabled>移除背景</button>
+              <span id="chat-background-name" class="hint">尚未选择图片</span>
+              <input id="chat-background-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
+            </div>
+            <div class="chat-background-controls">
+              <div class="field"><label for="chat-background-fit">显示方式</label><select id="chat-background-fit"><option value="cover">铺满聊天区（裁剪边缘）</option><option value="contain">显示完整图片（可能留白）</option></select></div>
+              <div class="field"><label for="chat-background-position">对齐位置</label><select id="chat-background-position"><option value="center">居中</option><option value="top">顶部</option><option value="bottom">底部</option></select></div>
+            </div>
+            <div class="field"><label for="chat-background-overlay">背景遮罩 <span id="chat-background-overlay-val" class="hint-inline">55%</span></label><input id="chat-background-overlay" type="range" min="0" max="1" step="0.01" aria-describedby="chat-background-help" /></div>
+            <p id="chat-background-help" class="hint">遮罩越高，图片越淡、文字越清晰。支持 PNG、JPG、WebP、GIF，最大 12 MB；图片保存在本机，RP / RPG 普通聊天区共用。</p>
+            <p id="chat-background-status" class="hint" role="status" aria-live="polite">修改即时预览并自动保存。</p>
+            <button id="btn-chat-background-retry" class="ghost-btn" type="button" hidden>重试保存</button>
+          </section>
           <div class="settings-ui-intro">
             <strong>界面主题</strong>
             <span>只覆盖 Tavern 现有界面变量，修改会即时预览并自动保存；世界卡自带的 UI 不会被强行改写。</span>
@@ -1733,8 +1759,8 @@
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
   <script src="vendor/mapgen2.bundle.js"></script>
-  <script src="mapgen.js?v=20260903c"></script>
-  <script src="app.js?v=20260903c"></script>
+  <script src="mapgen.js?v=20260905b"></script>
+  <script src="app.js?v=20260905b"></script>
   <script>
     // PWA：注册 service worker（仅 HTTPS / localhost 生效，套壳 APK 可用）
     if ('serviceWorker' in navigator) {

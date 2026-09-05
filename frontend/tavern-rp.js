@@ -1782,6 +1782,7 @@ function normalizeTavernReplyOptionsOverride(value, migratedInstruction = '') {
 
   const instruction = String(source?.instruction || migrated).trim();
   if (instruction) normalized.instruction = instruction;
+  if (source && Object.prototype.hasOwnProperty.call(source, 'assistantMessage')) normalized.assistantMessage = String(source.assistantMessage || '');
   if (source && Object.prototype.hasOwnProperty.call(source, 'noOptions')) normalized.noOptions = String(source.noOptions || '');
   return Object.keys(normalized).length ? normalized : null;
 }
@@ -2114,6 +2115,7 @@ function fillPGReplyOptions() {
   enabledInput.checked = config.enabled !== false;
   countInput.value = String(Number.isFinite(configuredCount) ? Math.max(1, Math.min(8, Math.floor(configuredCount))) : 4);
   promptInput.value = String(config.instruction || builtInTavernReplyOptionsInstruction() || '');
+  if ($('pg-reply-options-assistant')) $('pg-reply-options-assistant').value = String(config.assistantMessage || '');
   syncPGReplyOptionsEditor();
 }
 
@@ -2130,6 +2132,7 @@ function syncPGReplyOptionsEditor() {
   enabledInput.disabled = !appliesToTavern;
   countInput.disabled = !appliesToTavern || !enabledInput.checked;
   promptInput.disabled = !appliesToTavern || !enabledInput.checked;
+  if ($('pg-reply-options-assistant')) $('pg-reply-options-assistant').disabled = promptInput.disabled;
   if (resetButton) resetButton.disabled = !appliesToTavern;
   section.classList.toggle('inactive', !appliesToTavern);
   if (note) {
@@ -2172,6 +2175,8 @@ function capturePGReplyOptions() {
     max: count,
     count,
     ...(instruction ? { instruction } : {}),
+    ...($('pg-reply-options-assistant') ? { assistantMessage: String($('pg-reply-options-assistant').value || '') } :
+      (Object.prototype.hasOwnProperty.call(previous, 'assistantMessage') ? { assistantMessage: previous.assistantMessage } : {})),
     ...(Object.prototype.hasOwnProperty.call(previous, 'noOptions') ? { noOptions: previous.noOptions } : {}),
   };
 }
@@ -3840,13 +3845,22 @@ function buildTavernReplyOptionsPrompt(preset = null) {
   const instruction = String(config?.instruction || '').trim();
   if (!rules.enabled || !instruction) return '';
   const customized = formatTavernReplyOptionsInstruction(instruction, rules);
-  if (hasTavernReplyOptionsProtocol(customized)) return customized;
   // 自定义内容可以只描述选项风格；机器可解析的标签契约仍由 JSON 默认模板兜底。
   const fallbackInstruction = String(defaults?.tavern?.replyOptions?.instruction || builtInTavernReplyOptionsInstruction() || '').trim();
   const fallback = formatTavernReplyOptionsInstruction(fallbackInstruction, rules);
+  if (customized === fallback) return customized;
   return fallback && hasTavernReplyOptionsProtocol(fallback)
     ? [customized, fallback].filter(Boolean).join('\n\n')
     : customized;
+}
+
+function buildTavernReplyOptionsAssistantMessage(preset = null) {
+  if (mode !== 'tavern') return '';
+  const rules = tavernReplyOptionRules(preset);
+  if (!rules.enabled) return '';
+  const config = tavernReplyOptionsConfig(preset);
+  const template = String(config?.assistantMessage || defaults?.tavern?.replyOptions?.assistantMessage || '').trim();
+  return formatTavernReplyOptionsInstruction(template, rules);
 }
 
 function formatTavernReplyOptionsInstruction(instruction, rules) {
@@ -4451,7 +4465,6 @@ function buildPromptBlocks() {
   const relativeAfter = [];
   const injections = [];
   const postParts = [];
-  let optionProtocolIncluded = false;
   let includeHistory = false;
   let reachedHistory = false;
 
@@ -4480,7 +4493,6 @@ function buildPromptBlocks() {
       for (const message of exampleMessages) {
         const content = expandPresetMacros(message.content, macroContext, variables);
         if (!content) continue;
-        if (hasTavernReplyOptionsProtocol(content)) optionProtocolIncluded = true;
         if (message.role === 'system') systemParts.push(content);
         else (reachedHistory ? afterHistory : beforeHistory).push({ role: message.role, content });
         (reachedHistory ? relativeAfter : relativeBefore).push({ role: message.role, content, _example: true });
@@ -4499,7 +4511,6 @@ function buildPromptBlocks() {
     }
     content = expandPresetMacros(content, macroContext, variables);
     if (!content) continue;
-    if (hasTavernReplyOptionsProtocol(content)) optionProtocolIncluded = true;
     if (prompt.position === 'in_chat' && !prompt.marker) {
       injections.push({ role: prompt.role, content, depth: prompt.depth, order: prompt.order });
       if (prompt.role === 'system') systemParts.push(content);
@@ -4539,7 +4550,7 @@ function buildPromptBlocks() {
   let history = [...exampleHistory, ...(includeHistory ? previousHistory : [])];
   history = mergeHistoryInjections(history, injections);
   const orderedChat = mergeHistoryInjections([...exampleHistory, ...(includeHistory ? previousHistory : []), ...currentTurn], injections);
-  const optionPrompt = optionProtocolIncluded ? '' : buildTavernReplyOptionsPrompt(preset);
+  const optionPrompt = buildTavernReplyOptionsPrompt(preset);
   if (optionPrompt) postParts.push(expandPresetMacros(optionPrompt, macroContext, variables));
   // 兼容调试投影仍把本轮玩家输入保留为最后一条 user；真实请求使用下方 orderedPromptMessages。
   const promptHistory = [...beforeHistory, ...history, ...afterHistory, ...currentTurn].map((message, index, list) => ({

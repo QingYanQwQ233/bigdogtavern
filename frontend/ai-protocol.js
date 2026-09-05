@@ -464,7 +464,9 @@ function processAIOutput(reply) {
     const parsed = parseTavernReplyOutput(reply, resolvePromptPreset()?.preset || null);
     if (parsed.errorCode) console.warn('[Tavern] RP 选项标签解析失败:', parsed.errorCode, parsed.errorMessage || '');
     const rawContent = String(parsed.content || '');
-    return { content: applyOutputRegex(rawContent), rawContent, options: parsed.options, protocol: parsed };
+    const preset = resolvePromptPreset()?.preset || null;
+    const options = tavernReplyOptionsInvalid({ options: parsed.options, protocol: parsed }, preset) ? null : parsed.options;
+    return { content: applyOutputRegex(rawContent), rawContent, options, protocol: parsed };
   }
   const parsed = parseRpgOutput(reply);
   if (parsed.errorCode) console.warn('[Tavern] RPG 状态块解析失败:', parsed.errorCode, parsed.errorMessage || '');
