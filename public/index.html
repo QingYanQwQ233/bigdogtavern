@@ -7,7 +7,7 @@
   <link rel="manifest" href="manifest.json" />
   <title>Tavern · AI RP 框架演示</title>
   <link rel="icon" type="image/png" href="favicon.png" />
-  <link rel="stylesheet" href="styles.css?v=20260905b" />
+  <link rel="stylesheet" href="styles.css?v=20260905c" />
 </head>
 <body data-theme="vibrancy" data-layout="classic">
   <canvas id="bg-fx" aria-hidden="true"></canvas>
@@ -107,28 +107,35 @@
     </aside>
 
     <!-- ═══ 主区：对话 ═══ -->
-    <main class="main" data-ui-level="2" data-ui-region="workspace" data-ui-owner="host">
+    <main id="chat-workspace" class="main" data-ui-level="2" data-ui-region="workspace" data-ui-owner="host">
       <header class="chat-header" data-ui-level="3" data-ui-region="workspace.topbar" data-ui-owner="host">
         <button class="ghost-btn" id="btn-nav-drawer" type="button" title="菜单" aria-label="打开导航" aria-controls="nav-drawer" aria-expanded="false">☰</button>
         <div id="workspace-header-content" class="workspace-header-content" data-ui-level="4" data-ui-region="workspace.topbar.content" data-ui-owner="host">
-        <div class="session-wrap">
-          <button class="ghost-btn" id="btn-session" title="切换 / 管理会话">📂 <span id="session-name">会话 1</span> ▾</button>
-          <div id="session-menu" class="dropdown hidden" data-ui-level="4" data-ui-region="workspace.session-menu" data-ui-owner="host">
-            <div id="session-menu-list"></div>
-            <button class="btn gold small" id="session-menu-new" style="width:100%;margin-top:8px">＋ 新建会话</button>
+          <div class="char-meta">
+            <div class="char-name" id="hdr-char-name">？？？</div>
+            <div class="chat-subtitle">
+              <div class="char-race" id="hdr-char-race">种族待定 · 身份待定</div>
+              <div class="rpg-hdr" id="rpg-hdr-info">
+                <span class="rpg-hdr-chip">📍 <span id="rpg-loc">—</span></span>
+              </div>
+            </div>
           </div>
-        </div>
-        <div class="char-meta">
-          <div class="char-name" id="hdr-char-name">？？？</div>
-          <div class="char-race" id="hdr-char-race">种族待定 · 身份待定</div>
-        </div>
-        <button class="ghost-btn" id="btn-clear-chat" title="清空当前对话">清空对话</button>
-        <div class="rpg-hdr" id="rpg-hdr-info">
-          <span class="rpg-hdr-chip">📍 <span id="rpg-loc">—</span></span>
-        </div>
-        <span id="rpg-world-save" class="rpg-world-save" hidden></span>
-        <button class="ghost-btn" id="btn-debug" type="button" aria-controls="debug-panel" aria-expanded="false">⌘ 终端</button>
-        <button class="ghost-btn devtools-trigger" id="btn-devtools" type="button" aria-controls="devtools-panel" aria-expanded="false" hidden>🧪 开发者</button>
+          <div class="session-wrap">
+            <button class="ghost-btn" id="btn-session" type="button" title="切换 / 管理会话"><span aria-hidden="true">📂</span><span id="session-name">会话 1</span><span aria-hidden="true">▾</span></button>
+            <div id="session-menu" class="dropdown hidden" data-ui-level="4" data-ui-region="workspace.session-menu" data-ui-owner="host">
+              <div id="session-menu-list"></div>
+              <button class="btn gold small" id="session-menu-new" style="width:100%;margin-top:8px">＋ 新建会话</button>
+            </div>
+          </div>
+          <details id="chat-header-menu" class="chat-header-menu">
+            <summary class="ghost-btn" title="更多聊天操作" aria-label="更多聊天操作">⋯</summary>
+            <div class="dropdown chat-header-actions">
+              <span id="rpg-world-save" class="rpg-world-save" hidden></span>
+              <button class="ghost-btn" id="btn-clear-chat" type="button" title="清空当前对话">清空对话</button>
+              <button class="ghost-btn" id="btn-debug" type="button" aria-controls="debug-panel" aria-expanded="false">⌘ 终端</button>
+              <button class="ghost-btn devtools-trigger" id="btn-devtools" type="button" aria-controls="devtools-panel" aria-expanded="false" hidden>🧪 开发者</button>
+            </div>
+          </details>
         </div>
       </header>
 
@@ -931,6 +938,16 @@
             <p id="chat-background-help" class="hint">遮罩越高，图片越淡、文字越清晰。支持 PNG、JPG、WebP、GIF，最大 12 MB；图片保存在本机，RP / RPG 普通聊天区共用。</p>
             <p id="chat-background-status" class="hint" role="status" aria-live="polite">修改即时预览并自动保存。</p>
             <button id="btn-chat-background-retry" class="ghost-btn" type="button" hidden>重试保存</button>
+          </section>
+          <section id="ui-transparency-settings" class="chat-background-settings" aria-labelledby="ui-transparency-heading">
+            <div class="chat-background-heading">
+              <h3 id="ui-transparency-heading">透明 UI</h3>
+              <label class="check"><input id="ui-transparency-enabled" type="checkbox" /> 开启透明 UI</label>
+            </div>
+            <div class="field"><label for="ui-transparency-amount">UI 透明度 <span id="ui-transparency-amount-val" class="hint-inline">60%</span></label><input id="ui-transparency-amount" type="range" min="0" max="1" step="0.01" aria-describedby="ui-transparency-help" disabled /></div>
+            <p id="ui-transparency-help" class="hint">数值越高，面板底色越透明，文字保持清晰。开启后聊天背景延伸到顶栏和输入区；可结合上方背景预览调节。</p>
+            <p id="ui-transparency-status" class="hint" role="status" aria-live="polite">修改即时预览并自动保存。</p>
+            <button id="btn-ui-transparency-retry" class="ghost-btn" type="button" hidden>重试保存</button>
           </section>
           <div class="settings-ui-intro">
             <strong>界面主题</strong>
@@ -1759,8 +1776,8 @@
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
   <script src="vendor/mapgen2.bundle.js"></script>
-  <script src="mapgen.js?v=20260905b"></script>
-  <script src="app.js?v=20260905b"></script>
+  <script src="mapgen.js?v=20260905c"></script>
+  <script src="app.js?v=20260905c"></script>
   <script>
     // PWA：注册 service worker（仅 HTTPS / localhost 生效，套壳 APK 可用）
     if ('serviceWorker' in navigator) {

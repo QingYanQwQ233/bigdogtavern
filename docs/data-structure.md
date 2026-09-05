@@ -369,10 +369,16 @@ DeepSeek V4 默认开启 thinking，但 thinking 模式不接受强制 `tool_cho
     position: 'center',     // center | top | bottom
     overlay: 0.55,          // 0–1，当前主题背景色遮罩强度
   },
+  uiTransparency: {        // 宿主聊天 UI，独立于背景图片和 prefs.uiTheme
+    enabled: false,
+    amount: 0.6,           // 0–1，越大越透明；仅面板底色，文字保持原透明度
+  },
 }
 ```
 
 聊天背景在「设置 → 界面」选择图片后通过 `/api/image-save` 持久保存；JSON 与 localStorage 只存路径和显示参数，不保存图片 base64，也不参与模型请求。Android 使用系统文件选择器，图片位于 `filesDir/images/`，参数随 `settings.json` 恢复。导出的连接配置只包含图片路径，跨设备使用时需重新选择图片。关闭开关保留图片选择，移除恢复默认背景但不删除共享图片文件；加载失败回退主题背景。
+
+透明 UI 与背景开关独立，缺失配置时默认关闭，透明度默认 60%。启用后由工作区绘制连续背景，顶栏、输入区、普通消息气泡及 RPG 宿主面板使用 `1 - amount` 作为底色 alpha；关闭后图片回到聊天滚动区。配置随 `settings.json` 自动保存 / 导入恢复，主题切换或移除背景均保留该选择；不进入模型请求，也不覆盖世界卡自有界面。顶栏本身使用紧凑单排布局，低频操作位于原生 `details` 菜单，保留宿主与世界卡 topbar 的所有权边界。
 
 ## 四、提示词构建管线 buildPromptBlocks
 

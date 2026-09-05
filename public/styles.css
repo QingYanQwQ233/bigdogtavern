@@ -448,15 +448,40 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   z-index: 30;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 14px 20px;
+  gap: 0;
+  padding: 6px 12px;
   border-bottom: 1px solid var(--line);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent);
   transition: border-color 0.4s ease;
-  flex-wrap: wrap; /* 窄窗口下头部元素换行，不横向溢出 */
-  row-gap: 6px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+  min-width: 0;
 }
-.workspace-header-content { display: contents; }
+/* margin 间距兼容 WebView 83（尚不支持 flex gap）。 */
+.workspace-header-content { display: flex; flex: 1; align-items: center; min-width: 0; margin-left: 8px; }
+.workspace-header-content > * + * { margin-left: 8px; }
+.chat-header .char-meta { flex: 1; min-width: 0; }
+.chat-header .char-name { font-size: 15px; line-height: 20px; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-subtitle { display: flex; align-items: center; min-width: 0; }
+.chat-header .char-race { flex: 1; min-width: 0; font-size: 11px; line-height: 16px; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-header .rpg-hdr { flex: 0 1 48%; min-width: 0; margin-left: 6px; overflow: hidden; }
+.chat-header .rpg-hdr-chip { display: block; min-width: 0; padding: 0; border: 0; background: transparent; font-size: 11px; line-height: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-header #btn-nav-drawer,
+.chat-header-menu > summary { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 44px; min-width: 44px; min-height: 44px; padding: 0; font-size: 20px; touch-action: manipulation; }
+.chat-header .session-wrap { flex: none; min-width: 0; }
+#btn-session { display: flex; align-items: center; justify-content: center; max-width: 132px; min-width: 44px; min-height: 44px; padding: 4px 8px; font-size: 12px; touch-action: manipulation; }
+#btn-session > span + span { margin-left: 4px; }
+#session-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-header-menu { position: relative; flex: none; }
+.chat-header-menu > summary { list-style: none; cursor: pointer; }
+.chat-header-menu > summary::-webkit-details-marker { display: none; }
+.chat-header-menu[open] > summary { color: var(--accent); border-color: var(--accent); }
+.chat-header-menu:not([open]) > .chat-header-actions { display: none; }
+.chat-header #session-menu,
+.chat-header .chat-header-actions { right: 0; left: auto; max-width: calc(100vw - 72px); transform-origin: top right; }
+.chat-header .chat-header-actions { width: 196px; padding: 6px; }
+.chat-header-actions .ghost-btn { min-height: 44px; width: 100%; text-align: left; padding: 8px 12px; }
+.chat-header-actions .rpg-world-save { max-width: 100%; padding: 6px 10px; }
 
 .crest {
   position: relative;
@@ -1704,11 +1729,11 @@ body[data-mode="rpg"] .composer {
     min-width: 0;
     max-width: 100%;
   }
-  body[data-mode="rpg"] .chat-header { flex-wrap: wrap; overflow: hidden; }
-  body[data-mode="rpg"] .chat-header .char-meta { min-width: 0; max-width: 132px; }
+  body[data-mode="rpg"] .chat-header { flex-wrap: nowrap; overflow: visible; }
+  body[data-mode="rpg"] .chat-header .char-meta { min-width: 0; }
   body[data-mode="rpg"] .chat-header .char-name,
   body[data-mode="rpg"] .chat-header .char-race { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  body[data-mode="rpg"] .rpg-hdr { min-width: 0; max-width: 100%; overflow-x: auto; }
+  body[data-mode="rpg"] .rpg-hdr { min-width: 0; max-width: 100%; overflow: hidden; }
   body[data-mode="rpg"] .chat {
     padding: 18px max(14px, 4vw) 28px;
   }
@@ -1974,14 +1999,35 @@ body[data-theme="vibrancy"] .dropdown { box-shadow: none; }
 .settings-ui-intro { display: grid; gap: 4px; padding: 10px 12px; margin-bottom: 14px; border: 1px solid rgba(var(--accent-rgb), 0.24); border-radius: var(--radius); background: rgba(var(--accent-rgb), 0.06); }
 .settings-ui-intro strong { color: var(--accent); }
 .settings-ui-intro span { color: var(--muted); font-size: 12px; line-height: 1.5; }
-/* 背景只绘制在聊天滚动容器上，不增加覆盖点击的层，也不改变消息透明度。 */
-#chat.has-chat-background, .chat-background-preview.has-chat-background {
+/* 普通模式在聊天区绘制背景；透明 UI 则在工作区绘制一张连续背景。无覆盖点击的图层。 */
+#chat.has-chat-background,
+body:not(.world-custom-layout):not(.world-setup-extension-mode) #chat-workspace.has-chat-background,
+.chat-background-preview.has-chat-background {
   background-color: var(--bg-0);
   background-image: linear-gradient(rgba(var(--bg-0-rgb), var(--chat-background-overlay)), rgba(var(--bg-0-rgb), var(--chat-background-overlay))), var(--chat-background-image);
   background-size: 100% 100%, var(--chat-background-fit);
   background-position: center, var(--chat-background-position);
   background-repeat: no-repeat;
   background-attachment: scroll;
+}
+/* 只改变宿主面板底色的 alpha，不降低文字或世界卡自有界面的透明度。 */
+body:not(.world-custom-layout):not(.world-setup-extension-mode) #chat-workspace.transparent-ui > #chat { background: transparent; }
+body:not(.world-custom-layout):not(.world-setup-extension-mode) #chat-workspace.transparent-ui > .chat-header,
+body:not(.world-custom-layout):not(.world-setup-extension-mode) #chat-workspace.transparent-ui > .composer,
+body:not(.world-custom-layout):not(.world-setup-extension-mode) #chat-workspace.transparent-ui > .rpg-panel,
+body:not(.world-custom-layout):not(.world-setup-extension-mode) #chat-workspace.transparent-ui > .rpg-status,
+body:not(.world-custom-layout):not(.world-setup-extension-mode) #chat-workspace.transparent-ui > .rpg-mobile-toolbar {
+  background: rgba(var(--bg-0-rgb), var(--ui-panel-opacity));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+body:not(.world-custom-layout):not(.world-setup-extension-mode) #chat-workspace.transparent-ui .msg:not(.narration):not(.cot-msg) > .bubble,
+body:not(.world-custom-layout):not(.world-setup-extension-mode) #chat-workspace.transparent-ui textarea#input,
+body:not(.world-custom-layout):not(.world-setup-extension-mode) #chat-workspace.transparent-ui .composer-tool,
+body:not(.world-custom-layout):not(.world-setup-extension-mode) #chat-workspace.transparent-ui .chip,
+.chat-background-preview.transparent-ui .chat-background-sample {
+  background: rgba(var(--panel-rgb), var(--ui-panel-opacity));
+  box-shadow: none;
 }
 .chat-background-settings { margin-bottom: 20px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); }
 .chat-background-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
@@ -1994,7 +2040,7 @@ body[data-theme="vibrancy"] .dropdown { box-shadow: none; }
 #chat-background-name { flex: 1 1 160px; min-width: 0; overflow-wrap: anywhere; }
 .chat-background-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .chat-background-controls select { width: 100%; min-width: 0; }
-#chat-background-status.err { color: var(--danger); }
+#chat-background-status.err, #ui-transparency-status.err { color: var(--danger); }
 @media (max-width: 480px) {
   .chat-background-settings { padding: 10px; }
   .chat-background-controls { grid-template-columns: 1fr; gap: 0; }
@@ -3123,8 +3169,11 @@ body.world-setup-extension-mode .rpg-extension-head {
     max-width: 100%;
   }
   .msg.image-msg { max-width: 96%; }
-  .chat-header { padding: 10px 12px; gap: 8px; }
-  .chat-header h2 { font-size: 15px; }
+  .chat-header { padding: 4px 8px; }
+  .workspace-header-content, .workspace-header-content > * + * { margin-left: 6px; }
+  .chat-header .char-name { font-size: 14px; }
+  .chat-header .char-race, .chat-header .rpg-hdr-chip { font-size: 10px; line-height: 14px; }
+  #btn-session { max-width: 92px; padding: 4px 6px; font-size: 11px; }
   .composer { padding: 6px 8px 10px; }
   textarea#input { font-size: 16px; padding: 10px 12px; min-height: 44px; max-height: 44px; }
   .composer-row { gap: 6px; }

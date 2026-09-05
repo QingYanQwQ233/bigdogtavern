@@ -406,6 +406,52 @@ function chatBackgroundFromSettings() {
   return normalizeChatBackground(settings.chatBackground);
 }
 
+/* 透明度独立保存，切换主题或移除背景时保留用户选择。 */
+let uiTransparencySaveTimer = null;
+let uiTransparencySaveToken = 0;
+
+function uiTransparencyFromSettings() {
+  const source = settings.uiTransparency || {};
+  return { enabled: source.enabled === true, amount: clampNum(source.amount, 0, 1, 0.6) };
+}
+
+function fillUiTransparencyForm() {
+  const value = uiTransparencyFromSettings();
+  if (!$('ui-transparency-enabled')) return;
+  $('ui-transparency-enabled').checked = value.enabled;
+  $('ui-transparency-amount').value = value.amount;
+  $('ui-transparency-amount').disabled = !value.enabled;
+  $('ui-transparency-amount').setAttribute('aria-valuetext', `${Math.round(value.amount * 100)}% 透明`);
+  $('ui-transparency-amount-val').textContent = `${Math.round(value.amount * 100)}%`;
+  renderChatBackground();
+}
+
+async function saveUiTransparencySettings() {
+  clearTimeout(uiTransparencySaveTimer);
+  const token = ++uiTransparencySaveToken;
+  let saved = false;
+  try { saved = await saveSettings(); } catch (error) { console.warn('[Tavern] 透明 UI 保存失败:', error.message); }
+  if (token !== uiTransparencySaveToken) return;
+  const status = $('ui-transparency-status');
+  if (status) {
+    status.textContent = saved ? '透明 UI 设置已保存。' : '透明 UI 已应用，但设置保存失败，请点击重试。';
+    status.className = saved ? 'hint' : 'hint err';
+  }
+  if ($('btn-ui-transparency-retry')) $('btn-ui-transparency-retry').hidden = !!saved;
+}
+
+function readUiTransparencyForm(save = false) {
+  settings.uiTransparency = {
+    enabled: $('ui-transparency-enabled').checked,
+    amount: clampNum($('ui-transparency-amount').value, 0, 1, 0.6),
+  };
+  ++uiTransparencySaveToken;
+  fillUiTransparencyForm();
+  clearTimeout(uiTransparencySaveTimer);
+  if (save) saveUiTransparencySettings();
+  else uiTransparencySaveTimer = setTimeout(saveUiTransparencySettings, 400);
+}
+
 function setChatBackgroundStatus(text, error = false) {
   const status = $('chat-background-status');
   if (status) { status.textContent = text; status.className = error ? 'hint err' : 'hint'; }
@@ -413,10 +459,14 @@ function setChatBackgroundStatus(text, error = false) {
 
 function renderChatBackground() {
   const bg = chatBackgroundFromSettings();
+  const transparency = uiTransparencyFromSettings();
   const ready = bg.enabled && chatBackgroundImageState.path === bg.path && chatBackgroundImageState.status === 'ready';
-  for (const element of [$('chat'), $('chat-background-preview')]) {
+  for (const element of [$('chat'), $('chat-workspace'), $('chat-background-preview')]) {
     if (!element) continue;
-    element.classList.toggle('has-chat-background', ready);
+    const paintsImage = element.id === 'chat' ? !transparency.enabled : element.id === 'chat-workspace' ? transparency.enabled : true;
+    element.classList.toggle('has-chat-background', ready && paintsImage);
+    element.classList.toggle('transparent-ui', transparency.enabled);
+    element.style.setProperty('--ui-panel-opacity', String(1 - transparency.amount));
     element.style.setProperty('--chat-background-image', ready ? `url("${bg.path}")` : 'none');
     element.style.setProperty('--chat-background-fit', bg.fit);
     element.style.setProperty('--chat-background-position', bg.position);
@@ -588,6 +638,7 @@ function fillSettingsForm() {
   fillTypographyForm();
   fillUiThemeForm();
   fillChatBackgroundForm();
+  fillUiTransparencyForm();
 }
 
 function readSettingsForm() {
@@ -963,11 +1014,25 @@ function openDebugTerminal() {
   $('debug-close').focus();
 }
 
+function closeChatHeaderMenu(returnFocus = false) {
+  const menu = $('chat-header-menu');
+  if (!menu?.open) return;
+  menu.open = false;
+  if (returnFocus) menu.querySelector('summary')?.focus();
+}
+
+function focusChatHeaderAction(id) {
+  const button = $(id);
+  const menu = button?.closest('details');
+  if (menu && !menu.open) menu.querySelector('summary')?.focus();
+  else button?.focus();
+}
+
 function closeDebugTerminal() {
   const panel = $('debug-panel');
   if (panel.open) panel.close();
   $('btn-debug').setAttribute('aria-expanded', 'false');
-  $('btn-debug').focus();
+  focusChatHeaderAction('btn-debug');
 }
 
 function clearDebugTerminal() {
@@ -1161,7 +1226,7 @@ function closeDevtools() {
   const panel = $('devtools-panel');
   if (panel?.open) panel.close();
   $('btn-devtools')?.setAttribute('aria-expanded', 'false');
-  $('btn-devtools')?.focus();
+  focusChatHeaderAction('btn-devtools');
 }
 async function submitDevtoolsScenario() {
   if (!worldModeActive()) throw new Error('请先打开正式 RPG 世界存档');
@@ -3528,6 +3593,8 @@ function bindEvents() {
   // 手机导航抽屉 / 桌面侧栏收起（与 CSS 的媒体查询共用断点，避免旧 WebView 视口测量不一致）。
   $('btn-nav-drawer').addEventListener('click', e => {
     e.stopPropagation();
+    closeChatHeaderMenu();
+    $('session-menu').classList.add('hidden');
     if (usesDesktopNavigation()) {
       document.body.classList.toggle('sidebar-hidden'); // 侧栏滑出 + main 回满宽（CSS transform/margin 动画，可靠无抽搐）
     } else {
@@ -3565,11 +3632,17 @@ function bindEvents() {
   // 会话
   $('btn-session').addEventListener('click', e => {
     e.stopPropagation();
+    closeChatHeaderMenu();
     if (mode === 'rpg') { openWorldLibrary(); return; }
     $('session-menu').classList.toggle('hidden');
   });
+  $('chat-header-menu').addEventListener('click', e => {
+    if (e.target.closest('button')) closeChatHeaderMenu();
+    $('session-menu').classList.add('hidden');
+  });
   document.addEventListener('click', e => {
     if (!$('session-menu').contains(e.target)) $('session-menu').classList.add('hidden');
+    if (!$('chat-header-menu').contains(e.target)) closeChatHeaderMenu();
   });
   $('session-menu-new').addEventListener('click', () => { newSession(); $('session-menu').classList.add('hidden'); });
   // 角色管理
@@ -3937,6 +4010,17 @@ function bindEvents() {
   $('rpg-mobile-scrim')?.addEventListener('click', () => setRpgMobileDrawer(''));
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
+    if ($('chat-header-menu').open) {
+      e.preventDefault();
+      closeChatHeaderMenu(true);
+      return;
+    }
+    if (!$('session-menu').classList.contains('hidden')) {
+      e.preventDefault();
+      $('session-menu').classList.add('hidden');
+      $('btn-session').focus();
+      return;
+    }
     if (worldImmersiveSession) {
       const escapeMode = worldUiShell().escape;
       if (escapeMode === 'none') return;
@@ -3962,6 +4046,10 @@ function bindEvents() {
   let uiThemeSaveTimer = null;
   $('settings-modal').addEventListener('input', e => {
     if (!e.target.closest) return;
+    if (e.target.closest('#ui-transparency-settings')) {
+      if (e.target.id === 'ui-transparency-amount') readUiTransparencyForm();
+      return;
+    }
     if (e.target.closest('#chat-background-settings')) {
       if (e.target.id === 'chat-background-overlay') readChatBackgroundForm();
       return;
@@ -3981,6 +4069,10 @@ function bindEvents() {
     }
   });
   $('settings-modal').addEventListener('change', e => {
+    if (e.target.closest && e.target.closest('#ui-transparency-settings')) {
+      readUiTransparencyForm(true);
+      return;
+    }
     if (e.target.closest && e.target.closest('#chat-background-settings')) {
       if (e.target.id !== 'chat-background-file') readChatBackgroundForm(true);
       return;
@@ -4008,6 +4100,7 @@ function bindEvents() {
   });
   $('btn-chat-background-remove').addEventListener('click', removeChatBackground);
   $('btn-chat-background-retry').addEventListener('click', saveChatBackgroundSettings);
+  $('btn-ui-transparency-retry').addEventListener('click', saveUiTransparencySettings);
   $('btn-typo-reset').addEventListener('click', resetTypography);
   $('btn-ui-theme-reset').addEventListener('click', resetUiTheme);
   $('ui-theme-preset').addEventListener('change', e => {
