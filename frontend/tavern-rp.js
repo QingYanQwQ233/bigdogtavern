@@ -2377,7 +2377,9 @@ function renderPGRegexBindings() {
       const text = document.createElement('span');
       text.textContent = rule.name;
       const source = document.createElement('small');
-      source.textContent = rule.bindingMode === 'rpg' ? 'RPG 自定义' : '酒馆自定义';
+      source.textContent = checkbox.checked
+        ? '已绑定 · 可在正则栏目编辑'
+        : (rule.bindingMode === 'rpg' ? 'RPG 自定义' : '酒馆自定义');
       label.append(checkbox, text, source);
       host.appendChild(label);
     }
@@ -2414,8 +2416,22 @@ function renderPGRegexBindings() {
 function togglePGRegexBinding(id, enabled, bindingMode) {
   if (!pgEditingPreset) return;
   const current = normalizeOutputRegexRules(pgEditingPreset.regexes, 'preset');
-  const custom = normalizeOutputRegexRules(modeOutputRegexes(bindingMode), 'custom').find(rule => rule.id === id);
+  const customRules = modeOutputRegexes(bindingMode);
+  const customIndex = customRules.findIndex((rule, index) => normalizeOutputRegexRule(rule, index, 'custom').id === id);
+  const custom = customIndex >= 0 ? normalizeOutputRegexRule(customRules[customIndex], customIndex, 'custom') : null;
+  const bound = current.find(rule => rule.boundCustomId === id);
   pgEditingPreset.regexes = current.filter(rule => rule.boundCustomId !== id);
+  // 解绑定时把预设里最后编辑过的版本还给模式自定义列表，避免编辑结果被旧副本覆盖。
+  if (!enabled && bound && customIndex >= 0) {
+    customRules[customIndex] = normalizeOutputRegexRule({
+      ...bound,
+      id,
+      boundCustomId: null,
+      boundCustomMode: null,
+      presetScope: null,
+    }, customIndex, 'custom');
+    saveOutputRegexPrefs();
+  }
   if (enabled && custom) {
     pgEditingPreset.regexes.push(normalizeOutputRegexRule({
       ...custom,
@@ -2696,6 +2712,40 @@ function activePresetOutputRegexes() {
   return normalizeOutputRegexRules(resolvePromptPreset()?.preset?.regexes, 'preset');
 }
 
+function activePresetRegexStore() {
+  const resolved = resolvePromptPreset();
+  const name = resolved.name || GLOBAL_PRESET_KEY;
+  const preset = promptPresets[name] || resolved.preset || {};
+  if (!Array.isArray(preset.regexes)) preset.regexes = [];
+  return { name, preset };
+}
+
+function presetRegexIndex(preset, id) {
+  const rules = Array.isArray(preset?.regexes) ? preset.regexes : [];
+  return rules.findIndex((raw, index) => String(raw?.id || '') === String(id)
+    || normalizeOutputRegexRule(raw, index, 'preset').id === String(id));
+}
+
+function savePresetRegexRule(id, candidate) {
+  const { name, preset } = activePresetRegexStore();
+  const index = presetRegexIndex(preset, id);
+  if (index < 0) return null;
+  const previous = normalizeOutputRegexRule(preset.regexes[index], index, 'preset');
+  const updated = normalizeOutputRegexRule({
+    ...candidate,
+    id: previous.id,
+    // 绑定关系属于预设所有权，编辑正文时保留它。
+    ...(previous.boundCustomId ? { boundCustomId: previous.boundCustomId } : {}),
+    ...(previous.boundCustomMode ? { boundCustomMode: previous.boundCustomMode } : {}),
+    presetScope: null,
+  }, index, 'preset');
+  preset.regexes[index] = updated;
+  promptPresets[name] = normalizePromptPreset(name, preset);
+  if (pgEditingName === name && pgEditingPreset) pgEditingPreset.regexes = cloneValue(promptPresets[name].regexes);
+  savePresets();
+  return normalizeOutputRegexRule(promptPresets[name].regexes[index], index, 'preset');
+}
+
 function saveOutputRegexPrefs() {
   saveJSON(LS_PREFS, prefs);
 }
@@ -2709,7 +2759,7 @@ function selectedOutputRegex() {
 }
 
 function renderRegexEditor(rule = null, source = 'custom') {
-  const readOnly = source === 'preset' || source === 'world';
+  const readOnly = source === 'world';
   const label = source === 'preset' ? '预设正则' : source === 'world' ? '世界卡正则' : '自定义正则';
   $('regex-edit-title').textContent = rule ? `${label}：${rule.name}` : '新建自定义正则';
   $('regex-name').value = rule?.name || '';
@@ -2726,16 +2776,19 @@ function renderRegexEditor(rule = null, source = 'custom') {
   $('regex-min-depth').value = rule?.minDepth ?? '';
   $('regex-max-depth').value = rule?.maxDepth ?? '';
   $('regex-run-on-edit').checked = rule?.runOnEdit === true;
-  $('regex-preset-scope').checked = rule ? !!rule.presetScope : true;
+  $('regex-preset-scope').checked = source === 'preset' ? true : (rule ? !!rule.presetScope : true);
   $('regex-enabled').checked = rule ? rule.enabled !== false : true;
   ['regex-name', 'regex-find', 'regex-replace', 'regex-trim', 'regex-display-only', 'regex-prompt-only', 'regex-substitute', 'regex-min-depth', 'regex-max-depth', 'regex-run-on-edit', 'regex-preset-scope', 'regex-enabled']
     .forEach(id => { $(id).disabled = readOnly; });
   $('regex-save').disabled = readOnly;
   $('regex-del').disabled = readOnly || !rule;
-  $('regex-copy').classList.toggle('hidden', !readOnly);
+  $('regex-copy').classList.toggle('hidden', source !== 'world');
   $('regex-note').textContent = readOnly
-    ? `这是当前${source === 'world' ? '世界卡' : '预设'}携带的正则，只读；复制后可作为当前模式的自定义正则调整。`
+    ? '这是当前世界卡携带的正则，只读；复制后可作为当前模式的自定义正则调整。'
+    : source === 'preset'
+      ? `这是当前预设携带的正则，可直接修改并保存回「${currentRegexPresetScope(mode) === GLOBAL_PRESET_KEY ? '全局默认' : currentRegexPresetScope(mode)}」。切换预设后只执行新预设的正则，旧预设规则会自动卸下。`
     : `自定义正则只作用于当前${mode === 'rpg' ? 'RPG' : '酒馆'}模式；${rule?.presetScope ? `当前预设「${rule.presetScope === GLOBAL_PRESET_KEY ? '全局默认' : rule.presetScope}」` : '未勾选预设专属时为模式全局'}。执行顺序为角色卡/世界卡 → 预设 → 自定义。`;
+  $('regex-preset-scope').disabled = readOnly || source === 'preset';
 }
 
 function resetRegexEditor() {
@@ -2777,7 +2830,7 @@ function renderRegexList() {
       const item = document.createElement('div');
       item.className = 'cm-item' + (source === regexEditingSource && rule.id === regexEditingId ? ' active' : '') + (rule.enabled === false ? ' regex-off' : '');
       const scopeLabel = source === 'custom' ? (rule.presetScope ? ` · ${rule.presetScope === GLOBAL_PRESET_KEY ? '全局默认' : '预设专属'}` : ' · 模式全局') : '';
-      item.innerHTML = `<span>${rule.enabled === false ? '🚫 ' : ''}${esc(rule.name)}</span><small>${source === 'preset' ? '预设' : source === 'world' ? '世界卡' : '当前模式'}${scopeLabel}</small>`;
+      item.innerHTML = `<span>${rule.enabled === false ? '🚫 ' : ''}${esc(rule.name)}</span><small>${source === 'preset' ? '预设 · 可编辑' : source === 'world' ? '世界卡' : '当前模式'}${scopeLabel}</small>`;
       item.addEventListener('click', () => selectRegexForEdit(source, rule.id));
       list.appendChild(item);
     }
@@ -2788,7 +2841,7 @@ function renderRegexList() {
 }
 
 function saveRegexEditor() {
-  if (['preset', 'world'].includes(regexEditingSource)) return;
+  if (regexEditingSource === 'world') return;
   const name = $('regex-name').value.trim() || '未命名正则';
   const findRegex = $('regex-find').value.trim();
   const selectedStages = [...document.querySelectorAll('#regex-stages input[type="checkbox"]:checked')].map(input => input.value);
@@ -2816,6 +2869,19 @@ function saveRegexEditor() {
     $('regex-find').focus();
     return;
   }
+  if (regexEditingSource === 'preset') {
+    const updated = savePresetRegexRule(regexEditingId, candidate);
+    if (!updated) {
+      alert('当前预设正则已不存在，请重新打开正则列表。');
+      resetRegexEditor();
+      return;
+    }
+    regexEditingId = updated.id;
+    renderRegexList();
+    renderPGRegexBindings();
+    renderRegexEditor(updated, 'preset');
+    return;
+  }
   const rules = modeOutputRegexes();
   const index = rules.findIndex(rule => rule.id === regexEditingId);
   if (index >= 0) rules[index] = candidate;
@@ -2830,7 +2896,7 @@ function saveRegexEditor() {
 
 function copyPresetRegexToCustom() {
   const rule = selectedOutputRegex();
-  if (!rule || !['preset', 'world'].includes(regexEditingSource)) return;
+  if (!rule || regexEditingSource !== 'world') return;
   const copy = normalizeOutputRegexRule({ ...rule, id: uid(), name: `${rule.name}（自定义）`, presetScope: currentRegexPresetScope(mode) }, 0, 'custom');
   modeOutputRegexes().push(copy);
   saveOutputRegexPrefs();
@@ -2842,7 +2908,19 @@ function copyPresetRegexToCustom() {
 }
 
 function deleteRegexEditor() {
-  if (['preset', 'world'].includes(regexEditingSource) || !regexEditingId) return;
+  if (regexEditingSource === 'world' || !regexEditingId) return;
+  if (regexEditingSource === 'preset') {
+    const { name, preset } = activePresetRegexStore();
+    const index = presetRegexIndex(preset, regexEditingId);
+    if (index < 0 || !confirm(`从预设「${name === GLOBAL_PRESET_KEY ? '全局默认' : name}」删除正则「${preset.regexes[index].name || regexEditingId}」？`)) return;
+    preset.regexes.splice(index, 1);
+    promptPresets[name] = normalizePromptPreset(name, preset);
+    if (pgEditingName === name && pgEditingPreset) pgEditingPreset.regexes = cloneValue(promptPresets[name].regexes);
+    savePresets();
+    renderPGRegexBindings();
+    resetRegexEditor();
+    return;
+  }
   const rules = modeOutputRegexes();
   const index = rules.findIndex(rule => rule.id === regexEditingId);
   if (index < 0 || !confirm(`删除正则「${rules[index].name || regexEditingId}」？`)) return;

@@ -1,4 +1,41 @@
 /* ─────────── API ─────────── */
+const PROMPT_CACHE_RUNTIME_LIMIT = 12;
+const promptCacheRuntime = new Map();
+let providerUsageAccumulator = null;
+
+function promptCacheSettings() {
+  const raw = settings?.promptCache;
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  return {
+    // 只发送用户明确填写的键；OpenAI / DeepSeek 的自动缓存不需要这个字段。
+    cacheKey: String(source.cacheKey ?? source.prompt_cache_key ?? '').trim().slice(0, 128),
+    includeUsage: source.includeUsage === true || source.streamUsage === true,
+  };
+}
+
+function promptCacheProviderLabel(baseUrl) {
+  const value = String(baseUrl || '').toLowerCase();
+  if (value.includes('api.openai.com')) return 'OpenAI：支持自动提示词缓存';
+  if (value.includes('deepseek.com')) return 'DeepSeek：支持自动前缀缓存';
+  if (value.includes('openrouter.ai')) return 'OpenRouter：由上游模型决定';
+  if (value.includes('anthropic') || value.includes('claude')) return 'Claude：当前走兼容接口，未启用原生 cache_control';
+  if (value.includes('generativelanguage') || value.includes('googleapis') || value.includes('aiplatform')) return 'Gemini：当前走兼容接口，未启用原生上下文缓存';
+  return 'OpenAI 兼容端点：由服务商决定';
+}
+
+function applyPromptCacheHints(body, { test = false } = {}) {
+  if (test) return body;
+  const config = promptCacheSettings();
+  if (config.cacheKey) body.prompt_cache_key = config.cacheKey;
+  // 这是可选能力，默认关闭，避免不支持 stream_options 的兼容端点报错。
+  if (config.includeUsage && body.stream === true) {
+    const options = body.stream_options && typeof body.stream_options === 'object' && !Array.isArray(body.stream_options)
+      ? body.stream_options : {};
+    body.stream_options = { ...options, include_usage: true };
+  }
+  return body;
+}
+
 function applyPromptPresetRequestSettings(body, preset) {
   const parameters = preset?.modelParameters;
   if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters)) return body;
@@ -70,6 +107,7 @@ function effectiveChatParameters(preset = resolvePromptPreset()?.preset, { test 
     body.stop = prefs.stop.split(',').map(x => x.trim()).filter(Boolean);
   }
   if (!test) applyPromptPresetRequestSettings(body, preset);
+  applyPromptCacheHints(body, { test });
   return body;
 }
 
@@ -80,6 +118,125 @@ function estimateChatTokens(messages) {
     const ascii = (text.match(/[\x00-\x7f]/g) || []).length;
     return total + 4 + Math.ceil(ascii / 4 + (Array.from(text).length - ascii) * 1.5);
   }, 0);
+}
+
+function promptCacheHash(value) {
+  let hash = 2166136261;
+  const text = String(value ?? '');
+  for (let index = 0; index < text.length; index++) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function buildPromptCacheInfo({ baseUrl, body, presetName = '' } = {}) {
+  const config = promptCacheSettings();
+  const messages = Array.isArray(body?.messages) ? body.messages : [];
+  const messageHashes = messages.map(message => promptCacheHash(JSON.stringify([
+    message?.role || '', String(message?.content || ''),
+  ])));
+  const scopeKey = promptCacheHash(JSON.stringify({
+    baseUrl: String(baseUrl || ''),
+    model: String(body?.model || ''),
+    mode: typeof mode === 'string' ? mode : '',
+    presetName: String(presetName || ''),
+    cacheKey: config.cacheKey,
+    tools: body?.tools || null,
+  }));
+  const previous = promptCacheRuntime.get(scopeKey);
+  let commonPrefixMessages = 0;
+  if (previous) {
+    const limit = Math.min(previous.messageHashes.length, messageHashes.length);
+    while (commonPrefixMessages < limit && previous.messageHashes[commonPrefixMessages] === messageHashes[commonPrefixMessages]) commonPrefixMessages += 1;
+  }
+  const inputTokensEstimate = estimateChatTokens(messages);
+  const commonPrefixTokensEstimate = previous
+    ? estimateChatTokens(messages.slice(0, commonPrefixMessages))
+    : null;
+  promptCacheRuntime.delete(scopeKey);
+  promptCacheRuntime.set(scopeKey, { messageHashes, createdAt: Date.now() });
+  while (promptCacheRuntime.size > PROMPT_CACHE_RUNTIME_LIMIT) promptCacheRuntime.delete(promptCacheRuntime.keys().next().value);
+  return {
+    provider: promptCacheProviderLabel(baseUrl),
+    cacheKey: config.cacheKey || null,
+    cacheKeySent: !!config.cacheKey,
+    streamUsageRequested: config.includeUsage && body?.stream === true,
+    messageCount: messages.length,
+    inputTokensEstimate,
+    commonPrefixMessages,
+    commonPrefixTokensEstimate,
+    comparison: previous ? 'previous_same_scope' : 'no_previous_same_scope',
+  };
+}
+
+function usageNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(0, Math.floor(number)) : null;
+}
+
+function readUsageNumber(source, paths) {
+  for (const path of paths) {
+    let value = source;
+    for (const key of path.split('.')) {
+      if (!value || typeof value !== 'object') { value = undefined; break; }
+      value = value[key];
+    }
+    const number = usageNumber(value);
+    if (number !== null) return number;
+  }
+  return null;
+}
+
+function normalizeProviderUsage(usage) {
+  if (!usage || typeof usage !== 'object' || Array.isArray(usage)) return null;
+  return {
+    inputTokens: readUsageNumber(usage, ['prompt_tokens', 'input_tokens', 'usage_metadata.prompt_token_count']),
+    outputTokens: readUsageNumber(usage, ['completion_tokens', 'output_tokens', 'usage_metadata.candidates_token_count']),
+    totalTokens: readUsageNumber(usage, ['total_tokens', 'usage_metadata.total_token_count']),
+    cachedTokens: readUsageNumber(usage, [
+      'prompt_tokens_details.cached_tokens', 'input_tokens_details.cached_tokens',
+      'prompt_cache_hit_tokens', 'usage_metadata.cached_content_token_count',
+    ]),
+    cacheWriteTokens: readUsageNumber(usage, [
+      'input_tokens_details.cache_write_tokens', 'prompt_tokens_details.cache_write_tokens',
+      'cache_creation_input_tokens', 'usage_metadata.cache_creation_token_count',
+    ]),
+    cacheMissTokens: readUsageNumber(usage, ['prompt_cache_miss_tokens']),
+  };
+}
+
+function sumUsageNumber(previous, current) {
+  return current === null ? previous : (previous === null ? current : previous + current);
+}
+
+function resetProviderUsage() {
+  providerUsageAccumulator = null;
+}
+
+function recordProviderUsage(usage) {
+  const current = normalizeProviderUsage(usage);
+  if (!current || !Object.values(current).some(value => value !== null)) return;
+  if (!providerUsageAccumulator) {
+    providerUsageAccumulator = {
+      requests: 0,
+      inputTokens: null,
+      outputTokens: null,
+      totalTokens: null,
+      cachedTokens: null,
+      cacheWriteTokens: null,
+      cacheMissTokens: null,
+    };
+  }
+  providerUsageAccumulator.requests += 1;
+  for (const key of ['inputTokens', 'outputTokens', 'totalTokens', 'cachedTokens', 'cacheWriteTokens', 'cacheMissTokens']) {
+    providerUsageAccumulator[key] = sumUsageNumber(providerUsageAccumulator[key], current[key]);
+  }
+}
+
+function providerUsageSnapshot() {
+  return providerUsageAccumulator ? { ...providerUsageAccumulator } : null;
 }
 
 function applyPresetContextBudget(messages, preset, responseTokens) {
@@ -138,7 +295,16 @@ function buildPayload({ test = false } = {}) {
     body.tools = nativeTools;
     body.tool_choice = 'auto';
   }
-  return { baseUrl: s.baseUrl, apiKey: s.apiKey, body, wi, promptSections: rpgSections || [], agentProfile, rpgContext, nativeTools };
+  const resolvedPreset = resolvePromptPreset();
+  const cacheInfo = buildPromptCacheInfo({
+    baseUrl: s.baseUrl,
+    body,
+    presetName: resolvedPreset?.name || GLOBAL_PRESET_KEY,
+  });
+  const payload = { baseUrl: s.baseUrl, apiKey: s.apiKey, body, wi, promptSections: rpgSections || [], agentProfile, rpgContext, nativeTools };
+  // 诊断信息只供本页调试使用，不进入 payload 序列化，保证相同提示词仍能复现同一个请求体。
+  Object.defineProperty(payload, 'cacheInfo', { value: cacheInfo, enumerable: false, configurable: true });
+  return payload;
 }
 
 async function callAPI(payload) {
@@ -157,6 +323,7 @@ async function callAPI(payload) {
     }
     throw new Error(msg);
   }
+  recordProviderUsage(data?.usage || data?.usage_metadata);
   return data;
 }
 
@@ -1005,7 +1172,7 @@ async function callAPIStream(payload, { previewPrefix = '', render = true } = {}
   }
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
-  let buf = '', content = '', cot = '';
+  let buf = '', content = '', cot = '', usage = null;
   const toolCalls = [];
   // 容错解析：兼容标准 SSE（data: + \n\n）、裸 JSON 行流、以及 stream 被忽略时的整体 JSON
   const consumeLine = (line) => {
@@ -1018,6 +1185,8 @@ async function callAPIStream(payload, { previewPrefix = '', render = true } = {}
     if (!data.startsWith('{')) return;
     try {
       const json = JSON.parse(data);
+      if (json?.usage && typeof json.usage === 'object') usage = json.usage;
+      else if (json?.usage_metadata && typeof json.usage_metadata === 'object') usage = json.usage_metadata;
       const cotDelta = json?.choices?.[0]?.delta?.reasoning_content ?? json?.choices?.[0]?.message?.reasoning_content;
       if (cotDelta) cot += cotDelta;
       const delta = json?.choices?.[0]?.delta?.content ?? json?.choices?.[0]?.message?.content;
@@ -1049,7 +1218,8 @@ async function callAPIStream(payload, { previewPrefix = '', render = true } = {}
     }
   }
   if (buf.trim()) consumeLine(buf);
-  return { content, cot, toolCalls: normalizeNativeToolCalls({ tool_calls: toolCalls }).map(parseNativeToolArguments) };
+  recordProviderUsage(usage);
+  return { content, cot, usage, toolCalls: normalizeNativeToolCalls({ tool_calls: toolCalls }).map(parseNativeToolArguments) };
 }
 
 /* 流式刷新：每帧最多渲染一次，避免逐 token 全量解析 */

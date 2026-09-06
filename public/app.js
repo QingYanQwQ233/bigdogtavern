@@ -71,6 +71,7 @@ const DEFAULT_SETTINGS = {
   temperature: 0.9, maxTokens: 32000,
   topP: 1, frequencyPenalty: 0, presencePenalty: 0, seed: -1,
   history: 20, stream: true,
+  promptCache: { cacheKey: '', includeUsage: false },
   firstMes: '',
 };
 
@@ -10116,7 +10117,9 @@ function renderPGRegexBindings() {
       const text = document.createElement('span');
       text.textContent = rule.name;
       const source = document.createElement('small');
-      source.textContent = rule.bindingMode === 'rpg' ? 'RPG 自定义' : '酒馆自定义';
+      source.textContent = checkbox.checked
+        ? '已绑定 · 可在正则栏目编辑'
+        : (rule.bindingMode === 'rpg' ? 'RPG 自定义' : '酒馆自定义');
       label.append(checkbox, text, source);
       host.appendChild(label);
     }
@@ -10153,8 +10156,22 @@ function renderPGRegexBindings() {
 function togglePGRegexBinding(id, enabled, bindingMode) {
   if (!pgEditingPreset) return;
   const current = normalizeOutputRegexRules(pgEditingPreset.regexes, 'preset');
-  const custom = normalizeOutputRegexRules(modeOutputRegexes(bindingMode), 'custom').find(rule => rule.id === id);
+  const customRules = modeOutputRegexes(bindingMode);
+  const customIndex = customRules.findIndex((rule, index) => normalizeOutputRegexRule(rule, index, 'custom').id === id);
+  const custom = customIndex >= 0 ? normalizeOutputRegexRule(customRules[customIndex], customIndex, 'custom') : null;
+  const bound = current.find(rule => rule.boundCustomId === id);
   pgEditingPreset.regexes = current.filter(rule => rule.boundCustomId !== id);
+  // 解绑定时把预设里最后编辑过的版本还给模式自定义列表，避免编辑结果被旧副本覆盖。
+  if (!enabled && bound && customIndex >= 0) {
+    customRules[customIndex] = normalizeOutputRegexRule({
+      ...bound,
+      id,
+      boundCustomId: null,
+      boundCustomMode: null,
+      presetScope: null,
+    }, customIndex, 'custom');
+    saveOutputRegexPrefs();
+  }
   if (enabled && custom) {
     pgEditingPreset.regexes.push(normalizeOutputRegexRule({
       ...custom,
@@ -10435,6 +10452,40 @@ function activePresetOutputRegexes() {
   return normalizeOutputRegexRules(resolvePromptPreset()?.preset?.regexes, 'preset');
 }
 
+function activePresetRegexStore() {
+  const resolved = resolvePromptPreset();
+  const name = resolved.name || GLOBAL_PRESET_KEY;
+  const preset = promptPresets[name] || resolved.preset || {};
+  if (!Array.isArray(preset.regexes)) preset.regexes = [];
+  return { name, preset };
+}
+
+function presetRegexIndex(preset, id) {
+  const rules = Array.isArray(preset?.regexes) ? preset.regexes : [];
+  return rules.findIndex((raw, index) => String(raw?.id || '') === String(id)
+    || normalizeOutputRegexRule(raw, index, 'preset').id === String(id));
+}
+
+function savePresetRegexRule(id, candidate) {
+  const { name, preset } = activePresetRegexStore();
+  const index = presetRegexIndex(preset, id);
+  if (index < 0) return null;
+  const previous = normalizeOutputRegexRule(preset.regexes[index], index, 'preset');
+  const updated = normalizeOutputRegexRule({
+    ...candidate,
+    id: previous.id,
+    // 绑定关系属于预设所有权，编辑正文时保留它。
+    ...(previous.boundCustomId ? { boundCustomId: previous.boundCustomId } : {}),
+    ...(previous.boundCustomMode ? { boundCustomMode: previous.boundCustomMode } : {}),
+    presetScope: null,
+  }, index, 'preset');
+  preset.regexes[index] = updated;
+  promptPresets[name] = normalizePromptPreset(name, preset);
+  if (pgEditingName === name && pgEditingPreset) pgEditingPreset.regexes = cloneValue(promptPresets[name].regexes);
+  savePresets();
+  return normalizeOutputRegexRule(promptPresets[name].regexes[index], index, 'preset');
+}
+
 function saveOutputRegexPrefs() {
   saveJSON(LS_PREFS, prefs);
 }
@@ -10448,7 +10499,7 @@ function selectedOutputRegex() {
 }
 
 function renderRegexEditor(rule = null, source = 'custom') {
-  const readOnly = source === 'preset' || source === 'world';
+  const readOnly = source === 'world';
   const label = source === 'preset' ? '预设正则' : source === 'world' ? '世界卡正则' : '自定义正则';
   $('regex-edit-title').textContent = rule ? `${label}：${rule.name}` : '新建自定义正则';
   $('regex-name').value = rule?.name || '';
@@ -10465,16 +10516,19 @@ function renderRegexEditor(rule = null, source = 'custom') {
   $('regex-min-depth').value = rule?.minDepth ?? '';
   $('regex-max-depth').value = rule?.maxDepth ?? '';
   $('regex-run-on-edit').checked = rule?.runOnEdit === true;
-  $('regex-preset-scope').checked = rule ? !!rule.presetScope : true;
+  $('regex-preset-scope').checked = source === 'preset' ? true : (rule ? !!rule.presetScope : true);
   $('regex-enabled').checked = rule ? rule.enabled !== false : true;
   ['regex-name', 'regex-find', 'regex-replace', 'regex-trim', 'regex-display-only', 'regex-prompt-only', 'regex-substitute', 'regex-min-depth', 'regex-max-depth', 'regex-run-on-edit', 'regex-preset-scope', 'regex-enabled']
     .forEach(id => { $(id).disabled = readOnly; });
   $('regex-save').disabled = readOnly;
   $('regex-del').disabled = readOnly || !rule;
-  $('regex-copy').classList.toggle('hidden', !readOnly);
+  $('regex-copy').classList.toggle('hidden', source !== 'world');
   $('regex-note').textContent = readOnly
-    ? `这是当前${source === 'world' ? '世界卡' : '预设'}携带的正则，只读；复制后可作为当前模式的自定义正则调整。`
+    ? '这是当前世界卡携带的正则，只读；复制后可作为当前模式的自定义正则调整。'
+    : source === 'preset'
+      ? `这是当前预设携带的正则，可直接修改并保存回「${currentRegexPresetScope(mode) === GLOBAL_PRESET_KEY ? '全局默认' : currentRegexPresetScope(mode)}」。切换预设后只执行新预设的正则，旧预设规则会自动卸下。`
     : `自定义正则只作用于当前${mode === 'rpg' ? 'RPG' : '酒馆'}模式；${rule?.presetScope ? `当前预设「${rule.presetScope === GLOBAL_PRESET_KEY ? '全局默认' : rule.presetScope}」` : '未勾选预设专属时为模式全局'}。执行顺序为角色卡/世界卡 → 预设 → 自定义。`;
+  $('regex-preset-scope').disabled = readOnly || source === 'preset';
 }
 
 function resetRegexEditor() {
@@ -10516,7 +10570,7 @@ function renderRegexList() {
       const item = document.createElement('div');
       item.className = 'cm-item' + (source === regexEditingSource && rule.id === regexEditingId ? ' active' : '') + (rule.enabled === false ? ' regex-off' : '');
       const scopeLabel = source === 'custom' ? (rule.presetScope ? ` · ${rule.presetScope === GLOBAL_PRESET_KEY ? '全局默认' : '预设专属'}` : ' · 模式全局') : '';
-      item.innerHTML = `<span>${rule.enabled === false ? '🚫 ' : ''}${esc(rule.name)}</span><small>${source === 'preset' ? '预设' : source === 'world' ? '世界卡' : '当前模式'}${scopeLabel}</small>`;
+      item.innerHTML = `<span>${rule.enabled === false ? '🚫 ' : ''}${esc(rule.name)}</span><small>${source === 'preset' ? '预设 · 可编辑' : source === 'world' ? '世界卡' : '当前模式'}${scopeLabel}</small>`;
       item.addEventListener('click', () => selectRegexForEdit(source, rule.id));
       list.appendChild(item);
     }
@@ -10527,7 +10581,7 @@ function renderRegexList() {
 }
 
 function saveRegexEditor() {
-  if (['preset', 'world'].includes(regexEditingSource)) return;
+  if (regexEditingSource === 'world') return;
   const name = $('regex-name').value.trim() || '未命名正则';
   const findRegex = $('regex-find').value.trim();
   const selectedStages = [...document.querySelectorAll('#regex-stages input[type="checkbox"]:checked')].map(input => input.value);
@@ -10555,6 +10609,19 @@ function saveRegexEditor() {
     $('regex-find').focus();
     return;
   }
+  if (regexEditingSource === 'preset') {
+    const updated = savePresetRegexRule(regexEditingId, candidate);
+    if (!updated) {
+      alert('当前预设正则已不存在，请重新打开正则列表。');
+      resetRegexEditor();
+      return;
+    }
+    regexEditingId = updated.id;
+    renderRegexList();
+    renderPGRegexBindings();
+    renderRegexEditor(updated, 'preset');
+    return;
+  }
   const rules = modeOutputRegexes();
   const index = rules.findIndex(rule => rule.id === regexEditingId);
   if (index >= 0) rules[index] = candidate;
@@ -10569,7 +10636,7 @@ function saveRegexEditor() {
 
 function copyPresetRegexToCustom() {
   const rule = selectedOutputRegex();
-  if (!rule || !['preset', 'world'].includes(regexEditingSource)) return;
+  if (!rule || regexEditingSource !== 'world') return;
   const copy = normalizeOutputRegexRule({ ...rule, id: uid(), name: `${rule.name}（自定义）`, presetScope: currentRegexPresetScope(mode) }, 0, 'custom');
   modeOutputRegexes().push(copy);
   saveOutputRegexPrefs();
@@ -10581,7 +10648,19 @@ function copyPresetRegexToCustom() {
 }
 
 function deleteRegexEditor() {
-  if (['preset', 'world'].includes(regexEditingSource) || !regexEditingId) return;
+  if (regexEditingSource === 'world' || !regexEditingId) return;
+  if (regexEditingSource === 'preset') {
+    const { name, preset } = activePresetRegexStore();
+    const index = presetRegexIndex(preset, regexEditingId);
+    if (index < 0 || !confirm(`从预设「${name === GLOBAL_PRESET_KEY ? '全局默认' : name}」删除正则「${preset.regexes[index].name || regexEditingId}」？`)) return;
+    preset.regexes.splice(index, 1);
+    promptPresets[name] = normalizePromptPreset(name, preset);
+    if (pgEditingName === name && pgEditingPreset) pgEditingPreset.regexes = cloneValue(promptPresets[name].regexes);
+    savePresets();
+    renderPGRegexBindings();
+    resetRegexEditor();
+    return;
+  }
   const rules = modeOutputRegexes();
   const index = rules.findIndex(rule => rule.id === regexEditingId);
   if (index < 0 || !confirm(`删除正则「${rules[index].name || regexEditingId}」？`)) return;
@@ -12328,6 +12407,43 @@ function buildPromptBlocks() {
   };
 }
 /* ─────────── API ─────────── */
+const PROMPT_CACHE_RUNTIME_LIMIT = 12;
+const promptCacheRuntime = new Map();
+let providerUsageAccumulator = null;
+
+function promptCacheSettings() {
+  const raw = settings?.promptCache;
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  return {
+    // 只发送用户明确填写的键；OpenAI / DeepSeek 的自动缓存不需要这个字段。
+    cacheKey: String(source.cacheKey ?? source.prompt_cache_key ?? '').trim().slice(0, 128),
+    includeUsage: source.includeUsage === true || source.streamUsage === true,
+  };
+}
+
+function promptCacheProviderLabel(baseUrl) {
+  const value = String(baseUrl || '').toLowerCase();
+  if (value.includes('api.openai.com')) return 'OpenAI：支持自动提示词缓存';
+  if (value.includes('deepseek.com')) return 'DeepSeek：支持自动前缀缓存';
+  if (value.includes('openrouter.ai')) return 'OpenRouter：由上游模型决定';
+  if (value.includes('anthropic') || value.includes('claude')) return 'Claude：当前走兼容接口，未启用原生 cache_control';
+  if (value.includes('generativelanguage') || value.includes('googleapis') || value.includes('aiplatform')) return 'Gemini：当前走兼容接口，未启用原生上下文缓存';
+  return 'OpenAI 兼容端点：由服务商决定';
+}
+
+function applyPromptCacheHints(body, { test = false } = {}) {
+  if (test) return body;
+  const config = promptCacheSettings();
+  if (config.cacheKey) body.prompt_cache_key = config.cacheKey;
+  // 这是可选能力，默认关闭，避免不支持 stream_options 的兼容端点报错。
+  if (config.includeUsage && body.stream === true) {
+    const options = body.stream_options && typeof body.stream_options === 'object' && !Array.isArray(body.stream_options)
+      ? body.stream_options : {};
+    body.stream_options = { ...options, include_usage: true };
+  }
+  return body;
+}
+
 function applyPromptPresetRequestSettings(body, preset) {
   const parameters = preset?.modelParameters;
   if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters)) return body;
@@ -12399,6 +12515,7 @@ function effectiveChatParameters(preset = resolvePromptPreset()?.preset, { test 
     body.stop = prefs.stop.split(',').map(x => x.trim()).filter(Boolean);
   }
   if (!test) applyPromptPresetRequestSettings(body, preset);
+  applyPromptCacheHints(body, { test });
   return body;
 }
 
@@ -12409,6 +12526,125 @@ function estimateChatTokens(messages) {
     const ascii = (text.match(/[\x00-\x7f]/g) || []).length;
     return total + 4 + Math.ceil(ascii / 4 + (Array.from(text).length - ascii) * 1.5);
   }, 0);
+}
+
+function promptCacheHash(value) {
+  let hash = 2166136261;
+  const text = String(value ?? '');
+  for (let index = 0; index < text.length; index++) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function buildPromptCacheInfo({ baseUrl, body, presetName = '' } = {}) {
+  const config = promptCacheSettings();
+  const messages = Array.isArray(body?.messages) ? body.messages : [];
+  const messageHashes = messages.map(message => promptCacheHash(JSON.stringify([
+    message?.role || '', String(message?.content || ''),
+  ])));
+  const scopeKey = promptCacheHash(JSON.stringify({
+    baseUrl: String(baseUrl || ''),
+    model: String(body?.model || ''),
+    mode: typeof mode === 'string' ? mode : '',
+    presetName: String(presetName || ''),
+    cacheKey: config.cacheKey,
+    tools: body?.tools || null,
+  }));
+  const previous = promptCacheRuntime.get(scopeKey);
+  let commonPrefixMessages = 0;
+  if (previous) {
+    const limit = Math.min(previous.messageHashes.length, messageHashes.length);
+    while (commonPrefixMessages < limit && previous.messageHashes[commonPrefixMessages] === messageHashes[commonPrefixMessages]) commonPrefixMessages += 1;
+  }
+  const inputTokensEstimate = estimateChatTokens(messages);
+  const commonPrefixTokensEstimate = previous
+    ? estimateChatTokens(messages.slice(0, commonPrefixMessages))
+    : null;
+  promptCacheRuntime.delete(scopeKey);
+  promptCacheRuntime.set(scopeKey, { messageHashes, createdAt: Date.now() });
+  while (promptCacheRuntime.size > PROMPT_CACHE_RUNTIME_LIMIT) promptCacheRuntime.delete(promptCacheRuntime.keys().next().value);
+  return {
+    provider: promptCacheProviderLabel(baseUrl),
+    cacheKey: config.cacheKey || null,
+    cacheKeySent: !!config.cacheKey,
+    streamUsageRequested: config.includeUsage && body?.stream === true,
+    messageCount: messages.length,
+    inputTokensEstimate,
+    commonPrefixMessages,
+    commonPrefixTokensEstimate,
+    comparison: previous ? 'previous_same_scope' : 'no_previous_same_scope',
+  };
+}
+
+function usageNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(0, Math.floor(number)) : null;
+}
+
+function readUsageNumber(source, paths) {
+  for (const path of paths) {
+    let value = source;
+    for (const key of path.split('.')) {
+      if (!value || typeof value !== 'object') { value = undefined; break; }
+      value = value[key];
+    }
+    const number = usageNumber(value);
+    if (number !== null) return number;
+  }
+  return null;
+}
+
+function normalizeProviderUsage(usage) {
+  if (!usage || typeof usage !== 'object' || Array.isArray(usage)) return null;
+  return {
+    inputTokens: readUsageNumber(usage, ['prompt_tokens', 'input_tokens', 'usage_metadata.prompt_token_count']),
+    outputTokens: readUsageNumber(usage, ['completion_tokens', 'output_tokens', 'usage_metadata.candidates_token_count']),
+    totalTokens: readUsageNumber(usage, ['total_tokens', 'usage_metadata.total_token_count']),
+    cachedTokens: readUsageNumber(usage, [
+      'prompt_tokens_details.cached_tokens', 'input_tokens_details.cached_tokens',
+      'prompt_cache_hit_tokens', 'usage_metadata.cached_content_token_count',
+    ]),
+    cacheWriteTokens: readUsageNumber(usage, [
+      'input_tokens_details.cache_write_tokens', 'prompt_tokens_details.cache_write_tokens',
+      'cache_creation_input_tokens', 'usage_metadata.cache_creation_token_count',
+    ]),
+    cacheMissTokens: readUsageNumber(usage, ['prompt_cache_miss_tokens']),
+  };
+}
+
+function sumUsageNumber(previous, current) {
+  return current === null ? previous : (previous === null ? current : previous + current);
+}
+
+function resetProviderUsage() {
+  providerUsageAccumulator = null;
+}
+
+function recordProviderUsage(usage) {
+  const current = normalizeProviderUsage(usage);
+  if (!current || !Object.values(current).some(value => value !== null)) return;
+  if (!providerUsageAccumulator) {
+    providerUsageAccumulator = {
+      requests: 0,
+      inputTokens: null,
+      outputTokens: null,
+      totalTokens: null,
+      cachedTokens: null,
+      cacheWriteTokens: null,
+      cacheMissTokens: null,
+    };
+  }
+  providerUsageAccumulator.requests += 1;
+  for (const key of ['inputTokens', 'outputTokens', 'totalTokens', 'cachedTokens', 'cacheWriteTokens', 'cacheMissTokens']) {
+    providerUsageAccumulator[key] = sumUsageNumber(providerUsageAccumulator[key], current[key]);
+  }
+}
+
+function providerUsageSnapshot() {
+  return providerUsageAccumulator ? { ...providerUsageAccumulator } : null;
 }
 
 function applyPresetContextBudget(messages, preset, responseTokens) {
@@ -12467,7 +12703,16 @@ function buildPayload({ test = false } = {}) {
     body.tools = nativeTools;
     body.tool_choice = 'auto';
   }
-  return { baseUrl: s.baseUrl, apiKey: s.apiKey, body, wi, promptSections: rpgSections || [], agentProfile, rpgContext, nativeTools };
+  const resolvedPreset = resolvePromptPreset();
+  const cacheInfo = buildPromptCacheInfo({
+    baseUrl: s.baseUrl,
+    body,
+    presetName: resolvedPreset?.name || GLOBAL_PRESET_KEY,
+  });
+  const payload = { baseUrl: s.baseUrl, apiKey: s.apiKey, body, wi, promptSections: rpgSections || [], agentProfile, rpgContext, nativeTools };
+  // 诊断信息只供本页调试使用，不进入 payload 序列化，保证相同提示词仍能复现同一个请求体。
+  Object.defineProperty(payload, 'cacheInfo', { value: cacheInfo, enumerable: false, configurable: true });
+  return payload;
 }
 
 async function callAPI(payload) {
@@ -12486,6 +12731,7 @@ async function callAPI(payload) {
     }
     throw new Error(msg);
   }
+  recordProviderUsage(data?.usage || data?.usage_metadata);
   return data;
 }
 
@@ -13334,7 +13580,7 @@ async function callAPIStream(payload, { previewPrefix = '', render = true } = {}
   }
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
-  let buf = '', content = '', cot = '';
+  let buf = '', content = '', cot = '', usage = null;
   const toolCalls = [];
   // 容错解析：兼容标准 SSE（data: + \n\n）、裸 JSON 行流、以及 stream 被忽略时的整体 JSON
   const consumeLine = (line) => {
@@ -13347,6 +13593,8 @@ async function callAPIStream(payload, { previewPrefix = '', render = true } = {}
     if (!data.startsWith('{')) return;
     try {
       const json = JSON.parse(data);
+      if (json?.usage && typeof json.usage === 'object') usage = json.usage;
+      else if (json?.usage_metadata && typeof json.usage_metadata === 'object') usage = json.usage_metadata;
       const cotDelta = json?.choices?.[0]?.delta?.reasoning_content ?? json?.choices?.[0]?.message?.reasoning_content;
       if (cotDelta) cot += cotDelta;
       const delta = json?.choices?.[0]?.delta?.content ?? json?.choices?.[0]?.message?.content;
@@ -13378,7 +13626,8 @@ async function callAPIStream(payload, { previewPrefix = '', render = true } = {}
     }
   }
   if (buf.trim()) consumeLine(buf);
-  return { content, cot, toolCalls: normalizeNativeToolCalls({ tool_calls: toolCalls }).map(parseNativeToolArguments) };
+  recordProviderUsage(usage);
+  return { content, cot, usage, toolCalls: normalizeNativeToolCalls({ tool_calls: toolCalls }).map(parseNativeToolArguments) };
 }
 
 /* 流式刷新：每帧最多渲染一次，避免逐 token 全量解析 */
@@ -14062,6 +14311,14 @@ function renderEffectiveParameters() {
   }).join('') + `<dt>上下文 Token</dt><dd>${esc(String(params.openai_max_context || '不限'))} <small>本地估算</small></dd>`;
 }
 
+function fillPromptCacheForm() {
+  const config = promptCacheSettings();
+  if ($('s-cache-key')) $('s-cache-key').value = config.cacheKey;
+  if ($('s-cache-usage')) $('s-cache-usage').checked = config.includeUsage;
+  const capability = $('s-cache-capability');
+  if (capability) capability.textContent = `${promptCacheProviderLabel(settings.baseUrl)}。服务端缓存不保存在本机；调试终端会显示上游返回的缓存 Token 与本地前缀估算。`;
+}
+
 function fillSettingsForm() {
   const s = settings;
   $('s-preset').value = s.preset || '';
@@ -14112,6 +14369,7 @@ function fillSettingsForm() {
   fillUiThemeForm();
   fillChatBackgroundForm();
   fillUiTransparencyForm();
+  fillPromptCacheForm();
   renderEffectiveParameters();
 }
 
@@ -14131,6 +14389,11 @@ function readSettingsForm() {
   if (!Number.isFinite(settings.seed)) settings.seed = -1; // 热保存下空输入不能落成 NaN
   settings.history = parseInt($('s-history').value, 10) || 20;
   settings.stream = $('s-stream').checked;
+  settings.promptCache = {
+    ...promptCacheSettings(),
+    cacheKey: String($('s-cache-key')?.value || '').trim().slice(0, 128),
+    includeUsage: $('s-cache-usage')?.checked === true,
+  };
   prefs.stop = $('f-stop').value;
   prefs.tavernDialogueBubbles = $('f-bubbles').checked;
   prefs.cotEnabled = $('s-cot').checked;
@@ -14287,6 +14550,7 @@ function beginDebugRequest(scope, payload, { label = 'AI 请求', kind = '', ...
     outputTag: '等待 AI 响应…',
     reasoning: '',
     error: '',
+    cacheInfo: payload?.cacheInfo || null,
     ...patch,
   });
 }
@@ -14330,7 +14594,41 @@ function formatDebugOutput(trace) {
     '── 正则前原始输出（完整响应） ──', raw || '尚未收到 AI 响应。',
     '── 结构化标签（原文摘录） ──', tag,
     '── 思维链 reasoning_content ──', reasoning,
+    '── 缓存与 Token 用量 ──', formatPromptCacheDiagnostics(trace),
   ].join('\n\n');
+}
+
+function formatDebugTokenCount(value) {
+  if (value === null || value === undefined || value === '') return '未提供';
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toLocaleString('zh-CN') : '未提供';
+}
+
+function formatPromptCacheDiagnostics(trace) {
+  const info = trace?.cacheInfo;
+  const usage = trace?.providerUsage;
+  const lines = [];
+  if (info) {
+    lines.push(`上游：${info.provider || '未识别'}`);
+    lines.push(`本次输入估算：${formatDebugTokenCount(info.inputTokensEstimate)} Token；消息 ${info.messageCount ?? '未提供'} 条`);
+    if (info.comparison === 'previous_same_scope') {
+      lines.push(`与上次同范围请求的共同前缀估算：${info.commonPrefixMessages} 条消息，约 ${formatDebugTokenCount(info.commonPrefixTokensEstimate)} Token（只用于诊断）`);
+    } else {
+      lines.push('本页尚无同范围的上一请求可比较；上游缓存仍可能命中服务端已有条目。');
+    }
+    if (info.cacheKeySent) lines.push(`已发送 prompt_cache_key：${info.cacheKey}`);
+    if (info.streamUsageRequested) lines.push('已请求流式 usage 统计。');
+  }
+  if (!usage) {
+    lines.push('上游未返回 usage；流式请求请开启“流式缓存统计”，并确认服务商支持。');
+  } else {
+    lines.push(`上游请求次数：${formatDebugTokenCount(usage.requests)}；输入 ${formatDebugTokenCount(usage.inputTokens)}，输出 ${formatDebugTokenCount(usage.outputTokens)}，合计 ${formatDebugTokenCount(usage.totalTokens)} Token`);
+    lines.push(`缓存读取：${formatDebugTokenCount(usage.cachedTokens)}；缓存写入：${formatDebugTokenCount(usage.cacheWriteTokens)}；未命中：${formatDebugTokenCount(usage.cacheMissTokens)} Token`);
+    if (usage.cachedTokens === null && usage.cacheWriteTokens === null && usage.cacheMissTokens === null) {
+      lines.push('该端点返回了 Token 用量，但没有暴露缓存字段；不能据此判断是否命中。');
+    }
+  }
+  return lines.join('\n') || '尚未生成缓存诊断。';
 }
 
 function debugTracePreview(trace) {
@@ -15735,6 +16033,7 @@ async function requestReply() {
   let nativeCalls = [];
   let toolTrace = [];
   let rpgResolvedCheck = null;
+  resetProviderUsage();
   try {
     payload = buildPayload();
     beginDebugRequest(targetScope, payload, {
@@ -15743,6 +16042,7 @@ async function requestReply() {
       promptSections: (payload.promptSections || []).map(section => ({ id: section.id, source: section.source, chars: section.text.length })),
       agentProfile: payload.agentProfile || null,
       agentContext: payload.rpgContext || null,
+      cacheInfo: payload.cacheInfo || null,
     });
     // 请求 / 响应日志输出到浏览器控制台
     console.debug('[Tavern] → 请求', payload.baseUrl + '/chat/completions', {
@@ -15804,6 +16104,8 @@ async function requestReply() {
       outputTag: extractDebugOutputTag(reply),
       reasoning: cot || '',
       agentToolTrace: toolTrace,
+      cacheInfo: payload?.cacheInfo || null,
+      providerUsage: providerUsageSnapshot(),
       ...(rpgAgentSession ? { agentSessionId: rpgAgentSession.id, agentEvents: cloneValue(rpgAgentSession.events) } : {}),
     });
     // 请求期间可能切换角色 / 模式 / 会话；迟到响应不得写入新的当前会话。
@@ -15987,7 +16289,12 @@ async function requestReply() {
       clearRpgCheckAnimation();
     }
     const autoRetrying = keptWorldTurn && worldTurnError?.autoRetry === true;
-    setDebugTrace(targetScope, { status: autoRetrying ? '失败，正在自动重试' : '失败', error: String(err.message || '请求失败') });
+    setDebugTrace(targetScope, {
+      status: autoRetrying ? '失败，正在自动重试' : '失败',
+      error: String(err.message || '请求失败'),
+      cacheInfo: payload?.cacheInfo || null,
+      providerUsage: providerUsageSnapshot(),
+    });
     if (!responseOutdated() && !keptWorldTurn) pushMessage('system', `⚠️ 请求失败：${err.message}`);
     setApiStatus(`最近一次请求失败：${err.message}`, true);
     return false;
@@ -17182,8 +17489,8 @@ function bindEvents() {
   });
   $('pg-active').addEventListener('change', () => {
     setActivePresetName($('pg-active').value || '');
-    renderPGList();
-    renderRegexList();
+    // 预设切换后重新载入编辑对象与正则选择；运行时只会看到新预设携带的规则。
+    selectPresetForEdit(resolvePromptPreset().name || GLOBAL_PRESET_KEY);
     resetRegexEditor();
   });
   // 输出正则

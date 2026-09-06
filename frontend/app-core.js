@@ -70,6 +70,7 @@ const DEFAULT_SETTINGS = {
   temperature: 0.9, maxTokens: 32000,
   topP: 1, frequencyPenalty: 0, presencePenalty: 0, seed: -1,
   history: 20, stream: true,
+  promptCache: { cacheKey: '', includeUsage: false },
   firstMes: '',
 };
 

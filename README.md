@@ -27,6 +27,8 @@ node server.js
 
 旧版已保存的显示 HTML，仅在有原始快照且能精确匹配当前规则时恢复请求文本；无法推断被永久替换的原文。兼容语义参考 [SillyTavern 正则文档](https://docs.sillytavern.app/extensions/regex/) 与 [生成设置](https://docs.sillytavern.app/usage/common-settings/)。未实现的 ST 字段仍仅保留用于导出，不代表支持所有 ST 功能。
 
+预设携带的正则可以在「正则」栏目直接编辑、删除并保存回当前预设；世界卡携带的规则仍需复制后修改。切换预设会自动卸下上一预设的规则，只执行新预设的规则；角色卡绑定预设时，实际预设仍以角色卡绑定为准。解除绑定会保留预设副本最后一次编辑的内容。
+
 ## Android APK
 
 推送到 `main` 会触发 [Build Tavern APK](.github/workflows/android-apk.yml)。功能分支已推送时，可在 GitHub 的 **Actions → Build Tavern APK → Run workflow** 选择该分支手动构建。构建完成后，在对应运行页下载 `tavern-apk` artifact；当前产物是已签名的 Debug APK，不会自动发布为 GitHub Release。
@@ -175,6 +177,7 @@ world-deleted.json         已删除世界卡 ID（防止默认模板重新出�
 - SillyTavern 风格提示词预设：固定提示词、运行时 Marker、世界书前后、Post-History、In-Chat、Relative、宏、Prompt Order、生成参数和导入导出；
 - Post-History 作为提示词顺序中的 `jailbreak` 固定项显示，可编辑、排序和关闭；回复选项协议由同一预设的独立 `replyOptions` 配置管理，不占用普通 Post-History；
 - 独立「正则」设置：RP / RPG 分模式保存自定义规则，兼容 SillyTavern `extensions.regex_scripts` 的 `placement`、`trimStrings`、`substituteRegex`、深度、`markdownOnly`、`promptOnly`、`runOnEdit` 等字段；规则可作用于用户输入、AI 原始回复、聊天显示、历史/提示词、System/后预设、世界书、思维链和斜杠命令。自定义规则默认绑定当前提示词预设，切换预设不会串用其他预设规则，也可改为模式全局；提示词/显示专用规则只改请求副本或渲染结果，不覆盖存档原文；预设编辑页可绑定当前模式自定义正则，保存或导出预设时会一并写入 ST 的 `extensions.regex_scripts`，运行时避免重复执行；
+- 提示词缓存兼容：请求保持稳定前缀，让支持的 OpenAI / DeepSeek 上游自动复用 KV 缓存；设置中可选发送 `prompt_cache_key`，也可让流式接口回传 `usage` 缓存字段；「AI 往返终端」显示上游缓存读取 / 写入 / 未命中 Token，并用相邻请求估算可复用前缀；项目不在本地缓存模型回复，不会用旧回复替代新请求；
 - 多本世界书：兼容 SillyTavern World Info JSON 的主 / secondary 关键词、四种选择性逻辑、正则、常驻、概率、分组、递归、Sticky / Cooldown / Delay、扫描设置、Outlet 宏、角色绑定，以及 ST JSON 导入 / 导出；
 - 玩家设定、手动记忆、消息编辑/删除/复制/重生成；可在「记忆」页开启 RP 自动滚动记忆：每 20 个完整对话轮次把最早 15 轮压缩为约 100 字摘要，也可随时手动触发总结；原始消息仍保留在当前会话；窗口、总结轮数和摘要字数均可调整；尚未收到 AI 回复的当前玩家回合不会进入摘要覆盖，也不会因历史窗口裁剪而丢失；
 - 可选旁白/对白拆分：默认整条回复作为连续正文，按需在「设置 → 输出」开启对白气泡；

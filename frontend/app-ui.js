@@ -608,6 +608,14 @@ function renderEffectiveParameters() {
   }).join('') + `<dt>上下文 Token</dt><dd>${esc(String(params.openai_max_context || '不限'))} <small>本地估算</small></dd>`;
 }
 
+function fillPromptCacheForm() {
+  const config = promptCacheSettings();
+  if ($('s-cache-key')) $('s-cache-key').value = config.cacheKey;
+  if ($('s-cache-usage')) $('s-cache-usage').checked = config.includeUsage;
+  const capability = $('s-cache-capability');
+  if (capability) capability.textContent = `${promptCacheProviderLabel(settings.baseUrl)}。服务端缓存不保存在本机；调试终端会显示上游返回的缓存 Token 与本地前缀估算。`;
+}
+
 function fillSettingsForm() {
   const s = settings;
   $('s-preset').value = s.preset || '';
@@ -658,6 +666,7 @@ function fillSettingsForm() {
   fillUiThemeForm();
   fillChatBackgroundForm();
   fillUiTransparencyForm();
+  fillPromptCacheForm();
   renderEffectiveParameters();
 }
 
@@ -677,6 +686,11 @@ function readSettingsForm() {
   if (!Number.isFinite(settings.seed)) settings.seed = -1; // 热保存下空输入不能落成 NaN
   settings.history = parseInt($('s-history').value, 10) || 20;
   settings.stream = $('s-stream').checked;
+  settings.promptCache = {
+    ...promptCacheSettings(),
+    cacheKey: String($('s-cache-key')?.value || '').trim().slice(0, 128),
+    includeUsage: $('s-cache-usage')?.checked === true,
+  };
   prefs.stop = $('f-stop').value;
   prefs.tavernDialogueBubbles = $('f-bubbles').checked;
   prefs.cotEnabled = $('s-cot').checked;
@@ -833,6 +847,7 @@ function beginDebugRequest(scope, payload, { label = 'AI 请求', kind = '', ...
     outputTag: '等待 AI 响应…',
     reasoning: '',
     error: '',
+    cacheInfo: payload?.cacheInfo || null,
     ...patch,
   });
 }
@@ -876,7 +891,41 @@ function formatDebugOutput(trace) {
     '── 正则前原始输出（完整响应） ──', raw || '尚未收到 AI 响应。',
     '── 结构化标签（原文摘录） ──', tag,
     '── 思维链 reasoning_content ──', reasoning,
+    '── 缓存与 Token 用量 ──', formatPromptCacheDiagnostics(trace),
   ].join('\n\n');
+}
+
+function formatDebugTokenCount(value) {
+  if (value === null || value === undefined || value === '') return '未提供';
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toLocaleString('zh-CN') : '未提供';
+}
+
+function formatPromptCacheDiagnostics(trace) {
+  const info = trace?.cacheInfo;
+  const usage = trace?.providerUsage;
+  const lines = [];
+  if (info) {
+    lines.push(`上游：${info.provider || '未识别'}`);
+    lines.push(`本次输入估算：${formatDebugTokenCount(info.inputTokensEstimate)} Token；消息 ${info.messageCount ?? '未提供'} 条`);
+    if (info.comparison === 'previous_same_scope') {
+      lines.push(`与上次同范围请求的共同前缀估算：${info.commonPrefixMessages} 条消息，约 ${formatDebugTokenCount(info.commonPrefixTokensEstimate)} Token（只用于诊断）`);
+    } else {
+      lines.push('本页尚无同范围的上一请求可比较；上游缓存仍可能命中服务端已有条目。');
+    }
+    if (info.cacheKeySent) lines.push(`已发送 prompt_cache_key：${info.cacheKey}`);
+    if (info.streamUsageRequested) lines.push('已请求流式 usage 统计。');
+  }
+  if (!usage) {
+    lines.push('上游未返回 usage；流式请求请开启“流式缓存统计”，并确认服务商支持。');
+  } else {
+    lines.push(`上游请求次数：${formatDebugTokenCount(usage.requests)}；输入 ${formatDebugTokenCount(usage.inputTokens)}，输出 ${formatDebugTokenCount(usage.outputTokens)}，合计 ${formatDebugTokenCount(usage.totalTokens)} Token`);
+    lines.push(`缓存读取：${formatDebugTokenCount(usage.cachedTokens)}；缓存写入：${formatDebugTokenCount(usage.cacheWriteTokens)}；未命中：${formatDebugTokenCount(usage.cacheMissTokens)} Token`);
+    if (usage.cachedTokens === null && usage.cacheWriteTokens === null && usage.cacheMissTokens === null) {
+      lines.push('该端点返回了 Token 用量，但没有暴露缓存字段；不能据此判断是否命中。');
+    }
+  }
+  return lines.join('\n') || '尚未生成缓存诊断。';
 }
 
 function debugTracePreview(trace) {
@@ -2281,6 +2330,7 @@ async function requestReply() {
   let nativeCalls = [];
   let toolTrace = [];
   let rpgResolvedCheck = null;
+  resetProviderUsage();
   try {
     payload = buildPayload();
     beginDebugRequest(targetScope, payload, {
@@ -2289,6 +2339,7 @@ async function requestReply() {
       promptSections: (payload.promptSections || []).map(section => ({ id: section.id, source: section.source, chars: section.text.length })),
       agentProfile: payload.agentProfile || null,
       agentContext: payload.rpgContext || null,
+      cacheInfo: payload.cacheInfo || null,
     });
     // 请求 / 响应日志输出到浏览器控制台
     console.debug('[Tavern] → 请求', payload.baseUrl + '/chat/completions', {
@@ -2350,6 +2401,8 @@ async function requestReply() {
       outputTag: extractDebugOutputTag(reply),
       reasoning: cot || '',
       agentToolTrace: toolTrace,
+      cacheInfo: payload?.cacheInfo || null,
+      providerUsage: providerUsageSnapshot(),
       ...(rpgAgentSession ? { agentSessionId: rpgAgentSession.id, agentEvents: cloneValue(rpgAgentSession.events) } : {}),
     });
     // 请求期间可能切换角色 / 模式 / 会话；迟到响应不得写入新的当前会话。
@@ -2533,7 +2586,12 @@ async function requestReply() {
       clearRpgCheckAnimation();
     }
     const autoRetrying = keptWorldTurn && worldTurnError?.autoRetry === true;
-    setDebugTrace(targetScope, { status: autoRetrying ? '失败，正在自动重试' : '失败', error: String(err.message || '请求失败') });
+    setDebugTrace(targetScope, {
+      status: autoRetrying ? '失败，正在自动重试' : '失败',
+      error: String(err.message || '请求失败'),
+      cacheInfo: payload?.cacheInfo || null,
+      providerUsage: providerUsageSnapshot(),
+    });
     if (!responseOutdated() && !keptWorldTurn) pushMessage('system', `⚠️ 请求失败：${err.message}`);
     setApiStatus(`最近一次请求失败：${err.message}`, true);
     return false;
@@ -3728,8 +3786,8 @@ function bindEvents() {
   });
   $('pg-active').addEventListener('change', () => {
     setActivePresetName($('pg-active').value || '');
-    renderPGList();
-    renderRegexList();
+    // 预设切换后重新载入编辑对象与正则选择；运行时只会看到新预设携带的规则。
+    selectPresetForEdit(resolvePromptPreset().name || GLOBAL_PRESET_KEY);
     resetRegexEditor();
   });
   // 输出正则

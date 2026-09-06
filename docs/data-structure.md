@@ -508,4 +508,10 @@ Android 内嵌服务器按 URL 的 `path` 与查询参数分开路由，因此 `
 
 `effectiveChatParameters()` 是聊天请求与设置页数值的共用来源：连接设置与全局思考/停止词为默认，当前预设显式参数最后覆盖；空停止词数组表示清除停止词，温度 0 有效。连接测试保持 16 Token 且不应用预设。预设模型 ID 仍不切换连接。
 
+提示词缓存由上游模型服务管理，不在 `localStorage` 或 Android 内嵌服务器中保存模型回复。`buildPayload()` 在完成宏替换、世界书注入、正则副本处理、历史预算和末尾 Assistant 引导后生成最终消息；`buildPromptCacheInfo()` 只保存最近同范围请求的消息哈希，用于估算共同前缀，不保存提示词正文。连接设置中的 `promptCache.cacheKey` 有值时才发送 `prompt_cache_key`；`promptCache.includeUsage` 开启且使用流式请求时才发送 `stream_options.include_usage`，未知兼容端点默认不追加该字段。
+
+上游返回的 `usage` 会归一为 `inputTokens`、`outputTokens`、`totalTokens`、`cachedTokens`、`cacheWriteTokens` 和 `cacheMissTokens`；DeepSeek 的 `prompt_cache_hit_tokens/prompt_cache_miss_tokens`、OpenAI 的 `*_tokens_details.cached_tokens`、Gemini 的 `usage_metadata.cached_content_token_count` 都只作为观测来源，不改变请求语义。多步 RPG Agent 请求会累加本轮各次调用的用量。共同前缀和本地 Token 数均为诊断估算，是否命中及实际价格以上游返回为准。
+
+预设 `regexes` 是当前预设的独立规则副本。绑定模式正则时保留 `boundCustomId/boundCustomMode`，但之后可以直接在正则编辑器修改或删除；保存写回预设，解除绑定时将最新副本同步回原模式正则。`activeRegexRules()` 根据当前实际生效预设重新取值，预设切换会清除旧预设的运行时选择，只执行新预设规则。角色卡或世界卡显式绑定预设时，手动模式选择仍服从该绑定。
+
 `modelParameters.openai_max_context` 是上下文总预算；未填写不增加 Token 裁剪。填写时在正则处理之后扣除实际回复上限，使用离线估算（ASCII 约 4 字符/Token，非 ASCII 约 1.5 Token/字符，加消息开销）移除最旧的历史回合；提示词、本轮输入、末尾 char 引导保留。无法满足时在发送前报错，用户存档不变。该预算不是服务端 tokenizer 的精确计数。内部 `_history` 标记只用于请求副本裁剪，发往 API 前移除。

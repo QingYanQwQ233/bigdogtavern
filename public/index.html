@@ -421,7 +421,7 @@
       </section>
       <section id="pg-regex-bindings" class="pg-regex-bindings" aria-labelledby="pg-regex-bindings-title">
         <div class="pg-section-head"><strong id="pg-regex-bindings-title">绑定输出正则</strong><span class="hint-inline">随本预设保存 / 导出</span></div>
-        <p class="hint">勾选当前模式的自定义正则后，它会复制到本预设；运行时只执行一次。导入 ST 预设自带的正则会显示在下方并保留。</p>
+        <p class="hint">勾选当前模式的自定义正则后，它会复制到本预设；绑定后的规则仍可在「正则」栏目直接编辑、删除并保存回本预设。切换预设后，上一预设携带的规则会自动卸下。</p>
         <div id="pg-regex-binding-list" class="pg-regex-binding-list"></div>
       </section>
       <div class="pg-manager">
@@ -502,7 +502,7 @@
         <button class="ghost-btn" id="regex-reset">＋ 新建</button>
       </div>
       <p class="hint">生成 HTML/CSS：勾选 AI 原始回复 + 仅显示格式化。删除请求中的片段：替换为空 + 仅提示词格式化。两个格式化开关都勾选时修改显示和请求，不改存档。深度 0 是最后一条消息，留空或 -1 才是不限。旧规则已永久改写且无原始回复时，无法自动还原。</p>
-      <p id="regex-note" class="hint">预设正则只读；点击「复制为自定义」后可调整。导入/导出兼容 SillyTavern regex_scripts。</p>
+      <p id="regex-note" class="hint">预设正则可以直接调整并保存回当前预设；世界卡正则只读，点击「复制为自定义」后可调整。导入/导出兼容 SillyTavern regex_scripts。</p>
     </div>
   </div>
 
@@ -788,6 +788,16 @@
             <dl id="s-effective-params"></dl>
             <button id="s-edit-active-preset" class="ghost-btn" type="button">编辑当前预设参数</button>
             <p class="hint">下方为连接默认值；预设留空才继承。API 测试和摘要使用各自的小额预算。</p>
+          </section>
+          <section class="effective-parameters prompt-cache-settings" aria-label="提示词缓存设置">
+            <strong>提示词缓存</strong>
+            <p id="s-cache-capability" class="hint"></p>
+            <div class="field">
+              <label for="s-cache-key">缓存键 <span class="hint-inline">可选；仅填写后发送 prompt_cache_key</span></label>
+              <input id="s-cache-key" maxlength="128" placeholder="例如：bigdogtavern-rp-v1" autocomplete="off" />
+            </div>
+            <label class="check"><input id="s-cache-usage" type="checkbox" /> 流式请求附带 usage 统计（用于显示缓存命中量）</label>
+            <p class="hint">OpenAI / DeepSeek 通常自动判断前缀缓存；缓存键和 usage 字段由上游兼容接口决定。开启统计后，若端点不支持可能拒绝该请求。</p>
           </section>
           <div class="field row2">
             <div class="field">

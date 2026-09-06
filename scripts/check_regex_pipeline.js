@@ -93,3 +93,26 @@ assert.match(context.isolation.display, /<style>/);
 assert.strictEqual(context.isolation.repairedHistory, '<aether>RAW STATE</aether>');
 assert.match(context.isolation.stored, /<style>/, 'request recovery must not mutate storage');
 assert.strictEqual(context.isolation.edited, 'manual edit');
+
+// A regex copied into a preset remains editable in place, and switching the
+// active preset activates only the new preset's copy.
+vm.runInContext(`
+  mode = 'tavern';
+  promptPresets = {
+    A: normalizePromptPreset('A', { mode: 'tavern', prompts: [], promptOrder: [], regexes: [{ id: 'bound-a', boundCustomId: 'source-a', boundCustomMode: 'tavern', findRegex: '/X/g', replaceString: 'old' }] }),
+    B: normalizePromptPreset('B', { mode: 'tavern', prompts: [], promptOrder: [], regexes: [{ id: 'bound-b', findRegex: '/X/g', replaceString: 'B' }] }),
+  };
+  prefs = { currentPresetByMode: { tavern: 'A' }, outputRegex: { tavern: [
+    // A 的绑定副本编辑后，原规则仍受 A 的预设作用域约束；切到 B 时不能复活。
+    { id: 'source-a', findRegex: '/B/g', replaceString: 'source', presetScope: 'A' },
+  ] } };
+  const edited = savePresetRegexRule('bound-a', { name: 'A edited', findRegex: '/X/g', replaceString: 'A', stages: ['ai_response'], trimStrings: [], onlyFormatDisplay: false, onlyFormatPrompt: false, substituteRegex: 1, runOnEdit: false, minDepth: null, maxDepth: null });
+  globalThis.presetEditing = { edited, rule: promptPresets.A.regexes[0] };
+  globalThis.presetSwitch = applyOutputRegex('X');
+  prefs.currentPresetByMode.tavern = 'B';
+  globalThis.presetSwitchAfter = applyOutputRegex('X');
+`, context);
+assert.strictEqual(context.presetEditing.edited.replaceString, 'A');
+assert.strictEqual(context.presetEditing.rule.boundCustomId, 'source-a');
+assert.strictEqual(context.presetSwitch, 'A');
+assert.strictEqual(context.presetSwitchAfter, 'B');
