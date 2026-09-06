@@ -2404,42 +2404,103 @@ function renderPGRegexBindings() {
       wrap.appendChild(label);
     }
     for (const rule of embedded) {
-      const tag = document.createElement('span');
-      tag.className = 'tag';
-      tag.textContent = `已携带：${rule.name}`;
-      wrap.appendChild(tag);
+      const label = document.createElement('label');
+      label.className = 'pg-regex-binding';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = true;
+      checkbox.addEventListener('change', () => togglePGPresetRegex(rule.id, checkbox.checked, mode));
+      const text = document.createElement('span');
+      text.textContent = `已携带：${rule.name}`;
+      const source = document.createElement('small');
+      source.textContent = '预设内置 · 可编辑；取消后移回当前模式自定义';
+      label.append(checkbox, text, source);
+      wrap.appendChild(label);
     }
     host.appendChild(wrap);
   }
 }
 
+function persistEditingPresetRegexes() {
+  if (!pgEditingPreset) return;
+  const name = pgEditingName || GLOBAL_PRESET_KEY;
+  const stored = promptPresets[name] && typeof promptPresets[name] === 'object' ? promptPresets[name] : {};
+  // 只立即写回正则字段，不覆盖提示词编辑器里尚未点击“保存预设”的其他草稿。
+  promptPresets[name] = normalizePromptPreset(name, {
+    ...stored,
+    regexes: cloneValue(pgEditingPreset.regexes || []),
+  });
+  savePresets();
+}
+
+function restorePresetRegexToCustom(rule, bindingMode, preferredId = '') {
+  const targetMode = bindingMode === 'rpg' ? 'rpg' : 'tavern';
+  const customRules = modeOutputRegexes(targetMode);
+  const wantedId = String(preferredId || rule?.boundCustomId || rule?.id || '').trim();
+  let customIndex = customRules.findIndex((raw, index) => normalizeOutputRegexRule(raw, index, 'custom').id === wantedId);
+  let id = wantedId;
+  if (customIndex < 0) {
+    if (!id || customRules.some((raw, index) => normalizeOutputRegexRule(raw, index, 'custom').id === id)) {
+      do { id = uid(); } while (customRules.some((raw, index) => normalizeOutputRegexRule(raw, index, 'custom').id === id));
+    }
+    customIndex = customRules.length;
+  }
+  const restored = normalizeOutputRegexRule({
+    ...rule,
+    id,
+    boundCustomId: null,
+    boundCustomMode: null,
+    presetScope: null,
+  }, customIndex, 'custom');
+  customRules[customIndex] = restored;
+  return restored;
+}
+
 function togglePGRegexBinding(id, enabled, bindingMode) {
   if (!pgEditingPreset) return;
+  const targetMode = bindingMode === 'rpg' ? 'rpg' : 'tavern';
   const current = normalizeOutputRegexRules(pgEditingPreset.regexes, 'preset');
-  const customRules = modeOutputRegexes(bindingMode);
+  const customRules = modeOutputRegexes(targetMode);
   const customIndex = customRules.findIndex((rule, index) => normalizeOutputRegexRule(rule, index, 'custom').id === id);
   const custom = customIndex >= 0 ? normalizeOutputRegexRule(customRules[customIndex], customIndex, 'custom') : null;
   const bound = current.find(rule => rule.boundCustomId === id);
-  pgEditingPreset.regexes = current.filter(rule => rule.boundCustomId !== id);
-  // 解绑定时把预设里最后编辑过的版本还给模式自定义列表，避免编辑结果被旧副本覆盖。
-  if (!enabled && bound && customIndex >= 0) {
-    customRules[customIndex] = normalizeOutputRegexRule({
-      ...bound,
-      id,
-      boundCustomId: null,
-      boundCustomMode: null,
-      presetScope: null,
-    }, customIndex, 'custom');
+  if (!enabled) {
+    if (!bound) return;
+    pgEditingPreset.regexes = current.filter(rule => rule.boundCustomId !== id);
+    // 解绑定时把预设里最后编辑过的版本还给模式自定义列表；来源丢失时也不丢规则。
+    restorePresetRegexToCustom(bound, targetMode, id);
     saveOutputRegexPrefs();
-  }
-  if (enabled && custom) {
+  } else {
+    if (!custom) return;
+    pgEditingPreset.regexes = current.filter(rule => rule.boundCustomId !== id);
     pgEditingPreset.regexes.push(normalizeOutputRegexRule({
       ...custom,
-      id: `bound-${bindingMode}-${id}`,
+      id: `bound-${targetMode}-${id}`,
       boundCustomId: id,
-      boundCustomMode: bindingMode,
+      boundCustomMode: targetMode,
     }, pgEditingPreset.regexes.length, 'preset'));
   }
+  // 绑定/解除绑定是提示词设置页的独立操作，立即持久化，避免切页或切换预设后复原。
+  persistEditingPresetRegexes();
+  renderPGRegexBindings();
+  renderPGList();
+}
+
+function togglePGPresetRegex(id, enabled, bindingMode = mode) {
+  if (!pgEditingPreset || enabled) return;
+  const current = normalizeOutputRegexRules(pgEditingPreset.regexes, 'preset');
+  const index = current.findIndex(rule => rule.id === String(id));
+  if (index < 0) return;
+  const rule = current[index];
+  if (rule.boundCustomId) {
+    togglePGRegexBinding(rule.boundCustomId, false, rule.boundCustomMode || bindingMode);
+    return;
+  }
+  pgEditingPreset.regexes = current.filter((_, currentIndex) => currentIndex !== index);
+  // ST 导入的内置正则没有源 customId；取消携带时转为普通模式正则，保证用户的修改不会丢失。
+  restorePresetRegexToCustom(rule, bindingMode, rule.id);
+  saveOutputRegexPrefs();
+  persistEditingPresetRegexes();
   renderPGRegexBindings();
   renderPGList();
 }

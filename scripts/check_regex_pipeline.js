@@ -116,3 +116,44 @@ assert.strictEqual(context.presetEditing.edited.replaceString, 'A');
 assert.strictEqual(context.presetEditing.rule.boundCustomId, 'source-a');
 assert.strictEqual(context.presetSwitch, 'A');
 assert.strictEqual(context.presetSwitchAfter, 'B');
+
+// The prompt settings page must be able to detach both custom-bound and
+// ST-imported embedded preset regexes, and the action must persist immediately.
+vm.runInContext(`
+  document.getElementById = () => null;
+  mode = 'tavern';
+  prefs = { outputRegex: { tavern: [
+    { id: 'source-a', name: '来源 A', findRegex: '/X/g', replaceString: 'source' },
+  ] } };
+  promptPresets = {
+    A: normalizePromptPreset('A', { mode: 'tavern', prompts: [], promptOrder: [], regexes: [
+      { id: 'bound-a', boundCustomId: 'source-a', boundCustomMode: 'tavern', findRegex: '/X/g', replaceString: 'edited source' },
+      { id: 'embedded-a', findRegex: '/Y/g', replaceString: 'edited embedded' },
+    ] }),
+  };
+  pgEditingName = 'A';
+  pgEditingPreset = normalizePromptPreset('A', promptPresets.A);
+  togglePGRegexBinding('source-a', false, 'tavern');
+  globalThis.afterCustomDetach = {
+    presetCount: pgEditingPreset.regexes.length,
+    storedCount: promptPresets.A.regexes.length,
+    custom: prefs.outputRegex.tavern.map(rule => ({ id: rule.id, replaceString: rule.replaceString })),
+  };
+  togglePGPresetRegex('embedded-a', false, 'tavern');
+  globalThis.afterEmbeddedDetach = {
+    presetCount: pgEditingPreset.regexes.length,
+    storedCount: promptPresets.A.regexes.length,
+    custom: prefs.outputRegex.tavern.map(rule => ({ id: rule.id, replaceString: rule.replaceString })),
+  };
+`, context);
+assert.strictEqual(context.afterCustomDetach.presetCount, 1);
+assert.strictEqual(context.afterCustomDetach.storedCount, 1);
+assert.deepStrictEqual(JSON.parse(JSON.stringify(context.afterCustomDetach.custom)), [
+  { id: 'source-a', replaceString: 'edited source' },
+]);
+assert.strictEqual(context.afterEmbeddedDetach.presetCount, 0);
+assert.strictEqual(context.afterEmbeddedDetach.storedCount, 0);
+assert.deepStrictEqual(JSON.parse(JSON.stringify(context.afterEmbeddedDetach.custom)), [
+  { id: 'source-a', replaceString: 'edited source' },
+  { id: 'embedded-a', replaceString: 'edited embedded' },
+]);
