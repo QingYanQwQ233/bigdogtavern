@@ -34,7 +34,9 @@
 
 /* ═══════════════════ 基础 ═══════════════════ */
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+/* 移动端 WebView：禁用浏览器默认的点击高亮（点击按钮时浮在 UI 上层的蓝色闪烁）。
+   交互反馈统一由各控件自己的 :hover / :active / :focus-visible 承担。 */
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 html, body { height: 100%; }
 
 /* ─────────── 聊天正文排版（设置 → 排版，运行时由 JS 覆盖） ─────────── */
