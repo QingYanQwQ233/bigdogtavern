@@ -11,6 +11,7 @@ android/build/
 android/app/build/
 android/local.properties
 android/app/src/main/assets/
+android/app/src/main/jniLibs/
 
 # 工具
 *.exe
