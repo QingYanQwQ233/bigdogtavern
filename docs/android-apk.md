@@ -1,33 +1,26 @@
 # 打包离线 APK（GitHub Actions）
 
-把 Tavern 打包成**真离线 Android APK**：前端资源内置进 APK，App 内嵌一个轻量 HTTP 服务（NanoHTTPD 移植的 server.js），WebView 加载 `http://127.0.0.1:3000`。前端代码**零改动**，不依赖任何外部服务器。
+把 Tavern 打包成**真离线 Android APK**：前端资源内置进 APK，App 内嵌 Node.js 运行时（nodejs-mobile），直接运行与桌面端**同一份** `server.js`，WebView 加载 `http://127.0.0.1:3000`。前端代码**零改动**，后端**零分叉**，不依赖任何外部服务器。
 
 ## 原理
 
 ```
 APK 结构：
-  assets/               ← 前端静态资源（index.html / styles.css / app.js / vendor / icons / data/_defaults.json）
-  TavernServer.kt       ← NanoHTTPD 内嵌服务（端口 3000）
-                            ├ /api/chat        对话代理（SSE 流式转发，同 server.js）
-                            ├ /api/image      文生图代理（openai / sd 双格式）
-                            ├ /api/image-save 图片落盘 filesDir/images/
-                            ├ /api/models     模型列表
-                            ├ /api/worlds/*    世界卡详情
-                            ├ /api/world-saves 世界存档创建/列表/读取/重命名/复制/删除/脱敏导出/Typed Patch 回合
-                            ├ /api/world-saves/:id/setup|opening-candidate|opening 开局规划与候选确认
-                            ├ /api/world-saves/:id/agent-execute|agent-cancel + narrate Agent 两阶段回合
-                            ├ /api/world-saves/:id/upgrade 世界版本升级预演与确认
-                            ├ /api/world-saves/:id/end|reopen 结局、世界线重开（growth 已移除，改用 Runtime）
-                            ├ /api/world-saves/:id/summary|memory 总结与记忆诊断/重建
-                            ├ /api/world-drafts 世界草稿（基础读写）
-                            ├ /api/world-imports 世界包预览、封存与确认导入（正则默认禁用）
-                            ├ /api/data/*     数据读写 filesDir/data/（首次从 _defaults.json 初始化；角色库数组与其他对象均会原子落盘）
-                            └ 静态资源         assets 根；/images/* 读 filesDir/images/
-  MainActivity.kt       ← 启动服务 + WebView 加载 http://127.0.0.1:3000/
+  assets/nodejs/          ← server.js + 前端静态资源（由 scripts/sync_android_assets.sh 同步）
+  jniLibs/arm64-v8a/      ← libnode.so / libc++_shared.so / libnode_bridge.so（构建时现取，不入库）
+  native/node_bridge.cpp  ← JNI 胶水：解包 assets → chdir → node::Start（不含业务逻辑）
+  NodeRuntime.kt          ← JNI 声明（System.loadLibrary("node_bridge")）
+  NodeBootstrap.kt        ← 解包 assets → 启动 Node → 轮询端口就绪 → 迁移旧版数据
+  MainActivity.kt         ← WebView 加载 http://127.0.0.1:3000/ + 原生导出桥
+
+server.js 与桌面端是同一份，提供全部 /api/*：
+  静态资源      filesDir/nodejs/public/
+  /images/*     filesDir/nodejs/public/images/
+  /api/data/*   filesDir/nodejs/public/data/（首次从 _defaults.json 初始化）
 ```
 
 - **离线**：全部代码/数据在手机本地；联网仅用于调用你配置的 LLM / 生图 API
-- **前端零改动**：页面与 /api/* 同源，无 CORS；localStorage 作为缓存，角色卡、世界书、预设、用户设定和会话通过 `/api/data/*` 持久保存到 `filesDir/data/`，大退/重启不会依赖 WebView 缓存
+- **前端零改动**：页面与 /api/* 同源，无 CORS；localStorage 作为缓存，角色卡、世界书、预设、用户设定和会话通过 `/api/data/*` 持久保存到 `filesDir/nodejs/public/data/`，大退/重启不会依赖 WebView 缓存
 - **安全**：`network_security_config.xml` 只允许 127.0.0.1 明文，外部一律 HTTPS
 
 ## 构建（你本地不用装任何东西）
@@ -50,4 +43,4 @@ APK 结构：
 
 - 内嵌服务监听 127.0.0.1，理论上同机其他 App 可访问（本地单机演示可接受；如需加固可在 server 加 token）
 - 构建产物为 debug APK（签名可直接安装；上架需自己配 release 签名）
-- Android 内嵌服务已覆盖世界卡、WorldSave 创建/读取/重命名/复制/删除/脱敏导出、待开局 `setup.game / plan / candidate / opening`、版本升级预演/确认、revision 幂等、Agent 两阶段回合与核心 Typed Patch；完整世界规则结算仍以 Node `server.js` 为基准，APK 端应在真机上验证 Runtime、结局和重开等高级入口。
+- Android 端运行的就是桌面端同一份 `server.js`，因此 API 覆盖、校验与结算逻辑天然一致（不存在需要对齐的第二份实现）；真机仍需回归 Runtime、结局和重开等高级入口。

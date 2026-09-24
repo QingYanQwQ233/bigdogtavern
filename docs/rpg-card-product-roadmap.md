@@ -535,7 +535,7 @@ Implemented the minimal faction contract: static `WorldCard.factions`, save-owne
 当前限制：
 
 - 本轮没有浏览器控制授权，因此不能把真实页面闭环标为已验收。
-- `android/.../TavernServer.kt` 仍只实现聊天、图片、模型与旧数据 API，没有 Web 端世界卡 / 世界存档主链。
+- ~~`android/.../TavernServer.kt` 仍只实现聊天、图片、模型与旧数据 API，没有 Web 端世界卡 / 世界存档主链。~~ **已解决（2026-09-19，`ba50838`）**：Android 端改为内嵌 Node 运行时直接运行同一份 `server.js`，世界卡 / 世界存档主链与 Web 端共用同一实现。
 - `public/app.js` 仍是单一大文件；后续只在功能自然边界出现时小步拆分，不先做无玩法收益的重构。
 - 现有 `_defaults.json` 只有一个极小世界种子和固定 RPG 状态，不能作为完整玩法完成度的证据。
 

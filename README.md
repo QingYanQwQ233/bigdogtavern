@@ -327,7 +327,7 @@ public/data/_defaults.json    默认配置、预设、世界卡与输出协议
 public/data/*.json             本地运行时数据（含 API Key，不入库）
 public/data/saves/*.json       WorldSave（不入库）
 public/vendor/                 marked、DOMPurify、mapgen2 本地依赖
-android/                       NanoHTTPD + WebView Android 套壳
+android/                       内嵌 Node 运行时 + WebView Android 套壳
 scripts/                       回归检查、打包与图标脚本
 docs/                          数据结构、世界卡与 Android 文档
 ```

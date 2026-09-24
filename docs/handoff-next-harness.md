@@ -39,7 +39,7 @@
 - frontend/app-render.js：Markdown、消息和选项渲染。
 - frontend/app-ui.js：设置页、终端、抽屉、主题和事件绑定。
 - public/app.js 是由 scripts/build_frontend.js 生成的产物，不能直接编辑；改 frontend 后运行 node scripts/build_frontend.js。
-- Android MainActivity.kt/TavernServer.kt 是离线 WebView 壳；Android 资源只应复制公开前端与 _defaults.json，不得带入本机数据/API Key。
+- Android 是「内嵌 Node 运行时 + WebView」离线壳：`NodeBootstrap.kt` 解包资源并启动 Node，`server.js` 提供全部 API，`MainActivity.kt` 只管 WebView 与原生导出桥；打包只复制 `server.js` 与公开前端，不得带入本机数据/API Key。
 
 【修改流程】
 1. 明确用户目标、受影响模式和数据 owner；用 rg 搜索函数的所有调用方，先追完整数据流。

@@ -321,11 +321,11 @@ setup: {
 
 - OP6.1 Node 端对旧存档补兼容视图。
 - OP6.2 前端打开旧存档时不误进 planning。
-- OP6.3 Android TavernServer 补相同 setup/opening 校验。
+- OP6.3 ~~Android TavernServer 补相同 setup/opening 校验~~ **已作废**：Android 已改为运行同一份 `server.js`（后端单源化），不再存在需要对齐的第二份实现。
 - OP6.4 Android WebView 验证保存退出与继续规划。
 - OP6.5 更新数据结构和 Android 文档。
 
-完成条件：Node 与 Android 对同一存档给出相同生命周期结果。
+完成条件：Node 与 Android 对同一存档给出相同生命周期结果（后端单源化后由同一份实现保证，OP6.3 不再需要单独实现）。
 
 ### OP7：端到端验收
 

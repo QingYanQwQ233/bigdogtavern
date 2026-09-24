@@ -1,5 +1,15 @@
 # 更新日志
 
+## 2026-09-19 · Android 后端单源化（内嵌 Node 运行 server.js）
+
+- Android 端不再用 Kotlin 重写第二份后端：App 内嵌 Node.js 运行时（nodejs-mobile）直接执行与桌面端同一份 `server.js`，删除 1495 行的 `TavernServer.kt` 与 nanohttpd 依赖；PC 端改完 `server.js` 重新打包即生效，不再需要同步第二份实现。
+- 新增 `android/native/node_bridge.cpp`（JNI 胶水，只负责启动 Node 与转发 stdout/stderr）、`NodeRuntime.kt`、`NodeBootstrap.kt`（解包 assets → 启动 Node → 轮询端口就绪 → 迁移旧版数据），`MainActivity.kt` 收敛为 WebView 与原生导出桥。
+- 首次启动把旧版 `filesDir/data`、`filesDir/images` 迁移到新布局 `filesDir/nodejs/public/{data,images}`，仅在目标不存在时执行一次，旧目录保留以便回退；WebView localStorage（角色、会话、设置）跨升级自动保留。
+- 新增 `scripts/fetch_android_node.sh`、`scripts/sync_android_assets.sh`、`scripts/build_android_apk.sh`；`libnode.so` 等二进制不入库，构建时现取，GitHub Actions 增加 NDK 安装步骤。
+- 两条架构守卫：`check_android_api.js` 禁止恢复第二份后端实现、校验 JNI 符号与包名一致、确认 `server.js` 打进 APK；`check_android_protocol.js` 守卫 `server.js` 零 npm 依赖与 Node 18 API 边界。
+- 移动端移除 WebView 默认点击高亮（`-webkit-tap-highlight-color`），宿主样式与两个隔离卡片 iframe 统一置为透明，交互反馈交给各控件自身的 `:hover` / `:active`。
+- 体积与 ABI：APK 由 1.4 MB 增至约 19 MB（`libnode.so` 压缩后约 17 MB），仅分发 `arm64-v8a`，32 位设备与模拟器无法安装。
+
 ## 2026-09-06 · 修复预设正则解除绑定
 
 - 修复提示词设置页中 ST 导入或预设内置正则只能显示为标签、无法卸下的问题；现在所有预设正则都可取消携带。
