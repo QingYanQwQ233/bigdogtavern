@@ -12,18 +12,19 @@
 <body data-theme="vibrancy" data-layout="classic">
   <canvas id="bg-fx" aria-hidden="true"></canvas>
 
-  <!-- 旧 Android WebView 可能无法解析 app.js；这里故意使用 ES5 语法，并在其他脚本前补齐 83 所缺 API。 -->
+  <!-- 兼容层：本段必须保持 ES5 语法并早于 vendor / app.js 执行。它补齐旧内核缺失的 API，
+       并在内核能力不足时提示更新。最低要求见下方 minimum 常量（当前 Chromium 111）。 -->
   <aside id="webview-compat-warning" class="webview-compat-warning" hidden role="alertdialog" aria-modal="true" aria-labelledby="webview-compat-title" aria-describedby="webview-compat-message">
     <div class="webview-compat-card">
       <div class="webview-compat-kicker">TAVERN / COMPATIBILITY</div>
-      <h1 id="webview-compat-title">Android WebView 版本过低</h1>
-      <p id="webview-compat-message">当前 Android WebView 版本过低，可能导致按钮无法点击或界面异常，请更新 Android System WebView / Chrome 后重试。</p>
+      <h1 id="webview-compat-title">浏览器内核版本过低</h1>
+      <p id="webview-compat-message">当前运行环境的内核版本低于本版本要求，部分样式与交互可能异常。请更新 Android System WebView / Chrome，或改用较新的浏览器。</p>
       <p id="webview-compat-version" class="webview-compat-version"></p>
       <button id="webview-compat-close" class="btn gold" type="button">知道了</button>
     </div>
   </aside>
-  <script id="webview-83-compat">
-    // 只使用 WebView 83 可解析的 ES5 语法；必须先于 vendor 和 app.js 执行。
+  <script id="webview-compat-bootstrap">
+    // 保持 ES5 语法并早于 vendor / app.js 执行：这是唯一能在过旧内核上运行、并告知用户版本过低的通道。
     (function () {
       if (typeof Array.prototype.at !== 'function') {
         Object.defineProperty(Array.prototype, 'at', {
@@ -62,13 +63,24 @@
       var isWebView = isAndroid && (/\bwv\b/i.test(ua) || /;\s*wv\)/i.test(ua) || (/Version\/4\.0/i.test(ua) && /Chrome\//i.test(ua)));
       var match = ua.match(/(?:Chrome|Chromium)\/(\d+)/i);
       var major = match ? parseInt(match[1], 10) : 0;
-      var minimum = 83;
-      if (!isWebView || !major || major >= minimum) return;
+      var minimum = 111;
+      // 判定以内核能力为准，而不是 UA 里的版本号：版本号可能被改写、缺失或降级，CSS.supports 不会说谎。
+      // color-mix() 是当前样式中要求最高的特性（Chromium 111）；它可用即代表
+      // :has() / :is() / inset / aspect-ratio / :focus-visible / flex gap 全部可用。
+      var capable = false;
+      try {
+        capable = !!(window.CSS && typeof window.CSS.supports === 'function' &&
+          window.CSS.supports('color', 'color-mix(in srgb, red 50%, blue)'));
+      } catch (error) {
+        capable = false;
+      }
+      if (capable) return;
       var warning = document.getElementById('webview-compat-warning');
       var version = document.getElementById('webview-compat-version');
       var close = document.getElementById('webview-compat-close');
       if (!warning) return;
-      if (version) version.textContent = '检测到：Android WebView / Chromium ' + major + '；本版本最低要求为 83，请更新 Android System WebView / Chrome。';
+      var label = isWebView ? 'Android System WebView' : (isAndroid ? 'Android 浏览器' : '浏览器');
+      if (version) version.textContent = '检测到：' + label + (major ? ' / Chromium ' + major : '（内核版本未知）') + '；本版本最低要求为 Chromium ' + minimum + '，请更新 Android System WebView / Chrome 或改用较新的浏览器。';
       warning.hidden = false;
       if (close) {
         close.addEventListener('click', function () { warning.hidden = true; });

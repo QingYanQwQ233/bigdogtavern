@@ -68,7 +68,7 @@ APK 输出路径：`android/app/build/outputs/apk/debug/app-debug.apk`。
 - 预设页新增 ST 生成参数与 Utility Prompt 配置；导入的采样参数、格式模板、新聊天提示和 assistant prefill 会进入实际请求，模型/服务商字段只做无损往返。
 - SillyTavern 导入正确区分 `system_prompt` 与 `marker`，保留多个 `prompt_order` Profile；v1/v2 预设和旧全局提示词会自动迁移。
 - 当前玩家输入独立于旧聊天历史组装：即使关闭 Chat History、缩短历史窗口或启用自动摘要，也会在请求中准确保留一次。
-- 本轮实现依据 SillyTavern 官方的 [Prompt Manager](https://docs.sillytavern.app/usage/prompts/prompt-manager/)、[World Info](https://docs.sillytavern.app/usage/core-concepts/worldinfo/) 与 [Character Design](https://docs.sillytavern.app/usage/core-concepts/characterdesign/) 结构；完整仓库检查为 84/84 通过，包括 Android WebView 83 兼容检查。
+- 本轮实现依据 SillyTavern 官方的 [Prompt Manager](https://docs.sillytavern.app/usage/prompts/prompt-manager/)、[World Info](https://docs.sillytavern.app/usage/core-concepts/worldinfo/) 与 [Character Design](https://docs.sillytavern.app/usage/core-concepts/characterdesign/) 结构；完整仓库检查为 89/89 通过，包括 Android WebView 内核下限守卫（`check_webview_floor.js`）。
 
 ## 本次更新 · 2026-09-03
 
@@ -111,7 +111,7 @@ GitHub Release 提供 `tavern-*-portable-win-x64.zip`。解压后双击「启动
 - 角色卡导入入口可自动识别误选的 ST World Info JSON，并转入世界书库；世界书页仍提供独立的 ST 世界书导入入口。
 - RP / RPG 回复选项改为预设协议驱动，选项不再写死在前端；编辑消息时输入框按聊天区域自适应并支持拖高。
 - Android 套壳补齐 `user.json` 与数组/对象 JSON 原子持久化校验；推送后由 GitHub Actions 构建 APK。
-- Android APK 支持 Android System WebView/Chromium 83 起；入口会在加载本地依赖前补齐 `Array.prototype.at`、`Object.hasOwn` 和 `Element.replaceChildren`，并避开 83 无法解析的逻辑赋值语法；低于 83 才提示更新。
+- Android APK 最低支持 Android System WebView / Chromium 111。入口在内核能力不足时提示更新（判定用 `CSS.supports` 检测 `color-mix()`，不依赖 UA 版本号），并在加载本地依赖前补齐 `Array.prototype.at`、`Object.hasOwn` 和 `Element.replaceChildren` 作为降级层；提示可关闭，不阻断使用。
 - Android 导出桥接：角色卡、预设、世界书、世界包、世界存档和设置可直接导出到系统 `Download` 文件夹；Android 10+ 使用 MediaStore，旧系统按需申请存储权限，浏览器端仍保留下载回退。
 - 新增 Android 导出回归检查 `node scripts/check_android_api.js`，覆盖 WebView JavaScript bridge、文件名清理、大小限制和前端下载回退。
 - 发布 Windows x64 便携文件夹包，内置 Node.js，解压即可启动。

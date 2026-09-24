@@ -1,5 +1,15 @@
 # 更新日志
 
+## 2026-09-25 · 校准 Android WebView 内核下限（83 → 111）
+
+- **发现声明与代码脱钩**：`index.html` 声明 Chromium 83，但 `styles.css` 已在使用 Chromium 111 才有的 `color-mix()`（9 处），以及 `:has()`(105)、`:is()`(88)、`inset`(87)、`aspect-ratio`(88)、`:focus-visible`(86)、flex `gap`(84)，共 274 处。83~110 的设备上这些规则被静默丢弃（布局塌陷、选中态反馈消失、背景丢失），而旧门槛是「低于 83 才提示」，这些用户看不到任何警告。
+- 下限校准为 **Chromium 111**（等于代码的实际要求），未改动任何 CSS。`README.md`、`docs/android-apk.md`、`docs/project-overview.md`、`AGENTS.md` 与 `styles.css` 注释同步更新。
+- 新增 **`scripts/check_webview_floor.js`**（替代 `check_webview83_compat.js`）：静态扫描前端产物，断言「声明的下限 ≥ 代码实际用到的最高特性」，并校验 `index.html` 与 `app.js` 里的两份兼容降级层逐字同步。旧检查只守 bootstrap 能否在 83 上解析，对样式兼容性零覆盖——这是脱钩长期未被发现的根因。
+- 告警判定从 UA 版本号改为 **`CSS.supports` 能力检测**：版本号可被改写、降级或缺失，能力不会说谎；文案仍显示检测到的版本与平台。低于下限时提示可关闭，不阻断使用。
+- 移除已过时的约束：`:is()` 使用禁令（88 < 111）、导航抽屉/遮罩/弹窗的物理四边定位强制要求、逻辑赋值语法禁令（85 < 111）。保留 44px 触控命中区、16px 输入字号、`pointer-events` 命中区等无障碍断言。
+- 兼容降级层（`Array.prototype.at` / `Object.hasOwn` / `Element.replaceChildren`）**保留**：它是低于下限时用户关闭提示后继续使用的 JS 降级路径，不是死代码。`webview83CompatBootstrap` / `webview83CompatSource` 更名为 `webCompatBootstrap` / `webCompatSource`，去掉会随版本变动腐坏的数字。
+- 新增负向测试验证守卫有效性：把下限调低到 90 触发「声明与代码脱钩」失败；只改一份降级层触发「两拷贝漂移」失败。
+
 ## 2026-09-19 · Android 后端单源化（内嵌 Node 运行 server.js）
 
 - Android 端不再用 Kotlin 重写第二份后端：App 内嵌 Node.js 运行时（nodejs-mobile）直接执行与桌面端同一份 `server.js`，删除 1495 行的 `TavernServer.kt` 与 nanohttpd 依赖；PC 端改完 `server.js` 重新打包即生效，不再需要同步第二份实现。

@@ -170,8 +170,9 @@ let mode = localStorage.getItem(LS_MODE) || 'tavern'; // 'tavern' 酒馆模式 |
 let sending = false;
 let activeRequestController = null;
 let requestAbortRequested = false;
-// 83 版 WebView 缺少 at / Object.hasOwn / replaceChildren。函数体保持 ES5，供隔离 iframe 原样注入。
-function webview83CompatBootstrap() {
+// 旧内核缺少 at / Object.hasOwn / replaceChildren。函数体保持 ES5：既供隔离 iframe 原样注入，
+// 也作为低于最低内核版本时的 JS 降级层（内核过旧的用户关闭提示后仍可继续使用）。
+function webCompatBootstrap() {
   if (typeof Array.prototype.at !== 'function') {
     Object.defineProperty(Array.prototype, 'at', {
       configurable: true,
@@ -205,8 +206,8 @@ function webview83CompatBootstrap() {
     };
   }
 }
-function webview83CompatSource() {
-  return `(${webview83CompatBootstrap.toString()}());`;
+function webCompatSource() {
+  return `(${webCompatBootstrap.toString()}());`;
 }
 // 仅本页内存、按 session.id 隔离；完整 Prompt 不写入角色、会话或世界存档。
 const debugTraces = new Map();

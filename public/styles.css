@@ -459,7 +459,7 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   flex-shrink: 0;
   min-width: 0;
 }
-/* margin 间距兼容 WebView 83（尚不支持 flex gap）。 */
+/* 顶栏间距用 margin（历史写法：早期内核下限为 WebView 83，flex gap 不可用；现下限为 Chromium 111，未迁移以免布局回归）。 */
 .workspace-header-content { display: flex; flex: 1; align-items: center; min-width: 0; margin-left: 8px; }
 .workspace-header-content > * + * { margin-left: 8px; }
 .chat-header .char-meta { flex: 1; min-width: 0; }
@@ -1493,7 +1493,7 @@ textarea#input:focus {
 #btn-nav-drawer { display: inline-flex; font-size: 18px; padding: 6px 10px; } /* 移动优先：默认显示汉堡 */
 #nav-drawer {
   position: fixed;
-  /* WebView 83 不支持 inset 简写；四边定位必须保留，确保抽屉拥有完整视口尺寸。 */
+  /* 物理四边定位（历史写法：早期内核下限不支持 inset 简写）。现下限为 Chromium 111，未迁移以免布局回归。 */
   top: 0;
   right: 0;
   bottom: 0;
@@ -1850,7 +1850,7 @@ body[data-mode="rpg"] .composer {
 
 .modal {
   position: fixed;
-  /* Android WebView 83 does not support the inset shorthand. */
+  /* 物理四边定位（历史回退）；下一行的 inset 简写在 Chromium 111+ 生效并覆盖此处。 */
   top: 0;
   right: 0;
   bottom: 0;
@@ -2386,7 +2386,7 @@ body.world-custom-layout:not(.world-immersive) .chat-header {
   padding: 0;
   border: 0;
   background: transparent;
-  /* WebView 83 不可靠地把父级 pointer-events:none 传播到汉堡按钮，不能在这里做点击穿透。 */
+  /* WebView 不可靠地把父级 pointer-events:none 传播到汉堡按钮，不能在这里做点击穿透（该行为在 Chromium 111+ 上未复测，workaround 保留）。 */
   pointer-events: auto;
   isolation: isolate;
 }

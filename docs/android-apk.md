@@ -37,7 +37,7 @@ server.js 与桌面端是同一份，提供全部 /api/*：
 2. 「设置」里配置 API（与桌面版完全一样）：Base URL / Key / 模型 / 文生图
 3. 开聊；生图会落盘到 App 私有目录，刷新不丢
 4. 角色卡、预设、世界书、世界包和存档的“导出”会写入系统 `Download` 文件夹；Android 10+ 使用 MediaStore，旧版本首次导出会请求存储权限
-5. 内嵌前端最低支持 Android System WebView / Chromium 83；宿主与隔离卡片 iframe 会补齐 `Array.prototype.at`、`Object.hasOwn`、`Element.replaceChildren`。自定义角色卡/世界卡脚本仍应避免 `||=`、`&&=`、`??=` 等 83 无法解析的语法。
+5. 内嵌前端最低支持 Android System WebView / Chromium 111。宿主与两种隔离卡片 iframe 会注入同一份兼容降级层（`Array.prototype.at`、`Object.hasOwn`、`Element.replaceChildren`）；内核能力不足时由 `CSS.supports` 判定并提示更新，提示可关闭。世界卡脚本运行在同一内核上，可使用 ES2021 语法。
 
 ## 已知限制
 

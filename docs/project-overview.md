@@ -56,7 +56,7 @@ RPG 流程为：
 - RP 与 RPG 共用连接设置、模型列表、流式输出、停止生成、全屏输入、排版和界面主题。
 - 「设置 → 界面」可选择本机聊天背景，支持开关、遮罩、铺满 / 完整显示和对齐位置；图片与参数在桌面 / Android 本机持久保存，普通聊天区共用。
 - AI 调试终端保留当前页面的请求历史、完整 INPUT/OUTPUT、正则前原文、结构化标签、Prompt 分区、Agent trace 和 RPG 记忆诊断。
-- PWA 离线资源、Android 内嵌 Node 运行时（直接运行同一份 `server.js`）和 Android System WebView/Chromium 83 起的兼容补丁。
+- PWA 离线资源、Android 内嵌 Node 运行时（直接运行同一份 `server.js`）和 Android System WebView/Chromium 111+ 的内核能力判定与兼容降级层。
 - 手机端左右工具抽屉、消息窗口位置保持、轻量回合状态增减动画和响应式布局。
 
 酒馆请求会先把消息拆成“已完成的旧上下文”和“尚未收到 AI 回复的当前玩家回合”。`chatHistory` 开关与历史条数只裁剪旧上下文；自动摘要只覆盖完整的用户/AI 回合；骰点等 `meta` 记录附在当前玩家内容之后。当前玩家内容在 Chat History 边界只注入一次，因此关闭历史、极小历史窗口、摘要滚动或请求失败后连续输入都不会静默丢失；预设明确放在历史之后的 Relative / In-Chat 条目仍按 Prompt Order 跟随。该结构不参与 RPG 的 WorldSave 回合提交。
@@ -233,7 +233,7 @@ node scripts/check_webview83_compat.js
 - 默认服务无鉴权和 SSRF 防护，只适合本机/可信局域网开发；不要直接暴露公网。
 - API Key 只保存于本地运行时数据；不要提交 `public/data/*.json`、`data/saves`、图片或调试记录。
 - 世界卡扩展使用隔离 sandbox Bridge；经用户确认的角色卡完整兼容 iframe 具有同源 DOM、localStorage、外部脚本/网络能力，只导入信任卡片。
-- Android 端覆盖核心世界卡、存档、开局和 Agent 入口，但完整 Runtime/结局/重开仍需真机回归；最低目标为 WebView/Chromium 83。
+- Android 端覆盖核心世界卡、存档、开局和 Agent 入口，但完整 Runtime/结局/重开仍需真机回归；最低目标为 WebView/Chromium 111。
 - 地图生成代码仍保留，但当前地图 UI 与运行时随机生成关闭；新存档只读取世界卡明确提供的地图数据。
 - RPG 记忆目前是结构化事件记忆和摘要，不包含向量检索、自动聚类或完整人工编辑器。
 - 不要把旧的 events/factions/inventory/growth 等硬编码投影重新接回新回合；需要新玩法时在 WorldCard Runtime schema 中声明。
