@@ -4416,4 +4416,55 @@ async function init() {
   updateApiStatusFromSettings();
   await syncWorldDraftRoute();
 }
+function renderSessions() {
+  const nameEl = $('session-name');
+  if (worldModeActive()) {
+    if (nameEl) nameEl.textContent = currentWorldSave.name || '世界存档';
+    const player = currentWorldSave.player?.snapshot || {};
+    const hdrName = $('hdr-char-name');
+    const hdrRace = $('hdr-char-race');
+    if (hdrName) hdrName.textContent = player.name || currentWorldCard()?.title || '世界存档';
+    if (hdrRace) hdrRace.textContent = `${[player.race, player.role].filter(Boolean).join(' · ') || '玩家快照'} · 世界存档`;
+    const ml = $('session-menu-list');
+    if (ml) ml.innerHTML = '<div class="sess-empty">当前显示世界存档，不读取旧 RPG 会话</div>';
+    const saveMark = $('rpg-world-save');
+    if (saveMark) { saveMark.hidden = false; saveMark.textContent = `世界 · ${currentWorldSave.name || currentWorldSave.id}`; }
+    return;
+  }
+  if (mode === 'rpg') {
+    if (nameEl) nameEl.textContent = '选择世界存档';
+    const hdrName = $('hdr-char-name');
+    const hdrRace = $('hdr-char-race');
+    if (hdrName) hdrName.textContent = '选择世界存档';
+    if (hdrRace) hdrRace.textContent = 'RPG 只使用世界存档中的玩家角色';
+    const saveMark = $('rpg-world-save');
+    if (saveMark) saveMark.hidden = true;
+    const ml = $('session-menu-list');
+    if (ml) ml.innerHTML = '<div class="sess-empty">请先从世界库创建或打开世界存档</div>';
+    return;
+  }
+  const s = curSession();
+  if (nameEl) nameEl.textContent = s ? s.name : '—';
+  const saveMark = $('rpg-world-save');
+  if (saveMark) saveMark.hidden = true;
+  // 头部下拉（只列当前模式 kind 的会话）
+  const ml = $('session-menu-list');
+  if (ml) {
+    ml.innerHTML = '';
+    for (const ses of sessions.filter(sessionMatches)) {
+      const el = document.createElement('div');
+      el.className = 'sess-item' + (ses.id === currentSessionId ? ' active' : '');
+      el.innerHTML = `<span>${esc(ses.name)}</span><span class="sess-btns"><span class="sess-x" data-act="rename" title="重命名">✎</span><span class="sess-x" data-act="del" title="删除">✕</span></span>`;
+      el.addEventListener('click', (ev) => {
+        const act = ev.target.dataset && ev.target.dataset.act;
+        if (act === 'del') { deleteSession(ses.id); return; }
+        if (act === 'rename') { renameSession(ses.id); return; }
+        switchSession(ses.id);
+        $('session-menu').classList.add('hidden');
+      });
+      ml.appendChild(el);
+    }
+  }
+}
+
 init();

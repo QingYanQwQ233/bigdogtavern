@@ -8,6 +8,7 @@ const sourceFiles = [
   'frontend/app-core.js',
   'frontend/rpg-world.js',
   'frontend/ai-protocol.js',
+  'frontend/ai-prompt.js',
   'frontend/app-render.js',
   'frontend/tavern-rp.js',
   'frontend/ai-runtime.js',

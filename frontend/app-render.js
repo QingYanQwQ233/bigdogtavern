@@ -856,3 +856,20 @@ function splitNarration(text) {
   if (!segs.length) segs.push({ type: 'narration', text });
   return segs;
 }
+function applyRegexStage(text, stage, { targetMode = mode, depth = null, editing = false, includePromptOnly = true, role = 'assistant' } = {}) {
+  const rules = activeOutputRegexRules(targetMode, stage, { depth, editing, includePromptOnly, role });
+  return rules.length ? applyOutputRegexRules(text, rules) : String(text ?? '');
+}
+
+function renderOutputContent(text, targetMode = mode, { fromRaw = true, role = 'assistant', depth = null } = {}) {
+  const source = String(text || '');
+  const rules = activeOutputRegexRules(targetMode, fromRaw ? 'chat_display' : 'chat_display_persisted', { role, depth });
+  const needsRegex = rules.some(rule => {
+    const regex = buildOutputRegex(rule);
+    if (!regex) return false;
+    regex.lastIndex = 0;
+    return regex.test(source);
+  });
+  return recoverStructuredTagOutput(needsRegex ? applyOutputRegexRules(source, rules) : source);
+}
+

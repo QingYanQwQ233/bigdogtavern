@@ -320,6 +320,7 @@ frontend/                     前端可编辑源码分片（按 RP / RPG / 共�
 frontend/tavern-rp.js         酒馆 RP：会话、角色、记忆、正则、世界书与 Prompt
 frontend/rpg-world.js         RPG：世界卡、存档、建角、世界 UI 与状态面板
 frontend/ai-protocol.js       双模式输出协议与结构化状态边界
+frontend/ai-prompt.js         提示词组装、World Info 激活与分节
 frontend/ai-runtime.js        AI 请求、流式响应与 RPG Agent
 public/index.html             双模式页面与弹窗
 public/styles.css             macOS 深色主题与响应式布局

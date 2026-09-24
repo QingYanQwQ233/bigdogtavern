@@ -42,6 +42,7 @@
 - `frontend/tavern-rp.js`：RP 角色、会话、世界书、预设、记忆和正则。
 - `frontend/rpg-world.js`：RPG 世界库、存档、建角、开局、侧栏、世界扩展。
 - `frontend/ai-protocol.js`：输出标签、选项、协议解析、Typed Patch、兼容修复。
+- `frontend/ai-prompt.js`：prompt 组装、World Info 激活与分节、预设解析（RP / RPG 两条链路共用，入口 `buildPromptBlocks()`）。
 - `frontend/ai-runtime.js`：请求、流式响应、Agent、工具和回合提交。
 - `frontend/app-render.js`：Markdown、消息和选项渲染。
 - `frontend/app-ui.js`：设置页、终端、抽屉、主题和事件绑定。

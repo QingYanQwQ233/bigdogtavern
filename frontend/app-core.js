@@ -321,3 +321,34 @@ async function downloadBlob(blob, filename) {
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 function currentChar() { return characters.find(c => c.id === currentCharId) || null; }
 function sessionMatches(s) { return !!s && s.charId === currentCharId && s.kind === mode; }
+function saveSessions(updatedSession = curSession()) {
+  const cur = updatedSession && Array.isArray(sessions)
+    ? sessions.find(session => session.id === updatedSession.id) || curSession()
+    : curSession();
+  if (cur) cur.updatedAt = Date.now(); // 跨浏览器合并时按更新时间取新
+  try {
+    // 图片消息存的是本地相对路径（/images/xxx.png，很小），可以安全持久化
+    saveJSON(LS_SESSIONS, sessions);
+  } catch (e) {
+    console.warn('[Tavern] 会话保存失败（可能超出本地存储配额）:', e.message);
+  }
+  saveJSON(LS_SESSIONS_DELETED, sessionsDeleted);
+  // server JSON 是权威源：与 characters / lorebooks 等一致的双写
+  saveServerData('sessions', { schemaVersion: 1, sessions: Array.isArray(sessions) ? sessions : [], deletedIds: sessionsDeleted });
+}
+
+/* 会话跨浏览器同步：server 未同步时推送本地（迁移）；已同步时按 ID 取并集、冲突取 updatedAt 新者，
+   双方删除墓碑都生效，合并结果推回 server，让另一台浏览器下次加载也能收敛。 */
+function lorebookHash(value) {
+  let hash = 2166136261;
+  for (const ch of String(value || '')) {
+    hash ^= ch.codePointAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function currentUserPreset() {
+  ensureUserData();
+  return userData.presets[userData.currentPreset] || Object.values(userData.presets)[0] || userData.presets.default;
+}
