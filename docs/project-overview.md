@@ -246,4 +246,5 @@ node scripts/check_webview83_compat.js
 - [世界卡架构](world-card-architecture.md)：WorldCard / WorldSave 设计与隔离原则。
 - [世界测试实验台](world-test-lab.md)：开发者实验台和验收路径。
 - [Android APK](android-apk.md)：GitHub Actions、离线壳和手机端限制。
-- [下一 Harness 交接提示词](handoff-next-harness.md)：交给下一位自动化 Harness 的可复制工作说明。
+- [AGENTS.md](../AGENTS.md)：开发规范唯一来源，AI 编码工具会自动加载。
+- [下一 Harness 交接快照](handoff-next-harness.md)：每次交接的状态、接手重点与验收清单（规范内容不在此处复制）。

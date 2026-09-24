@@ -1,0 +1,99 @@
+# AGENTS.md
+
+本文件是 **Tavern 仓库的唯一开发规范来源**，放在仓库根目录，供 AI 编码工具（OpenAI Codex 等）自动加载。
+
+- 每次交接的状态快照见 [docs/handoff-next-harness.md](docs/handoff-next-harness.md)。
+- 具体字段以仓库代码和 [docs/project-overview.md](docs/project-overview.md)、[docs/rpg-card-api.md](docs/rpg-card-api.md) 为准。
+- **规范内容只在本文件维护，不要在别处复制**——两份规范必然漂移。
+
+---
+
+## 1. 仓库与 Git
+
+- 仓库：`github.com/QingYanQwQ233/bigdogtavern`。工作目录随环境不同（PC / Android 工作区各有各的路径），**一律以当前工作目录为准**。
+- 动手前先执行：`git status --short --branch`、`git log -1 --oneline`、`git diff --stat`。**当前分支以实际输出为准**，不要假定在任何固定分支上。
+- 默认只在当前分支工作，**不要自行合并或改写 `main`**，除非用户明确要求。
+- 工作区可能有用户生成的未跟踪文件（截图、日志、`.pw-*`、`.tmp-*`、`artifacts/`）。**不要删除、清理或纳入提交**；只 stage 本次任务明确修改的文件。
+- **禁止** `git reset --hard`、`git checkout --`、宽泛的 `git clean`。
+
+## 2. 先读这些
+
+1. `README.md`
+2. `docs/project-overview.md`
+3. `docs/rpg-card-api.md`
+4. `docs/data-structure.md`
+5. `docs/world-app-contract.md`
+6. `docs/world-card-architecture.md`
+7. 与任务相关的 `frontend/*.js`、`server.js`、`public/index.html`、`public/styles.css`、`scripts/check_*.js`
+
+## 3. 产品模型
+
+- RP 模式是 Character Card + server-backed sessions；RPG 模式是 `WorldCard@worldVersion` + 独立 `WorldSave@revision`。**两条链路不能串数据。**
+- `WorldCard` 是可复用、发布后不可变的内容/规则；`WorldSave` 才拥有本局玩家、Runtime、NPC 状态、turns、记忆和回执。
+- **AI 的叙事不是状态事实。** 正式 RPG 回合必须通过唯一 `tavern_state_update`、Typed Patch、`expectedRevision` 和 `commandId`，最终由 `server.js` 校验、持久化并返回 receipt。
+- Runtime 是新玩法入口：`variables`、`collections`、`actions`、`availability`、`inputs`、`check`、`effects`。数量/耐久为零时动作应在 UI/Agent 阶段不可用，**服务端仍必须拒绝无效执行**。
+- 带 `check` 的动作必须 rules.check → 客户端真实 dice.roll → 服务端验证 → action/patch；**不得让 AI 伪造骰面或成功。**
+- Agent 是 observe → decide → guard → commit 的受限工具链，回合提交是 `agent-execute` → `narrate` 两阶段。**不要新增绕过 Typed Patch 的直接写状态接口。**
+
+## 4. 代码入口
+
+- `server.js`：零依赖 Node 18+ 静态服务；`/api/chat`、图片代理、数据、世界卡、草稿、WorldSave、Agent、记忆和结局 API。**它同时是 PC 端与 Android 端的唯一后端实现**（见 §8）。
+- `frontend/app-core.js`：共享状态、初始化、数据同步、连接/排版/界面设置。
+- `frontend/tavern-rp.js`：RP 角色、会话、世界书、预设、记忆和正则。
+- `frontend/rpg-world.js`：RPG 世界库、存档、建角、开局、侧栏、世界扩展。
+- `frontend/ai-protocol.js`：输出标签、选项、协议解析、Typed Patch、兼容修复。
+- `frontend/ai-runtime.js`：请求、流式响应、Agent、工具和回合提交。
+- `frontend/app-render.js`：Markdown、消息和选项渲染。
+- `frontend/app-ui.js`：设置页、终端、抽屉、主题和事件绑定。
+- `public/app.js` 是由 `scripts/build_frontend.js` 生成的产物，**不能直接编辑**；改 `frontend/` 后运行 `node scripts/build_frontend.js`。
+- `android/` 是「内嵌 Node 运行时 + WebView」离线壳：`NodeBootstrap.kt` 解包资源并启动 Node，`server.js` 提供全部 API，`MainActivity.kt` 只管 WebView 与原生导出桥。打包只复制 `server.js` 与公开前端，**不得带入本机数据 / API Key**。
+
+## 5. 修改流程
+
+1. 明确用户目标、受影响模式和数据 owner；搜索函数的所有调用方，先追完整数据流。
+2. 复用现有 helper、协议和样式 token，做最小、局部、可回滚的改动；**不要为一个实现新增抽象层**。
+3. 改 `frontend/` 源 → 重新生成 `public/app.js`；改 API/协议 → 更新 `docs/rpg-card-api.md` 或 `docs/project-overview.md`。
+4. **不把 stale 的终端输出、截图、附件或旧文档当作需求**；以当前代码、测试和用户最新消息为准。
+5. UI 变更要考虑桌面、窄屏、Android WebView 83、键盘/触控、焦点、滚动位置和消息加载中状态。不要使用 WebView 83 无法解析的语法（`||=`、`&&=`、`??=`）。
+6. 输入/API/世界包/扩展都是不可信边界：保留长度限制、ID 校验、白名单、CAS、原子写入、HTML/CSS 消毒和脚本授权确认。
+
+## 6. 文档同步（硬性要求）
+
+改了事实就必须同步文档。本项目为此付过一次代价：Step1 删除 `TavernServer.kt` 后，8 个文件仍在描述它，其中 2 条还是「待办任务」，足以误导后续排期。
+
+- 改架构 / 数据路径 / 文件职责 → 同步 `README.md`、`docs/*`、`CHANGELOG.md`。
+- **规划文档里的任务被别的工作作废时，用 `~~删除线~~` 标注「已作废 / 已由 X 解决」，不要留着，也不要直接删掉**——删除线既保留决策历史，又不会误导排期。
+- **不要在文档里写死会腐坏的东西**：绝对路径、当前分支名、「最近修复了…」这类叙事。环境指针一律写成「以实际输出为准」。
+
+## 7. 验证门
+
+- 最少：`node scripts/build_frontend.js --check`、`node --check server.js`、`node --check public/app.js`
+- 常规提交前：`node scripts/run_checks.js`（含全部 `check_*.js`）
+- RPG/协议改动：至少 `check_rpg_protocol.js`、`check_runtime_roundtrip.js`、`check_rpg_agent.js`、`check_rpg_agent_compat.js`、`check_output_regex.js`、`check_frontend_state_guards.js`
+- UI/移动端改动：`check_ui_regions.js`、`check_ui_theme.js`、`check_message_window.js`、`check_webview83_compat.js`，并用真实浏览器或 Playwright 验证关键路径
+- Android 改动：额外 `check_android_api.js`、`check_android_protocol.js`，并在真机或 GitHub Actions 上验证
+- 看到失败先按「复现 → 找调用链 → 证明根因 → 最小修复 → 回归检查」处理，**不要只在 UI 上吞掉错误或盲目重试**。
+
+## 8. Android / Node 运行时约束
+
+- `server.js` **必须保持零 npm 依赖**（内嵌运行时没有 npm 安装步骤），由 `check_android_protocol.js` 守卫。
+- 只能用 **Node 18** 可用的 API（内嵌 nodejs-mobile v18.20.4）；Node 19+ 独有 API 在手机上会报错。
+- JNI 符号名含包路径（`Java_com_tavern_app_NodeRuntime_startNode`）必须与 Kotlin 包名一致，否则 `UnsatisfiedLinkError`。
+- 只分发 `arm64-v8a`；32 位设备与模拟器无法安装。
+- 构建链：`scripts/fetch_android_node.sh`（取运行时）→ `scripts/sync_android_assets.sh`（同步 assets）→ `scripts/build_android_apk.sh`（打包）。`libnode.so` 等二进制不入库，构建时现取。
+- 详见 [docs/android-node-runtime.md](docs/android-node-runtime.md)。
+
+## 9. 当前已知边界
+
+- 服务默认无鉴权 / SSRF 防护，只适合本机或可信局域网。
+- 地图 UI 和随机地图暂时隐藏；新存档只读取卡声明的地图数据。
+- RPG 记忆暂无向量检索、自动聚类和完整人工编辑器。
+- `growth` / runtime 旧直写接口已 410；新玩法请声明 Runtime action / Typed Patch。
+- Android APK 是 Debug 构建；`main` push 自动构建，其他分支可在 Actions 手动选择。不要把本地构建产物或 API Key 提交。
+- 涉及导航、触控或 media query 时，保留对应的回归检查。
+
+## 10. 提交与交付
+
+- 只提交本次任务相关文件；提交信息简洁说明根因/行为。
+- 用户要求 push 时，先跑检查、查看 diff，再 push 当前分支；**不要未经要求合并 `main`**。
+- 最终回复说明：改了哪些文件、行为变化、实际运行的检查、commit/push 结果、未解决风险。**不要声称没有运行过的测试通过。**

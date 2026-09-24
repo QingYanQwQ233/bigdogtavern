@@ -118,6 +118,8 @@ GitHub Release 提供 `tavern-*-portable-win-x64.zip`。解压后双击「启动
 
 详细变更与验证命令见 [CHANGELOG.md](CHANGELOG.md)。
 
+开发规范（仓库结构、改动约束、验证门与交付要求）见 [AGENTS.md](AGENTS.md)——AI 编码工具会从仓库根目录自动加载它。
+
 常用检查：
 
 ```bash
@@ -312,6 +314,7 @@ RPG 世界卡当前验收 AI 回合闭环、客户端骰子、Agent 阶段顺序
 ## 项目结构
 
 ```text
+AGENTS.md                     开发规范（唯一来源，AI 编码工具自动加载）
 server.js                     Node 静态服务、AI/图片代理、世界与存档 API
 frontend/                     前端可编辑源码分片（按 RP / RPG / 共享职责拆分）
 frontend/tavern-rp.js         酒馆 RP：会话、角色、记忆、正则、世界书与 Prompt
@@ -384,7 +387,7 @@ docs/                          数据结构、世界卡与 Android 文档
 
 这些规划不会改变当前的核心约束：数据由 WorldCard / Preset / WorldSave 分层拥有，AI 只能提交候选，服务端才是状态权威源。
 
-项目总览（功能、架构、接口和开发命令）见 [docs/project-overview.md](docs/project-overview.md)；交给下一位 Harness 的接手提示词见 [docs/handoff-next-harness.md](docs/handoff-next-harness.md)。
+项目总览（功能、架构、接口和开发命令）见 [docs/project-overview.md](docs/project-overview.md)；开发规范见 [AGENTS.md](AGENTS.md)，每次交接的状态快照见 [docs/handoff-next-harness.md](docs/handoff-next-harness.md)。
 
 制作世界卡请先读 [从零创建一张可玩的 RPG 世界卡](docs/rpg-card-tutorial.md)，接口、Runtime 与回合协议见 [RPG 世界卡、运行时与 HTTP 接口参考](docs/rpg-card-api.md)。兼容历史见 [docs/data-structure.md](docs/data-structure.md)，世界卡 UI 美化声明见 [docs/ui-beauty-declaration.md](docs/ui-beauty-declaration.md)，产品路线见 [docs/rpg-card-product-roadmap.md](docs/rpg-card-product-roadmap.md)。
 
