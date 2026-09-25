@@ -1687,6 +1687,7 @@ body[data-mode="rpg"] .rpg-panel-head {
   background: linear-gradient(180deg, var(--panel), rgba(var(--panel-rgb), .9));
 }
 .rpg-drawer-close { display: none; }
+.rpg-drawer-head { display: none; }
 body[data-mode="rpg"] #rpg-left { border-right: 1px solid var(--line); }
 body[data-mode="rpg"] #rpg-right { border-left: 1px solid var(--line); }
 body[data-mode="rpg"] .rpg-status {
@@ -1763,6 +1764,7 @@ body[data-mode="rpg"] .composer {
     transition: transform 250ms var(--motion-out);
   }
   body[data-mode="rpg"] .rpg-drawer-close { display: inline-flex; flex: 0 0 auto; min-height: 32px; }
+  body[data-mode="rpg"] .rpg-drawer-head { display: flex; justify-content: flex-end; }
   body[data-mode="rpg"] #rpg-left { left: 0; transform: translateX(-104%); border-right: 1px solid var(--line); }
   body[data-mode="rpg"] #rpg-right { right: 0; transform: translateX(104%); border-left: 1px solid var(--line); }
   body[data-mode="rpg"][data-rpg-drawer="left"] #rpg-left,
