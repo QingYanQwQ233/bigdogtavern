@@ -1147,6 +1147,7 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   background: linear-gradient(0deg, rgba(var(--bg-0-rgb), 0.55), transparent);
 }
 .quick-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.quick-actions:empty { display: none; }
 .world-turn-error {
   width: 100%;
   display: flex;
@@ -1790,6 +1791,8 @@ body[data-mode="rpg"] .composer {
   }
   body[data-mode="rpg"] .rpg-status::-webkit-scrollbar { display: none; }
   body[data-mode="rpg"] .rpg-stat { flex: 0 0 auto; }
+  body[data-mode="rpg"] .rpg-dynamic-stats { flex: 0 0 auto; flex-wrap: nowrap; }
+  body[data-mode="rpg"] .rpg-dynamic-stat { flex: 0 0 auto; }
   body[data-mode="rpg"] .composer { padding-inline: 12px; }
 }
 
