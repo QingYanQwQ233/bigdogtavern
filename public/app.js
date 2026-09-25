@@ -8246,7 +8246,6 @@ function renderCharList() {
       if (action === 'use') { useCharById(c.id); return; }
       if (action === 'delete') { deleteChar(c.id); return; }
       setMobileManagerPanel('char-mgr', 'detail');
-      selectCharForEdit(c.id);
     });
     list.appendChild(el);
   }
@@ -8297,92 +8296,6 @@ function normalizeCharProfileFields(fields) {
 }
 
 
-function appendCharFieldRow(field, custom = false) {
-  const row = document.createElement('div');
-  row.className = 'cm-profile-row';
-  row.dataset.key = field.key;
-  row.dataset.custom = custom ? '1' : '0';
-  if (custom) {
-    const label = document.createElement('input');
-    label.className = 'cm-profile-label';
-    label.value = field.label || '';
-    label.placeholder = '条目名称';
-    label.setAttribute('aria-label', '自定义条目名称');
-    row.appendChild(label);
-  } else {
-    const label = document.createElement('label');
-    label.textContent = field.label;
-    label.htmlFor = 'cpf-' + field.key;
-    row.appendChild(label);
-  }
-  const input = document.createElement('input');
-  input.id = 'cpf-' + field.key;
-  input.className = 'cm-profile-value';
-  input.value = field.value || '';
-  input.placeholder = field.placeholder || '填写' + (field.label || '内容');
-  input.setAttribute('aria-label', (field.label || '自定义条目') + '内容');
-  if (CHAR_FIELD_FORM[field.key]) input.addEventListener('input', () => {
-    $(CHAR_FIELD_FORM[field.key]).value = input.value;
-    if (cmCreating && field.key === 'name') renderCharList();
-  });
-  row.appendChild(input);
-  const remove = document.createElement('button');
-  remove.type = 'button';
-  remove.className = 'ghost-btn cm-profile-remove';
-  remove.textContent = '删除';
-  remove.setAttribute('aria-label', '删除“' + (field.label || '自定义') + '”条目');
-  remove.addEventListener('click', () => row.remove());
-  row.appendChild(remove);
-  $('cm-profile-fields').appendChild(row);
-  return row;
-}
-
-function renderCharProfileFields(char, generated) {
-  const list = $('cm-profile-fields');
-  list.innerHTML = '';
-  const stored = normalizeCharProfileFields(char && char.profileFields);
-  const storedByKey = new Map(stored.map(f => [f.key, f]));
-  const defined = new Set();
-  for (const def of charFieldDefs()) {
-    defined.add(def.key);
-    const old = storedByKey.get(def.key);
-    const coreValue = char && CHAR_FIELD_FORM[def.key] ? (char[def.key] || '') : '';
-    const value = generated && Object.prototype.hasOwnProperty.call(generated, def.key)
-      ? generated[def.key] : ((old && old.value) || coreValue);
-    appendCharFieldRow({ ...def, value: String(value || '') });
-  }
-  for (const field of stored) {
-    if (!defined.has(field.key)) appendCharFieldRow(field, true);
-  }
-}
-
-function addCharProfileField() {
-  const row = appendCharFieldRow({ key: 'custom_' + uid(), label: '', value: '' }, true);
-  row.querySelector('.cm-profile-label').focus();
-}
-
-function collectCharProfileFields(syncCore = false) {
-  const coreValues = Object.fromEntries(Object.entries(CHAR_FIELD_FORM).map(([key, id]) => [key, $(id).value.trim()]));
-  return [...document.querySelectorAll('#cm-profile-fields .cm-profile-row')].map(row => {
-    const custom = row.dataset.custom === '1';
-    const labelEl = row.querySelector(custom ? '.cm-profile-label' : 'label');
-    const key = row.dataset.key;
-    return {
-      key,
-      label: (custom ? labelEl.value : labelEl.textContent).trim() || '自定义条目',
-      value: syncCore && Object.prototype.hasOwnProperty.call(coreValues, key) ? coreValues[key] : row.querySelector('.cm-profile-value').value.trim(),
-    };
-  }).filter(field => field.key && field.value);
-}
-
-function syncProfileFieldsToForm() {
-  for (const row of document.querySelectorAll('#cm-profile-fields .cm-profile-row')) {
-    const id = CHAR_FIELD_FORM[row.dataset.key];
-    if (id) $(id).value = row.querySelector('.cm-profile-value').value.trim();
-  }
-  if (cmCreating) renderCharList();
-}
-
 function selectCharForEdit(id) {
   const c = characters.find(x => x.id === id);
   if (!c) return;
@@ -8406,12 +8319,9 @@ function selectCharForEdit(id) {
   $('cm-preset').value = c.presetName || '';
   $('cm-lore').value = c.loreId || '';
   $('cm-ref-image').value = c.refImage || '';
-  updateRefPreview(c.refImage || '');
   $('cm-tags').value = c.tags || '';
   $('cm-alt-greetings').value = Array.isArray(c.alternateGreetings) ? c.alternateGreetings.join('\n\n') : '';
   $('cm-alt-greetings').dataset.initial = $('cm-alt-greetings').value;
-  renderCharProfileFields(c);
-  renderCharList();
 }
 
 /* 参考图预览：有图显示，无图隐藏 */
@@ -8423,39 +8333,7 @@ function updateRefPreview(src) {
   $('btn-remove-ref').classList.toggle('hidden', !src);
 }
 
-function removeRefImage() {
-  if (!confirm('删除当前角色的参考图？图片文件仍会保留在本地。')) return;
-  $('cm-ref-image').value = '';
-  updateRefPreview('');
-  const c = characters.find(x => x.id === cmEditingId);
-  if (c) { c.refImage = ''; saveChars(); }
-}
-
 /* 导入本地图片 → 上传到 server → 填入参考图 */
-function importRefImage(file) {
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = async () => {
-    try {
-      const res = await fetch('/api/image-save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json; charset=utf-8' },
-        body: JSON.stringify({ b64: reader.result }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.path) throw new Error('上传失败: ' + (data.error || res.status));
-      $('cm-ref-image').value = data.path;
-      updateRefPreview(data.path);
-      const c = characters.find(x => x.id === cmEditingId);
-      if (c) { c.refImage = data.path; saveChars(); }
-    } catch (err) {
-      console.error('[Tavern] 参考图导入失败:', err.message);
-      alert('❌ 参考图导入失败：' + err.message);
-    }
-  };
-  reader.readAsDataURL(file);
-}
-
 function newCharEditor() {
   setMobileManagerPanel('char-mgr', 'detail');
   cmCreating = true;
@@ -8465,55 +8343,7 @@ function newCharEditor() {
   ['cm-name', 'cm-race', 'cm-role', 'cm-persona', 'cm-personality', 'cm-scenario', 'cm-first-mes', 'cm-mes-example', 'cm-system', 'cm-post', 'cm-creator-notes', 'cm-creator', 'cm-character-version', 'cm-ref-image', 'cm-tags', 'cm-alt-greetings']
     .forEach(id => { $(id).value = ''; });
   $('cm-alt-greetings').dataset.initial = '';
-  renderCharProfileFields(null);
   updateRefPreview(''); // 清空参考图预览（新建角色不复用上个角色的图）
-  renderCharList();
-}
-
-function saveCharFromEditor() {
-  const existing = cmEditingId ? characters.find(x => x.id === cmEditingId) : null;
-  const alternateText = $('cm-alt-greetings').value;
-  const alternateGreetings = existing && $('cm-alt-greetings').dataset.initial === alternateText && Array.isArray(existing.alternateGreetings)
-    ? existing.alternateGreetings
-    : alternateText.split(/\n\s*\n/).map(s => s.trim()).filter(Boolean);
-  const data = {
-    name: $('cm-name').value.trim() || '未命名',
-    race: $('cm-race').value.trim(),
-    role: $('cm-role').value.trim(),
-    description: $('cm-persona').value,
-    personality: $('cm-personality').value,
-    // persona 是旧版内部字段：保留它以兼容旧提示词和外部数据。
-    persona: $('cm-personality').value || $('cm-persona').value,
-    scenario: $('cm-scenario').value,
-    firstMes: $('cm-first-mes').value,
-    mesExample: $('cm-mes-example').value,
-    systemPrompt: $('cm-system').value,
-    postHistory: $('cm-post').value,
-    creatorNotes: $('cm-creator-notes').value,
-    creator: $('cm-creator').value.trim(),
-    characterVersion: $('cm-character-version').value.trim(),
-    presetName: $('cm-preset').value || '',
-    loreId: $('cm-lore').value || '',
-    characterBookLoreId: existing?.characterBookLoreId || '',
-    refImage: $('cm-ref-image').value.trim(),
-    tags: $('cm-tags').value.trim(),
-    alternateGreetings,
-    profileFields: collectCharProfileFields(true),
-  };
-  if (cmEditingId) {
-    const c = characters.find(x => x.id === cmEditingId);
-    Object.assign(c, data);
-  } else {
-    const c = { id: uid(), ...data, createdAt: Date.now() };
-    characters.push(c);
-    cmEditingId = c.id;
-  }
-  cmCreating = false;
-  $('cm-edit-title').textContent = '编辑角色：' + data.name;
-  $('cm-del').textContent = '删除角色';
-  saveChars();
-  renderCharList();
-  renderCharacter();
 }
 
 function useCharById(id) {
@@ -8524,15 +8354,9 @@ function useCharById(id) {
   }
   activateSessionScope();
   renderCharacter();
-  renderCharList();
   renderSessions();
   renderMessages();
   switchView('chat');
-}
-
-function useCharInEditor() {
-  saveCharFromEditor();
-  useCharById(cmEditingId || characters[characters.length - 1]?.id);
 }
 
 function deleteChar(id) {
@@ -8545,7 +8369,6 @@ function deleteChar(id) {
     if (currentCharId) selectCharForEdit(currentCharId);
     else newCharEditor();
   }
-  renderCharList();
   renderCharacter();
   renderSessions();
   renderMessages();
@@ -8785,8 +8608,6 @@ function importCharFromText(text) {
   renderBindSelects();
   renderLBList();
   if ($('world-draft-lorebooks')) renderWorldDraftLorebookOptions(worldDraft?.world?.lorebookIds || []);
-  renderCharList();
-  selectCharForEdit(c.id);
   return { character: c, lorebook };
 }
 

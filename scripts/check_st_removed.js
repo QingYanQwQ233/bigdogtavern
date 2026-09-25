@@ -64,7 +64,7 @@ const kept = [
   ['tavernReplyOptionsConfig', '回复选项配置（被上面那个解析器依赖）'],
   ['aiGenerate', 'AI 生成底层（RPG 生成玩家角色在用）'],
   ['aiGenWI', '世界书条目生成（世界书保留在 RPG）'],
-  ['cm-profile-fields', '基本信息机制（RPG 迁移读取 profileFields）'],
+  ['normalizeCharProfileFields', '基本信息机制（RPG 迁移读取 profileFields）'],
 ];
 kept.forEach(([token, label]) => {
   assert.ok(app.includes(token), label + ' 是被 RPG 复用的机制，不得删除');
