@@ -8974,14 +8974,6 @@ function normalizeCharProfileFields(fields) {
   }));
 }
 
-function setCharWizardStep(step) {
-  document.querySelectorAll('[data-cw-step]').forEach(el => {
-    const n = Number(el.dataset.cwStep);
-    el.classList.toggle('active', n === step);
-    el.classList.toggle('done', n < step);
-  });
-  [1, 2, 3].forEach(n => $('cw-panel-' + n).classList.toggle('hidden', n !== step));
-}
 
 function appendCharFieldRow(field, custom = false) {
   const row = document.createElement('div');
@@ -9097,8 +9089,6 @@ function selectCharForEdit(id) {
   $('cm-alt-greetings').value = Array.isArray(c.alternateGreetings) ? c.alternateGreetings.join('\n\n') : '';
   $('cm-alt-greetings').dataset.initial = $('cm-alt-greetings').value;
   renderCharProfileFields(c);
-  setCharWizardStep(2);
-  $('cm-ai-status').textContent = '';
   renderCharList();
 }
 
@@ -9153,13 +9143,9 @@ function newCharEditor() {
   ['cm-name', 'cm-race', 'cm-role', 'cm-persona', 'cm-personality', 'cm-scenario', 'cm-first-mes', 'cm-mes-example', 'cm-system', 'cm-post', 'cm-creator-notes', 'cm-creator', 'cm-character-version', 'cm-ref-image', 'cm-tags', 'cm-alt-greetings']
     .forEach(id => { $(id).value = ''; });
   $('cm-alt-greetings').dataset.initial = '';
-  $('cm-ai-desc').value = '';
-  $('cm-ai-status').textContent = '';
   renderCharProfileFields(null);
-  setCharWizardStep(1);
   updateRefPreview(''); // 清空参考图预览（新建角色不复用上个角色的图）
   renderCharList();
-  $('cm-ai-desc').focus();
 }
 
 function saveCharFromEditor() {
@@ -16705,7 +16691,7 @@ function setNavDrawerOpen(open) {
 function openNavDrawer() { setNavDrawerOpen(true); }
 function closeNavDrawer() { setNavDrawerOpen(false); }
 
-/* ─────────── AI 生成（角色卡 / 世界书条目） ─────────── */
+/* ─────────── AI 生成（世界书条目） ─────────── */
 /* 调用对话 API 生成，返回解析后的对象 */
 async function aiGenerate(instruction, desc) {
   if (!settings.baseUrl) throw new Error('请先配置 API（设置 → 连接）');
@@ -16754,68 +16740,7 @@ function parseLLMJson(text) {
   return JSON.parse(t);
 }
 
-/* 第一步 → 第二步：一句话生成由 JSON 定义的基本信息表 */
-async function aiGenChar() {
-  const desc = $('cm-ai-desc').value.trim();
-  if (!desc) { alert('先描述你想要的角色，例如：傲娇的猫娘旅店老板娘'); return; }
-  const gen = genSettings || {};
-  if (!gen.charBasicPrompt || !charFieldDefs().length) { alert('未配置角色基本信息字段或生成指令'); return; }
-  const btn = $('btn-ai-char');
-  btn.disabled = true; btn.textContent = '填写中…';
-  $('cm-ai-status').textContent = 'AI 正在填写基本信息…';
-  try {
-    const schema = charFieldDefs().map(({ key, label }) => ({ key, label }));
-    const instruction = gen.charBasicPrompt + '\n字段定义：' + JSON.stringify(schema);
-    const obj = await aiGenerate(instruction, desc);
-    const fields = obj && obj.fields && typeof obj.fields === 'object' ? obj.fields : obj;
-    renderCharProfileFields(characters.find(c => c.id === cmEditingId) || null, fields);
-    syncProfileFieldsToForm();
-    setCharWizardStep(2);
-    $('cm-ai-status').textContent = '基本信息已填写，可直接修改或添加自定义条目。';
-  } catch (err) {
-    console.error('[Tavern] AI 生成角色卡失败:', err.message);
-    alert('❌ ' + err.message);
-    $('cm-ai-status').textContent = '基本信息生成失败，请检查 API 设置后重试。';
-  } finally {
-    btn.disabled = false; btn.textContent = 'AI 填写基本信息';
-  }
-}
 
-/* 第二步 → 第三步：基于用户确认的信息生成完整 JSON 角色卡 */
-async function aiGenFullChar() {
-  const gen = genSettings || {};
-  if (!gen.charFullPrompt) { alert('未配置完整角色卡生成指令'); return; }
-  const profileFields = collectCharProfileFields();
-  if (!profileFields.length) { alert('请先填写至少一项基本信息'); return; }
-  const btn = $('btn-ai-char-full');
-  btn.disabled = true; btn.textContent = '生成中…';
-  $('cm-ai-status').textContent = 'AI 正在完善完整角色卡…';
-  try {
-    const obj = await aiGenerate(gen.charFullPrompt, JSON.stringify({ summary: $('cm-ai-desc').value.trim(), profileFields }));
-    const confirmed = Object.fromEntries(profileFields.map(field => [field.key, field.value]));
-    const bindings = {
-      name: 'cm-name', race: 'cm-race', role: 'cm-role', persona: 'cm-persona',
-      description: 'cm-persona', personality: 'cm-personality',
-      scenario: 'cm-scenario', firstMes: 'cm-first-mes', systemPrompt: 'cm-system',
-      mesExample: 'cm-mes-example', postHistory: 'cm-post', creatorNotes: 'cm-creator-notes',
-      creator: 'cm-creator', characterVersion: 'cm-character-version', tags: 'cm-tags',
-    };
-    for (const [key, id] of Object.entries(bindings)) {
-      const value = Object.prototype.hasOwnProperty.call(confirmed, key) ? confirmed[key] : obj[key];
-      if (typeof value === 'string') $(id).value = value;
-    }
-    if (Array.isArray(obj.alternateGreetings)) $('cm-alt-greetings').value = obj.alternateGreetings.join('\n\n');
-    if (cmCreating) renderCharList();
-    setCharWizardStep(3);
-    $('cm-ai-status').textContent = '完整角色卡已生成，基本信息条目会随角色一起保存。';
-  } catch (err) {
-    console.error('[Tavern] AI 完整角色卡生成失败:', err.message);
-    alert('❌ ' + err.message);
-    $('cm-ai-status').textContent = '完整角色卡生成失败，已保留当前基本信息。';
-  } finally {
-    btn.disabled = false; btn.textContent = 'AI 完善并生成完整角色卡';
-  }
-}
 
 /* 生成世界书条目 → 填入条目编辑器（用户确认后保存） */
 async function aiGenWI() {
@@ -17427,12 +17352,7 @@ function bindEvents() {
   $('mem-auto-run')?.addEventListener('click', manualRollTavernMemory);
   $('mem-auto-clear')?.addEventListener('click', clearTavernAutoMemory);
   // AI 生成
-  $('btn-ai-char').addEventListener('click', aiGenChar);
-  $('btn-ai-char-full').addEventListener('click', aiGenFullChar);
   $('cm-profile-add').addEventListener('click', addCharProfileField);
-  $('cw-back-1').addEventListener('click', () => setCharWizardStep(1));
-  $('cw-back-2').addEventListener('click', () => setCharWizardStep(2));
-  $('cm-ai-desc').addEventListener('keydown', e => { if (e.key === 'Enter') aiGenChar(); });
   $('btn-ai-wi').addEventListener('click', aiGenWI);
   // 会话
   $('btn-session').addEventListener('click', e => {

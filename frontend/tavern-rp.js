@@ -284,14 +284,6 @@ function normalizeCharProfileFields(fields) {
   }));
 }
 
-function setCharWizardStep(step) {
-  document.querySelectorAll('[data-cw-step]').forEach(el => {
-    const n = Number(el.dataset.cwStep);
-    el.classList.toggle('active', n === step);
-    el.classList.toggle('done', n < step);
-  });
-  [1, 2, 3].forEach(n => $('cw-panel-' + n).classList.toggle('hidden', n !== step));
-}
 
 function appendCharFieldRow(field, custom = false) {
   const row = document.createElement('div');
@@ -407,8 +399,6 @@ function selectCharForEdit(id) {
   $('cm-alt-greetings').value = Array.isArray(c.alternateGreetings) ? c.alternateGreetings.join('\n\n') : '';
   $('cm-alt-greetings').dataset.initial = $('cm-alt-greetings').value;
   renderCharProfileFields(c);
-  setCharWizardStep(2);
-  $('cm-ai-status').textContent = '';
   renderCharList();
 }
 
@@ -463,13 +453,9 @@ function newCharEditor() {
   ['cm-name', 'cm-race', 'cm-role', 'cm-persona', 'cm-personality', 'cm-scenario', 'cm-first-mes', 'cm-mes-example', 'cm-system', 'cm-post', 'cm-creator-notes', 'cm-creator', 'cm-character-version', 'cm-ref-image', 'cm-tags', 'cm-alt-greetings']
     .forEach(id => { $(id).value = ''; });
   $('cm-alt-greetings').dataset.initial = '';
-  $('cm-ai-desc').value = '';
-  $('cm-ai-status').textContent = '';
   renderCharProfileFields(null);
-  setCharWizardStep(1);
   updateRefPreview(''); // 清空参考图预览（新建角色不复用上个角色的图）
   renderCharList();
-  $('cm-ai-desc').focus();
 }
 
 function saveCharFromEditor() {
