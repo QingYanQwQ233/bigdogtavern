@@ -603,7 +603,8 @@ function renderEffectiveParameters() {
   host.innerHTML = Object.entries(fields).map(([key, label]) => {
     const presetKey = key === 'max_tokens' ? ['max_completion_tokens', 'openai_max_tokens', 'max_tokens'] : key === 'stream' ? ['stream_openai', 'stream'] : [key];
     const override = presetKey.some(name => params[name] !== undefined && params[name] !== null && params[name] !== '');
-    const value = body[key] === undefined ? '不发送' : JSON.stringify(body[key]);
+    const rawValue = body[key];
+    const value = rawValue === undefined ? '不发送' : (typeof rawValue === 'number' && !Number.isInteger(rawValue) ? String(Number(rawValue.toFixed(2))) : JSON.stringify(rawValue));
     return `<dt>${esc(label)}</dt><dd>${esc(value)} <small>${override ? '预设' : (base[key] === undefined ? '' : '连接默认')}</small></dd>`;
   }).join('') + `<dt>上下文 Token</dt><dd>${esc(String(params.openai_max_context || '不限'))} <small>本地估算</small></dd>`;
 }

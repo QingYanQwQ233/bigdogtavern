@@ -3516,7 +3516,6 @@ function renderWorldDetail() {
   const saves = worldSavesByWorld.get(world.id) || [];
   const facts = [
     [world.locationCount || 0, '已登记地点'],
-    [world.npcCount || 0, '世界角色'],
     [worldSavesByWorld.has(world.id) ? saves.length : (world.saveCount || 0), '独立存档'],
   ];
   $('world-facts').innerHTML = facts.map(([value, label]) => `<div class="world-fact"><b>${esc(value)}</b><span>${esc(label)}</span></div>`).join('');
@@ -3527,7 +3526,7 @@ function renderWorldDetail() {
   const list = $('world-save-list');
   const latestVersion = Number(world.version);
   list.innerHTML = saves.length ? saves.map(save => `<div class="world-save-card${worldWorkspaceActive && save.id === currentWorldSaveId ? ' active' : ''}">
-    <div class="world-save-main"><span class="world-save-name">${esc(save.name)} ${save.setupStatus === 'planning' ? '<em class="world-save-planning">待开局</em>' : ''}</span><span class="world-save-meta">世界 v${esc(save.worldVersion)} · ${esc(save.locationId || '未定位')} · revision ${esc(save.revision)} · ${esc(formatWorldDate(save.updatedAt))}</span></div>
+    <div class="world-save-main"><span class="world-save-name">${esc(save.name)} ${save.setupStatus === 'planning' ? '<em class="world-save-planning">待开局</em>' : ''}</span><span class="world-save-meta">世界 v${esc(save.worldVersion)} · ${esc(save.locationId ? worldLocationLabel(save.locationId) : '未定位')} · revision ${esc(save.revision)} · ${esc(formatWorldDate(save.updatedAt))}</span></div>
     <div class="world-save-actions">${Number(save.worldVersion) < latestVersion ? `<button class="ghost-btn small" type="button" data-upgrade-save="${esc(save.id)}">升级…</button>` : ''}<button class="ghost-btn small" type="button" data-open-save="${esc(save.id)}">${save.setupStatus === 'planning' ? '继续规划' : worldWorkspaceActive && save.id === currentWorldSaveId ? '已打开' : '打开存档'}</button><button class="ghost-btn small" type="button" data-copy-save="${esc(save.id)}">复制</button><button class="ghost-btn small" type="button" data-rename-save="${esc(save.id)}">重命名</button><button class="ghost-btn small" type="button" data-export-save="${esc(save.id)}">导出</button><button class="ghost-btn small danger" type="button" data-delete-save="${esc(save.id)}">删除</button></div>
   </div>`).join('') : '<p class="hint">这个世界还没有存档，先创建一份吧。</p>';
   list.querySelectorAll('[data-upgrade-save]').forEach(btn => btn.addEventListener('click', () => openWorldSaveUpgrade(btn.dataset.upgradeSave, btn)));
@@ -5477,6 +5476,14 @@ function applyRpgSectionVisibility() {
   }
 }
 
+// 地点显示名：优先取世界卡 locations 里的 name/label，找不到再退回原始 id。
+function worldLocationLabel(id) {
+  if (!id) return '—';
+  const locations = currentWorldCard()?.locations;
+  const found = Array.isArray(locations) ? locations.find(item => item && item.id === id) : null;
+  return found?.name || found?.label || id;
+}
+
 function renderRPG() {
   applyWorldUiSlots();
   const rs = curRpgState();
@@ -5492,7 +5499,7 @@ function renderRPG() {
   const sendButton = $('btn-send');
   if (sendButton && !sending) sendButton.disabled = worldSavePlanning();
   const setT = (id, v) => { const el = $(id); if (el) el.textContent = v; };
-  setT('rpg-loc', rs.location || '—');
+  setT('rpg-loc', worldLocationLabel(rs.location));
   renderStatusMeters();
   const dynamicStats = $('rpg-dynamic-stats');
   if (dynamicStats) {
