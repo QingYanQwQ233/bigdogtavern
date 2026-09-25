@@ -1,5 +1,28 @@
 # 更新日志
 
+## 2026-09-25 · ST（酒馆）模式全面移除，应用固定为 RPG 单模式
+
+背景：RPG 不导入普通角色卡，「酒馆模式」与「RPG 模式」两条链路实际不可互通；保留双模式只会让后续维护同时背两套分支。本批把 ST 产品面从代码里清掉，并为「不得复活」建立守卫。
+
+**产品面移除**
+- 移除模式开关（`a4ee4cf`）：应用固定为 RPG，界面文本「酒馆」清零。
+- 移除角色卡的 prompt 覆盖链（`a73a960`）、自动写卡与 AI 角色工坊（`07e1714`）、回复选项协议的指令构造器（`215cf17`）、ST 自动滚动记忆（`ca2267f`）。
+- 切断角色卡脚本帧入口并删除兼容桥本体（`11c29cf`、`208f187`，净减 1276 行）。
+- 角色库整体拆除：UI 面板 / 导航 / 编辑器入口（`8caa2bd`、`a147d7b`）与编辑器函数族（`b2be15b`、`994e221`）。
+- 世界书**保留**并接入 RPG 导航（`cac4c67`）—— 它是被 RPG 读取的机制，不属于 ST 产品面。
+
+**数据与协议解耦**
+- 会话不再按角色隔离：`sessionMatches` 只按 kind 匹配，`charId` 停止写入（`4e326ea`、`4cb979d`）。
+- 共享路径上的角色卡依赖解耦（`43c638a`、`c1e20ec`）：`promptChar = null`、`buildWorldInfo` 的 `char.loreId` 支路、`getGreeting` 的 char 兜底链。
+- **保留（被 RPG / 世界包复用，不得删）**：`characterBookForChar`、`normalizeCharProfileFields`、卡片序列化工具族、`saveChars` / `ensureChars`。
+
+**防回退**
+- 新增 `scripts/check_st_removed.js`：已移除项不得复活的断言 + 被复用机制必须留存的反向断言。
+
+**未处理（已登记）**
+- 世界包（server 侧 `characters` 字段）涉及已导出文件兼容，属独立工作项。
+- 存档与协议层的 `hp / mp / exp / gold` 同上，见 `docs/design/DESIGN_CONSTITUTION.md §11.1`。
+
 ## 2026-09-25 · 杀掉 RPG 状态条的写死玩法数值（UI 层）
 
 RPG 模式要的是「高度自定义的玩法框架」，不是某一套具体玩法。此前 `#rpg-status` 里并列着写死的 HP / MP / EXP / 金币 / 状态 五行。
