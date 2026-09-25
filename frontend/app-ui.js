@@ -617,21 +617,26 @@ function fillPromptCacheForm() {
   if (capability) capability.textContent = `${promptCacheProviderLabel(settings.baseUrl)}。服务端缓存不保存在本机；调试终端会显示上游返回的缓存 Token 与本地前缀估算。`;
 }
 
+// 设置项数值统一两位小数展示；表单填充与拖拽即时标签共用，避免长尾浮点外露。
+function fmtSetting(value) { const n = Number(value); return Number.isFinite(n) && !Number.isInteger(n) ? String(Number(n.toFixed(2))) : String(value ?? ''); }
+// 读取滑杆值并两位小数量化后再落盘：拖拽产生的原始浮点不进设置。
+function readSettingNumber(id, fallback) { const value = parseFloat($(id).value); return Number.isFinite(value) ? Number(value.toFixed(2)) : fallback; }
+
 function fillSettingsForm() {
   const s = settings;
   $('s-preset').value = s.preset || '';
   $('s-base-url').value = s.baseUrl || '';
   $('s-api-key').value = s.apiKey || '';
   $('s-model').value = s.model || '';
-  $('s-temperature').value = s.temperature;
-  $('s-temp-val').textContent = s.temperature;
+  $('s-temperature').value = fmtSetting(s.temperature);
+  $('s-temp-val').textContent = fmtSetting(s.temperature);
   $('s-max-tokens').value = s.maxTokens;
-  $('s-top-p').value = s.topP;
-  $('s-top-p-val').textContent = s.topP;
-  $('s-freq-p').value = s.frequencyPenalty;
-  $('s-pres-p').value = s.presencePenalty;
-  if ($('s-freq-p-val')) $('s-freq-p-val').textContent = s.frequencyPenalty;
-  if ($('s-pres-p-val')) $('s-pres-p-val').textContent = s.presencePenalty;
+  $('s-top-p').value = fmtSetting(s.topP);
+  $('s-top-p-val').textContent = fmtSetting(s.topP);
+  $('s-freq-p').value = fmtSetting(s.frequencyPenalty);
+  $('s-pres-p').value = fmtSetting(s.presencePenalty);
+  if ($('s-freq-p-val')) $('s-freq-p-val').textContent = fmtSetting(s.frequencyPenalty);
+  if ($('s-pres-p-val')) $('s-pres-p-val').textContent = fmtSetting(s.presencePenalty);
   $('s-seed').value = s.seed;
   $('s-history').value = s.history;
   $('s-stream').checked = !!s.stream;
@@ -676,13 +681,11 @@ function readSettingsForm() {
   settings.baseUrl = $('s-base-url').value.trim();
   settings.apiKey = $('s-api-key').value.trim();
   settings.model = $('s-model').value.trim();
-  const temperature = parseFloat($('s-temperature').value);
-  settings.temperature = Number.isFinite(temperature) ? temperature : 0.9;
+  settings.temperature = readSettingNumber('s-temperature', 0.9);
   settings.maxTokens = parseInt($('s-max-tokens').value, 10) || 1024;
-  const topP = parseFloat($('s-top-p').value);
-  settings.topP = Number.isFinite(topP) ? topP : 1;
-  settings.frequencyPenalty = parseFloat($('s-freq-p').value) || 0;
-  settings.presencePenalty = parseFloat($('s-pres-p').value) || 0;
+  settings.topP = readSettingNumber('s-top-p', 1);
+  settings.frequencyPenalty = readSettingNumber('s-freq-p', 0);
+  settings.presencePenalty = readSettingNumber('s-pres-p', 0);
   settings.seed = parseInt($('s-seed').value, 10);
   if (!Number.isFinite(settings.seed)) settings.seed = -1; // 热保存下空输入不能落成 NaN
   settings.history = parseInt($('s-history').value, 10) || 20;
@@ -4128,9 +4131,9 @@ function bindEvents() {
       $('s-model').value = p.model;
     }
   });
-  $('s-temperature').addEventListener('input', () => { $('s-temp-val').textContent = $('s-temperature').value; });
-  $('s-top-p').addEventListener('input', () => { $('s-top-p-val').textContent = $('s-top-p').value; });
-  ['s-freq-p', 's-pres-p'].forEach(id => $(id).addEventListener('input', () => { $(`${id}-val`).textContent = $(id).value; }));
+  $('s-temperature').addEventListener('input', () => { $('s-temp-val').textContent = fmtSetting($('s-temperature').value); });
+  $('s-top-p').addEventListener('input', () => { $('s-top-p-val').textContent = fmtSetting($('s-top-p').value); });
+  ['s-freq-p', 's-pres-p'].forEach(id => $(id).addEventListener('input', () => { $(`${id}-val`).textContent = fmtSetting($(id).value); }));
   $('s-edit-active-preset').addEventListener('click', () => {
     if (readSettingsForm() === false) return;
     const name = resolvePromptPreset().name || GLOBAL_PRESET_KEY;

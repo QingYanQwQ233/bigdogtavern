@@ -185,4 +185,9 @@ assert.strictEqual(timers.length, 1, '可恢复错误必须排入一次自动重
 timers[0]();
 assert.strictEqual(context.retryCalls, 1, '自动重试定时任务必须实际调用重试流程');
 
+// 设置滑杆浮点限位：拖拽即时标签与保存读取必须两位小数量化（防止长尾浮点直出回退）。
+assert.match(source, /fmtSetting\(\$\('s-temperature'\)\.value\)/, '滑杆拖拽标签必须经过两位小数格式化');
+assert.match(source, /fmtSetting\(\$\(id\)\.value\)/, '惩罚滑杆拖拽标签必须经过两位小数格式化');
+assert.match(source, /settings\.temperature = readSettingNumber\('s-temperature'/, '设置读取必须两位小数量化（temperature）');
+assert.match(source, /settings\.presencePenalty = readSettingNumber\('s-pres-p'/, '设置读取必须两位小数量化（presence）');
 console.log('check_frontend_state_guards: ok');
