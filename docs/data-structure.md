@@ -232,23 +232,23 @@ RPG 请求还会派生不落盘的 `tavern.rpg.context@1` 快照，供提示词�
 
 ```js
 {
-  spec: 'tavern_world_package', specVersion: 1, exportedAt,
+  spec: 'tavern_world_package', specVersion: 2, exportedAt,
   manifest: {
     packageId, worldVersion, worldSchemaVersion, title, author, license, source,
     contentHash: 'sha256:...', hashScope: 'canonical-json(content,assets)',
-    references: { characters, lorebooks, presets, assets },
+    references: { lorebooks, presets, assets },
     privacy: { excludes: ['settings', 'user', 'worldSaves'], redactedPaths: [] },
     executableContent: { html: false, scripts: false, regexTriggers, executedDuringExport: false },
     warnings: []
   },
-  content: { world, characters: [], lorebooks: {}, presets: {} },
+  content: { world, lorebooks: {}, presets: {} },
   assets: [{ id, role, ownerId, uri, status, mime?, bytes?, sha256? }]
 }
 ```
 
 世界包只导出所选不可变世界版本及其明确引用：内嵌 `npcs` 不重复复制为全局角色；未声明世界书时按当前运行时兼容规则包含 `default`。资源清单记录本地 `/images/...` 的大小与 SHA-256；不含查询参数或认证信息的外部 HTTP(S) 资源仅记录 URI、不联网抓取，当前 JSON 包不嵌入二进制文件。`settings`、`user`、玩家存档、来源存档 ID、凭据字段和本机绝对资源路径不会进入内容；剔除位置写入 `redactedPaths`，NPC 的叙事 `secrets` 仍作为世界内容保留。世界书正则触发器作为数据保留并计数，但导出过程不执行；W5.7 导入器仍需在激活前校验。
 
-导入时客户端先提交原文，服务端把精确原文封存到 `data/world-imports/<importId>.json`，并回传不含原文的预演报告。报告校验 `spec/specVersion`、`contentHash`、已知角色/世界书/预设引用、私密字段及资源 URI；未知顶层 sidecar 与脚本命名字段只记录为“保留但未执行”。世界书正则只做长度、flags 和编译校验，落库时默认 `enabled: false`，需在世界书页审阅保存后才会参与匹配。当前包不携带任务、物品或阵营模板定义，因此声明了非空 `questTemplateIds` / `itemIds` / `factionIds` 的包会被拒绝，避免错误借用本地数据。确认导入后，世界、角色、世界书和预设都会按 `importId` 生成新的稳定 ID（预设名称也命名空间化），并重写已知绑定：`characterIds`、`npcIds`、`start.playerTemplateId`、`lorebookIds`、`rpgPresetName`、角色的 `loreId/presetName`。因此不会覆盖或借用本地同名数据；导入世界没有 `lorebookIds` 时也会绑定其专属的 `default` 副本。封存哈希或预演不通过时不写入世界库；同一 `importId` 的确认请求幂等。
+导入时客户端先提交原文，服务端把精确原文封存到 `data/world-imports/<importId>.json`，并回传不含原文的预演报告。报告校验 `spec/specVersion`、`contentHash`、已知世界书/预设引用、私密字段及资源 URI；未知顶层 sidecar 与脚本命名字段只记录为“保留但未执行”。世界书正则只做长度、flags 和编译校验，落库时默认 `enabled: false`，需在世界书页审阅保存后才会参与匹配。当前包不携带任务、物品或阵营模板定义，因此声明了非空 `questTemplateIds` / `itemIds` / `factionIds` 的包会被拒绝，避免错误借用本地数据。确认导入后，世界、世界书和预设都会按 `importId` 生成新的稳定 ID（预设名称也命名空间化），并重写已知绑定：`lorebookIds`、`rpgPresetName`；旧格式包（specVersion 1）中的 `characters` / `characterIds` / `start.playerTemplateId` 与外部 `npcIds` 会被忽略，预演报告给出提示。因此不会覆盖或借用本地同名数据；导入世界没有 `lorebookIds` 时也会绑定其专属的 `default` 副本。封存哈希或预演不通过时不写入世界库；同一 `importId` 的确认请求幂等。
 
 ### 角色卡 characters[]（characters.json）
 ```js

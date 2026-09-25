@@ -1,5 +1,22 @@
 # 更新日志
 
+## 2026-09-25 · 世界包 `characters` 字段退役（specVersion 2）
+
+背景：ST 模式移除后，世界包格式仍强制携带 `characters`（角色实体数组），而仓库 7 个官方示例包全部为空数组、前端 0 引用——「没有消费者，却必须存在」。本次直接退役。
+
+**server（格式与管线）**
+- 导出不再收集角色实体：`content` 只剩 `world / lorebooks / presets`；`character-reference` 资源、`manifest.references.characters` 一并移除；导出时剔除 `characterIds` / `start.playerTemplateId`。
+- 导入不再重映射角色 ID、不再写 `characters.json`；`characterIds` / `start.playerTemplateId` 不保留，外部 `npcIds` 过滤为内嵌 NPC；无引用后 `mergeImportedArray` 一并删除。
+- `specVersion` 升到 `2`；**v1 旧包仍可导入**，其中 `characters` / `characterIds` / `start.playerTemplateId` 被忽略，并在预演报告给出「旧版角色字段已忽略」警告。
+- `npcIds` 保留：它是 NPC 登记表（与内嵌 `npcs` 同步），运行时 `worldNpcIds` 仍在用。
+
+**前端 / 示例 / 检查**
+- 世界包导入预演不再显示「角色」计数与相关文案。
+- 7 个 `docs/*.tavern-world.json` 全部再生成（4 个 builder 同步更新；maoruyi 由当前草案源重新生成）。
+- 新增 `scripts/check_world_package_contract.js`：旧包忽略 + 新包无角色字段 + 导入不写 `characters.json` + 导出回环。
+
+**边界**：应用本地数据存储 `characters.json` 与前端兼容链（角色书挂接等）维持现状，不在本次范围。
+
 ## 2026-09-25 · ST（酒馆）模式全面移除，应用固定为 RPG 单模式
 
 背景：RPG 不导入普通角色卡，「酒馆模式」与「RPG 模式」两条链路实际不可互通；保留双模式只会让后续维护同时背两套分支。本批把 ST 产品面从代码里清掉，并为「不得复活」建立守卫。
@@ -20,7 +37,7 @@
 - 新增 `scripts/check_st_removed.js`：已移除项不得复活的断言 + 被复用机制必须留存的反向断言。
 
 **未处理（已登记）**
-- 世界包（server 侧 `characters` 字段）涉及已导出文件兼容，属独立工作项。
+- 世界包（server 侧 `characters` 字段）：**已完成退役**（同日，specVersion 2），见顶部条目。
 - 存档与协议层的 `hp / mp / exp / gold` 同上，见 `docs/design/DESIGN_CONSTITUTION.md §11.1`。
 
 ## 2026-09-25 · 杀掉 RPG 状态条的写死玩法数值（UI 层）

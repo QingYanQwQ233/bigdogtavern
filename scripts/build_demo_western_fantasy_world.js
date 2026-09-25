@@ -209,7 +209,6 @@ const world = {
 
 const content = {
   world,
-  characters: [],
   lorebooks: {
     'ashen-frontier-lore': {
       name: '灰烬边境·西幻世界书',
@@ -241,7 +240,7 @@ const assets = [];
 const contentHash = 'sha256:' + crypto.createHash('sha256').update(canonicalJson({ content, assets })).digest('hex');
 const pkg = {
   spec: 'tavern_world_package',
-  specVersion: 1,
+  specVersion: 2,
   exportedAt: new Date().toISOString(),
   manifest: {
     packageId: world.id,
@@ -254,7 +253,7 @@ const pkg = {
     contentHash,
     hashScope: 'canonical-json(content,assets)',
     capabilities: { ui: { layout: 'world-desk', extension: false, fullscreen: true, escape: 'fullscreen' }, runtime: true, agent: true, regexes: 0 },
-    references: { characters: 0, lorebooks: 1, presets: 1, assets: 0 },
+    references: { lorebooks: 1, presets: 1, assets: 0 },
     privacy: { excludes: ['settings', 'user', 'worldSaves'], redactedPaths: [] },
     executableContent: { html: false, scripts: false, regexTriggers: 0, executedDuringExport: false },
     warnings: ['这是一张用于验证 RPG 闭环的西幻示例卡；动态数据只属于当前存档。']

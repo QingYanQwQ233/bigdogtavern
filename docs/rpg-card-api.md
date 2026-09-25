@@ -122,11 +122,10 @@
 ~~~json
 {
   "spec": "tavern_world_package",
-  "specVersion": 1,
+  "specVersion": 2,
   "manifest": { "appContractVersion": 1 },
   "content": {
     "world": {},
-    "characters": [],
     "lorebooks": {},
     "presets": {}
   },
@@ -134,7 +133,7 @@
 }
 ~~~
 
-导出会写入内容 hash、引用和资源清单，并剔除私密数据。导入会拒绝不安全资源路径、私密字段、hash 不一致和无效 Runtime/UI/引用；包中的未知可执行内容不会自动执行。
+导出会写入内容 hash、引用和资源清单，并剔除私密数据。导入会拒绝不安全资源路径、私密字段、hash 不一致和无效 Runtime/UI/引用；包中的未知可执行内容不会自动执行。specVersion 2 起 `characters` 字段退役：v1 旧包仍可导入，角色字段被忽略并给出警告。
 
 ### WorldSave 创建、管理与开局
 

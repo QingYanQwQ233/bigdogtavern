@@ -1,7 +1,7 @@
 {
   "spec": "tavern_world_package",
-  "specVersion": 1,
-  "exportedAt": "2026-08-17T15:50:08.893Z",
+  "specVersion": 2,
+  "exportedAt": "2026-09-25T10:51:35.551Z",
   "manifest": {
     "packageId": "world-script-compat-lab",
     "appContractVersion": 1,
@@ -10,7 +10,7 @@
     "title": "脚本兼容实验室 · MVU / JS / EJS",
     "author": "Tavern Compatibility Lab",
     "license": null,
-    "contentHash": "sha256:f45486645cc6bf5f9198b77199456625d78f2c26f5c8e9fcad288cd49dc96124",
+    "contentHash": "sha256:45bc8f0afe02759b09c2e4a956dfea8eff3e8592e3238da8513dd16c1a4a0a04",
     "hashScope": "canonical-json(content,assets)",
     "capabilities": {
       "ui": {
@@ -22,7 +22,6 @@
       "regexes": 0
     },
     "references": {
-      "characters": 0,
       "lorebooks": 1,
       "presets": 0,
       "assets": 0
@@ -213,7 +212,6 @@
         ]
       },
       "npcs": [],
-      "characterIds": [],
       "agent": {},
       "runtime": {
         "version": 1,
@@ -243,7 +241,6 @@
         ]
       }
     },
-    "characters": [],
     "lorebooks": {
       "default": {
         "name": "脚本兼容实验室默认世界书",

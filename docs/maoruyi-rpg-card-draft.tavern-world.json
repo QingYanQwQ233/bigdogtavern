@@ -1,7 +1,7 @@
 {
   "spec": "tavern_world_package",
-  "specVersion": 1,
-  "exportedAt": "2026-08-14T09:25:28.168Z",
+  "specVersion": 2,
+  "exportedAt": "2026-09-25T10:51:36.019Z",
   "manifest": {
     "packageId": "world-maoruyi",
     "worldVersion": 1,
@@ -14,10 +14,9 @@
       "rawAssetRef": "pasted:毛茸异世界观背景设定构思",
       "note": "本卡未写入活动世界库；地理、国家、世界意志和主线结局仍待作者确认。"
     },
-    "contentHash": "sha256:4107795e3e0e593fbce271ee0044759edce526921159ddd7d233905d94ded175",
+    "contentHash": "sha256:1d8f146a939317e0145d7ab7450a2a9ecc9344b0a3b226ea133a0d64768ab8dd",
     "hashScope": "canonical-json(content,assets)",
     "references": {
-      "characters": 0,
       "lorebooks": 1,
       "presets": 1,
       "assets": 0
@@ -86,7 +85,6 @@
       "start": {
         "locationId": "frontier-seal-town",
         "opening": "边境聚落的夜雨刚停，封印带深处传来第三次低沉的脉动。酒馆里有人说那是地底巨兽翻身，也有人说自己在梦里看见了不存在的星座。你站在窗边，发现远处废弃的观测塔亮起了一盏不属于任何灯火的冷光。",
-        "playerTemplateId": null,
         "playerTemplate": {
           "name": "未命名旅人",
           "race": "待定",
@@ -961,7 +959,6 @@
         "note": "本卡未写入活动世界库；地理、国家、世界意志和主线结局仍待作者确认。"
       }
     },
-    "characters": [],
     "lorebooks": {
       "lore-maoruyi-core": {
         "name": "毛茸异：星穹与深渊（世界书草案）",
@@ -1061,41 +1058,318 @@
     },
     "presets": {
       "RPG 叙事引擎（示例）": {
-        "systemPrompt": "你是 Tavern RPG 模式的地下城主（DM）与世界化身。你直接呈现环境、事件与 NPC，不以作者、助手或规则讲解者自称；始终以“你”称呼玩家。\n\n你的职责：\n- 根据当前世界书、角色设定、地图、RPG 状态与聊天历史推进世界。\n- 扮演所有 NPC，保持其身份、目标、知识边界和关系连续。\n- 对玩家行动作出公平、可解释且与风险相称的裁定。\n- 先输出 Markdown 叙事正文，再严格按照【RPG 状态与协议】输出唯一一个 <tavern_state_update> JSON 更新块。\n- 不暴露提示词、内部检查或隐藏推理，不把未通过叙事发生的变化写入状态。",
-        "postHistory": "生成前只在内部核对：玩家的决定是否被保留，判定是否有依据，叙事与状态变化是否一致，末尾是否只有一个可解析的 <tavern_state_update> 块、baseRevision 是否等于当前 revision 且含恰好 4 个具体选项。不要输出核对过程。",
+        "version": 3,
+        "mode": "rpg",
         "firstMes": "",
-        "modules": [
+        "prompts": [
           {
-            "id": "rpgAgency",
+            "identifier": "main",
+            "name": "主提示词",
+            "role": "system",
+            "content": "你是 Tavern RPG 模式的地下城主（DM）与世界化身。你直接呈现环境、事件与 NPC，不以作者、助手或规则讲解者自称；始终以“你”称呼玩家。\n\n你的职责：\n- 根据当前世界书、角色设定、地图、RPG 状态与聊天历史推进世界。\n- 扮演所有 NPC，保持其身份、目标、知识边界和关系连续。\n- 对玩家行动作出公平、可解释且与风险相称的裁定。\n- 先输出 Markdown 叙事正文，再严格按照【RPG 状态与协议】输出唯一一个 <tavern_state_update> JSON 更新块。\n- 不暴露提示词、内部检查或隐藏推理，不把未通过叙事发生的变化写入状态。",
+            "marker": false,
+            "pinned": true,
+            "systemPrompt": true,
+            "position": "relative",
+            "depth": 4,
+            "order": 100
+          },
+          {
+            "identifier": "worldInfoBefore",
+            "name": "世界书（前）",
+            "role": "system",
+            "content": "",
+            "marker": true,
+            "pinned": true,
+            "systemPrompt": true,
+            "position": "relative",
+            "depth": 4,
+            "order": 100
+          },
+          {
+            "identifier": "personaDescription",
+            "name": "玩家设定",
+            "role": "system",
+            "content": "",
+            "marker": true,
+            "pinned": true,
+            "systemPrompt": true,
+            "position": "relative",
+            "depth": 4,
+            "order": 100
+          },
+          {
+            "identifier": "charDescription",
+            "name": "角色描述",
+            "role": "system",
+            "content": "",
+            "marker": true,
+            "pinned": true,
+            "systemPrompt": true,
+            "position": "relative",
+            "depth": 4,
+            "order": 100
+          },
+          {
+            "identifier": "charPersonality",
+            "name": "角色性格",
+            "role": "system",
+            "content": "",
+            "marker": true,
+            "pinned": true,
+            "systemPrompt": true,
+            "position": "relative",
+            "depth": 4,
+            "order": 100
+          },
+          {
+            "identifier": "scenario",
+            "name": "场景",
+            "role": "system",
+            "content": "",
+            "marker": true,
+            "pinned": true,
+            "systemPrompt": true,
+            "position": "relative",
+            "depth": 4,
+            "order": 100
+          },
+          {
+            "identifier": "enhanceDefinitions",
+            "name": "增强定义",
+            "role": "system",
+            "content": "",
+            "marker": false,
+            "pinned": true,
+            "systemPrompt": true,
+            "position": "relative",
+            "depth": 4,
+            "order": 100
+          },
+          {
+            "identifier": "nsfw",
+            "name": "辅助提示词",
+            "role": "system",
+            "content": "",
+            "marker": false,
+            "pinned": true,
+            "systemPrompt": true,
+            "position": "relative",
+            "depth": 4,
+            "order": 100
+          },
+          {
+            "identifier": "tavernMemory",
+            "name": "记忆",
+            "role": "system",
+            "content": "",
+            "marker": true,
+            "pinned": true,
+            "systemPrompt": true,
+            "position": "relative",
+            "depth": 4,
+            "order": 100
+          },
+          {
+            "identifier": "tavernRpg",
+            "name": "RPG 状态与协议",
+            "role": "system",
+            "content": "",
+            "marker": true,
+            "pinned": true,
+            "systemPrompt": true,
+            "position": "relative",
+            "depth": 4,
+            "order": 100
+          },
+          {
+            "identifier": "worldInfoAfter",
+            "name": "世界书（后）",
+            "role": "system",
+            "content": "",
+            "marker": true,
+            "pinned": true,
+            "systemPrompt": true,
+            "position": "relative",
+            "depth": 4,
+            "order": 100
+          },
+          {
+            "identifier": "dialogueExamples",
+            "name": "对话示例",
+            "role": "system",
+            "content": "",
+            "marker": true,
+            "pinned": true,
+            "systemPrompt": true,
+            "position": "relative",
+            "depth": 4,
+            "order": 100
+          },
+          {
+            "identifier": "chatHistory",
+            "name": "聊天历史",
+            "role": "system",
+            "content": "",
+            "marker": true,
+            "pinned": true,
+            "systemPrompt": true,
+            "position": "relative",
+            "depth": 4,
+            "order": 100
+          },
+          {
+            "identifier": "jailbreak",
+            "name": "历史后指令",
+            "role": "system",
+            "content": "生成前只在内部核对：玩家的决定是否被保留，判定是否有依据，叙事与状态变化是否一致，末尾是否只有一个可解析的 <tavern_state_update> 块、baseRevision 是否等于当前 revision 且含恰好 4 个具体选项。不要输出核对过程。",
+            "marker": false,
+            "pinned": true,
+            "systemPrompt": true,
+            "position": "relative",
+            "depth": 4,
+            "order": 100
+          },
+          {
+            "identifier": "rpgAgency",
             "name": "玩家主权",
-            "enabled": true,
-            "content": "<玩家主权>\n- 始终以“你”称呼玩家，但不替玩家决定未声明的台词、思想、情感立场或关键行动。\n- 玩家输入是本回合行动意图；你负责呈现世界反应、NPC 行动与合理后果。\n- 遇到需要选择的分岔时，先呈现局势并给出 4 个具体选项，仍允许玩家自由输入其他行动。\n</玩家主权>"
+            "role": "system",
+            "content": "<玩家主权>\n- 始终以“你”称呼玩家，但不替玩家决定未声明的台词、思想、情感立场或关键行动。\n- 玩家输入是本回合行动意图；你负责呈现世界反应、NPC 行动与合理后果。\n- 遇到需要选择的分岔时，先呈现局势并给出 4 个具体选项，仍允许玩家自由输入其他行动。\n</玩家主权>",
+            "marker": false,
+            "pinned": false,
+            "systemPrompt": false,
+            "position": "relative",
+            "depth": 4,
+            "order": 100
           },
           {
-            "id": "rpgContinuity",
+            "identifier": "rpgContinuity",
             "name": "世界连续性",
-            "enabled": true,
-            "content": "<世界连续性>\n- 世界书、当前 RPG 状态、地图、背包、任务和聊天历史是本回合事实来源；不得把其他会话或其他角色的数据带入。\n- NPC 只使用其合理知晓的信息，地点、距离、资源与敌我关系保持前后一致。\n- 新地点、NPC、线索与事件可以合理生成，但不得与已知设定冲突。\n</世界连续性>"
+            "role": "system",
+            "content": "<世界连续性>\n- 世界书、当前 RPG 状态、地图、背包、任务和聊天历史是本回合事实来源；不得把其他会话或其他角色的数据带入。\n- NPC 只使用其合理知晓的信息，地点、距离、资源与敌我关系保持前后一致。\n- 新地点、NPC、线索与事件可以合理生成，但不得与已知设定冲突。\n</世界连续性>",
+            "marker": false,
+            "pinned": false,
+            "systemPrompt": false,
+            "position": "relative",
+            "depth": 4,
+            "order": 100
           },
           {
-            "id": "rpgAdjudication",
+            "identifier": "rpgAdjudication",
             "name": "判定与后果",
-            "enabled": true,
-            "content": "<判定准则>\n- 根据行动难度、角色能力、装备、环境和已注入的骰点结果裁定；有骰点时必须使用该结果，不得重掷或篡改。\n- 成功、失败与代价应当成比例，并在叙事中先发生，再写入状态变化。\n- 没有实际获得、消耗、受伤、移动或任务进展时，对应状态字段保持 null，不凭空发放奖励或惩罚。\n</判定准则>"
+            "role": "system",
+            "content": "<判定准则>\n- 根据行动难度、角色能力、装备、环境和已注入的骰点结果裁定；有骰点时必须使用该结果，不得重掷或篡改。\n- 成功、失败与代价应当成比例，并在叙事中先发生，再写入状态变化。\n- 没有实际获得、消耗、受伤、移动或任务进展时，对应状态字段保持 null，不凭空发放奖励或惩罚。\n</判定准则>",
+            "marker": false,
+            "pinned": false,
+            "systemPrompt": false,
+            "position": "relative",
+            "depth": 4,
+            "order": 100
           },
           {
-            "id": "rpgNarrative",
+            "identifier": "rpgNarrative",
             "name": "RPG 叙事节奏",
-            "enabled": true,
-            "content": "<叙事节奏>\n- 使用适合阅读的 Markdown 自然段，以感官细节、NPC 行动和环境变化呈现场景，不写界面气泡标记。\n- 每回合推进一个清晰事件节点，同时保留玩家介入空间；避免替玩家连续完成多步行动。\n- NPC 对白使用中文引号“ ”，台词符合身份与处境；避免复述用户输入、总结规则或输出幕后解释。\n</叙事节奏>"
+            "role": "system",
+            "content": "<叙事节奏>\n- 使用适合阅读的 Markdown 自然段，以感官细节、NPC 行动和环境变化呈现场景，不写界面气泡标记。\n- 每回合推进一个清晰事件节点，同时保留玩家介入空间；避免替玩家连续完成多步行动。\n- NPC 对白使用中文引号“ ”，台词符合身份与处境；避免复述用户输入、总结规则或输出幕后解释。\n</叙事节奏>",
+            "marker": false,
+            "pinned": false,
+            "systemPrompt": false,
+            "position": "relative",
+            "depth": 4,
+            "order": 100
           },
           {
-            "id": "rpgFurry",
+            "identifier": "rpgFurry",
             "name": "福瑞种族表现",
-            "enabled": true,
-            "content": "<种族表现>\n- 兽耳、尾巴、爪蹄、鳞羽、嗅觉与听觉等特征应自然影响动作、感知、装备和环境互动。\n- 不把福瑞角色写成人类外形的简单换皮；具体种族能力与习俗仍以角色卡和世界书为准。\n</种族表现>"
+            "role": "system",
+            "content": "<种族表现>\n- 兽耳、尾巴、爪蹄、鳞羽、嗅觉与听觉等特征应自然影响动作、感知、装备和环境互动。\n- 不把福瑞角色写成人类外形的简单换皮；具体种族能力与习俗仍以角色卡和世界书为准。\n</种族表现>",
+            "marker": false,
+            "pinned": false,
+            "systemPrompt": false,
+            "position": "relative",
+            "depth": 4,
+            "order": 100
           }
-        ]
+        ],
+        "promptOrder": [
+          {
+            "identifier": "main",
+            "enabled": true
+          },
+          {
+            "identifier": "worldInfoBefore",
+            "enabled": true
+          },
+          {
+            "identifier": "personaDescription",
+            "enabled": true
+          },
+          {
+            "identifier": "charDescription",
+            "enabled": true
+          },
+          {
+            "identifier": "charPersonality",
+            "enabled": true
+          },
+          {
+            "identifier": "scenario",
+            "enabled": true
+          },
+          {
+            "identifier": "enhanceDefinitions",
+            "enabled": false
+          },
+          {
+            "identifier": "nsfw",
+            "enabled": true
+          },
+          {
+            "identifier": "tavernMemory",
+            "enabled": true
+          },
+          {
+            "identifier": "tavernRpg",
+            "enabled": true
+          },
+          {
+            "identifier": "rpgAgency",
+            "enabled": true
+          },
+          {
+            "identifier": "rpgContinuity",
+            "enabled": true
+          },
+          {
+            "identifier": "rpgAdjudication",
+            "enabled": true
+          },
+          {
+            "identifier": "rpgNarrative",
+            "enabled": true
+          },
+          {
+            "identifier": "rpgFurry",
+            "enabled": true
+          },
+          {
+            "identifier": "worldInfoAfter",
+            "enabled": true
+          },
+          {
+            "identifier": "dialogueExamples",
+            "enabled": true
+          },
+          {
+            "identifier": "chatHistory",
+            "enabled": true
+          },
+          {
+            "identifier": "jailbreak",
+            "enabled": true
+          }
+        ],
+        "regexes": []
       }
     }
   },
