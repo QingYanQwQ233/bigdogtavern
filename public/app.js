@@ -4059,11 +4059,8 @@ function closeWorldLibrary() {
 
 /* 开场白兜底链：char.firstMes → preset.firstMes → settings.firstMes（新会话 / 清空聊天共用） */
 function getGreeting() {
-  const char = currentChar();
   const preset = resolvePromptPreset().preset;
-  return (char && char.firstMes && char.firstMes.trim())
-    || (char && Array.isArray(char.alternateGreetings) && char.alternateGreetings.find(g => String(g || '').trim()))
-    || (preset && preset.firstMes && preset.firstMes.trim())
+  return (preset && preset.firstMes && preset.firstMes.trim())
     || settings.firstMes || '';
 }
 function worldCardHasSetupSurface(world = currentWorldCard()) {
@@ -6985,11 +6982,6 @@ function buildWorldInfo({ dryRun = false, withOutlets = false } = {}) {
     const entries = book ? lorebookEntriesForPrompt(book) : [];
     const bookSettings = normalizeLorebookSettings(book);
     if (entries.length) sources.push(...entries.map(entry => ({ ...entry, __worldId: loreId, __sourceType: 'global', __bookSettings: bookSettings })));
-  }
-  if (!worldModeActive() && char && char.loreId && lorebooks && lorebooks[char.loreId] && char.loreId !== prefs.activeLoreId) {
-    const book = lorebooks[char.loreId];
-    const bookSettings = normalizeLorebookSettings(book);
-    sources.push(...lorebookEntriesForPrompt(book).map(entry => ({ ...entry, __worldId: char.loreId, __sourceType: 'character', __bookSettings: bookSettings })));
   }
   // V3 character_book 属于角色卡本身，只对绑定该角色的对话生效，不能并入全局世界书。
   const characterBook = characterBookForChar(char);

@@ -36,11 +36,6 @@ function buildWorldInfo({ dryRun = false, withOutlets = false } = {}) {
     const bookSettings = normalizeLorebookSettings(book);
     if (entries.length) sources.push(...entries.map(entry => ({ ...entry, __worldId: loreId, __sourceType: 'global', __bookSettings: bookSettings })));
   }
-  if (!worldModeActive() && char && char.loreId && lorebooks && lorebooks[char.loreId] && char.loreId !== prefs.activeLoreId) {
-    const book = lorebooks[char.loreId];
-    const bookSettings = normalizeLorebookSettings(book);
-    sources.push(...lorebookEntriesForPrompt(book).map(entry => ({ ...entry, __worldId: char.loreId, __sourceType: 'character', __bookSettings: bookSettings })));
-  }
   // V3 character_book 属于角色卡本身，只对绑定该角色的对话生效，不能并入全局世界书。
   const characterBook = characterBookForChar(char);
   // 如果用户选择了系统自动注册的角色书副本，就只注入副本，避免原书 + 副本重复。

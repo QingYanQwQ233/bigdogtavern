@@ -3708,11 +3708,8 @@ function closeWorldLibrary() {
 
 /* 开场白兜底链：char.firstMes → preset.firstMes → settings.firstMes（新会话 / 清空聊天共用） */
 function getGreeting() {
-  const char = currentChar();
   const preset = resolvePromptPreset().preset;
-  return (char && char.firstMes && char.firstMes.trim())
-    || (char && Array.isArray(char.alternateGreetings) && char.alternateGreetings.find(g => String(g || '').trim()))
-    || (preset && preset.firstMes && preset.firstMes.trim())
+  return (preset && preset.firstMes && preset.firstMes.trim())
     || settings.firstMes || '';
 }
 function worldCardHasSetupSurface(world = currentWorldCard()) {
