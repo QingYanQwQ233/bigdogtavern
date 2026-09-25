@@ -52,72 +52,13 @@ Pop-Location
 
 APK 输出路径：`android/app/build/outputs/apk/debug/app-debug.apk`。
 
-## 本次更新 · 2026-09-05
+## 更新日志
 
-- 聊天顶栏收紧为单排，角色名称自动省略、会话按钮限宽；清空对话、终端和开发者入口收进「⋯」菜单，手机保留 44 px 点击区域。
-- 「设置 → 界面 → 透明 UI」新增独立开关与 0–100% 透明度调节。开启后聊天背景延伸到顶栏和输入区，面板与消息气泡底色同步变透明，文字保持原样；即时预览、自动保存，切换主题仍保留设置。
-- 「设置 → 界面 → 聊天背景」支持选择本地 PNG / JPG / WebP / GIF，可开关、移除、调整铺满 / 完整显示、对齐位置和遮罩深浅，实时预览并自动保存。图片保存在本机，RP / RPG 普通聊天区共用，Android 重启后自动恢复。
-- RP 选项不再掉格式后重试：首轮请求末尾加入临时 char（Assistant）历史消息，引导先写正文、再按格式输出选项。缺少合法选项时保留正文，可继续自由输入。
-- 在提示词预设的回复选项区域编辑「末尾 char 引导消息」，支持 `{count}`、`{min}`、`{max}`；留空继承默认。随回复选项开关生效，与已有 assistant_prefill 合成一条，不进入真实聊天历史或摘要。
-- 这是单次请求的格式引导，不保证模型必然遵守；RPG 状态协议的修复不受影响。
+版本变更、验证记录与已登记事项统一维护在 [CHANGELOG.md](CHANGELOG.md)。
 
-## 本次更新 · 2026-09-04
-
-- RP 提示词预设升级为 v3：`prompts` 保存素材，`promptOrder` 同时决定开关与实际消息顺序；固定可编辑提示词与运行时 Marker 分离。
-- 删除无法单独关闭的全局“对白输出协议”和 `tavernFormat` 隐式槽位；Post-History 改为预设列表中可见、可编辑、可排序、可关闭的 `jailbreak` 项。
-- 世界书 Before / After、示例前后和 At Depth 按位置注入；角色卡 main / Post-History 覆盖支持 `{{original}}`。
-- 预设页新增 ST 生成参数与 Utility Prompt 配置；导入的采样参数、格式模板、新聊天提示和 assistant prefill 会进入实际请求，模型/服务商字段只做无损往返。
-- SillyTavern 导入正确区分 `system_prompt` 与 `marker`，保留多个 `prompt_order` Profile；v1/v2 预设和旧全局提示词会自动迁移。
-- 当前玩家输入独立于旧聊天历史组装：即使关闭 Chat History、缩短历史窗口或启用自动摘要，也会在请求中准确保留一次。
-- 本轮实现依据 SillyTavern 官方的 [Prompt Manager](https://docs.sillytavern.app/usage/prompts/prompt-manager/)、[World Info](https://docs.sillytavern.app/usage/core-concepts/worldinfo/) 与 [Character Design](https://docs.sillytavern.app/usage/core-concepts/characterdesign/) 结构；完整仓库检查全部通过（`node scripts/run_checks.js`），包括 Android WebView 内核下限守卫（`check_webview_floor.js`）。
-
-## 本次更新 · 2026-09-03
-
-- 酒馆提示词预设新增独立的「普通 RP 回复预设选项」配置：可按预设开启/关闭、设置每轮 1–8 个选项，并自定义选项偏好提示词；未改动时继承项目默认，导入/导出通过 `tavern_meta.replyOptions` 保留配置。
-- 自定义提示词可以只描述选项风格；若省略 `<tavern_options>` 机器协议，运行时自动补入默认结构要求。关闭后不注入、不修复，也不显示等待提示。
-- 旧版写在 `postHistory` 尾部的「AI 回复选项协议」会迁入独立字段，普通后预设原文保留，避免重复注入。
-- RP 请求把已完成历史和当前玩家回合分开组装；历史条数、关闭聊天历史、自动摘要或骰点附加记录都不会挤掉当前输入。当前玩家内容在 Chat History 边界只注入一次；排在历史后的 Relative / In-Chat 提示词仍按预设有意跟随。
-- 上述配置只属于酒馆 RP；RPG 的 WorldSave、`<tavern_state_update>` 与行动选项协议保持独立。
-
-## 本次更新 · 2026-08-26
-
-- RPG 回合的 `runtime.collection.add` 统一要求使用 `value: { id: "stable-entry-id", ... }`；字段平铺或漏掉条目 ID 会在提交前触发精确的协议修复，不再直接落到服务端报错。
-- Runtime 动作会在零库存或条件不足时禁用，Agent 同步收到不可用上下文，避免继续尝试无效动作。
-- 世界卡草稿现可通过 `?worldDraft=<id>` 进入可刷新恢复的全屏制卡工作台；状态变量、耐久物品和固定使用动作均可填表创建，复杂 Runtime JSON 仍保留在折叠的兼容区。未声明侧栏时，表单创建的耐久表、使用按钮和可见变量会自动显示给玩家（最多 24 个面板，超出部分请手写侧栏）；一旦手写 `ui.sidebar`（包括空面板）即完全按手写配置显示。
-- 耐久物品会生成声明式 `runtime.action`：每次使用固定扣除耐久并增加使用次数；耐久不足时服务端拒绝执行，不会写入半个状态更新。
-- RPG 继承「设置 → 排版 / 界面」配置；消息窗口在发送、点击选项和回合提交后保持当前位置，回合内状态增减会以轻微动画保留到下一行动。
-- RP / RPG 输入栏统一为紧凑等高布局；支持全屏多行输入，AI 生成时发送按钮变为可点击停止。
-- 移动端 RPG 工具栏恢复「任务与世界状态」右侧抽屉入口，左右侧栏均可从手机端打开；世界存档态不再保留空的旧状态栏占位。
-- Android 构建会携带当前 `mapgen.js`，并为每次 APK 生成独立的前端资源版本，避免覆盖安装后 WebView 命中旧 Service Worker 缓存。
-
-## 本次更新 · 2026-08-20
-
-- RPG Agent 判定增加短促的客户端反馈动画：掷骰时显示判定中，收到结果后收束为骰点/结果状态；失败和减少动态效果时会自动清理或降级。
-- 增加自动总结
-- 增加自定义界面
-- 修复消息操作按钮在窄屏或长正文上覆盖内容、跑出聊天区域的问题；操作栏现在独立占用消息底部一行，手机端也保持在消息容器内。
-- 移除宿主头像和 RPG 回合中的“放弃本回合”入口，减少与世界卡自定义界面的视觉冲突。
-- 酒馆开场白与 AI 回复共用 `<tavern_options>` 解析协议，开场白中的快捷选项也会进入底部选项栏。
-- 补充 RP 自动记忆、输出正则阶段、世界卡前端桥接和主题自定义的回归检查，更新 PWA 资源缓存版本。
-
-### Windows 便携版
+## Windows 便携版
 
 GitHub Release 提供 `tavern-*-portable-win-x64.zip`。解压后双击「启动 Tavern.bat」即可运行，包内已包含 Node.js，不需要另行安装 Node.js、npm 或配置环境变量。运行时数据保存在同目录的 `data/`，不会把本机 API Key 和存档打进发布包。
-
-## 本次更新 · 2026-08-19
-
-- RPG 世界卡支持自定义 HTML/CSS/JS 前端、沉浸模式、入口警告、声明式 runtime 变量/集合/动作和 Agent 选择桥接。
-- Agent 回合统一接入规则检查、客户端骰子、工具 Guard trace、两阶段提交、pending 恢复和结构化回执。
-- 酒馆模式补齐 Character Card V3 / PNG 元数据、角色书绑定、卡片级输出正则、HTML/Markdown 安全渲染和 `{{user}}` 显示宏；兼容 ST 角色卡把前端包在带 `text` 标记的代码围栏正则替换中的写法，角色卡消息会占满当前聊天列，iframe 高度跟随卡内内容与折叠状态变化，移动端会将卡内宽度收进消息容器。卡内 HTML/CSS/JS 经用户逐卡确认后进入同源完整兼容 iframe，支持 `parent.document`、localStorage、外部脚本/网络和 ST 聊天/世界书桥；预设 EJS/MVU 仍只保留原文。
-- 角色卡导入入口可自动识别误选的 ST World Info JSON，并转入世界书库；世界书页仍提供独立的 ST 世界书导入入口。
-- RP / RPG 回复选项改为预设协议驱动，选项不再写死在前端；编辑消息时输入框按聊天区域自适应并支持拖高。
-- Android 套壳补齐 `user.json` 与数组/对象 JSON 原子持久化校验；推送后由 GitHub Actions 构建 APK。
-- Android APK 最低支持 Android System WebView / Chromium 111。入口在内核能力不足时提示更新（判定用 `CSS.supports` 检测 `color-mix()`，不依赖 UA 版本号），并在加载本地依赖前补齐 `Array.prototype.at`、`Object.hasOwn` 和 `Element.replaceChildren` 作为降级层；提示可关闭，不阻断使用。
-- Android 导出桥接：角色卡、预设、世界书、世界包、世界存档和设置可直接导出到系统 `Download` 文件夹；Android 10+ 使用 MediaStore，旧系统按需申请存储权限，浏览器端仍保留下载回退。
-- 新增 Android 导出回归检查 `node scripts/check_android_api.js`，覆盖 WebView JavaScript bridge、文件名清理、大小限制和前端下载回退。
-- 发布 Windows x64 便携文件夹包，内置 Node.js，解压即可启动。
-
-详细变更与验证命令见 [CHANGELOG.md](CHANGELOG.md)。
 
 开发规范（仓库结构、改动约束、验证门与交付要求）见 [AGENTS.md](AGENTS.md)——AI 编码工具会从仓库根目录自动加载它。
 
