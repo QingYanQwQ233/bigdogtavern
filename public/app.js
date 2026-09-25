@@ -14010,7 +14010,7 @@ function renderMessages() {
   const planning = mode === 'rpg' && worldModeActive() && worldSavePlanning();
   const input = $('input');
   const sendButton = $('btn-send');
-  if (input) { input.disabled = ended || planning; input.placeholder = ended ? '世界线已终止，请从右侧重开独立存档后继续…' : planning ? '请先完成开局配置，再开始游戏…' : '写下你的话或行动（可用 *动作* 表示）… Enter 发送 · Shift+Enter 换行'; }
+  if (input) { input.disabled = ended || planning; input.placeholder = ended ? '世界线已终止，请从右侧重开独立存档后继续…' : planning ? '请先完成开局配置，再开始游戏…' : '写下你的话或行动…'; }
   if (sendButton && !sending) sendButton.disabled = ended || planning;
   if (!renderMsgs.length) {
     chat.innerHTML = `<div class="chat-empty"><div class="ce-icon">🐾</div><div class="ce-title">${esc(emptyTitle())}</div><div class="ce-desc">${esc(buildGuide())}</div></div>`;
@@ -15849,7 +15849,8 @@ function renderQuickActions() {
       opts = Array.isArray(msgs[i].options) && msgs[i].options.length ? msgs[i].options : null;
       break;
     }
-    if (!opts && worldModeActive() && Array.isArray(currentWorldSave.openingOptions) && currentWorldSave.openingOptions.length) opts = currentWorldSave.openingOptions;
+    // 仅开局阶段（本会话还没有玩家发言）回退开场选项；玩家动过之后只认最后一条 AI 回复，避免陈旧选项常驻。
+    if (!opts && worldModeActive() && !msgs.some(m => m && m.role === 'user') && Array.isArray(currentWorldSave.openingOptions) && currentWorldSave.openingOptions.length) opts = currentWorldSave.openingOptions;
     if (opts) {
       for (const o of opts) {
         const b = document.createElement('button');
