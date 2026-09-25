@@ -1,5 +1,13 @@
 # 更新日志
 
+## 2026-09-25 · 安装 UI/UX 设计技能体系 + 建立设计总纲
+
+- **仓库成为技能唯一来源**：新建 `skills/`，收录 11 个第三方 MIT 技能（原样收录、零内容修改、各自带 LICENSE）+ 自写的统一入口 `ui-design-system`（`SKILL.md` 只做路由 + 10 个主题参考文件）。候选评估表与「不装的理由」记在 `skills/EVALUATION.md`。
+- **同步与防漂移**：新增 `scripts/sync_skills.js`（默认不覆盖同名冲突，带 `--check` / `--force`）与 `scripts/check_skills_sync.js`（随 `run_checks` 跑，逐文件哈希比对仓库与 Operit 全局 skill 目录；目标不存在时优雅跳过）。全局目录技能数从 19 → 31。
+- **设计总纲**：新建 `docs/design/DESIGN_CONSTITUTION.md`（14 节）。`docs/ui-beauty-declaration.md` 降级为「宿主契约」子文档，两边建立双向引用；三层文档之间只允许引用不允许复制。
+- **修掉一处腐坏引用**：`AGENTS.md §7` 的验证门仍指向已删除的 `check_webview83_compat.js`，改为 `check_webview_floor.js`。
+- **`AGENTS.md`**：新增设计类改动的文档同步分工，以及「改 `skills/` 必须同步」的硬要求。
+
 ## 2026-09-25 · §7 无障碍约束变成可检查项（并修掉两个实测缺陷）
 
 - **§7 之前是纯文案**：7 条约束没有任何检查覆盖。现在每条都标注了验证方式（`[静态]` / `[运行时]` / `[未强制]`+原因），并附「当前已知偏差」的实测数据。没有标注的条款等于没有约束——这正是它此前失效的原因。

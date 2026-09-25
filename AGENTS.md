@@ -72,13 +72,15 @@
 - 改架构 / 数据路径 / 文件职责 → 同步 `README.md`、`docs/*`、`CHANGELOG.md`。
 - **规划文档里的任务被别的工作作废时，用 `~~删除线~~` 标注「已作废 / 已由 X 解决」，不要留着，也不要直接删掉**——删除线既保留决策历史，又不会误导排期。
 - **不要在文档里写死会腐坏的东西**：绝对路径、当前分支名、「最近修复了…」这类叙事。环境指针一律写成「以实际输出为准」。
+- **设计类改动按三层文档分工同步**：设计语言 / 原则 → `docs/design/DESIGN_CONSTITUTION.md`；操作判据与检查清单 → `skills/ui-design-system/references/`；应用与世界卡边界 → `docs/ui-beauty-declaration.md`。三者之间**只允许引用，不允许复制第二份**。
+- **改 `skills/` 之后必须跑 `node scripts/sync_skills.js`**，否则 Agent 读到的还是旧副本；由 `check_skills_sync.js` 守卫（随 `run_checks` 跑）。
 
 ## 7. 验证门
 
 - 最少：`node scripts/build_frontend.js --check`、`node --check server.js`、`node --check public/app.js`
 - 常规提交前：`node scripts/run_checks.js`（含全部 `check_*.js`）
 - RPG/协议改动：至少 `check_rpg_protocol.js`、`check_runtime_roundtrip.js`、`check_rpg_agent.js`、`check_rpg_agent_compat.js`、`check_output_regex.js`、`check_frontend_state_guards.js`
-- UI/移动端改动：`check_ui_regions.js`、`check_ui_theme.js`、`check_message_window.js`、`check_webview83_compat.js`，并用真实浏览器或 Playwright 验证关键路径
+- UI/移动端改动：`check_ui_regions.js`、`check_ui_theme.js`、`check_message_window.js`、`check_webview_floor.js`，并用真实浏览器或 Playwright 验证关键路径
 - Android 改动：额外 `check_android_api.js`、`check_android_protocol.js`，并在真机或 GitHub Actions 上验证
 - 看到失败先按「复现 → 找调用链 → 证明根因 → 最小修复 → 回归检查」处理，**不要只在 UI 上吞掉错误或盲目重试**。
 
