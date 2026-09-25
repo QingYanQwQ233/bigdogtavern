@@ -20,12 +20,6 @@
 - `frontend/rpg-world.js` 新增 `statusMeters()` / `renderStatusMeters()`：有 `min`/`max` 的资源出通用 meter，其余维度走 `#rpg-dynamic-stats`。
 - `check_frontend_state_guards.js` 换成 4 条断言：不得写死玩法数值行 / 资源条不得按字段配色 / meter 必须取自运行时声明 / `renderRPG` 先渲染声明驱动部分。
 
-## 2026-09-25 · 追加两个流程图 skill + RPG 玩法中立性立为硬约束
-
-- 安装 `screen-flow-diagram` / `interactive-flow-diagram`（MIT；开发侧产物，不进 `public/`、不进 APK）；已装第三方技能 11 → 13，Operit 全局目录 31 → 33。
-- `DESIGN_CONSTITUTION §11.1`：RPG 是「高度自定义的玩法框架」，UI 不得写死任何玩法数值；新增玩法维度时改数据声明，而不是 `public/index.html`。
-- 同步落点：`AGENTS.md §5`、`skills/ui-design-system/SKILL.md`、「玩法中立性」参考文档。
-
 ## 2026-09-25 · 安装 UI/UX 设计技能体系 + 建立设计总纲
 
 - 新建 `skills/`：收录 11 个第三方 MIT 技能（原样收录、各自带 LICENSE）+ 自写入口 `ui-design-system`。
