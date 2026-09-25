@@ -3851,8 +3851,12 @@ function growthEffectLabel(candidate) {
 
 function renderRpgSheetMetric(definition, value, deltaKey = '') {
   const numeric = value === null || value === undefined || (typeof value === 'string' && !value.trim()) ? NaN : Number(value);
-  const hasRange = Number.isFinite(numeric) && Number.isFinite(Number(definition?.min)) && Number.isFinite(Number(definition?.max)) && Number(definition.max) > Number(definition.min);
-  const meter = hasRange ? Math.max(0, Math.min(100, (numeric - Number(definition.min)) / (Number(definition.max) - Number(definition.min)) * 100)) : null;
+  // 资源条目用「角色当前上限」做分母（与状态条同一规则）；无角色上限的资源不画条。
+  const isResource = (Array.isArray(currentWorldCard()?.playerCreation?.resources) ? currentWorldCard().playerCreation.resources : []).some(item => item && item.id === definition?.id);
+  const min = Number(definition?.min);
+  const max = isResource ? characterResourceCap(definition?.id) : Number(definition?.max);
+  const hasRange = Number.isFinite(numeric) && Number.isFinite(min) && Number.isFinite(max) && max > min;
+  const meter = hasRange ? Math.max(0, Math.min(100, (numeric - min) / (max - min) * 100)) : null;
   const display = Number.isFinite(numeric) ? String(value) : '—';
   return `<div class="rpg-sheet-stat"><div class="rpg-sheet-stat-head"><span title="${esc(definition?.description || definition?.label || definition?.id || '')}">${esc(definition?.label || definition?.id || '未命名')}</span><b>${esc(display)}${worldStateDeltaMarkup(deltaKey)}</b></div>${meter === null ? '' : `<div class="rpg-sheet-meter" aria-hidden="true"><i style="--meter:${meter.toFixed(2)}%"></i></div>`}</div>`;
 }
