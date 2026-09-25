@@ -2743,28 +2743,9 @@ body.world-setup-extension-mode .rpg-extension-head {
   flex: 0 0 auto;
 }
 
-.memory-auto-panel {
-  margin: 0 0 16px;
-  padding: 12px;
-  border: 1px solid rgba(var(--accent-rgb), 0.28);
-  border-radius: 10px;
-  background: rgba(var(--accent-rgb), 0.055);
-}
-.memory-auto-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.memory-auto-head h3 { color: var(--text); font: 14px var(--font-display); letter-spacing: 0.5px; }
-.memory-auto-head .hint { margin-top: 4px; }
-.memory-auto-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
-.memory-auto-grid .field { margin-bottom: 0; }
-.memory-auto-grid .field span { display: block; margin-bottom: 4px; color: var(--muted); font-size: 11px; }
-.memory-auto-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
-.memory-auto-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 #mem-auto-status.error { color: var(--danger); }
 
 @media (max-width: 600px) {
-  .memory-auto-grid { grid-template-columns: 1fr; }
-  .memory-auto-footer { align-items: flex-start; flex-direction: column; }
-  .memory-auto-actions { width: 100%; }
-  .memory-auto-actions button { flex: 1 1 140px; min-height: 44px; }
 }
 
 .char-wizard {

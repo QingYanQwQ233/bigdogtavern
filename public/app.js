@@ -10456,9 +10456,8 @@ function fillPGActive() {
   const active = actualName || '全局默认';
   const char = currentChar();
   const world = currentWorldCard();
-  const boundByCharacter = !!actualName && mode === 'tavern' && char?.presetName === actualName;
   const boundByWorld = !!actualName && mode === 'rpg' && world?.rpgPresetName === actualName;
-  const source = boundByCharacter ? '（由当前角色卡绑定）' : (boundByWorld ? '（由当前世界卡绑定）' : '');
+  const source = boundByWorld ? '（由当前世界卡绑定）' : '';
   const note = $('pg-active-note');
   if (note) note.textContent = `当前${mode === 'rpg' ? 'RPG' : '酒馆'}模式实际使用：${active}${source}。左侧列表用于编辑预设内容。`;
 }
