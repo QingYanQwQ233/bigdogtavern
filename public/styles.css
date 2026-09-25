@@ -1424,7 +1424,7 @@ textarea#input:focus {
   font-size: 11px;
   letter-spacing: 0.5px;
 }
-.field input, .field select, .field textarea, .char-wizard input, .pg-reply-options textarea, .pg-sequence-actions select {
+.field input, .field select, .field textarea, .pg-reply-options textarea, .pg-sequence-actions select {
   width: 100%;
   padding: 8px 10px;
   border-radius: 8px;
@@ -1436,7 +1436,7 @@ textarea#input:focus {
   outline: none;
   transition: border-color 150ms, box-shadow 150ms, background 400ms ease;
 }
-.field input:focus, .field select:focus, .field textarea:focus, .char-wizard input:focus, .pg-reply-options textarea:focus, .pg-sequence-actions select:focus {
+.field input:focus, .field select:focus, .field textarea:focus, .pg-reply-options textarea:focus, .pg-sequence-actions select:focus {
   border-color: rgba(var(--accent-rgb), 0.55);
   box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.07);
 }
@@ -1950,13 +1950,11 @@ body[data-theme="vibrancy"] textarea#input,
 body[data-theme="vibrancy"] .field input,
 body[data-theme="vibrancy"] .field select,
 body[data-theme="vibrancy"] .field textarea,
-body[data-theme="vibrancy"] .char-wizard input {
   background: var(--bg-0);
   border-color: var(--line);
 }
 body[data-theme="vibrancy"] textarea#input::placeholder,
 body[data-theme="vibrancy"] .field input::placeholder,
-body[data-theme="vibrancy"] .char-wizard input::placeholder { color: rgba(255, 255, 255, 0.30); }
 body[data-theme="vibrancy"] .modal-box,
 body[data-theme="vibrancy"] .crest .crest-ring { animation: none; }
 body[data-theme="vibrancy"] .msg { animation: none; }
@@ -2748,29 +2746,12 @@ body.world-setup-extension-mode .rpg-extension-head {
 @media (max-width: 600px) {
 }
 
-.char-wizard {
   margin-bottom: 16px;
   padding: 14px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: rgba(var(--accent-rgb), 0.04);
 }
-.cw-head, .cw-panel-head, .cw-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.cw-head { margin-bottom: 12px; color: var(--accent); font-family: var(--font-display); }
-.cw-steps { display: flex; gap: 6px; margin: 0; padding: 0; list-style: none; font-family: var(--font-body); font-size: 11px; color: var(--muted); }
-.cw-steps li { padding: 2px 6px; border: 1px solid transparent; border-radius: 999px; }
-.cw-steps li.active { border-color: var(--accent); color: var(--accent); }
-.cw-steps li.done { color: var(--text); }
-.cw-panel.hidden { display: none; }
-.cw-panel > label, .cw-panel-head > span { display: block; margin-bottom: 6px; color: var(--text); font-size: 13px; }
-.cm-profile-fields { display: grid; gap: 6px; margin: 8px 0 10px; }
-.cm-profile-row { display: grid; grid-template-columns: minmax(110px, 160px) minmax(0, 1fr) auto; align-items: center; gap: 8px; }
-.cm-profile-row > label { color: var(--muted); font-size: 12px; }
-.cm-profile-label { font-size: 12px; }
-.cm-profile-remove { color: var(--danger); }
-.cw-actions { justify-content: flex-end; flex-wrap: wrap; }
-.cw-done { margin-bottom: 8px; color: var(--text); }
-.cm-full-title { margin: 4px 0 10px; color: var(--accent); font-family: var(--font-display); font-size: 13px; letter-spacing: 1px; }
 
 /* ── 世界书 ── */
 .wi-list {
@@ -3163,7 +3144,7 @@ body.world-setup-extension-mode .rpg-extension-head {
   /* §7-2：移动端所有表单控件统一 ≥16px，避免聚焦时 WebView 自动缩放。
      这是运行时审计（scripts/audit_ui_accessibility.js）测出的偏差：设置弹窗内 14 个
      输入框/下拉原本是 13px。 */
-  .field input, .field select, .field textarea, .char-wizard input,
+  .field input, .field select, .field textarea,
   #st-panel-gen textarea, .pg-reply-options textarea, .pg-sequence-actions select,
   .rpg-runtime-action-field input:not([type="checkbox"]), .rpg-runtime-action-field select,
   .rpg-runtime-action-field textarea, #st-panel-ui #ui-custom-vars { font-size: 16px; }
