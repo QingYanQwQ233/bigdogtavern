@@ -725,7 +725,7 @@
           <div class="field row2">
             <div class="field">
               <label for="s-temperature">温度 <span id="s-temp-val" class="hint-inline">0.9</span></label>
-              <input id="s-temperature" type="range" min="0" max="2" step="any" value="0.9" />
+              <input id="s-temperature" type="range" min="0" max="2" step="0.01" value="0.9" />
             </div>
             <div class="field">
               <label for="s-max-tokens">回复 Token 上限 <span class="hint-inline">连接默认，预设可覆盖</span></label>
@@ -735,17 +735,17 @@
           <div class="field row2">
             <div class="field">
               <label for="s-top-p">top_p <span id="s-top-p-val" class="hint-inline">1.0</span></label>
-              <input id="s-top-p" type="range" min="0" max="1" step="any" value="1" />
+              <input id="s-top-p" type="range" min="0" max="1" step="0.01" value="1" />
             </div>
             <div class="field">
               <label for="s-freq-p">频率惩罚 <span id="s-freq-p-val" class="hint-inline">0</span></label>
-              <input id="s-freq-p" type="range" min="-2" max="2" step="any" value="0" />
+              <input id="s-freq-p" type="range" min="-2" max="2" step="0.01" value="0" />
             </div>
           </div>
           <div class="field row2">
             <div class="field">
               <label for="s-pres-p">存在惩罚 <span id="s-pres-p-val" class="hint-inline">0</span></label>
-              <input id="s-pres-p" type="range" min="-2" max="2" step="any" value="0" />
+              <input id="s-pres-p" type="range" min="-2" max="2" step="0.01" value="0" />
             </div>
             <div class="field">
               <label for="s-seed">seed <span class="hint-inline">-1 随机</span></label>
