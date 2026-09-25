@@ -93,12 +93,11 @@ vm.runInContext(`
     tavernDoesNotNeedRepair: tavernReplyOptionsInvalid(parseTavernReplyOutput('正文。<tavern_options>["A","B","C","D"]</tavern_options>', promptPresets['旧预设']), promptPresets['旧预设']),
     customReplyOptions: (() => {
       const custom = normalizePromptPreset('自定义选项', { mode: 'tavern', replyOptions: { enabled: true, count: 2, instruction: 'CUSTOM {count}/{min}/{max}' } });
-      return { config: tavernReplyOptionsConfig(custom), rules: tavernReplyOptionRules(custom), prompt: buildTavernReplyOptionsPrompt(custom) };
+      return { config: tavernReplyOptionsConfig(custom), rules: tavernReplyOptionRules(custom) };
     })(),
     disabledReplyOptions: (() => {
       const disabled = normalizePromptPreset('关闭选项', { mode: 'tavern', replyOptions: { enabled: false } });
       return {
-        prompt: buildTavernReplyOptionsPrompt(disabled),
         parsed: parseTavernReplyOutput('正文。<tavern_options>["A","B"]</tavern_options>', disabled),
         repair: tavernReplyOptionsInvalid(parseTavernReplyOutput('正文。', disabled), disabled),
       };
@@ -313,13 +312,6 @@ vm.runInContext(`
       delete promptPresets['宏消息预设'];
       prefs.currentPresetByMode.tavern = previousPreset;
       sessions[0].messages = previousMessages;
-      return result;
-    })(),
-    rpgReplyOptionsPrompt: (() => {
-      const previousMode = mode;
-      mode = 'rpg';
-      const result = buildTavernReplyOptionsPrompt(promptPresets['旧预设']);
-      mode = previousMode;
       return result;
     })(),
     replyOptionsEditorOwnership: (() => {
@@ -582,10 +574,8 @@ assert.doesNotMatch(context.check.worldLoreTrace.b, /WORLD_A_NPC|SAVE_A_NPC/);
 assert.match(context.check.blocks.system, /与 旅人 合作/);
 assert.match(context.check.blocks.system, /保持轻快/);
 assert.doesNotMatch(context.check.blocks.post, /保持轻快/);
-assert.match(context.check.blocks.post, /OPT 4/);
 const embeddedOptionPrompt = JSON.stringify(context.check.embeddedOptionBlocks.promptMessages) + context.check.embeddedOptionBlocks.post;
-assert.strictEqual((embeddedOptionPrompt.match(/<tavern_options\b/gi) || []).length, 2);
-assert.match(context.check.embeddedOptionBlocks.post, /OPT 4/);
+assert.strictEqual((embeddedOptionPrompt.match(/<tavern_options\b/gi) || []).length, 1);
 assert.strictEqual((context.check.blocks.system.match(/月港终年有雾/g) || []).length, 1);
 assert.deepStrictEqual(JSON.parse(JSON.stringify(context.check.tavernOptions.options)), ['A', 'B', 'C', 'D']);
 assert.strictEqual(context.check.tavernOptions.content, '正文。');
@@ -597,10 +587,6 @@ assert.strictEqual(context.check.tavernNeedsRepair, true);
 assert.strictEqual(context.check.tavernDoesNotNeedRepair, false);
 assert.strictEqual(context.check.customReplyOptions.config.count, 2);
 assert.deepStrictEqual(JSON.parse(JSON.stringify(context.check.customReplyOptions.rules)), { enabled: true, min: 2, max: 2, count: 2, noOptions: '（等待 AI 生成可选行动…）' });
-assert.match(context.check.customReplyOptions.prompt, /^CUSTOM 2\/2\/2/);
-assert.match(context.check.customReplyOptions.prompt, /OPT 2/);
-assert.match(context.check.customReplyOptions.prompt, /<tavern_options>/);
-assert.strictEqual(context.check.disabledReplyOptions.prompt, '');
 assert.strictEqual(context.check.disabledReplyOptions.parsed.content, '正文。');
 assert.strictEqual(context.check.disabledReplyOptions.parsed.options, null);
 assert.strictEqual(context.check.disabledReplyOptions.repair, false);
@@ -671,7 +657,6 @@ assert.deepStrictEqual(JSON.parse(JSON.stringify(context.check.blocks.history)),
 ]);
 assert.ok(context.check.payload.body.messages.filter(x => x.role === 'system').length > 1);
 assert.strictEqual(context.check.payload.body.messages.at(-1).role, 'system');
-assert.match(context.check.payload.body.messages.at(-1).content, /OPT 4/);
 assert.ok(context.check.payload.body.messages.findIndex(message => message.content.includes('出发吧'))
   < context.check.payload.body.messages.findIndex(message => message.content.includes('只推进一步')));
 assert.deepStrictEqual(JSON.parse(JSON.stringify(context.check.missingHistoryFallback.first)), [{ role: 'user', content: '向左走' }]);
@@ -693,7 +678,6 @@ assert.doesNotMatch(JSON.stringify(context.check.pendingInputWithoutMemory), /�
 assert.match(context.check.macroPendingInput.system, /LAST=真正的玩家输入\|USER=真正的玩家输入\|COUNT=2/);
 assert.match(context.check.macroPendingInput.history.at(-1).content, /真正的玩家输入/);
 assert.match(context.check.macroPendingInput.history.at(-1).content, /🎲 d20 = 17/);
-assert.strictEqual(context.check.rpgReplyOptionsPrompt, '');
 assert.strictEqual(context.check.replyOptionsEditorOwnership.rpgHasField, false);
 assert.strictEqual(context.check.replyOptionsEditorOwnership.inheritedHasField, false);
 assert.deepStrictEqual(JSON.parse(JSON.stringify(context.check.replyOptionsEditorOwnership.customized)), {

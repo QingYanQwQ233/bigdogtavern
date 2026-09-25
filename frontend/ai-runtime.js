@@ -281,7 +281,7 @@ function buildPayload({ test = false } = {}) {
   }
   if (post && post.trim()) body.messages.push({ role: 'system', content: post });
   // 合成 char 历史只存在于请求副本，不写入会话或摘要；与已有 prefill 合成一个尾消息。
-  const assistantTail = [buildTavernReplyOptionsAssistantMessage(activePromptPreset), assistantPrefill]
+  const assistantTail = [assistantPrefill]
     .filter(value => value && value.trim()).join('\n\n');
   if (assistantTail) body.messages.push({ role: 'assistant', content: assistantTail });
   body.messages = body.messages.filter(message => String(message.content ?? '').trim());

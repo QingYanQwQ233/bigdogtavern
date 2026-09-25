@@ -38,6 +38,9 @@ const removed = [
   // 角色卡 prompt 覆盖链
   ['resolveCharacterPromptOverride', '角色卡 systemPrompt / postHistory 覆盖'],
   ['cardOutputRegexApplied', '只写不读的孤儿标记'],
+  ['buildTavernReplyOptionsPrompt', '回复选项提示词构造'],
+  ['buildTavernReplyOptionsAssistantMessage', '回复选项末尾引导消息'],
+  ['formatTavernReplyOptionsInstruction', '回复选项模板代入'],
 ];
 removed.forEach(([token, label]) => {
   assert.doesNotMatch(app, new RegExp(token), label + ' 已随 ST 模式移除，不得重新引入');
@@ -56,6 +59,7 @@ const kept = [
   ['buildUserPromptPart', '玩家设定注入（RPG 读取）'],
   ['buildMemoryPromptPart', '记忆条目注入（RPG 读取）'],
   ['tavernReplyOptionRules', '行动选项解析（RPG 复用）'],
+  ['tavernReplyOptionsConfig', '回复选项配置（被上面那个解析器依赖）'],
   ['aiGenerate', 'AI 生成底层（RPG 生成玩家角色在用）'],
   ['aiGenWI', '世界书条目生成（世界书保留在 RPG）'],
   ['cm-profile-fields', '基本信息机制（RPG 迁移读取 profileFields）'],

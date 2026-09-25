@@ -3460,28 +3460,7 @@ function tavernReplyOptionsConfig(preset = null) {
   return merged;
 }
 
-function buildTavernReplyOptionsPrompt(preset = null) {
-  if (mode !== 'tavern') return '';
-  const config = tavernReplyOptionsConfig(preset);
-  const rules = tavernReplyOptionRules(preset);
-  const instruction = String(config?.instruction || '').trim();
-  if (!rules.enabled || !instruction) return '';
-  const customized = formatTavernReplyOptionsInstruction(instruction, rules);
-  // 自定义内容可以只描述选项风格；机器可解析的标签契约仍由 JSON 默认模板兜底。
-  const fallbackInstruction = String(defaults?.tavern?.replyOptions?.instruction || builtInTavernReplyOptionsInstruction() || '').trim();
-  const fallback = formatTavernReplyOptionsInstruction(fallbackInstruction, rules);
-  if (customized === fallback) return customized;
-  return fallback && hasTavernReplyOptionsProtocol(fallback)
-    ? [customized, fallback].filter(Boolean).join('\n\n')
-    : customized;
-}
 
-function formatTavernReplyOptionsInstruction(instruction, rules) {
-  return String(instruction || '')
-    .replace(/\{count\}/g, String(rules?.count ?? 4))
-    .replace(/\{min\}/g, String(rules?.min ?? 4))
-    .replace(/\{max\}/g, String(rules?.max ?? 4));
-}
 
 function expandPresetMacros(text, macroContext, variables) {
   let output = String(text || '').replace(/\{\{\/\/[\s\S]*?\}\}/g, '');

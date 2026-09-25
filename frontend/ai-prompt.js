@@ -822,8 +822,6 @@ function buildPromptBlocks() {
   let history = [...exampleHistory, ...(includeHistory ? previousHistory : [])];
   history = mergeHistoryInjections(history, injections);
   const orderedChat = mergeHistoryInjections([...exampleHistory, ...(includeHistory ? previousHistory : []), ...currentTurn], injections);
-  const optionPrompt = buildTavernReplyOptionsPrompt(preset);
-  if (optionPrompt) postParts.push(expandPresetMacros(optionPrompt, macroContext, variables));
   // 兼容调试投影仍把本轮玩家输入保留为最后一条 user；真实请求使用下方 orderedPromptMessages。
   const promptHistory = [...beforeHistory, ...history, ...afterHistory, ...currentTurn].map((message, index, list) => ({
     role: message.role,

@@ -843,12 +843,4 @@ function tavernReplyOptionRules(preset = null) {
   return { enabled: true, min, max, count, noOptions: String(config.noOptions || '（等待 AI 生成可选行动…）') };
 }
 
-function buildTavernReplyOptionsAssistantMessage(preset = null) {
-  if (mode !== 'tavern') return '';
-  const rules = tavernReplyOptionRules(preset);
-  if (!rules.enabled) return '';
-  const config = tavernReplyOptionsConfig(preset);
-  const template = String(config?.assistantMessage || defaults?.tavern?.replyOptions?.assistantMessage || '').trim();
-  return formatTavernReplyOptionsInstruction(template, rules);
-}
 
