@@ -17077,19 +17077,10 @@ async function init() {
   }
 
   renderProviderOptions();
-
-  ensureChars();
   ensureLorebooks();
   ensureCharacterBookLorebooks();
   renderBindSelects();
   ensureEntryIds();
-  // 清理旧版遗留的纯占位角色
-  if (characters.length && characters.every(c => !c.name || c.name === '？？？')) {
-    characters = [];
-    currentCharId = null;
-    localStorage.removeItem(LS_CURRENT_CHAR);
-    saveChars();
-  }
   let presetsMigrated = ensurePromptPresetsV3();
   if (migrateBuiltInTavernPreset(defaults)) presetsMigrated = true;
   if (migrateLegacyFormatPreferences()) presetsMigrated = true;

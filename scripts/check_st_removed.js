@@ -39,6 +39,7 @@ const removed = [
   ['resolveCharacterPromptOverride', '角色卡 systemPrompt / postHistory 覆盖'],
   ['cardOutputRegexApplied', '只写不读的孤儿标记'],
   ['charId === currentCharId', '会话按 charId 隔离（已改为只按 kind 匹配）'],
+  ['characters.length && characters.every', '启动时清理占位角色（ST 遗留）'],
   ['buildTavernReplyOptionsPrompt', '回复选项提示词构造'],
   ['buildTavernReplyOptionsAssistantMessage', '回复选项末尾引导消息'],
   ['formatTavernReplyOptionsInstruction', '回复选项模板代入'],
