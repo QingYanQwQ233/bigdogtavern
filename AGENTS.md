@@ -100,7 +100,7 @@
 - 地图 UI 和随机地图暂时隐藏；新存档只读取卡声明的地图数据。
 - RPG 记忆暂无向量检索、自动聚类和完整人工编辑器。
 - `growth` / runtime 旧直写接口已 410；新玩法请声明 Runtime action / Typed Patch。
-- Android APK 是 Debug 构建；`main` push 自动构建，其他分支可在 Actions 手动选择。不要把本地构建产物或 API Key 提交。
+- Android APK 是 Debug 构建；仅手动触发（Actions → Run workflow，可选任意分支），不随 push 自动构建。不要把本地构建产物或 API Key 提交。
 - 涉及导航、触控或 media query 时，保留对应的回归检查。
 
 ## 10. 提交与交付

@@ -1,8 +1,7 @@
 name: Build Tavern APK
 
 on:
-  push:
-    branches: [main]
+  # 仅手动触发：避免日常提交浪费构建额度；需要 APK 时在 Actions 页 Run workflow。
   workflow_dispatch: # 手动触发
 
 permissions:
