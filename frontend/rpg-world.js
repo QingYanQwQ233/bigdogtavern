@@ -3067,7 +3067,7 @@ function renderWorldImportReport(imported) {
   const report = imported?.report;
   if (!report) { root.innerHTML = ''; return; }
   const refs = report.references || {};
-  const facts = [['角色', refs.characters || 0], ['世界书', refs.lorebooks || 0], ['预设', refs.presets || 0], ['资源', refs.assets || 0]]
+  const facts = [['世界书', refs.lorebooks || 0], ['预设', refs.presets || 0], ['资源', refs.assets || 0]]
     .map(([label, value]) => `<span><b>${esc(value)}</b>${label}</span>`).join('');
   const errors = report.errors?.length ? `<section class="world-import-errors"><h3>无法导入</h3><ul>${report.errors.map(error => `<li>${esc(error)}</li>`).join('')}</ul></section>` : '<p class="world-import-ready">✓ 校验通过；确认后会创建新的独立世界，不覆盖本地内容。</p>';
   const warnings = report.warnings?.length ? `<section class="world-import-warnings"><h3>保留与隔离</h3><ul>${report.warnings.map(warning => `<li>${esc(warning)}</li>`).join('')}</ul></section>` : '';
@@ -3102,7 +3102,7 @@ async function previewWorldPackageImport(file) {
     $('world-import-base').textContent = `“${file.name}”已封存 · ${String(data.rawHash || '').replace(/^sha256:/, '').slice(0, 12)}`;
     renderWorldImportReport(data);
     commit.disabled = !data.report?.canImport;
-    setWorldImportStatus(data.report?.canImport ? '原件已封存；导入不会覆盖现有世界、角色、世界书或预设。' : '原件已封存，但校验未通过；不会写入世界库。', data.report?.canImport ? 'ok' : 'error');
+    setWorldImportStatus(data.report?.canImport ? '原件已封存；导入不会覆盖现有世界、世界书或预设。' : '原件已封存，但校验未通过；不会写入世界库。', data.report?.canImport ? 'ok' : 'error');
   } catch (err) {
     setWorldImportStatus(err.message, 'error');
   }
@@ -3222,7 +3222,7 @@ async function commitWorldPackageImport() {
     worldImportOpener = null;
     await loadWorldLibraryData();
     const status = $('world-open-status');
-    if (status) status.textContent = `已导入“${data.world.title}” v${data.world.version}；新世界及其角色、世界书和预设均使用独立 ID。`;
+    if (status) status.textContent = `已导入“${data.world.title}” v${data.world.version}；新世界及其世界书、预设均使用独立 ID。`;
     $('world-save-name')?.focus();
   } catch (err) {
     setWorldImportStatus(err.message, 'error');

@@ -161,7 +161,9 @@ function compactRpgState(state) {
 }
 
 const WORLD_PACKAGE_SPEC = 'tavern_world_package';
-const WORLD_PACKAGE_VERSION = 1;
+// v2：characters（角色实体）退役；导入仍接受 v1 旧包，其中的角色字段会被忽略。
+const WORLD_PACKAGE_VERSION = 2;
+const LEGACY_WORLD_PACKAGE_VERSIONS = [1];
 const WORLD_APP_CONTRACT_VERSION = 1;
 const WORLD_IMPORT_MAX_BYTES = 2 * 1024 * 1024;
 const EXPORT_SECRET_KEYS = new Set(['authorization', 'bearer', 'token', 'password', 'extraheaders']);
@@ -4440,32 +4442,21 @@ async function describeWorldPackageAsset(role, ownerId, uri) {
 
 async function buildWorldPackage(world) {
   world = normalizeWorldAppWorld(world);
-  const [rawCharacters, rawLorebooks, rawPresets] = await Promise.all([
-    loadDataDocument('characters'), loadDataDocument('lorebooks'), loadDataDocument('presets'),
+  const [rawLorebooks, rawPresets] = await Promise.all([
+    loadDataDocument('lorebooks'), loadDataDocument('presets'),
   ]);
-  if (!Array.isArray(rawCharacters) || !rawLorebooks || typeof rawLorebooks !== 'object' || Array.isArray(rawLorebooks)
+  if (!rawLorebooks || typeof rawLorebooks !== 'object' || Array.isArray(rawLorebooks)
     || !rawPresets || typeof rawPresets !== 'object' || Array.isArray(rawPresets)) {
-    throw new Error('角色、世界书或预设数据格式无效');
+    throw new Error('世界书或预设数据格式无效');
   }
+  // v2：characters（角色实体）已退役，导出不再收集角色；旧引用键不写入包。
+  delete world.characterIds;
+  if (world.start && typeof world.start === 'object') delete world.start.playerTemplateId;
 
   const warnings = [];
-  const localNpcIds = new Set((Array.isArray(world.npcs) ? world.npcs : []).map(npc => npc?.id).filter(isSafeId));
-  const requestedCharacterIds = new Set();
-  if (isSafeId(world.start?.playerTemplateId)) requestedCharacterIds.add(world.start.playerTemplateId);
-  for (const id of Array.isArray(world.characterIds) ? world.characterIds : []) if (isSafeId(id)) requestedCharacterIds.add(id);
-  for (const id of Array.isArray(world.npcIds) ? world.npcIds : []) if (isSafeId(id) && !localNpcIds.has(id)) requestedCharacterIds.add(id);
-  const characters = rawCharacters.filter(character => requestedCharacterIds.has(character?.id));
-  const characterById = new Set(characters.map(character => character.id));
-  for (const id of requestedCharacterIds) {
-    if (!characterById.has(id) && !localNpcIds.has(id)) warnings.push(`缺少角色引用：${id}`);
-  }
 
   const lorebookIds = new Set(Array.isArray(world.lorebookIds) && world.lorebookIds.length ? world.lorebookIds : ['default']);
   const presetNames = new Set(typeof world.rpgPresetName === 'string' && world.rpgPresetName ? [world.rpgPresetName] : []);
-  for (const character of characters) {
-    if (isSafeId(character.loreId)) lorebookIds.add(character.loreId);
-    if (typeof character.presetName === 'string' && character.presetName) presetNames.add(character.presetName);
-  }
   const lorebooks = {};
   for (const id of lorebookIds) {
     if (typeof id === 'string' && Object.hasOwn(rawLorebooks, id)) lorebooks[id] = rawLorebooks[id];
@@ -4478,14 +4469,13 @@ async function buildWorldPackage(world) {
   }
 
   const redactedPaths = [];
-  const content = sanitizeWorldPackageValue({ world, characters, lorebooks, presets }, 'content', redactedPaths);
+  const content = sanitizeWorldPackageValue({ world, lorebooks, presets }, 'content', redactedPaths);
   const assetRefs = [];
   const addAsset = (role, ownerId, uri) => {
     if (typeof uri === 'string' && uri) assetRefs.push({ role, ownerId, uri });
   };
   addAsset('world-cover', content.world.id, content.world.coverImage);
   addAsset('source-asset', content.world.id, content.world.source?.rawAssetRef);
-  for (const character of content.characters) addAsset('character-reference', character.id, character.refImage);
   for (const npc of Array.isArray(content.world.npcs) ? content.world.npcs : []) addAsset('npc-reference', npc.id, npc.refImage);
   const uniqueAssetRefs = [...new Map(assetRefs.map(asset => [`${asset.role}\0${asset.ownerId}\0${asset.uri}`, asset])).values()];
   const assets = await Promise.all(uniqueAssetRefs.map(asset => describeWorldPackageAsset(asset.role, asset.ownerId, asset.uri)));
@@ -4509,7 +4499,7 @@ async function buildWorldPackage(world) {
       source: content.world.source || { format: 'native', rawAssetRef: null },
       contentHash: sha256Json(payload),
       hashScope: 'canonical-json(content,assets)',
-      references: { characters: content.characters.length, lorebooks: Object.keys(content.lorebooks).length, presets: Object.keys(content.presets).length, assets: assets.length },
+      references: { lorebooks: Object.keys(content.lorebooks).length, presets: Object.keys(content.presets).length, assets: assets.length },
       privacy: { excludes: ['settings', 'user', 'worldSaves'], redactedPaths: [...new Set(redactedPaths)].sort() },
       executableContent: { html: false, scripts: false, regexTriggers, executedDuringExport: false },
       warnings,
@@ -4588,7 +4578,7 @@ function worldPackageImportReport(pkg) {
     }
   }
   if (pkg.spec !== WORLD_PACKAGE_SPEC) errors.push('不支持的世界包 spec');
-  if (pkg.specVersion !== WORLD_PACKAGE_VERSION) errors.push('不支持的世界包版本');
+  if (pkg.specVersion !== WORLD_PACKAGE_VERSION && !LEGACY_WORLD_PACKAGE_VERSIONS.includes(pkg.specVersion)) errors.push('不支持的世界包版本');
   if (pkg.manifest?.appContractVersion !== undefined
     && (!Number.isInteger(pkg.manifest.appContractVersion) || pkg.manifest.appContractVersion < 1 || pkg.manifest.appContractVersion > WORLD_APP_CONTRACT_VERSION)) {
     errors.push('不支持的世界应用契约版本');
@@ -4634,7 +4624,6 @@ function worldPackageImportReport(pkg) {
     const conflictsInvalid = validateConflictTemplates(world.conflicts);
     if (conflictsInvalid) errors.push(conflictsInvalid);
   }
-  if (!Array.isArray(content?.characters) || content.characters.length > 256) errors.push('characters 必须是至多 256 项的数组');
   if (!content?.lorebooks || typeof content.lorebooks !== 'object' || Array.isArray(content.lorebooks)) errors.push('lorebooks 必须是对象');
   if (!content?.presets || typeof content.presets !== 'object' || Array.isArray(content.presets)) errors.push('presets 必须是对象');
   if (!Array.isArray(pkg.assets) || pkg.assets.length > 256) errors.push('assets 必须是至多 256 项的数组');
@@ -4646,26 +4635,15 @@ function worldPackageImportReport(pkg) {
   if (pkg.manifest?.contentHash !== sha256Json({ content: pkg.content, assets: pkg.assets })) errors.push('contentHash 校验失败');
   if (errors.length) return { canImport: false, errors, warnings, unknownTopLevelKeys, inertPaths };
 
-  const characters = content.characters;
-  const characterIds = new Set();
-  for (const character of characters) {
-    if (!character || typeof character !== 'object' || !isSafeId(character.id) || characterIds.has(character.id)) errors.push('characters 包含重复或无效 ID');
-    else characterIds.add(character.id);
-  }
   const lorebookIds = new Set(Object.keys(content.lorebooks));
   if ([...lorebookIds].some(id => !isSafeId(id))) errors.push('lorebooks 包含无效 ID');
   const presetNames = new Set(Object.keys(content.presets));
   if ([...presetNames].some(name => !name || name.length > 200)) errors.push('presets 包含无效名称');
-  const embeddedNpcIds = new Set((Array.isArray(world.npcs) ? world.npcs : []).map(npc => npc?.id).filter(isSafeId));
-  const referencedCharacterIds = new Set();
-  if (world.start?.playerTemplateId && !isSafeId(world.start.playerTemplateId)) errors.push('start.playerTemplateId 无效');
-  if (isSafeId(world.start?.playerTemplateId)) referencedCharacterIds.add(world.start.playerTemplateId);
-  for (const key of ['characterIds', 'npcIds']) {
-    if (world[key] !== undefined && (!Array.isArray(world[key]) || world[key].some(id => !isSafeId(id)))) errors.push(`${key} 包含无效 ID`);
-  }
-  for (const id of Array.isArray(world.characterIds) ? world.characterIds : []) if (isSafeId(id)) referencedCharacterIds.add(id);
-  for (const id of Array.isArray(world.npcIds) ? world.npcIds : []) if (isSafeId(id) && !embeddedNpcIds.has(id)) referencedCharacterIds.add(id);
-  for (const id of referencedCharacterIds) if (!characterIds.has(id)) errors.push(`缺少角色引用：${id}`);
+  const legacyCharacterFields = [];
+  if (Array.isArray(content?.characters) && content.characters.length) legacyCharacterFields.push('characters');
+  if (Array.isArray(world?.characterIds) && world.characterIds.length) legacyCharacterFields.push('characterIds');
+  if (typeof world?.start?.playerTemplateId === 'string' && world.start.playerTemplateId) legacyCharacterFields.push('start.playerTemplateId');
+  if (world.npcIds !== undefined && (!Array.isArray(world.npcIds) || world.npcIds.some(id => !isSafeId(id)))) errors.push('npcIds 包含无效 ID');
   for (const key of ['factionIds', 'itemIds', 'questTemplateIds']) {
     if (Array.isArray(world[key]) && world[key].length) errors.push(`${key} 尚无随世界包导入的定义`);
   }
@@ -4674,10 +4652,6 @@ function worldPackageImportReport(pkg) {
   for (const id of effectiveLorebookIds) if (!lorebookIds.has(id)) errors.push(`缺少世界书引用：${id}`);
   if (world.rpgPresetName !== undefined && typeof world.rpgPresetName !== 'string') errors.push('rpgPresetName 无效');
   if (world.rpgPresetName && !presetNames.has(world.rpgPresetName)) errors.push(`缺少预设引用：${world.rpgPresetName}`);
-  for (const character of characters) {
-    if (character?.loreId && !lorebookIds.has(character.loreId)) errors.push(`角色 ${character.id} 缺少世界书：${character.loreId}`);
-    if (character?.presetName && !presetNames.has(character.presetName)) errors.push(`角色 ${character.id} 缺少预设：${character.presetName}`);
-  }
   const regexEntries = worldPackageRegexEntries(content.lorebooks);
   for (const regex of regexEntries) {
     if (regex.pattern.length > 500 || !/^[dgimsuvy]*$/.test(regex.flags)) errors.push(`世界书正则无效：${regex.lorebookId}.entries[${regex.index}]`);
@@ -4686,6 +4660,7 @@ function worldPackageImportReport(pkg) {
       catch { errors.push(`世界书正则无效：${regex.lorebookId}.entries[${regex.index}]`); }
     }
   }
+  if (legacyCharacterFields.length) warnings.push(`旧版角色字段（${legacyCharacterFields.join('、')}）已忽略：角色实体不再随世界包导入`);
   if (pkg.manifest?.executableContent?.scripts) warnings.push('包声明含脚本；将仅封存，不会执行');
   if (regexEntries.length) warnings.push(`世界书含 ${regexEntries.length} 个正则触发器；已保留，导入后默认禁用`);
   if (unknownTopLevelKeys.length) warnings.push(`保留 ${unknownTopLevelKeys.length} 个未知顶层字段，仅封存在原件中`);
@@ -4695,7 +4670,7 @@ function worldPackageImportReport(pkg) {
     warnings,
     unknownTopLevelKeys,
     inertPaths,
-    references: { characters: characters.length, lorebooks: lorebookIds.size, presets: presetNames.size, assets: pkg.assets.length },
+    references: { lorebooks: lorebookIds.size, presets: presetNames.size, assets: pkg.assets.length },
     appContractVersion: Number(pkg.manifest?.appContractVersion || 1),
     disabledRegexEntries: regexEntries.length,
   };
@@ -4759,30 +4734,23 @@ async function handleWorldPackageImportPreview(req, res) {
 function mapImportedWorldPackage(pkg, importId, rawHash) {
   const content = cloneJson(normalizeWorldAppPackage(pkg).content);
   const sourceWorld = content.world;
-  const characterIdMap = new Map(content.characters.map(character => [character.id, importedEntityId('char', importId, character.id)]));
   const lorebookIdMap = new Map(Object.keys(content.lorebooks).map(id => [id, importedEntityId('lore', importId, id)]));
   const presetNameMap = new Map(Object.keys(content.presets).map(name => [name, `导入 · ${importId.slice(-8)} · ${name}`]));
   const worldId = importedEntityId('world', importId, sourceWorld.id);
   const localNpcIds = new Set((Array.isArray(sourceWorld.npcs) ? sourceWorld.npcs : []).map(npc => npc?.id).filter(isSafeId));
-  const remapCharacter = id => characterIdMap.get(id) || id;
   const world = {
     ...sourceWorld,
     id: worldId,
     version: 1,
-    characterIds: Array.isArray(sourceWorld.characterIds) ? sourceWorld.characterIds.map(remapCharacter) : [],
-    npcIds: Array.isArray(sourceWorld.npcIds) ? sourceWorld.npcIds.map(id => localNpcIds.has(id) ? id : remapCharacter(id)) : [],
+    npcIds: Array.isArray(sourceWorld.npcIds) ? sourceWorld.npcIds.filter(id => localNpcIds.has(id)) : [],
     lorebookIds: (Array.isArray(sourceWorld.lorebookIds) && sourceWorld.lorebookIds.length ? sourceWorld.lorebookIds : ['default']).map(id => lorebookIdMap.get(id) || id),
     rpgPresetName: presetNameMap.get(sourceWorld.rpgPresetName) || sourceWorld.rpgPresetName || '',
-    start: sourceWorld.start && typeof sourceWorld.start === 'object' ? { ...sourceWorld.start, playerTemplateId: remapCharacter(sourceWorld.start.playerTemplateId) } : sourceWorld.start,
+    start: sourceWorld.start && typeof sourceWorld.start === 'object' ? { ...sourceWorld.start } : sourceWorld.start,
     importInfo: { importId, sourceWorldId: sourceWorld.id, sourceWorldVersion: sourceWorld.version, importedAt: Date.now(), rawHash },
   };
-  const characters = content.characters.map(character => ({
-    ...character,
-    id: characterIdMap.get(character.id),
-    loreId: lorebookIdMap.get(character.loreId) || character.loreId || '',
-    presetName: presetNameMap.get(character.presetName) || character.presetName || '',
-    importInfo: { importId, sourceId: character.id },
-  }));
+  // v2：characterIds / start.playerTemplateId 退役；旧包里的这些字段不随导入保留。
+  delete world.characterIds;
+  if (world.start && typeof world.start === 'object') delete world.start.playerTemplateId;
   const lorebooks = Object.fromEntries(Object.entries(content.lorebooks).map(([id, lorebook]) => [lorebookIdMap.get(id), {
     ...lorebook,
     entries: Array.isArray(lorebook.entries) ? lorebook.entries.map(entry => {
@@ -4795,19 +4763,7 @@ function mapImportedWorldPackage(pkg, importId, rawHash) {
     ...preset,
     importInfo: { importId, sourceName: name },
   }]));
-  return { world, characters, lorebooks, presets };
-}
-
-function mergeImportedArray(existing, incoming, importId) {
-  const ids = new Set(existing.map(item => item?.id));
-  for (const item of incoming) {
-    const matched = existing.find(candidate => candidate?.id === item.id);
-    if (matched?.importInfo?.importId === importId) continue;
-    if (ids.has(item.id)) throw new Error('导入实体 ID 冲突');
-    existing.push(item);
-    ids.add(item.id);
-  }
-  return existing;
+  return { world, lorebooks, presets };
 }
 
 async function handleWorldPackageImportCommit(req, res, importId) {
@@ -4825,10 +4781,9 @@ async function handleWorldPackageImportCommit(req, res, importId) {
       catch { return send(res, 409, JSON.stringify({ error: '封存世界包结构过深或无法安全检查' }), 'application/json'); }
       if (!report.canImport) return send(res, 409, JSON.stringify({ error: '世界包未通过导入校验', report }), 'application/json');
       const mapped = mapImportedWorldPackage(pkg, importId, record.rawHash);
-      const [worlds, characters, lorebooks, presets] = await Promise.all([loadWorlds(), loadDataDocument('characters'), loadDataDocument('lorebooks'), loadDataDocument('presets')]);
+      const [worlds, lorebooks, presets] = await Promise.all([loadWorlds(), loadDataDocument('lorebooks'), loadDataDocument('presets')]);
       const existingWorld = worlds.find(world => world?.id === mapped.world.id);
       if (existingWorld?.importInfo?.importId !== importId && existingWorld) throw new Error('导入世界 ID 冲突');
-      mergeImportedArray(characters, mapped.characters, importId);
       for (const [id, lorebook] of Object.entries(mapped.lorebooks)) {
         if (lorebooks[id]?.importInfo?.importId !== importId && lorebooks[id]) throw new Error('导入世界书 ID 冲突');
         if (!lorebooks[id]) lorebooks[id] = lorebook;
@@ -4838,7 +4793,6 @@ async function handleWorldPackageImportCommit(req, res, importId) {
         if (!presets[name]) presets[name] = preset;
       }
       if (!existingWorld) worlds.push(mapped.world);
-      await writeJsonAtomic(path.join(DATA_DIR, 'characters.json'), characters);
       await writeJsonAtomic(path.join(DATA_DIR, 'lorebooks.json'), lorebooks);
       await writeJsonAtomic(path.join(DATA_DIR, 'presets.json'), presets);
       await writeJsonAtomic(path.join(DATA_DIR, 'worlds.json'), worlds);

@@ -1,6 +1,6 @@
 {
   "spec": "tavern_world_package",
-  "specVersion": 1,
+  "specVersion": 2,
   "exportedAt": "2026-08-26T00:00:00.000Z",
   "manifest": {
     "packageId": "world-fog-harbor-keeper",
@@ -10,7 +10,7 @@
     "title": "雾港：守灯人",
     "author": "Tavern",
     "license": "CC-BY-4.0",
-    "contentHash": "sha256:e5d82f87f229eee6646acb55574b9f784a6de61b684924bb83783051a31ee0fd",
+    "contentHash": "sha256:7bf2b697785e3c00bf9404046000df326f2b496bcb97000f8321a8e0ce5cbcc6",
     "hashScope": "canonical-json(content,assets)",
     "capabilities": {
       "ui": {
@@ -24,7 +24,6 @@
       "regexes": 0
     },
     "references": {
-      "characters": 0,
       "lorebooks": 1,
       "presets": 1,
       "assets": 0
@@ -1079,7 +1078,6 @@
         "rawAssetRef": null
       }
     },
-    "characters": [],
     "lorebooks": {
       "fog-harbor-lore": {
         "name": "雾港设定",

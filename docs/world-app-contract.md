@@ -66,14 +66,13 @@ WorldSave(saveId, worldId, worldVersion, revision)
 ```json
 {
   "spec": "tavern_world_package",
-  "specVersion": 1,
+  "specVersion": 2,
   "manifest": {
     "appContractVersion": 1,
     "capabilities": {}
   },
   "content": {
     "world": {},
-    "characters": [],
     "lorebooks": {},
     "presets": {}
   },
@@ -82,6 +81,8 @@ WorldSave(saveId, worldId, worldVersion, revision)
 ```
 
 `manifest.appContractVersion` 是世界应用契约版本，当前为 `1`；缺失时按旧包兼容处理，未来版本高于宿主能力会拒绝导入。导出时同时写入 `capabilities`，只描述包声明了哪些 UI、Agent、正则和引用能力，不包含运行时状态。
+
+自 `specVersion 2` 起，`content.characters`（角色实体）退役：导出不再包含角色、`characterIds` 与 `start.playerTemplateId`；v1 旧包仍可导入，其中的角色字段会被忽略并在预演报告给出警告。
 
 当前实现扩展 `content.world` 的已知字段，不另起第二份状态仓库。目标结构如下：
 

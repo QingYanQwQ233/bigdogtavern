@@ -12,6 +12,7 @@ const canonicalJson = value => Array.isArray(value)
 
 const source = JSON.parse(fs.readFileSync('docs/demo-script-compat-world.tavern-world.json', 'utf8'));
 const world = clone(source.content.world);
+delete world.characterIds;
 world.schemaVersion = 1;
 world.id = 'world-custom-ui-lab';
 world.version = 1;
@@ -163,7 +164,6 @@ world.ui = {
 
 const content = {
   world,
-  characters: [],
   lorebooks: { default: { name: '雨幕协议默认世界书', entries: [] } },
   presets: {},
 };
@@ -171,7 +171,7 @@ const assets = [];
 const contentHash = 'sha256:' + crypto.createHash('sha256').update(canonicalJson({ content, assets })).digest('hex');
 const pkg = {
   spec: 'tavern_world_package',
-  specVersion: 1,
+  specVersion: 2,
   exportedAt: new Date().toISOString(),
   manifest: {
     packageId: world.id,
@@ -184,7 +184,7 @@ const pkg = {
     contentHash,
     hashScope: 'canonical-json(content,assets)',
     capabilities: { ui: { layout: 'custom', regions: 8, shell: { navigation: 'hide', topbar: 'hide', fullscreen: true, escape: 'fullscreen' }, extension: true }, runtime: true, agent: true, regexes: 0 },
-    references: { characters: 0, lorebooks: 1, presets: 0, assets: 0 },
+    references: { lorebooks: 1, presets: 0, assets: 0 },
     privacy: { excludes: ['settings', 'user', 'worldSaves'], redactedPaths: [] },
     executableContent: { html: true, scripts: true, regexTriggers: 0, executedDuringExport: false },
     warnings: ['扩展只在用户授权的 sandbox iframe 中运行；角色卡与预设脚本仍保持不执行。'],

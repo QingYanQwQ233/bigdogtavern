@@ -14,9 +14,9 @@ const defaults = read('public/data/_defaults.json');
 const world = JSON.parse(JSON.stringify(card));
 // Importer rejects unresolved external faction/item/quest references; definitions remain embedded in world.
 world.factionIds = [];
+if (world.start && typeof world.start === 'object') delete world.start.playerTemplateId;
 const content = {
   world,
-  characters: [],
   lorebooks: { [book.id]: { name: book.name, entries: book.entries } },
   presets: { 'RPG 叙事引擎（示例）': defaults.presets['RPG 叙事引擎（示例）'] },
 };
@@ -24,7 +24,7 @@ const assets = [];
 const contentHash = 'sha256:' + crypto.createHash('sha256').update(canonicalJson({ content, assets })).digest('hex');
 const pkg = {
   spec: 'tavern_world_package',
-  specVersion: 1,
+  specVersion: 2,
   exportedAt: new Date().toISOString(),
   manifest: {
     packageId: world.id,
@@ -36,7 +36,7 @@ const pkg = {
     source: world.source,
     contentHash,
     hashScope: 'canonical-json(content,assets)',
-    references: { characters: 0, lorebooks: 1, presets: 1, assets: 0 },
+    references: { lorebooks: 1, presets: 1, assets: 0 },
     privacy: { excludes: ['settings', 'user', 'worldSaves'], redactedPaths: [] },
     executableContent: { html: false, scripts: false, regexTriggers: 0, executedDuringExport: false },
     warnings: ['这是依据暂定世界观生成的测试包，正式导入前请确认地理、主线和世界意志设定。'],

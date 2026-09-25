@@ -64,7 +64,6 @@ world.start = {
 };
 world.npcIds = [];
 world.npcs = [];
-world.characterIds = [];
 world.factionIds = [];
 world.factions = [];
 world.itemIds = [];
@@ -114,7 +113,6 @@ world.source = { format: 'native', rawAssetRef: 'docs/demo-script-compat-world.t
 
 const content = {
   world,
-  characters: [],
   lorebooks: { default: { name: '脚本兼容实验室默认世界书', entries: [] } },
   presets: {},
 };
@@ -122,7 +120,7 @@ const assets = [];
 const contentHash = 'sha256:' + crypto.createHash('sha256').update(canonicalJson({ content, assets })).digest('hex');
 const pkg = {
   spec: 'tavern_world_package',
-  specVersion: 1,
+  specVersion: 2,
   exportedAt: new Date().toISOString(),
   manifest: {
     packageId: world.id,
@@ -135,7 +133,7 @@ const pkg = {
     contentHash,
     hashScope: 'canonical-json(content,assets)',
     capabilities: { ui: { layout: 'immersive', extension: true }, runtime: true, agent: false, regexes: 0 },
-    references: { characters: 0, lorebooks: 1, presets: 0, assets: 0 },
+    references: { lorebooks: 1, presets: 0, assets: 0 },
     privacy: { excludes: ['settings', 'user', 'worldSaves'], redactedPaths: [] },
     executableContent: { html: true, scripts: true, regexTriggers: 0, executedDuringExport: false },
     warnings: ['扩展只在用户授权的 sandbox iframe 中运行；角色卡与预设脚本仍保持不执行。'],
