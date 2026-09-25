@@ -19,6 +19,7 @@
   --accent: #0a84ff; --accent-rgb: 10, 132, 255; --accent-2: #0a6dd4;
   --danger: #ff453a; --danger-rgb: 255, 69, 58; --danger-2: #c0342b;
   --ok: #30d158;
+  --warning: #d8a64a;
   --text: rgba(255, 255, 255, 0.92); --muted: #98989d;
   --on-accent: #ffffff;
   --line: rgba(255, 255, 255, 0.10); --line-soft: rgba(255, 255, 255, 0.06);
@@ -26,6 +27,8 @@
   --scrim: rgba(12, 12, 14, 0.6);
   --font-display: Georgia, "Times New Roman", "Songti SC", "STSong", serif;
   --font-body: -apple-system, "SF Pro Text", "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+  /* 等宽栈：代码 / JSON 编辑面使用。只允许系统本地字体（离线应用，禁止外链资源），末尾用 generic 兜底。 */
+  --font-mono: "SF Mono", "Cascadia Mono", Menlo, Consolas, "Roboto Mono", "Noto Sans Mono CJK SC", monospace;
   --bg-scene: #1c1c1e;
   --radius: 10px;
   --motion-out: cubic-bezier(0.23, 1, 0.32, 1);
@@ -275,7 +278,7 @@ body[data-mode="rpg"] #rpg-status { display: flex; grid-area: status; }
 .rpg-growth-item { border-left: 2px solid var(--accent-2); }
 .rpg-failure-item { border-left: 2px solid var(--accent-2); }
 .rpg-failure-item.terminal { border-left-color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
-.rpg-failure-item.active { border-left-color: var(--warning, #d8a64a); }
+.rpg-failure-item.active { border-left-color: var(--warning); }
 .rpg-growth-effect { color: var(--text); font-size: 11.5px; }
 .rpg-growth-actions { display: flex; gap: 6px; margin-top: 7px; }
 .rpg-growth-actions .ghost-btn { flex: 1; min-height: 30px; padding: 4px 7px; font-size: 11px; }
@@ -538,7 +541,7 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
 .message-window-control {
   align-self: center;
   margin: -4px 0 4px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   color: var(--muted);
   background: var(--panel);
 }

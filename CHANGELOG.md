@@ -1,5 +1,15 @@
 # 更新日志
 
+## 2026-09-25 · 修复未定义 CSS 变量 + 新增变量守卫
+
+- **审计范围**：`styles.css` 有 43 个变量被以「无 fallback」形式引用。其中 6 个依赖 JS 运行时注入（`--chat-background-*`、`--ok-rgb`、`--ui-panel-opacity`，正常），其余应来自 CSS 定义；有 2 个两头都没有。
+- 修复 `--font-mono`（未定义、12 处引用）：所有代码 / JSON 编辑面失去等宽字体——世界卡扩展编辑器、玩家 JSON、运行时高级 JSON、数组 JSON 预览、UI 自定义变量框等。补上系统本地等宽栈（末尾 generic 兜底；离线应用不允许外链字体）。
+- 修复 `--border`（未定义、1 处引用）：`.message-window-control` 的 `border: 1px solid var(--border)` 整条声明失效——不仅没有边框，hover 只写 `border-color` 也无从渲染，交互反馈同时消失。改为 `--line`（同文件有 53 处以该 token 写边框）。
+- 补上 `--warning`（未定义但有一处内联回退）：值取原回退 `#d8a64a`，视觉不变；随后删除该内联回退，使这处引用纳入守卫覆盖。
+- 新增 `scripts/check_css_vars.js`：断言「styles.css 无 fallback 引用的变量，必须能从 CSS 定义或 JS/HTML 运行时注入得到值」。无 fallback 且未定义的引用会让**整条 CSS 声明被静默丢弃**——与「内核版本过低」属同一类静默失败，此前没有任何检查覆盖。
+- `README.md` 的检查计数改为指向命令而非写死数字（该数字一轮内即过期，是文档腐坏源）。
+- 验证：负向测过（引入 `var(--font-mono-x)` 触发失败）；全量 91/91。
+
 ## 2026-09-25 · 校准 Android WebView 内核下限（83 → 111）
 
 - **发现声明与代码脱钩**：`index.html` 声明 Chromium 83，但 `styles.css` 已在使用 Chromium 111 才有的 `color-mix()`（9 处），以及 `:has()`(105)、`:is()`(88)、`inset`(87)、`aspect-ratio`(88)、`:focus-visible`(86)、flex `gap`(84)，共 274 处。83~110 的设备上这些规则被静默丢弃（布局塌陷、选中态反馈消失、背景丢失），而旧门槛是「低于 83 才提示」，这些用户看不到任何警告。

@@ -68,7 +68,7 @@ APK 输出路径：`android/app/build/outputs/apk/debug/app-debug.apk`。
 - 预设页新增 ST 生成参数与 Utility Prompt 配置；导入的采样参数、格式模板、新聊天提示和 assistant prefill 会进入实际请求，模型/服务商字段只做无损往返。
 - SillyTavern 导入正确区分 `system_prompt` 与 `marker`，保留多个 `prompt_order` Profile；v1/v2 预设和旧全局提示词会自动迁移。
 - 当前玩家输入独立于旧聊天历史组装：即使关闭 Chat History、缩短历史窗口或启用自动摘要，也会在请求中准确保留一次。
-- 本轮实现依据 SillyTavern 官方的 [Prompt Manager](https://docs.sillytavern.app/usage/prompts/prompt-manager/)、[World Info](https://docs.sillytavern.app/usage/core-concepts/worldinfo/) 与 [Character Design](https://docs.sillytavern.app/usage/core-concepts/characterdesign/) 结构；完整仓库检查为 89/89 通过，包括 Android WebView 内核下限守卫（`check_webview_floor.js`）。
+- 本轮实现依据 SillyTavern 官方的 [Prompt Manager](https://docs.sillytavern.app/usage/prompts/prompt-manager/)、[World Info](https://docs.sillytavern.app/usage/core-concepts/worldinfo/) 与 [Character Design](https://docs.sillytavern.app/usage/core-concepts/characterdesign/) 结构；完整仓库检查全部通过（`node scripts/run_checks.js`），包括 Android WebView 内核下限守卫（`check_webview_floor.js`）。
 
 ## 本次更新 · 2026-09-03
 
