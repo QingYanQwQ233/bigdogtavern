@@ -8225,32 +8225,6 @@ function renderCharacter() {
   $('hdr-char-race').textContent = `${race} · ${role}`;
 }
 
-function renderCharList() {
-  const list = $('cm-list');
-  if (!list) return;
-  list.innerHTML = '';
-  if (cmCreating) {
-    const draft = document.createElement('div');
-    draft.className = 'cm-item cm-draft active';
-    draft.innerHTML = `<span class="cm-name">${esc($('cm-name').value.trim() || '新角色')}<span class="cm-draft-mark">未保存</span></span>`;
-    list.appendChild(draft);
-  }
-  for (const c of characters) {
-    const el = document.createElement('div');
-    const inUse = c.id === currentCharId;
-    el.className = 'cm-item' + (c.id === cmEditingId ? ' active' : '');
-    el.tabIndex = 0;
-    el.innerHTML = `<span class="cm-name">${esc(c.name || '未命名')}</span><span class="world-lb-actions"><button class="cm-x world-lb-use" type="button" data-act="use" aria-pressed="${inUse ? 'true' : 'false'}" title="${inUse ? '当前正在使用' : '设为当前使用'}">${inUse ? '使用中' : '设为使用'}</button><button class="cm-x world-lb-delete" type="button" data-act="delete" aria-label="删除 ${esc(c.name || '未命名')}" title="删除角色">删除</button></span>`;
-    el.addEventListener('click', (ev) => {
-      const action = ev.target.closest?.('[data-act]')?.dataset.act;
-      if (action === 'use') { useCharById(c.id); return; }
-      if (action === 'delete') { deleteChar(c.id); return; }
-      setMobileManagerPanel('char-mgr', 'detail');
-    });
-    list.appendChild(el);
-  }
-}
-
 /* 填充角色卡绑定下拉（预设 / 世界书） */
 function renderBindSelects() {
   const ps = $('cm-preset');
@@ -8296,56 +8270,8 @@ function normalizeCharProfileFields(fields) {
 }
 
 
-function selectCharForEdit(id) {
-  const c = characters.find(x => x.id === id);
-  if (!c) return;
-  cmCreating = false;
-  cmEditingId = id;
-  $('cm-del').textContent = '删除角色';
-  $('cm-edit-title').textContent = '编辑角色：' + (c.name || '未命名');
-  $('cm-name').value = c.name || '';
-  $('cm-race').value = c.race || '';
-  $('cm-role').value = c.role || '';
-  $('cm-persona').value = c.description != null ? c.description : (c.persona || '');
-  $('cm-personality').value = c.personality || '';
-  $('cm-scenario').value = c.scenario || '';
-  $('cm-first-mes').value = c.firstMes || '';
-  $('cm-mes-example').value = c.mesExample || '';
-  $('cm-system').value = c.systemPrompt || '';
-  $('cm-post').value = c.postHistory || '';
-  $('cm-creator-notes').value = c.creatorNotes || '';
-  $('cm-creator').value = c.creator || '';
-  $('cm-character-version').value = c.characterVersion || '';
-  $('cm-preset').value = c.presetName || '';
-  $('cm-lore').value = c.loreId || '';
-  $('cm-ref-image').value = c.refImage || '';
-  $('cm-tags').value = c.tags || '';
-  $('cm-alt-greetings').value = Array.isArray(c.alternateGreetings) ? c.alternateGreetings.join('\n\n') : '';
-  $('cm-alt-greetings').dataset.initial = $('cm-alt-greetings').value;
-}
-
 /* 参考图预览：有图显示，无图隐藏 */
-function updateRefPreview(src) {
-  const img = $('cm-ref-preview');
-  if (!img) return;
-  if (src) { img.src = src; img.classList.remove('hidden'); }
-  else { img.removeAttribute('src'); img.classList.add('hidden'); }
-  $('btn-remove-ref').classList.toggle('hidden', !src);
-}
-
 /* 导入本地图片 → 上传到 server → 填入参考图 */
-function newCharEditor() {
-  setMobileManagerPanel('char-mgr', 'detail');
-  cmCreating = true;
-  cmEditingId = null;
-  $('cm-edit-title').textContent = '新建角色';
-  $('cm-del').textContent = '取消新建';
-  ['cm-name', 'cm-race', 'cm-role', 'cm-persona', 'cm-personality', 'cm-scenario', 'cm-first-mes', 'cm-mes-example', 'cm-system', 'cm-post', 'cm-creator-notes', 'cm-creator', 'cm-character-version', 'cm-ref-image', 'cm-tags', 'cm-alt-greetings']
-    .forEach(id => { $(id).value = ''; });
-  $('cm-alt-greetings').dataset.initial = '';
-  updateRefPreview(''); // 清空参考图预览（新建角色不复用上个角色的图）
-}
-
 function useCharById(id) {
   const target = characters.find(x => x.id === id);
   if (target) {
@@ -8357,21 +8283,6 @@ function useCharById(id) {
   renderSessions();
   renderMessages();
   switchView('chat');
-}
-
-function deleteChar(id) {
-  if (!confirm('删除该角色？关联会话保留但不再绑定角色。')) return;
-  characters = characters.filter(c => c.id !== id);
-  if (currentCharId === id) { currentCharId = characters.length ? characters[0].id : null; localStorage.setItem(LS_CURRENT_CHAR, currentCharId || ''); }
-  saveChars();
-  activateSessionScope();
-  if (cmEditingId === id) {
-    if (currentCharId) selectCharForEdit(currentCharId);
-    else newCharEditor();
-  }
-  renderCharacter();
-  renderSessions();
-  renderMessages();
 }
 
 /* 角色卡导入 / 导出（Character Card V1/V2/V3） */

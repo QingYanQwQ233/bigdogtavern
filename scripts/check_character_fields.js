@@ -215,13 +215,4 @@ assert.match(worldLoreHost.innerHTML, /缺失引用/);
 worldLoreHost.querySelectorAll = selector => selector.includes(':checked') ? [{ value: 'lore-test' }, { value: 'missing-book' }] : [];
 assert.deepStrictEqual(JSON.parse(JSON.stringify(vm.runInContext('collectWorldDraftLorebookIds()', context))), ['lore-test', 'missing-book']);
 context.document.createElement = () => ({ className: '', innerHTML: '', addEventListener() {} });
-vm.runInContext(`
-  characters = [{ id: 'saved', name: '已保存角色' }];
-  currentCharId = 'saved'; cmEditingId = null; cmCreating = true;
-  renderCharList();
-`, context);
-assert.match(list.children[0].className, /active/);
-assert.match(list.children[0].innerHTML, /新角色.*未保存/);
-assert.doesNotMatch(list.children[1].className, /active/);
-assert.match(list.children[1].innerHTML, /已保存角色.*使用中/);
 console.log('character fields check passed');

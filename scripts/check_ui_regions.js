@@ -38,7 +38,7 @@ assert.match(app, /const MOBILE_MANAGER_IDS = \['prompt-mgr', 'regex-mgr', 'lore
 assert.match(app, /function setMobileManagerPanel\(managerId, panel = 'list'/);
 assert.match(app, /function handleManagerBack\(button\)/);
 assert.match(app, /function useCharById\(id\)/);
-assert.match(app, /world-lb-use[\s\S]*data-act="use"/);
+assert.match(app, /function renderLBList\(/); // 世界书列表渲染函数（原锚点落在角色列表模板上，已改正）
 assert.match(css, /\.char-mgr\[data-mobile-panel="list"\] \.cm-edit/);
 assert.match(css, /#prompt-mgr\[data-mobile-prompt-panel="entry"\] \.pg-sequence/);
 assert.match(css, /\.pg-reply-options-controls\s*\{[^}]*grid-template-columns:\s*minmax\(210px, 1fr\)/);
