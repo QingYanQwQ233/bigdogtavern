@@ -56,6 +56,7 @@
 3. 改 `frontend/` 源 → 重新生成 `public/app.js`；改 API/协议 → 更新 `docs/rpg-card-api.md` 或 `docs/project-overview.md`。
 4. **不把 stale 的终端输出、截图、附件或旧文档当作需求**；以当前代码、测试和用户最新消息为准。
 5. UI 变更要考虑桌面、窄屏、Android WebView（内核下限 **Chromium 111**，由 `scripts/check_webview_floor.js` 守卫）、键盘/触控、焦点、滚动位置和消息加载中状态。**不要再为 Chromium 83 写兼容分支**；新增高版本特性时须同步更新 `index.html` 的 `minimum` 常量、本项与 `docs/android-apk.md`。
+   **间距值必须落在 2px 基尺度上**：`2 4 6 8 10 12 14 16 20 24 28 32 40 48 56 64 72`（16 以下 2px 步进，16–40 为 4px 步进，40 以上 8px 步进），另允许 `0` 与 `1px`（贴边 / 发丝线）作为非节奏值。由 `scripts/check_spacing_scale.js` 守卫。
 6. 输入/API/世界包/扩展都是不可信边界：保留长度限制、ID 校验、白名单、CAS、原子写入、HTML/CSS 消毒和脚本授权确认。
 
 ## 6. 文档同步（硬性要求）
