@@ -29,6 +29,9 @@ assert.doesNotMatch(html, /id="rpg-(hp|mp|exp)-(bar|text)"|id="rpg-gold2"|id="rp
 assert.doesNotMatch(styles, /\.rpg-stat\.(hp|mp|exp) \.rpg-bar/, '资源条不得再按具体玩法字段配色');
 assert.match(source, /function statusMeters\(\)[\s\S]{0,400}schema\.resources/, '状态条 meter 必须从运行时声明的 resources 取维度');
 assert.match(source, /renderStatusMeters\(\);[\s\S]{0,240}const dynamicStats/, 'renderRPG 必须先渲染声明驱动的资源条，再渲染其余维度');
+// meter 分母必须是「角色当前上限」（state.stats.max<Id>），不得拿世界卡变量 max 当分母。
+assert.match(source, /function characterResourceCap\([\s\S]{0,350}state\?\.stats/, 'meter 分母必须读取角色当前上限（state.stats）');
+assert.doesNotMatch(source.slice(source.indexOf('function renderStatusMeters()'), source.indexOf('function renderRPG()')), /definition\.max\b/, 'meter 不得再拿世界卡变量 max 当分母');
 // 角色卡的 prompt 覆盖链（SillyTavern 的 systemPrompt / postHistory + {{original}}）
 // 只对酒馆模式生效，随 ST 停产一并移除。这里锁死，防止它随角色卡编辑器一起回来。
 assert.doesNotMatch(source, /resolveCharacterPromptOverride/, '角色卡 prompt 覆盖链已随 ST 模式移除，不得重新引入');
