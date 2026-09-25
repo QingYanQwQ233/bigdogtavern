@@ -22,7 +22,13 @@ assert.strictEqual((source.match(/showRpgCheckAnimation\(/g) || []).length, 2, '
 assert.match(source, /function scrollChatToLatest\([\s\S]{0,500}requestAnimationFrame/, '进入 RPG 后必须在布局完成后再次定位最新消息');
 assert.match(source, /function scrollChatToLatest\([\s\S]{0,500}scrollTo\(\{ top: chat\.scrollHeight, behavior: 'instant' \}\)/, '消息重绘必须使用瞬时滚动，不能继承 CSS 的平滑滚动');
 assert.match(source, /function enterWorldWorkspace\([\s\S]{0,900}requestAnimationFrame\?\.\(\(\) => scrollChatToLatest\(\$\('chat'\), conversationKey\)\)/, '打开世界工作区后必须在最终布局帧重定位最新消息');
-assert.match(source, /const statusBar = \$\('rpg-status'\);[\s\S]{0,220}statusBar\.hidden = worldRuntime/, '世界存档态不能保留空的旧状态栏占位');
+// 状态条必须整体由运行时声明驱动，不得再写死任何具体玩法数值（HP / MP / EXP / 金币 / 增益……）。
+// 旧断言守的是「世界存档态别留空的状态条占位」——那是写死行的 workaround。写死行删掉后
+// 空占位根本不存在，这条断言失去意义。换成下面三条：一条防回退，两条守通用路径真的接上了。
+assert.doesNotMatch(html, /id="rpg-(hp|mp|exp)-(bar|text)"|id="rpg-gold2"|id="rpg-buffs"/, '状态条不得再写死玩法数值行，维度必须来自世界卡声明');
+assert.doesNotMatch(styles, /\.rpg-stat\.(hp|mp|exp) \.rpg-bar/, '资源条不得再按具体玩法字段配色');
+assert.match(source, /function statusMeters\(\)[\s\S]{0,400}schema\.resources/, '状态条 meter 必须从运行时声明的 resources 取维度');
+assert.match(source, /renderStatusMeters\(\);[\s\S]{0,240}const dynamicStats/, 'renderRPG 必须先渲染声明驱动的资源条，再渲染其余维度');
 assert.match(source, /function rpgRuntimeActionAvailabilityError\([\s\S]{0,2400}当前值 \$\{actual\}/, '动作可用性检查必须向 Agent 提供当前资源值');
 assert.match(source, /submit\.disabled = alreadyConfirmed \|\| !!availabilityError/, '静态不可用的世界卡动作必须在界面中禁用');
 assert.match(source, /function hideWorldStateFeedback\(\)[\s\S]{0,350}if \(worldModeActive\(\)\) renderRPG\(\);/, '本轮状态提示退出前必须先重绘以播放消失动画');

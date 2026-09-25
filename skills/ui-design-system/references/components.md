@@ -58,7 +58,9 @@ BigDogTavern 的 RPG 模式是玩法框架。数据块必须由运行时声明�
 | 在 HTML 里预置一排名为 HP / MP / EXP 的容器 | 渲染一个由 `definitions` 驱动的容器（参考已有的 `#rpg-dynamic-stats`） |
 | 假设"必须有资源条" | 世界卡不定义任何资源时，显示空状态或整块隐藏，**而不是显示一排 0** |
 
-**已知债**：`#rpg-status` 里仍并列着写死的 HP / MP 常驻条。它是遗留，**不是样板** —— 新设计不要照着它做。完整偏差与证据见 `docs/design/DESIGN_CONSTITUTION.md §11.1`。
+**已完成**：`#rpg-status` 的写死行已清除，状态条改为声明驱动的通用 meter + chip。参考实现：`statusMeters()` / `renderStatusMeters()`（`frontend/rpg-world.js`）。
+
+**仍是债**：状态层与协议层里还有 `hp / mp / exp / gold`（清单见 `docs/design/DESIGN_CONSTITUTION.md §11.1` 的表格）。那一层是 AI 协议 + 存档格式，需要 ADR，**不要在 UI 改动里顺手处理**。
 
 ## 已知债（不要顺手改）
 

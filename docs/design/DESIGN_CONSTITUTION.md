@@ -163,9 +163,30 @@ BigDogTavern 要支持的是"任何世界卡都能定义自己的玩法"，而�
 - **新增玩法维度时改的是数据声明，不是 `public/index.html`。**
 - 世界卡可以完全不用宿主预置的任何维度；宿主必须能优雅地显示"没有这个东西"，而不是显示一排 0。
 
-**当前已知偏差（未修复）**：`public/index.html` 的 `#rpg-status` 里仍并列着写死的 `HP` / `MP` 两条**常驻**资源条（`rpg-hp-bar` / `rpg-mp-bar` / `rpg-hp-text` / `rpg-mp-text`，无 `hidden`），以及默认隐藏的 EXP 与金币（`rpg-exp-bar` / `rpg-gold2`，带 `hidden`）；对应的更新逻辑写死在 `frontend/rpg-world.js` 里直接读 `rs.hp` / `rs.maxHp` / `rs.mp` / `rs.maxMp`。
+**状态：UI 层已清除（2026-09-25）**
 
-**但方向是对的**：同一个容器里已经有通用机制 `#rpg-dynamic-stats` —— 它按 `definitions` 与 `derived` 渲染，带 `aria-live`。**写死层是遗留，通用层是目标。** 这条偏差登记在此，不静默处理。
+`#rpg-status` 里的写死行已全部删除。状态条现在完全由声明驱动：
+
+- 有 `min` / `max` 区间的资源 → 通用资源 meter（标签、区间、语义全部来自声明）
+- 其余维度（属性 / 技能 / 无区间资源 / 派生值） → chip
+- 没有声明的世界卡 → 状态条为空，**不再显示一排 0**
+- JS 里那处按名字硬排除的过滤（`!['hp','mp','gold'].includes(id)`）也一并删除
+- 防回退由 `scripts/check_frontend_state_guards.js` 守（不许再出现写死的玩法数值行）
+
+**仍在的写死（状态层 / 协议层，未清除）**
+
+写死并未绝迹，它退到了更深的两层：
+
+| 位置 | 内容 |
+|---|---|
+| `frontend/rpg-world.js` `defaultRpgState()` | `hp:20 / maxHp:20 / mp:5 / maxMp:5 / expNext:100` |
+| `frontend/rpg-world.js` `worldRpgState()` | 从 `state.stats` 读 `hp / mp / exp / gold` |
+| `frontend/rpg-world.js`:3905 | `for (const key of ['hp','mp','gold'])` 的存档同步桥 |
+| `frontend/ai-protocol.js`:654-666 | 解析 `upd.hp` / `upd.mp` / `upd.maxHp` / `upd.maxMp` / `upd.exp` |
+| `frontend/ai-protocol.js`:799 | `['hp','mp','gold']` 的资源回填 |
+| `frontend/ai-prompt.js`:586-587 | 往提示词里写 `HP x/y，MP x/y，金币 z` |
+
+**为什么没一起杀**：这一层是 **AI 输出协议 + 存档格式**。删掉它会改变世界卡与 Agent 之间的契约（现有会写 `{hp:-5}` 的卡会静默失效），并影响已有存档。**它需要一份 ADR + 兼容窗口，不能盲删。** 方向不变：玩法维度全部走 `playerCreation` 声明 + Runtime action / Typed Patch。
 
 ---
 

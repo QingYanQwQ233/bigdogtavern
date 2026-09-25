@@ -5824,6 +5824,43 @@ function renderWorldExtension(surface = 'play') {
   }, Math.max(200, Math.min(5000, Number(extension.timeoutMs) || 1200)));
 }
 
+// 状态条只认运行时声明，不预置任何玩法字段。
+// 有可用 min/max 区间的资源 → 渲染成 meter（这是通用「资源条」形态，至于是生命还是理智由声明决定）
+// 其余维度（属性 / 技能 / 无区间资源 / 派生值） → 渲染成 chip，由 renderRPG 后半段统一处理
+function statusMeters() {
+  if (!worldModeActive()) return [];
+  const schema = currentWorldCard()?.playerCreation || {};
+  return (Array.isArray(schema.resources) ? schema.resources : []).filter(definition =>
+    definition && definition.id
+    && Number.isFinite(Number(definition.max))
+    && Number(definition.max) > Number(definition.min ?? 0)
+  );
+}
+
+function renderStatusMeters() {
+  const statusBar = $('rpg-status');
+  if (!statusBar) return;
+  statusBar.querySelectorAll(':scope > .rpg-stat').forEach(element => element.remove());
+  const meters = statusMeters();
+  if (!meters.length) return;
+  const player = currentWorldSave?.state?.player;
+  const anchor = $('rpg-dynamic-stats');
+  for (const definition of meters) {
+    const min = Number.isFinite(Number(definition.min)) ? Number(definition.min) : 0;
+    const max = Number(definition.max);
+    const raw = player?.resources?.[definition.id];
+    const value = raw === undefined || raw === null || raw === '' ? (definition.initial ?? definition.default ?? min) : raw;
+    const numeric = Number(value);
+    const pct = Number.isFinite(numeric) ? Math.max(0, Math.min(100, (numeric - min) / (max - min) * 100)) : 0;
+    const row = document.createElement('div');
+    row.className = 'rpg-stat';
+    row.innerHTML = '<span>' + esc(definition.label || definition.id) + '</span>'
+      + '<div class="rpg-bar"><i style="width:' + pct.toFixed(2) + '%"></i></div>'
+      + '<b>' + esc(Number.isFinite(numeric) ? numeric + '/' + max : '—') + '</b>';
+    statusBar.insertBefore(row, anchor);
+  }
+}
+
 function renderRPG() {
   applyWorldUiSlots();
   const rs = curRpgState();
@@ -5831,30 +5868,18 @@ function renderRPG() {
   const worldRuntime = worldModeActive();
   const legacyWorldRight = $('rpg-legacy-world-right');
   if (legacyWorldRight) legacyWorldRight.hidden = worldRuntime;
-  const statusBar = $('rpg-status');
-  if (statusBar) statusBar.hidden = worldRuntime;
-  statusBar?.querySelectorAll(':scope > .rpg-stat').forEach(element => { element.hidden = worldRuntime; });
   const sendButton = $('btn-send');
   if (sendButton && !sending) sendButton.disabled = worldSavePlanning();
   const setT = (id, v) => { const el = $(id); if (el) el.textContent = v; };
-  const setW = (id, pct) => { const el = $(id); if (el) el.style.width = pct; };
-  setT('rpg-level', rs.level);
-  setT('rpg-gold', rs.gold);
-  setT('rpg-gold2', rs.gold);
   setT('rpg-loc', rs.location || '—');
-  setT('rpg-hp-text', `${rs.hp}/${rs.maxHp}`);
-  setT('rpg-mp-text', `${rs.mp}/${rs.maxMp}`);
-  setT('rpg-exp-text', `${rs.exp}/${rs.expNext}`);
-  setW('rpg-hp-bar', rs.maxHp ? Math.max(0, Math.min(100, rs.hp / rs.maxHp * 100)) + '%' : '0%');
-  setW('rpg-mp-bar', rs.maxMp ? Math.max(0, Math.min(100, rs.mp / rs.maxMp * 100)) + '%' : '0%');
-  setW('rpg-exp-bar', rs.expNext ? Math.max(0, Math.min(100, rs.exp / rs.expNext * 100)) + '%' : '0%');
-  setT('rpg-buffs', rs.buffs && rs.buffs.length ? rs.buffs.join('、') : '—');
+  renderStatusMeters();
   const dynamicStats = $('rpg-dynamic-stats');
   if (dynamicStats) {
     const schema = worldModeActive() ? currentWorldCard()?.playerCreation : null;
     const playerState = worldModeActive() ? currentWorldSave.state?.player : null;
+    const meterIds = new Set(statusMeters().map(definition => definition.id));
     const definitions = [...(Array.isArray(schema?.attributes) ? schema.attributes : []), ...(Array.isArray(schema?.skills) ? schema.skills : []), ...(Array.isArray(schema?.resources) ? schema.resources : [])]
-      .filter(definition => definition && !['hp', 'mp', 'gold'].includes(definition.id));
+      .filter(definition => definition && definition.id && !meterIds.has(definition.id));
     dynamicStats.innerHTML = definitions.map(definition => {
       const bucket = schema?.attributes?.some(item => item.id === definition.id) ? playerState?.attributes
         : schema?.skills?.some(item => item.id === definition.id) ? playerState?.skills : playerState?.resources;

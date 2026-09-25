@@ -1,5 +1,18 @@
 # 更新日志
 
+## 2026-09-25 · 杀掉 RPG 状态条的写死玩法数值（UI 层）
+
+RPG 模式要的是「高度自定义的玩法框架」，不是某一套具体玩法。此前 `#rpg-status` 里并列着写死的 HP / MP / EXP / 金币 / 状态 五行。
+
+- **`public/index.html`**：删除 5 行写死标记（`rpg-hp-bar` / `rpg-hp-text` / `rpg-mp-*` / `rpg-exp-*` / `rpg-gold2` / `rpg-buffs`）
+- **`public/styles.css`**：删除按玩法字段配色的 3 条渐变规则与 `.rpg-buffs`；解除 `body[data-mode="rpg"] #rpg-dynamic-stats { display: none }`（通用层此前一直渲染但被藏住）；资源条改用 `var(--accent)`
+- **`frontend/rpg-world.js`**：新增 `statusMeters()` / `renderStatusMeters()` —— 有 `min`/`max` 区间的资源渲染成通用 meter，其余维度仍走 `#rpg-dynamic-stats` chip；**删除按名字硬排除的过滤** `!['hp','mp','gold'].includes(id)`
+- **`scripts/check_frontend_state_guards.js`**：旧断言「世界存档态不能保留空的旧状态栏占位」守的是写死行的 workaround，写死行删掉后它失去意义。换成 4 条新断言：不许再写死玩法数值行 / 资源条不得按玩法字段配色 / meter 必须取自运行时声明 / `renderRPG` 必须先渲染声明驱动部分
+
+**效果**：没有声明的世界卡 → 状态条为空，**不再显示一排 0**；有 `resources` 声明的世界卡 → 按 `min`/`max` 自动出 meter，叫什么名字、是生命还是理智，全由卡决定。
+
+**未完成（已登记）**：状态层（`defaultRpgState` / `worldRpgState`）与协议层（`ai-protocol.js` / `ai-prompt.js`）里仍有 `hp / mp / exp / gold`。这一层是 AI 输出协议 + 存档格式，删除会改变世界卡契约并影响已有存档，需要 ADR + 兼容窗口。完整清单见 `docs/design/DESIGN_CONSTITUTION.md §11.1`。
+
 ## 2026-09-25 · 追加两个流程图 skill + RPG 玩法中立性立为硬约束
 
 ### 追加 `screen-flow-diagram` / `interactive-flow-diagram`（来源 A，MIT）
