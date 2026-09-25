@@ -1568,7 +1568,6 @@ function renderMessages() {
     messageRenderWindow = { key: conversationKey, start: 0, preserveScroll: false };
   }
   syncConversationResetButton();
-  initTavernCardFrameBridge();
   renderDebugTerminal();
   if (mode !== 'rpg') clearWorldExtension();
   applyWorldUiSlots();

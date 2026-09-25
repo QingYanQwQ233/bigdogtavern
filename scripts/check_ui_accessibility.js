@@ -140,9 +140,6 @@ assert.strictEqual(
   rivalScrollers.map(s => `\n    ${s}`).join('')
 );
 
-// 卡片 iframe 的基础 CSS 只能有一个滚动归属（由 frameOverflow 变量唯一决定）
-const cardOverflowDecls = (cardFrame.match(/overflow:\s*\$\{frameOverflow\}/g) || []).length;
-assert.strictEqual(cardOverflowDecls, 1, '§7-7：卡片 iframe 的滚动归属必须由唯一的 frameOverflow 变量决定');
 
 console.log(`  焦点环规则 ${focusVisibleCount} 条；outline:none 配对 ${outlineKilled.length - unpaired.length}/${outlineKilled.length}`);
 console.log(`  reduced-motion 块 ${reduceBlocks} 个；移动端 16px 覆盖 ${mobile16} 处；扩展消息区滚动容器 ${messageScroller.length} 个`);

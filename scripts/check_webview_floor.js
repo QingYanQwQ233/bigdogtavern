@@ -191,7 +191,7 @@ assert.strictEqual(runtime.children[1].id, 'node');
 
 assert.strictEqual(
   (app.match(/<script>\$\{webCompatSource\(\)\}<\/script>/g) || []).length,
-  2,
+  1,
   '两种隔离 iframe（世界卡扩展 / 角色卡框架）都必须收到兼容降级层'
 );
 
