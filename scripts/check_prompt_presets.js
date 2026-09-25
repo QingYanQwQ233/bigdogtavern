@@ -174,23 +174,6 @@ vm.runInContext(`
       else delete tavernPreset.modelParameters;
       return result;
     })(),
-    characterPromptOverrides: (() => {
-      const previousPreset = prefs.currentPresetByMode.tavern;
-      const previousMain = characters[0].systemPrompt;
-      const previousPost = characters[0].postHistory;
-      promptPresets['角色覆盖'] = normalizePromptPreset('角色覆盖', {
-        mode: 'tavern', systemPrompt: 'BASE_MAIN', postHistory: 'BASE_POST', replyOptions: { enabled: false },
-      });
-      prefs.currentPresetByMode.tavern = '角色覆盖';
-      characters[0].systemPrompt = 'CARD_MAIN + {{original}}';
-      characters[0].postHistory = 'CARD_POST + {{original}}';
-      const result = buildPromptBlocks().promptMessages;
-      delete promptPresets['角色覆盖'];
-      prefs.currentPresetByMode.tavern = previousPreset;
-      characters[0].systemPrompt = previousMain;
-      characters[0].postHistory = previousPost;
-      return result;
-    })(),
     legacyGlobalSettingsMigration: (() => {
       const previousSettings = settings;
       const previousGlobal = promptPresets[GLOBAL_PRESET_KEY];
@@ -653,9 +636,6 @@ assert.strictEqual(positionedMessages[exampleReplyIndex].role, 'assistant');
 assert.strictEqual(positionedContent.filter(content => content === 'EXAMPLE_SEPARATOR').length, 3);
 assert.strictEqual(positionedMessages[depthIndex].role, 'user');
 assert.ok(depthIndex > currentInputIndex);
-const overrideMessages = JSON.stringify(context.check.characterPromptOverrides);
-assert.match(overrideMessages, /CARD_MAIN \+ BASE_MAIN/);
-assert.match(overrideMessages, /CARD_POST \+ BASE_POST/);
 assert.deepStrictEqual(JSON.parse(JSON.stringify(context.check.legacyGlobalSettingsMigration)), {
   changed: true, main: 'GLOBAL_MAIN', post: 'GLOBAL_POST', hasMainField: false, hasPostField: false,
 });

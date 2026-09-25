@@ -29,6 +29,10 @@ assert.doesNotMatch(html, /id="rpg-(hp|mp|exp)-(bar|text)"|id="rpg-gold2"|id="rp
 assert.doesNotMatch(styles, /\.rpg-stat\.(hp|mp|exp) \.rpg-bar/, '资源条不得再按具体玩法字段配色');
 assert.match(source, /function statusMeters\(\)[\s\S]{0,400}schema\.resources/, '状态条 meter 必须从运行时声明的 resources 取维度');
 assert.match(source, /renderStatusMeters\(\);[\s\S]{0,240}const dynamicStats/, 'renderRPG 必须先渲染声明驱动的资源条，再渲染其余维度');
+// 角色卡的 prompt 覆盖链（SillyTavern 的 systemPrompt / postHistory + {{original}}）
+// 只对酒馆模式生效，随 ST 停产一并移除。这里锁死，防止它随角色卡编辑器一起回来。
+assert.doesNotMatch(source, /resolveCharacterPromptOverride/, '角色卡 prompt 覆盖链已随 ST 模式移除，不得重新引入');
+assert.doesNotMatch(source, /cardOutputRegexApplied/, 'cardOutputRegexApplied 是只写不读的孤儿标记，不得重新引入');
 assert.match(source, /function rpgRuntimeActionAvailabilityError\([\s\S]{0,2400}当前值 \$\{actual\}/, '动作可用性检查必须向 Agent 提供当前资源值');
 assert.match(source, /submit\.disabled = alreadyConfirmed \|\| !!availabilityError/, '静态不可用的世界卡动作必须在界面中禁用');
 assert.match(source, /function hideWorldStateFeedback\(\)[\s\S]{0,350}if \(worldModeActive\(\)\) renderRPG\(\);/, '本轮状态提示退出前必须先重绘以播放消失动画');

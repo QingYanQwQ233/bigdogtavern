@@ -3614,15 +3614,6 @@ function buildDialogueExampleMessages(rawExamples, beforeEntries = [], afterEntr
   return messages;
 }
 
-function resolveCharacterPromptOverride(value, original) {
-  const override = String(value || '').trim();
-  const fallback = String(original || '').trim();
-  if (!override) return fallback;
-  return /\{\{original\}\}/i.test(override)
-    ? override.replace(/\{\{original\}\}/gi, fallback)
-    : override;
-}
-
 function tavernReplyOptionsConfig(preset = null) {
   const base = defaults?.tavern?.replyOptions && typeof defaults.tavern.replyOptions === 'object'
     ? defaults.tavern.replyOptions : null;

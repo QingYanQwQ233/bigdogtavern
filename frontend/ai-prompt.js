@@ -15,13 +15,10 @@ function presetMode(name, preset) {
 }
 
 function resolvePromptPreset() {
-  const char = currentChar();
   const world = currentWorldCard();
-  const bound = mode === 'tavern' && char?.presetName && promptPresets[char.presetName]
-    && ['tavern', 'both'].includes(presetMode(char.presetName, promptPresets[char.presetName])) ? char.presetName : '';
   const worldBound = mode === 'rpg' && world?.rpgPresetName && promptPresets[world.rpgPresetName]
     && ['rpg', 'both'].includes(presetMode(world.rpgPresetName, promptPresets[world.rpgPresetName])) ? world.rpgPresetName : '';
-  const name = bound || worldBound || activePresetNameForMode(mode);
+  const name = worldBound || activePresetNameForMode(mode);
   return { name, preset: promptPresets[name] || promptPresets[GLOBAL_PRESET_KEY] || normalizePromptPreset(GLOBAL_PRESET_KEY, {}) };
 }
 
@@ -778,13 +775,10 @@ function buildPromptBlocks() {
     }
     let content = prompt.marker ? runtime[prompt.identifier] ?? prompt.content : prompt.content;
     if (prompt.identifier === 'main') {
-      const base = prompt.content || (mode === 'rpg' ? RPG_TASK_FALLBACK : '');
-      content = mode === 'tavern' ? resolveCharacterPromptOverride(promptChar?.systemPrompt, base) : base;
+      content = prompt.content || RPG_TASK_FALLBACK;
     }
     if (prompt.identifier === 'jailbreak') {
-      content = mode === 'tavern'
-        ? resolveCharacterPromptOverride(promptChar?.postHistory, prompt.content)
-        : prompt.content;
+      content = prompt.content;
     }
     content = expandPresetMacros(content, macroContext, variables);
     if (!content) continue;

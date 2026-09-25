@@ -2514,7 +2514,6 @@ async function requestReply() {
     const extra = {
       outputRegexApplied: true,
       ...(typeof processed.rawContent === 'string' ? { rawContent: processed.rawContent } : {}),
-      ...(mode === 'tavern' ? { cardOutputRegexApplied: true } : {}),
     };
     if (cot) extra.cot = cot;
     if (processed.options && processed.options.length) extra.options = processed.options;
