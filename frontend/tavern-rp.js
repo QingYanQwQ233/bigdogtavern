@@ -1780,7 +1780,7 @@ function renderPGRegexBindings() {
   const boundIds = new Set(boundRules.map(rule => rule.boundCustomId).filter(Boolean));
   host.innerHTML = '';
   if (!customRules.length && !boundRules.length) {
-    host.innerHTML = '<div class="hint">当前模式还没有自定义正则。请先到「正则」栏目创建，或导入带正则的 ST 预设。</div>';
+    host.innerHTML = '<div class="hint">当前模式还没有自定义正则。可新建一条；导入的预设若携带正则会自动生效。</div>';
     return;
   }
   if (customRules.length) {
@@ -2295,7 +2295,7 @@ function renderRegexList() {
   if (modeNote) modeNote.textContent = `当前模式：${mode === 'rpg' ? 'RPG' : '酒馆'} · 世界卡 ${worldRules.length} 条 · 预设 ${presetRules.length} 条 · 自定义 ${customRules.length} 条`;
   list.innerHTML = '';
   if (!presetRules.length && !worldRules.length && !customRules.length) {
-    list.innerHTML = '<div class="hint">当前没有输出正则。可新建一条，或导入带正则的 SillyTavern 预设。</div>';
+    list.innerHTML = '<div class="hint mgr-empty">当前没有输出正则。可新建一条；导入的 SillyTavern 预设若携带正则会自动生效。</div>';
     return;
   }
   const appendGroup = (label, rules, source) => {

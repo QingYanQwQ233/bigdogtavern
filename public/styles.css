@@ -726,8 +726,8 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
 }
 .msg:hover .msg-actions, .msg:focus-within .msg-actions { opacity: 1; }
 .ma-btn {
-  width: 26px; height: 26px;
-  font-size: 12px;
+  width: 30px; height: 30px;
+  font-size: 13px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--panel);
@@ -1790,6 +1790,8 @@ body[data-mode="rpg"] .composer {
     overflow-x: auto;
     flex-wrap: nowrap;
     scrollbar-width: none;
+    mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent);
+    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent);
   }
   body[data-mode="rpg"] .rpg-status::-webkit-scrollbar { display: none; }
   body[data-mode="rpg"] .rpg-stat { flex: 0 0 auto; }
@@ -1905,7 +1907,7 @@ body[data-mode="rpg"] .composer {
 /* ── macOS 毛玻璃：去渐变 / 去发光 / 纯色 / 1px / 停装饰动画 ── */
 body[data-theme="vibrancy"] #bg-fx { display: none; }
 body[data-theme="vibrancy"] .sidebar {
-  background: rgba(var(--bg-0-rgb), 0.92);
+  background: rgba(var(--bg-0-rgb), 0.98);
   backdrop-filter: blur(24px) saturate(1.4);
   -webkit-backdrop-filter: blur(24px) saturate(1.4);
 }
@@ -1969,7 +1971,8 @@ body[data-theme="vibrancy"] .cm-edit { background: var(--panel); }
 body[data-theme="vibrancy"] .dropdown { box-shadow: none; }
 
 /* ── 设置弹窗 tab ── */
-.settings-tabs { display: flex; gap: 4px; padding: 10px 16px 0; border-bottom: 1px solid var(--line); }
+.settings-tabs { display: flex; gap: 4px; padding: 10px 16px 0; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); }
+.settings-tabs::-webkit-scrollbar { display: none; }
 .modal-body > [id^="st-panel-"].hidden { display: none; }
 .st-tab {
   padding: 8px 16px;
@@ -2205,7 +2208,7 @@ body:not(.world-custom-layout):not(.world-setup-extension-mode) #chat-workspace.
 .world-hero { display: flex; align-items: flex-start; gap: 16px; padding: 20px 0 16px; border-bottom: 1px solid var(--line); }
 .world-hero-mark { display: grid; place-items: center; flex: 0 0 62px; width: 62px; height: 62px; border: 1px solid rgba(var(--accent-rgb), 0.5); border-radius: 16px 16px 16px 4px; background: radial-gradient(circle at 35% 30%, rgba(var(--accent-rgb), 0.36), rgba(var(--accent-rgb), 0.08)); color: var(--accent); font-size: 28px; box-shadow: 0 10px 28px rgba(var(--accent-rgb), 0.12); }
 .world-hero-copy { min-width: 0; }
-.world-hero-actions { display: flex; flex: none; gap: 6px; margin-left: auto; }
+.world-hero-actions { display: flex; flex: none; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-left: auto; }
 .world-eyebrow { margin: 0 0 4px; color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: 2px; }
 .world-hero h1 { margin: 0; color: var(--text); font: 26px var(--font-display); letter-spacing: 1px; overflow-wrap: anywhere; }
 .world-summary { max-width: 680px; margin: 8px 0 0; color: var(--muted); line-height: 1.7; }
@@ -2237,6 +2240,12 @@ body:not(.world-custom-layout):not(.world-setup-extension-mode) #chat-workspace.
 .world-save-meta { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; }
 .world-save-card .ghost-btn { flex: none; }
 .world-save-actions { display: flex; flex: none; gap: 6px; }
+/* 审计清单：危险操作统一样式 / 紧凑按钮不换行 / 空态居中 */
+.ghost-btn.danger { color: var(--danger); border-color: rgba(var(--danger-rgb), 0.4); }
+.ghost-btn.danger:hover { color: var(--danger); border-color: var(--danger); background: rgba(var(--danger-rgb), 0.1); }
+.world-lb-delete { color: var(--danger); }
+.ghost-btn.small, .btn.small { white-space: nowrap; }
+.mgr-empty { padding: 22vh 12px 0; text-align: center; }
 .world-error { min-height: 18px; margin: 6px 0 0; color: var(--danger); font-size: 11px; line-height: 1.45; }
 .world-open-status { margin: 14px 0 0; padding: 10px 12px; border-left: 3px solid var(--accent); background: rgba(var(--accent-rgb), 0.08); color: var(--muted); font-size: 11px; line-height: 1.55; }
 .world-empty { max-width: 480px; margin: 15vh auto; text-align: center; }
@@ -3087,11 +3096,16 @@ body.world-setup-extension-mode .rpg-extension-head {
     z-index: 4;
     margin: -12px -12px 14px;
     padding: max(8px, env(safe-area-inset-top)) 12px 10px;
-    background: linear-gradient(180deg, rgba(var(--panel-rgb), .98), rgba(var(--panel-rgb), .9));
+    background: linear-gradient(180deg, rgba(var(--panel-rgb), .98), rgba(var(--panel-rgb), .98));
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
     border-bottom: 1px solid var(--line);
     box-shadow: 0 6px 18px rgba(0, 0, 0, .18);
   }
   .char-mgr .cm-edit-head .back-action { min-height: 44px; }
+  /* 审计清单：返回按钮统一样式——一律靠左（标题跟在其后） */
+  .char-mgr .cm-edit-head { justify-content: flex-start; gap: 10px; }
+  .char-mgr .cm-edit-head .back-action { order: -1; }
   .char-mgr .mobile-manager-head {
     display: flex;
     position: sticky;
@@ -3099,7 +3113,9 @@ body.world-setup-extension-mode .rpg-extension-head {
     z-index: 4;
     margin: -14px -14px 8px;
     padding: max(8px, env(safe-area-inset-top)) 14px 8px;
-    background: linear-gradient(180deg, rgba(var(--panel-rgb), .98), rgba(var(--panel-rgb), .9));
+    background: linear-gradient(180deg, rgba(var(--panel-rgb), .98), rgba(var(--panel-rgb), .98));
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
     border-bottom: 1px solid var(--line);
     box-shadow: 0 6px 18px rgba(0, 0, 0, .18);
   }
@@ -3158,6 +3174,7 @@ body.world-setup-extension-mode .rpg-extension-head {
   .seal { min-width: 76px; padding-inline: 14px; }
   /* 快捷行动单行横滚，不再换行挤压输入区 */
   .quick-actions { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; margin-bottom: 6px; }
+  .quick-actions:not(:has(.world-turn-error)) { mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent); -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent); }
   .quick-actions::-webkit-scrollbar { display: none; }
   .world-turn-error { align-items: flex-start; flex-direction: column; gap: 6px; }
   .world-turn-error-actions { width: 100%; }
@@ -3187,8 +3204,8 @@ body.world-setup-extension-mode .rpg-extension-head {
   .char-mgr { grid-template-rows: 1fr; }
   .cm-edit { padding: 12px; }
   .world-hero { flex-wrap: wrap; }
-  .world-hero-actions { width: 100%; margin-left: 0; }
-  .world-hero-actions .ghost-btn { flex: 1; }
+  .world-hero-actions { width: 100%; margin-left: 0; flex-wrap: wrap; }
+  .world-hero-actions .ghost-btn { flex: 0 0 auto; white-space: nowrap; }
   .world-draft-dialog { width: 100vw; max-height: 100vh; border-radius: 12px 12px 0 0; }
   .world-draft-choice-dialog { width: 100vw; }
   .world-entry-gate-dialog { width: calc(100vw - 24px); }
@@ -3202,8 +3219,8 @@ body.world-setup-extension-mode .rpg-extension-head {
   .world-draft-actions { flex-wrap: wrap; }
   .world-draft-publish { order: 2; flex-basis: 100%; }
   .world-save-card { align-items: flex-start; flex-direction: column; }
-  .world-save-actions { align-self: stretch; }
-  .world-save-actions .ghost-btn { flex: 1; }
+  .world-save-actions { align-self: stretch; flex-wrap: wrap; }
+  .world-save-actions .ghost-btn { flex: 0 0 auto; white-space: nowrap; }
   .world-import-facts { grid-template-columns: repeat(2, 1fr); }
   .world-upgrade-changes { grid-template-columns: 1fr; }
   .cw-head { align-items: flex-start; flex-direction: column; }
@@ -3212,6 +3229,8 @@ body.world-setup-extension-mode .rpg-extension-head {
   .cm-profile-row > label, .cm-profile-label { grid-column: 1 / -1; }
   .sess-item { padding: 8px 10px; font-size: 13px; }
   .debug-panel, .devtools-panel { width: 100%; height: 100%; max-height: none; border-radius: 0; }
+  /* 手机端聊天菜单收敛：终端/开发者是桌面向工具，隐藏入口 */
+  #btn-debug, #btn-devtools { display: none !important; }
   .debug-body { overflow: hidden; }
   .debug-stream { min-height: 0; }
   .debug-history { padding-inline: 8px; }
@@ -3225,7 +3244,7 @@ body.world-setup-extension-mode .rpg-extension-head {
   .lightbox img { max-width: 96vw; max-height: 94vh; }
   /* 移动端无 hover：操作按钮仍独立占行，不遮挡消息内容。 */
   .msg-actions { opacity: 0.65; flex-basis: 100%; width: 100%; }
-  .ma-btn { width: 22px; height: 22px; font-size: 11px; background: var(--panel); }
+  .ma-btn { width: 30px; height: 30px; font-size: 13px; background: var(--panel); }
   .msg-actions { background: transparent; padding: 2px; }
 }
 

@@ -460,7 +460,7 @@
       <button class="ghost-btn" id="lb-import" style="width:100%;margin-top:6px">⇧ 导入 ST 世界书</button>
       <input id="lb-import-file" type="file" accept=".json,application/json" hidden />
       <button class="ghost-btn" id="lb-export" style="width:100%;margin-top:6px">⇩ 导出 ST 世界书</button>
-      <button class="ghost-btn" id="lb-del" style="width:100%;margin-top:6px">删除当前世界书</button>
+      <button class="ghost-btn danger" id="lb-del" style="width:100%;margin-top:6px">删除当前世界书</button>
       <p class="hint" style="margin-top:10px">支持 SillyTavern World Info JSON；「设为全局」对所有对话生效，世界卡可选择绑定。</p>
     </div>
     <div class="cm-edit" data-ui-level="3" data-ui-region="tavern.lorebooks.editor" data-ui-owner="host">
@@ -682,7 +682,7 @@
             </select>
           </div>
           <div class="field">
-            <label for="s-base-url">Base URL <span class="hint-inline">接口根地址，须含 /v1</span></label>
+            <label for="s-base-url">Base URL <span class="hint-inline">接口根地址；按服务商要求填写（部分服务不含 /v1）</span></label>
             <input id="s-base-url" placeholder="https://api.openai.com/v1" />
           </div>
           <div class="field">
@@ -1123,7 +1123,7 @@
               <h2>建立新存档</h2>
               <p>存档会独立保存你的进度与叙事记录。</p>
             </div>
-            <span class="world-lock" aria-label="世界存档会独立保存叙事与状态">🔒 W2</span>
+            <span class="world-lock" aria-label="世界存档会独立保存叙事与状态">🔒</span>
           </div>
           <label for="world-save-name">存档名称</label>
           <div class="world-save-row">
