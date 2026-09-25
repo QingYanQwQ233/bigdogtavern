@@ -1,0 +1,59 @@
+{
+  "skill_name": "interactive-flow-diagram",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "Create an interactive flow diagram for a user onboarding flow: Welcome → Profile Setup → Connect Account → Tutorial → Dashboard. Each step should be clickable to see details about what happens on that screen.",
+      "expected_output": "A standalone HTML file with D3.js rendering a 5-node linear flow at Level 1, with click-to-expand showing screen details at Level 2/3. Nodes should be visually styled with SDS light theme (warm canvas, white cards), with smooth transitions between levels.",
+      "files": [],
+      "assertions": [
+        {"type": "file_exists", "name": "HTML file exists", "pattern": "*.html"},
+        {"type": "contains", "name": "Uses D3.js from CDN", "text": "d3@7"},
+        {"type": "contains", "name": "All 5 phases present", "text": "Welcome", "also_contains": ["Profile Setup", "Connect Account", "Tutorial", "Dashboard"]},
+        {"type": "contains", "name": "SDS warm canvas background", "text": "#FAF8F5"},
+        {"type": "contains", "name": "SDS interactive-primary color", "text": "#013D5B"},
+        {"type": "contains", "name": "SDS dark text", "text": "#1C1A17"},
+        {"type": "contains", "name": "SVG rendering", "text": "<svg"},
+        {"type": "contains", "name": "Click interaction", "text": "click"},
+        {"type": "contains", "name": "Zoom behavior", "text": "zoom"},
+        {"type": "contains", "name": "Transition animations", "text": "transition"}
+      ]
+    },
+    {
+      "id": 1,
+      "prompt": "Build me an interactive user flow for an e-commerce checkout: Browse → Cart → Shipping → Payment → Confirmation, with error handling for payment failure and address validation. Include decision diamonds for the validation steps and highlight the happy path.",
+      "expected_output": "A standalone HTML file with D3.js showing a checkout flow with decision diamonds for payment/address validation, error path nodes with red styling, and a visually distinct happy path. SDS light theme with warm canvas and semantic status colors.",
+      "files": [],
+      "assertions": [
+        {"type": "file_exists", "name": "HTML file exists", "pattern": "*.html"},
+        {"type": "contains", "name": "Uses D3.js from CDN", "text": "d3@7"},
+        {"type": "contains", "name": "Checkout phases present", "text": "Cart", "also_contains": ["Payment", "Confirmation"]},
+        {"type": "contains", "name": "Decision diamonds", "text": "diamond"},
+        {"type": "contains", "name": "Error handling", "text": "error"},
+        {"type": "contains", "name": "Happy path styling", "text": "happy"},
+        {"type": "contains", "name": "SDS warm canvas", "text": "#FAF8F5"},
+        {"type": "contains", "name": "SDS error color", "text": "#CF6253"},
+        {"type": "contains", "name": "Breadcrumb navigation", "text": "breadcrumb"},
+        {"type": "contains", "name": "SVG rendering", "text": "<svg"}
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Turn this into an interactive flow diagram:\n\n```mermaid\nflowchart LR\n    A([Start]) --> B[Search Products]\n    B --> C{Found results?}\n    C -->|Yes| D[Product Detail]\n    C -->|No| E[No Results Page]\n    E --> B\n    D --> F{In Stock?}\n    F -->|Yes| G[Add to Cart]\n    F -->|No| H[Notify When Available]\n    G --> I[Checkout]\n    I --> J([Order Confirmed])\n```",
+      "expected_output": "A standalone HTML file converting the Mermaid diagram into an interactive D3 visualization with proper node types (start/end as pills, decisions as diamonds, screens as rectangles). SDS light theme with warm canvas background.",
+      "files": [],
+      "assertions": [
+        {"type": "file_exists", "name": "HTML file exists", "pattern": "*.html"},
+        {"type": "contains", "name": "Uses D3.js from CDN", "text": "d3@7"},
+        {"type": "contains", "name": "Start node present", "text": "Start"},
+        {"type": "contains", "name": "Search Products node", "text": "Search Products"},
+        {"type": "contains", "name": "Decision: Found results", "text": "Found results"},
+        {"type": "contains", "name": "Decision: In Stock", "text": "In Stock"},
+        {"type": "contains", "name": "End node: Order Confirmed", "text": "Order Confirmed"},
+        {"type": "contains", "name": "SDS warm canvas", "text": "#FAF8F5"},
+        {"type": "contains", "name": "SDS interactive-primary", "text": "#013D5B"},
+        {"type": "contains", "name": "SVG rendering", "text": "<svg"}
+      ]
+    }
+  ]
+}

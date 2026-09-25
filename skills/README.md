@@ -61,6 +61,8 @@ skills/
 | `usability-psychologist` | 同上 | 同上 | 同上 |
 | `accessibility-engineer` | 同上 | 同上 | 同上 |
 | `improve-ui` | ibelick/ui-skills | `fd0889bdf72aee45c32028b4643b09735d5b5a34` | MIT © 2026 Julien Thibeaut |
+| `screen-flow-diagram` | richhemsley3/claude-design-skills | `1185d0d84974eaed6e927b953243c96754de02b6` | MIT © 2026 Rich Hemsley |
+| `interactive-flow-diagram` | 同上 | 同上 | 同上 |
 
 **不要修改这些第三方文件的内容。** 需要调整行为时：
 
@@ -81,7 +83,7 @@ skills/
 ## 如何新增一个 skill
 
 1. 按 `EVALUATION.md` 的三条标准评估（知识覆盖 / 工程适配 / 内容质量）
-2. 确认与已有 11 个以及本地 19 个不重复
+2. 确认与已有 13 个以及本地 19 个不重复
 3. clone 上游，原样复制到 `skills/<name>/`，带上 `LICENSE`
 4. 更新 `EVALUATION.md` 与本文件的来源表
 5. 跑同步 + `node scripts/run_checks.js`

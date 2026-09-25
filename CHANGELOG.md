@@ -1,5 +1,19 @@
 # 更新日志
 
+## 2026-09-25 · 追加两个流程图 skill + RPG 玩法中立性立为硬约束
+
+### 追加 `screen-flow-diagram` / `interactive-flow-diagram`（来源 A，MIT）
+
+- 经用户确认「可以学习一下」后，由「排除」改为「安装」。评估表里的排除理由同时更正 —— 「违反离线约束」不成立（离线约束管的是**随应用分发**的资源；这些是开发侧产物，不进 `public/`、不进 APK）。
+- CDN 依赖的处理：**第三方内容保持原样不改**；离线场景下由使用者在**生成产物时**把那一行换成本地 D3。这属于使用方式，不属于修改 skill。
+- 效果：已装第三方技能 11 → 13；Operit 全局目录 31 → 33。
+
+### RPG 玩法中立性立为硬约束（`docs/design/DESIGN_CONSTITUTION.md §11.1`）
+
+- **RPG 模式是「高度自定义的玩法框架」，不是某一套具体玩法。** UI 不得写死任何玩法数值或功能（HP / MP / EXP / 金币 / 等级 / 背包 / 增益 / 技能…… 一个都不预置）；界面上每个数值都必须由运行时声明驱动；**新增玩法维度时改数据声明，而不是 `public/index.html`**。
+- **登记当前已知偏差（未修复）**：`#rpg-status` 里 HP / MP 仍是**无 `hidden` 的常驻写死条**，更新逻辑在 `frontend/rpg-world.js` 直接读 `rs.hp` / `rs.maxHp` / `rs.mp` / `rs.maxMp`。同容器内的 `#rpg-dynamic-stats` 已是 definition 驱动的通用层 —— **方向是对的，写死层是遗留**。已登记，不静默处理。
+- 同步落点：`AGENTS.md §5` 新增第 7 条；`skills/ui-design-system/SKILL.md` 新增第 8 条约束；`references/components.md` 新增「玩法中立性」一节。
+
 ## 2026-09-25 · 安装 UI/UX 设计技能体系 + 建立设计总纲
 
 - **仓库成为技能唯一来源**：新建 `skills/`，收录 11 个第三方 MIT 技能（原样收录、零内容修改、各自带 LICENSE）+ 自写的统一入口 `ui-design-system`（`SKILL.md` 只做路由 + 10 个主题参考文件）。候选评估表与「不装的理由」记在 `skills/EVALUATION.md`。

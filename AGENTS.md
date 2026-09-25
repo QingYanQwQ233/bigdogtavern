@@ -64,6 +64,7 @@
    （改尺度定义时同步改 `check_design_scales.js` 头部注释与 `CHANGELOG`）
    **无障碍约束（§7）由两个脚本守**：`scripts/check_ui_accessibility.js`（静态，随 `run_checks` 跑）与 `scripts/audit_ui_accessibility.js`（运行时测量，需浏览器；改动 UI 后手动跑一次并在报告里给数）。动手前先读 `docs/ui-beauty-declaration.md §7` 的验证矩阵与「当前已知偏差」。
 6. 输入/API/世界包/扩展都是不可信边界：保留长度限制、ID 校验、白名单、CAS、原子写入、HTML/CSS 消毒和脚本授权确认。
+7. **RPG 模式不得写死任何玩法数值或功能**（HP / MP / EXP / 金币 / 等级 / 背包 / 增益 / 技能…… 一个都不预置）。它是**玩法框架**，不是某一套玩法：界面上每个数值都必须由运行时声明驱动，新增玩法维度时改数据声明，而不是 `public/index.html`。硬约束，详见 `docs/design/DESIGN_CONSTITUTION.md §11.1`（含当前已知偏差与证据）。
 
 ## 6. 文档同步（硬性要求）
 

@@ -77,6 +77,7 @@ BigDogTavern 是**离线 AI RP/RPG 应用的本地 Web UI**。它不是 SaaS Das
 5. **状态优先** —— World State / Player State / Memory / Events 的可见性高于装饰。
 6. **可定制** —— 主题值要过安全校验（禁尖括号、花括号、分号、`url()`）。
 7. **动态内容** —— 要能容纳任意长度、任意语言的正文。
+8. **玩法中立（硬约束）** —— RPG 模式是**玩法框架**，不是某一套玩法。**不写死任何具体数值或功能**（HP / MP / EXP / 金币 / 等级 / 背包 / 增益 / 技能…… 一个都不预置）。界面上每个数值都必须由运行时声明驱动；新增玩法维度时改数据声明，不改 `public/index.html`。详见 `docs/design/DESIGN_CONSTITUTION.md §11.1`。
 
 ## 输出格式
 
