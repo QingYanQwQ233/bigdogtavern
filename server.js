@@ -6435,7 +6435,12 @@ function normalizeRpgPatch(patch) {
   if (!patch || typeof patch !== 'object' || !Array.isArray(patch.updates)) return patch;
   return {
     ...patch,
-    updates: patch.updates.filter(update => !RPG_WORLD_DISABLED_UPDATE_TYPES.has(update?.type)).map(update => {
+    updates: patch.updates.map(update => {
+      // 与前端一致：模型把地点切换写成状态字段路径（state.locationId）时，先归一为 location.set。
+      if (update?.type !== 'state.locationId') return update;
+      const raw = update.locationId ?? update.location ?? update.id ?? update.value;
+      return raw === undefined || raw === null ? update : { ...update, type: 'location.set' };
+    }).filter(update => !RPG_WORLD_DISABLED_UPDATE_TYPES.has(update?.type)).map(update => {
       if (RPG_RUNTIME_UPDATE_ALIASES.has(update?.type)) {
         const type = `runtime.${update.type}`;
         if (!update.type.startsWith('variable.')) return { ...update, type };

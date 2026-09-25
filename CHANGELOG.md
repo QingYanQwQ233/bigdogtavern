@@ -1,4 +1,7 @@
 # 更新日志
+## 2026-09-25 · 协议容错：state.locationId 地点漂移归一化
+- 模型把地点切换写成状态字段路径（`state.locationId`）时，前端与服务端均归一为 `location.set`（原先按未知操作逐条丢弃）。
+- 实机捕获：模型发出 `{"type":"state.locationId","id":"wolf-tooth-inn"}` 被丢弃；`check_rpg_protocol` 增加同名回归断言。
 ## 2026-09-25 · 设置滑杆浮点限位补全（步进 / 填充 / 拖拽 / 落盘）
 - 四个采样滑杆 `step="any"` → `0.01`：拖拽 / 方向键原生按百分位步进，不再产生长尾浮点。
 - 填充、拖拽即时标签与保存读取统一两位小数量化（`fmtSetting` / `readSettingNumber`）；历史长浮点随下次保存收敛（0.582801… → 0.58）。
