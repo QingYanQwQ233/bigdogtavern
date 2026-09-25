@@ -766,10 +766,13 @@ function setApiStatus(text, isErr = false) {
   el.classList.toggle('ok', !isErr && !!settings.baseUrl);
 }
 
+// §7-3：弹窗关闭后把焦点还给触发元素——键盘用户不能丢焦点
+let settingsReturnFocus = null;
 function openSettings() {
   closeNavDrawer();
   fillSettingsForm();
   renderProfileSelect();
+  settingsReturnFocus = document.activeElement;
   $('settings-modal').classList.remove('hidden');
 }
 
@@ -778,6 +781,9 @@ function closeSettings() {
   $('test-result').textContent = '';
   $('test-result').className = '';
   updateApiStatusFromSettings();
+  const back = (settingsReturnFocus && settingsReturnFocus !== document.body && document.contains(settingsReturnFocus)) ? settingsReturnFocus : document.querySelector('.js-settings');
+  settingsReturnFocus = null;
+  if (back && typeof back.focus === 'function') back.focus();
 }
 
 function updateApiStatusFromSettings() {
@@ -2140,6 +2146,7 @@ function buildMapJson() {
     gridStats: { landPx: land, oceanPx: ocean, total: map.size * map.size, regions: map.regions.length },
   };
 }
+let mapJsonReturnFocus = null;
 function showMapJson() {
   const data = buildMapJson();
   if (!data) return;
@@ -2147,7 +2154,17 @@ function showMapJson() {
   const pre = $('map-json-content');
   if (pre) pre.textContent = lastMapJson;
   const mj = $('map-json-modal');
-  if (mj) mj.classList.remove('hidden');
+  if (mj) {
+    mapJsonReturnFocus = document.activeElement;
+    mj.classList.remove('hidden');
+  }
+}
+function closeMapJsonModal() {
+  const mj = $('map-json-modal');
+  if (mj) mj.classList.add('hidden');
+  const back = (mapJsonReturnFocus && mapJsonReturnFocus !== document.body && document.contains(mapJsonReturnFocus)) ? mapJsonReturnFocus : null;
+  mapJsonReturnFocus = null;
+  if (back && typeof back.focus === 'function') back.focus();
 }
 function copyMapJson() {
   const data = buildMapJson();
@@ -3262,16 +3279,21 @@ function toggleMapView() {
   }
 }
 
+let mapReturnFocus = null;
 function openMapModal() {
   const modal = $('map-modal');
   if (!modal) return;
   mmShowOriginal = false; // 每次打开默认显示美化图（如有）
+  mapReturnFocus = document.activeElement;
   modal.classList.remove('hidden');
   renderMapModal();
 }
 function closeMapModal() {
   const modal = $('map-modal');
   if (modal) modal.classList.add('hidden');
+  const back = (mapReturnFocus && mapReturnFocus !== document.body && document.contains(mapReturnFocus)) ? mapReturnFocus : null;
+  mapReturnFocus = null;
+  if (back && typeof back.focus === 'function') back.focus();
 }
 
 /* 点击命中（地图窗口内 canvas / 美化图共用）：DOM 坐标 → 网格坐标 → mapHit，信息显示在窗口底部 */
@@ -3635,11 +3657,11 @@ function bindEvents() {
   if (btnRef) btnRef.addEventListener('click', showMapRef);
   // 地图数据 JSON 查看
   const mjModal = $('map-json-modal');
-  if (mjModal) mjModal.addEventListener('click', (e) => { if (e.target === mjModal) mjModal.classList.add('hidden'); });
+  if (mjModal) mjModal.addEventListener('click', (e) => { if (e.target === mjModal) closeMapJsonModal(); });
   const mjCopy = $('mm-json-copy');
   if (mjCopy) mjCopy.addEventListener('click', copyMapJson);
   const mjClose = $('mm-json-close');
-  if (mjClose) mjClose.addEventListener('click', () => { if (mjModal) mjModal.classList.add('hidden'); });
+  if (mjClose) mjClose.addEventListener('click', closeMapJsonModal);
   // 信息条内「查看原图」按钮（事件委托，innerHTML 重建后仍有效）
   const mmInfoEl = $('mm-info');
   if (mmInfoEl) mmInfoEl.addEventListener('click', (e) => {
@@ -4096,6 +4118,22 @@ function bindEvents() {
   $('rpg-mobile-scrim')?.addEventListener('click', () => setRpgMobileDrawer(''));
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
+    // §7-3：弹窗层优先——它们在最上层，必须能用键盘关闭，并由各自的 close 函数把焦点还给触发元素
+    if (!$('settings-modal').classList.contains('hidden')) {
+      e.preventDefault();
+      closeSettings();
+      return;
+    }
+    if (!$('map-json-modal').classList.contains('hidden')) {
+      e.preventDefault();
+      closeMapJsonModal();
+      return;
+    }
+    if (!$('map-modal').classList.contains('hidden')) {
+      e.preventDefault();
+      closeMapModal();
+      return;
+    }
     if ($('chat-header-menu').open) {
       e.preventDefault();
       closeChatHeaderMenu(true);

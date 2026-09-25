@@ -3186,6 +3186,13 @@ body.world-setup-extension-mode .rpg-extension-head {
   #btn-session { max-width: 92px; padding: 4px 6px; font-size: 11px; }
   .composer { padding: 6px 8px 10px; }
   textarea#input { font-size: 16px; padding: 10px 12px; min-height: 44px; max-height: 44px; }
+  /* §7-2：移动端所有表单控件统一 ≥16px，避免聚焦时 WebView 自动缩放。
+     这是运行时审计（scripts/audit_ui_accessibility.js）测出的偏差：设置弹窗内 14 个
+     输入框/下拉原本是 13px。 */
+  .field input, .field select, .field textarea, .char-wizard input,
+  #st-panel-gen textarea, .pg-reply-options textarea, .pg-sequence-actions select,
+  .rpg-runtime-action-field input:not([type="checkbox"]), .rpg-runtime-action-field select,
+  .rpg-runtime-action-field textarea, #st-panel-ui #ui-custom-vars { font-size: 16px; }
   .composer-row { gap: 6px; }
   .composer-tool { flex-basis: 44px; }
   .seal { min-width: 76px; padding-inline: 14px; }

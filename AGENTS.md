@@ -62,6 +62,7 @@
    · 动效 `0 100 150 200 250 300 400 800 1000 1400 60000` ms，**统一使用 ms 单位**
    · 字号 `10 11 12 13 14 15 16 18 20 24 28 42 46`，另允许 `em` / `var()` / `calc()`
    （改尺度定义时同步改 `check_design_scales.js` 头部注释与 `CHANGELOG`）
+   **无障碍约束（§7）由两个脚本守**：`scripts/check_ui_accessibility.js`（静态，随 `run_checks` 跑）与 `scripts/audit_ui_accessibility.js`（运行时测量，需浏览器；改动 UI 后手动跑一次并在报告里给数）。动手前先读 `docs/ui-beauty-declaration.md §7` 的验证矩阵与「当前已知偏差」。
 6. 输入/API/世界包/扩展都是不可信边界：保留长度限制、ID 校验、白名单、CAS、原子写入、HTML/CSS 消毒和脚本授权确认。
 
 ## 6. 文档同步（硬性要求）
