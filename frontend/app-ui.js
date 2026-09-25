@@ -2946,46 +2946,18 @@ function applyLayout() {
   document.body.dataset.layout = 'classic';
 }
 
-/* 模式：酒馆 / RPG（body[data-mode] 控制布局与渲染分支） */
-function applyMode(name) {
+/* 应用外壳：单模式（RPG）。body[data-mode] 仍是布局与渲染分支的开关。 */
+function applyMode() {
   if (worldTurnPending) discardWorldTurnPending();
   setRpgMobileDrawer('');
   closeNavDrawer();
-  mode = (name === 'rpg') ? 'rpg' : 'tavern';
   document.body.dataset.mode = mode;
-  localStorage.setItem(LS_MODE, mode);
-  document.querySelectorAll('.js-mode-switch').forEach(btn => {
-    btn.querySelector('.icon').textContent = mode === 'rpg' ? '⚔' : '🍺';
-    btn.querySelector('.mode-switch-label').textContent = mode === 'rpg' ? '模式：RPG' : '模式：酒馆';
-  });
   syncModeNavigation('chat');
-  if (mode === 'tavern') activateSessionScope();
-  // 酒馆使用角色会话；RPG 只使用 WorldCard → WorldSave，不创建/激活普通角色会话。
+  // RPG 只使用 WorldCard → WorldSave，不创建/激活普通角色会话。
   renderSessions();
   renderMessages();
-  if (mode === 'rpg') {
-    ['char-mgr', 'prompt-mgr', 'regex-mgr', 'lore-mgr', 'memory-mgr'].forEach(id => $(id)?.classList.add('hidden'));
-    openWorldLibrary(true);
-  }
-  else { exitWorldImmersiveMode(); closeWorldLibrary(); renderCharacter(); }
-}
-
-function switchMode() {
-  const next = mode === 'rpg' ? 'tavern' : 'rpg';
-  // 每种模式记住自己的预设；首次进入时使用对应示例。
-  const defaultPreset = next === 'rpg' ? 'RPG 叙事引擎（示例）' : 'RP 基础（示例）';
-  prefs.currentPresetByMode = { ...(prefs.currentPresetByMode || {}) };
-  const hasSavedPreset = Object.prototype.hasOwnProperty.call(prefs.currentPresetByMode, next);
-  const savedPreset = prefs.currentPresetByMode[next];
-  if (!hasSavedPreset || (savedPreset && !promptPresets[savedPreset])) prefs.currentPresetByMode[next] = promptPresets[defaultPreset] ? defaultPreset : '';
-  prefs.currentPreset = prefs.currentPresetByMode[next] || '';
-  saveJSON(LS_PREFS, prefs);
-  applyMode(next);
-  renderSessions();
-  renderMessages();
-  renderQuickActions(); // 快捷行动预设随模式切换
-  renderPGList(); // 提示词页「当前预设」高亮/下拉刷新
-  renderBindSelects(); // 角色绑定预设下拉刷新
+  ['char-mgr', 'prompt-mgr', 'regex-mgr', 'lore-mgr', 'memory-mgr'].forEach(id => $(id)?.classList.add('hidden'));
+  openWorldLibrary(true);
 }
 
 /* ─────────── 手机导航抽屉 ─────────── */
@@ -3890,8 +3862,6 @@ function bindEvents() {
   $('devtools-close')?.addEventListener('click', closeDevtools);
   $('devtools-panel')?.addEventListener('cancel', e => { e.preventDefault(); closeDevtools(); });
   $('devtools-panel')?.addEventListener('click', e => { if (e.target === e.currentTarget) closeDevtools(); });
-  // 模式切换：刷新快捷行动与 RPG 面板
-  document.querySelectorAll('.js-mode-switch').forEach(button => button.addEventListener('click', switchMode));
   renderQuickActions();
   // 世界库：当前存档接管 RPG 主链；旧 RPG 回合仍保留兼容出口
   $('world-refresh').addEventListener('click', async () => {
@@ -4444,7 +4414,7 @@ async function init() {
   applyTypography(); // 启动即恢复用户排版（覆盖 :root 默认变量）
   ensureSessions();
   applyTheme();
-  applyMode(mode);
+  applyMode();
   bindEvents();
   renderMessages();
   renderCharacter();

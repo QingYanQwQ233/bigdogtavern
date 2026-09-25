@@ -2,7 +2,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
-const context = vm.createContext({ console: { debug() {}, warn() {}, error() {} }, localStorage: { getItem: () => null }, window: {}, document: {}, AbortController });
+const context = vm.createContext({ console: { debug() {}, warn() {}, error() {} }, localStorage: { getItem: () => null, setItem() {} }, window: {}, document: {}, AbortController });
 const source = fs.readFileSync('public/app.js', 'utf8').replace(/\ninit\(\);\s*$/, '');
 assert.doesNotMatch(source, /(?:async function|await) repairTavernReplyOptions/);
 vm.runInContext(source, context);

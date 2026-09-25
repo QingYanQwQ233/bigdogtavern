@@ -397,8 +397,6 @@ body[data-mode="rpg"] #rpg-status { display: flex; grid-area: status; }
   padding-bottom: 12px;
 }
 .sidebar-mode-nav { display: none; flex-direction: column; gap: 4px; }
-body:not([data-mode]) .sidebar-mode-nav[data-mode-nav="tavern"],
-body[data-mode="tavern"] .sidebar-mode-nav[data-mode-nav="tavern"],
 body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
 
 .nav-item {

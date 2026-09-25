@@ -166,7 +166,10 @@ const MESSAGE_RENDER_WINDOW_SIZE = 120;
 const MESSAGE_RENDER_WINDOW_STEP = 80;
 let messageRenderWindow = { key: '', start: 0, preserveScroll: false };
 let theme = FIXED_THEME;
-let mode = localStorage.getItem(LS_MODE) || 'tavern'; // 'tavern' 酒馆模式 | 'rpg' RPG 模式
+// ST（酒馆）模式已移除，应用固定为 RPG 单模式。LS_MODE 已无读取方，
+// 旧存档里的 'tavern' 一并改写，避免留下一个指向已删除模式的化石值。
+let mode = 'rpg';
+if (localStorage.getItem(LS_MODE) !== mode) localStorage.setItem(LS_MODE, mode);
 let sending = false;
 let activeRequestController = null;
 let requestAbortRequested = false;
