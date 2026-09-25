@@ -190,4 +190,8 @@ assert.match(source, /fmtSetting\(\$\('s-temperature'\)\.value\)/, '滑杆拖拽
 assert.match(source, /fmtSetting\(\$\(id\)\.value\)/, '惩罚滑杆拖拽标签必须经过两位小数格式化');
 assert.match(source, /settings\.temperature = readSettingNumber\('s-temperature'/, '设置读取必须两位小数量化（temperature）');
 assert.match(source, /settings\.presencePenalty = readSettingNumber\('s-pres-p'/, '设置读取必须两位小数量化（presence）');
+// 采样滑杆步进收敛 0.01：拖拽/方向键原生按百分位量化（与两位小数展示、落盘量化配套）。
+for (const sliderId of ['s-temperature', 's-top-p', 's-freq-p', 's-pres-p']) {
+  assert.match(html, new RegExp('id="' + sliderId + '"[^>]*step="0.01"'), `${sliderId} 步进必须 0.01`);
+}
 console.log('check_frontend_state_guards: ok');
