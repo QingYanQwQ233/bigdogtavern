@@ -1911,9 +1911,9 @@
           { "id": "empathy", "label": "共情", "description": "理解他人的情绪与真实意图。", "min": 0, "max": 10, "default": 1, "step": 1 }
         ],
         "resources": [
-          { "id": "hp", "label": "生命", "type": "number", "min": 1, "max": 999, "initial": 20 },
-          { "id": "mp", "label": "魔力", "type": "number", "min": 0, "max": 999, "initial": 5 },
-          { "id": "gold", "label": "金币", "type": "number", "min": 0, "max": 1000000, "initial": 10 }
+          { "id": "hp", "label": "生命", "type": "number", "min": 1, "max": 30, "initial": 20 },
+          { "id": "mp", "label": "魔力", "type": "number", "min": 0, "max": 10, "initial": 5 },
+          { "id": "gold", "label": "金币", "type": "number", "min": 0, "initial": 10 }
         ],
         "derived": [
           { "id": "readiness", "label": "行动准备", "formula": "attributes.wits + attributes.spirit", "description": "由属性自动计算的只读值" }
