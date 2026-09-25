@@ -8128,29 +8128,12 @@ function ensureSessions() {
 
 function activateSessionScope() {
   ensureSessions();
-  if (!currentCharId) { currentSessionId = null; return; }
   if (!curSession()) newSession(false);
 }
 
 function newSession(askName = true) {
   if (mode === 'rpg') { openWorldLibrary(); return; }
-  const char = currentChar();
-  if (!char) { if (askName) alert('请先创建 / 选择角色'); return; }
-  const defaultName = '会话 ' + (sessions.filter(sessionMatches).length + 1);
-  const name = askName ? ((prompt('新会话名称：', defaultName) || defaultName).trim() || defaultName) : defaultName;
-  const messages = [];
-  const greeting = getGreeting();
-  if (greeting) {
-    messages.push(createTavernGreetingMessage(greeting)); // 开场白：与 AI 回复共用协议解析
-  } else if (defaults && defaults.ui && defaults.ui.noGreeting) {
-    messages.push({ role: 'system', content: defaults.ui.noGreeting, ts: Date.now() });
-  }
-  const session = { id: uid(), name, kind: mode, messages, createdAt: Date.now() };
-  sessions.unshift(session);
-  currentSessionId = sessions[0].id;
-  saveSessions();
-  renderSessions();
-  renderMessages();
+  // 单模式下没有本地会话创建：新会话 = 在世界库创建/打开世界存档
 }
 
 function switchSession(id) {
