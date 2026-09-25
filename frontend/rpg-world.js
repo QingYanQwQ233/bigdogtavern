@@ -5425,9 +5425,13 @@ function renderRPG() {
   applyWorldUiSlots();
   const rs = curRpgState();
   if (!rs) return;
-  const worldRuntime = worldModeActive();
+  // 右栏内容可见性跟随世界卡槽位声明：仅 hide / replace 时隐藏宿主内容；
+  // 默认（decorate / append / 未声明）保持可见——旧实现按世界模式整块隐藏，属遗留缺陷。
   const legacyWorldRight = $('rpg-legacy-world-right');
-  if (legacyWorldRight) legacyWorldRight.hidden = worldRuntime;
+  if (legacyWorldRight) {
+    const rightRegion = worldModeActive() ? worldUiRegions()['sidebar.right'] : null;
+    legacyWorldRight.hidden = !!(rightRegion && (rightRegion.mode === 'hide' || rightRegion.mode === 'replace' || rightRegion.visible === false));
+  }
   const sendButton = $('btn-send');
   if (sendButton && !sending) sendButton.disabled = worldSavePlanning();
   const setT = (id, v) => { const el = $(id); if (el) el.textContent = v; };
