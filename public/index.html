@@ -109,6 +109,7 @@
         <div class="sidebar-mode-nav" data-mode-nav="rpg" aria-label="RPG 导航">
           <button class="nav-item active" data-view="chat"><span class="icon">⚔</span><span class="label">工作台</span></button>
           <button class="nav-item" data-view="worlds"><span class="icon">🗺</span><span class="label">世界与存档</span></button>
+          <button class="nav-item" data-view="lore"><span class="icon">📖</span><span class="label">世界书</span></button>
           <button class="nav-item" data-view="regex"><span class="icon">⌁</span><span class="label">正则</span></button>
         </div>
       </nav>
@@ -463,7 +464,7 @@
     <div class="cm-side" data-ui-level="3" data-ui-region="tavern.regex.sidebar" data-ui-owner="host">
       <div class="mobile-manager-head"><button class="ghost-btn back-action" data-back-chat data-manager-back data-parent-label="正则列表" type="button">回到对话</button></div>
       <div class="cm-head">输出正则</div>
-      <p class="hint" id="regex-mode-note">当前模式：酒馆</p>
+      <p class="hint" id="regex-mode-note">当前模式：RPG</p>
       <div id="regex-list" class="cm-list"></div>
       <button class="btn gold small" id="regex-new" style="width:100%">＋ 新建自定义正则</button>
       <p class="hint" style="margin-top:10px">当前预设携带的正则会自动识别并执行；自定义正则只作用于当前模式。</p>
@@ -523,7 +524,7 @@
       <input id="lb-import-file" type="file" accept=".json,application/json" hidden />
       <button class="ghost-btn" id="lb-export" style="width:100%;margin-top:6px">⇩ 导出 ST 世界书</button>
       <button class="ghost-btn" id="lb-del" style="width:100%;margin-top:6px">删除当前世界书</button>
-      <p class="hint" style="margin-top:10px">支持 SillyTavern World Info JSON；「设为全局」对所有酒馆对话生效，角色卡和世界卡都可选择绑定。</p>
+      <p class="hint" style="margin-top:10px">支持 SillyTavern World Info JSON；「设为全局」对所有对话生效，世界卡可选择绑定。</p>
     </div>
     <div class="cm-edit" data-ui-level="3" data-ui-region="tavern.lorebooks.editor" data-ui-owner="host">
       <div class="cm-edit-head">
@@ -693,6 +694,7 @@
         <div class="sidebar-mode-nav" data-mode-nav="rpg" aria-label="RPG 导航">
           <button class="nav-item active" data-view="chat"><span class="icon">⚔</span><span class="label">工作台</span></button>
           <button class="nav-item" data-view="worlds"><span class="icon">🗺</span><span class="label">世界与存档</span></button>
+          <button class="nav-item" data-view="lore"><span class="icon">📖</span><span class="label">世界书</span></button>
           <button class="nav-item" data-view="regex"><span class="icon">⌁</span><span class="label">正则</span></button>
         </div>
         <button class="nav-item api-entry js-settings"><span class="icon">🔮</span><span class="label">设置</span></button>
@@ -892,7 +894,7 @@
         <!-- ── Tab 排版 ── -->
         <div id="st-panel-typo" class="hidden" role="tabpanel" aria-labelledby="st-tab-typo">
           <div class="field">
-            <label for="t-font">正文字体 <span class="hint-inline">作用于酒馆对话与 RPG 叙事正文</span></label>
+            <label for="t-font">正文字体 <span class="hint-inline">作用于 RPG 叙事正文</span></label>
             <select id="t-font">
               <option value="default">跟随界面（默认）</option>
               <option value="sans">黑体 · 无衬线</option>

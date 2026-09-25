@@ -1953,7 +1953,7 @@ function renderWorldDraftLorebookOptions(selectedIds = []) {
   const missing = [...selected].filter(id => !known.has(id)).map(id => [id, { name: '缺失引用' }]);
   const options = [...available, ...missing];
   if (!options.length) {
-    host.innerHTML = '<p class="world-draft-lorebook-empty">当前没有可选择的世界书，请先在酒馆模式的“世界书”页创建。</p>';
+    host.innerHTML = '<p class="world-draft-lorebook-empty">当前没有可选择的世界书，请先在“世界书”页创建。</p>';
     return;
   }
   host.innerHTML = options.map(([id, book]) => {
