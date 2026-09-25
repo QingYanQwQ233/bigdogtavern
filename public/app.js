@@ -241,8 +241,6 @@ const WORLD_EXTENSION_CHANNEL = 'tavern.rpg.extension';
 let worldExtensionState = { iframe: null, nonce: '', signature: '', ready: false, timer: null, pending: new Map(), nextRequestId: 0, surface: 'play' };
 const worldExtensionDeniedApprovals = new Set();
 const cardScriptDeniedApprovals = new Set();
-const tavernMemoryPending = new Set();
-const tavernMemoryStatus = new Map();
 
 /* ─────────── 数据加载 / 保存（JSON 文件存储） ─────────── */
 function saveSettings() {
@@ -8766,7 +8764,6 @@ function ensureSessions() {
     for (const s of sessions) {
       if (!s.kind) s.kind = 'tavern';
       if (!s.charId || s.charId === 'undefined') s.charId = currentCharId;
-      if (s.kind === 'tavern') ensureTavernSessionMemory(s);
     }
     // 当前会话必须同时属于当前角色与当前模式。
     if (!curSession()) currentSessionId = (sessions.find(sessionMatches) || {}).id || null;
@@ -8781,7 +8778,6 @@ function ensureSessions() {
     messages: (oldMsgs && oldMsgs.length) ? oldMsgs : [],
     createdAt: Date.now(),
   }];
-  if (oldKind === 'tavern') ensureTavernSessionMemory(sessions[0]);
   currentSessionId = sessionMatches(sessions[0]) ? sessions[0].id : null;
   saveSessions();
 }
@@ -8806,7 +8802,6 @@ function newSession(askName = true) {
     messages.push({ role: 'system', content: defaults.ui.noGreeting, ts: Date.now() });
   }
   const session = { id: uid(), name, charId: currentCharId, kind: mode, messages, createdAt: Date.now() };
-  if (mode === 'tavern') ensureTavernSessionMemory(session);
   sessions.unshift(session);
   currentSessionId = sessions[0].id;
   saveSessions();
@@ -9711,161 +9706,18 @@ function deleteUserPreset() {
   fillUserForm();
 }
 
-/* ─────────── RP 自动滚动记忆 ───────────
- * 原始消息始终保留在会话中；这里只记录摘要覆盖了哪些消息，并在发给 AI 时替换旧历史。
- */
-function tavernAutoMemoryDefaults() {
-  const source = defaults?.prefs?.tavernAutoMemory;
-  return {
-    enabled: source?.enabled === true,
-    windowTurns: Number(source?.windowTurns) || 20,
-    summarizeTurns: Number(source?.summarizeTurns) || 15,
-    summaryChars: Number(source?.summaryChars) || 100,
-  };
-}
 
-function tavernAutoMemoryConfig() {
-  const base = tavernAutoMemoryDefaults();
-  const saved = prefs?.tavernAutoMemory && typeof prefs.tavernAutoMemory === 'object'
-    ? prefs.tavernAutoMemory : {};
-  const windowTurns = Math.max(2, Math.min(100, Number(saved.windowTurns) || base.windowTurns));
-  const summarizeTurns = Math.max(1, Math.min(windowTurns - 1, Number(saved.summarizeTurns) || base.summarizeTurns));
-  return {
-    enabled: saved.enabled === undefined ? base.enabled : saved.enabled === true,
-    windowTurns,
-    summarizeTurns,
-    summaryChars: Math.max(20, Math.min(500, Number(saved.summaryChars) || base.summaryChars)),
-  };
-}
 
-function ensureTavernSessionMemory(session) {
-  if (!session || session.kind !== 'tavern') return null;
-  if (!session.autoMemory || typeof session.autoMemory !== 'object' || Array.isArray(session.autoMemory)) {
-    session.autoMemory = { version: 1, summaries: [] };
-  }
-  if (!Array.isArray(session.autoMemory.summaries)) session.autoMemory.summaries = [];
-  session.autoMemory.version = 1;
-  return session.autoMemory;
-}
 
-function ensureTavernMessageIds(session) {
-  if (!session || session.kind !== 'tavern' || !Array.isArray(session.messages)) return false;
-  let changed = false;
-  for (const message of session.messages) {
-    if (!message || (message.role !== 'user' && message.role !== 'assistant')) continue;
-    if (!message.id) { message.id = uid(); changed = true; }
-  }
-  return changed;
-}
 
-function getTavernTurns(session) {
-  if (!session || session.kind !== 'tavern' || !Array.isArray(session.messages)) return [];
-  const turns = [];
-  let pendingMessages = [];
-  for (const message of session.messages) {
-    if (!message) continue;
-    if (message.role === 'user') {
-      // 骰点等 meta 用户消息属于当前玩家回合，必须随该回合一起总结和保留。
-      // 连续的用户消息也视作同一轮，避免在异常恢复后静默覆盖较早输入。
-      if (!message.meta || pendingMessages.some(item => !item.meta)) pendingMessages.push(message);
-      continue;
-    }
-    if (message.role !== 'assistant') continue;
-    if (!pendingMessages.some(item => !item.meta)) { pendingMessages = []; continue; }
-    turns.push({ messages: [...pendingMessages, message] });
-    pendingMessages = [];
-  }
-  return turns;
-}
 
-function getTavernSummarizedIds(session) {
-  const memory = ensureTavernSessionMemory(session);
-  return new Set(memory.summaries.flatMap(summary => Array.isArray(summary.sourceMessageIds) ? summary.sourceMessageIds : []));
-}
 
-function getTavernUnsummarizedTurns(session) {
-  const summarizedIds = getTavernSummarizedIds(session);
-  return getTavernTurns(session).filter(turn => turn.messages.every(message => !summarizedIds.has(message.id)));
-}
 
-function tavernTurnHistory(session = curSession()) {
-  if (!session || !Array.isArray(session.messages)) return [];
-  const summarizedIds = getTavernSummarizedIds(session);
-  // 历史请求不能只展开“完整回合”：发送请求时最新玩家输入天然还没有 AI 配对。
-  return session.messages
-    .filter(message => message && (message.role === 'user' || message.role === 'assistant') && !summarizedIds.has(message.id))
-    .map(message => ({
-      role: message.role,
-      content: regexHistoryContent(message),
-      ...(message.meta ? { meta: true } : {}),
-    }));
-}
 
-function buildTavernAutoMemoryPromptPart(session = curSession()) {
-  if (mode !== 'tavern' || !tavernAutoMemoryConfig().enabled || !session) return '';
-  const summaries = ensureTavernSessionMemory(session).summaries.filter(summary => summary?.text?.trim());
-  if (!summaries.length) return '';
-  return '【本会话自动记忆】\n' + summaries.map((summary, index) => `- ${index + 1}. ${summary.text.trim()}`).join('\n');
-}
 
-function renderTavernAutoMemoryStatus() {
-  const status = $('mem-auto-status');
-  if (!status) return;
-  if (mode !== 'tavern') {
-    status.textContent = '自动记忆仅在酒馆模式生效。';
-    return;
-  }
-  const config = tavernAutoMemoryConfig();
-  const session = curSession();
-  if (!session) {
-    status.textContent = config.enabled ? '自动记忆：已开启，等待 RP 会话。' : '自动记忆：已关闭。';
-    return;
-  }
-  const memory = ensureTavernSessionMemory(session);
-  const pending = getTavernUnsummarizedTurns(session).length;
-  const lastError = tavernMemoryStatus.get(session.id);
-  status.textContent = config.enabled
-    ? `自动记忆：已开启 · 已生成 ${memory.summaries.length} 段摘要 · 待总结 ${pending}/${config.windowTurns} 轮${lastError ? ` · ${lastError}` : ''}`
-    : `自动记忆：已关闭 · 当前会话已有 ${memory.summaries.length} 段摘要（重新开启后继续使用）`;
-  status.classList.toggle('error', !!lastError);
-}
 
-function fillTavernAutoMemoryForm() {
-  const config = tavernAutoMemoryConfig();
-  if ($('mem-auto-enabled')) $('mem-auto-enabled').checked = config.enabled;
-  if ($('mem-auto-window')) $('mem-auto-window').value = config.windowTurns;
-  if ($('mem-auto-summarize')) $('mem-auto-summarize').value = config.summarizeTurns;
-  if ($('mem-auto-chars')) $('mem-auto-chars').value = config.summaryChars;
-  renderTavernAutoMemoryStatus();
-}
 
-function readTavernAutoMemoryForm() {
-  if (!$('mem-auto-enabled')) return;
-  const current = tavernAutoMemoryConfig();
-  const windowTurns = Math.max(2, Math.min(100, Number($('mem-auto-window').value) || current.windowTurns));
-  const summarizeTurns = Math.max(1, Math.min(windowTurns - 1, Number($('mem-auto-summarize').value) || current.summarizeTurns));
-  const summaryChars = Math.max(20, Math.min(500, Number($('mem-auto-chars').value) || current.summaryChars));
-  prefs.tavernAutoMemory = {
-    enabled: $('mem-auto-enabled').checked,
-    windowTurns,
-    summarizeTurns,
-    summaryChars,
-  };
-  saveJSON(LS_PREFS, prefs);
-  renderTavernAutoMemoryStatus();
-}
 
-function clearTavernAutoMemory() {
-  const session = curSession();
-  if (!session) return;
-  const memory = ensureTavernSessionMemory(session);
-  if (!memory.summaries.length) return;
-  if (!confirm('清空当前会话的自动摘要？原始聊天记录不会删除。')) return;
-  memory.summaries = [];
-  tavernMemoryStatus.delete(session.id);
-  saveSessions(session);
-  renderMessages();
-}
 async function resetCurrentWorldSave() {
   if (!worldModeActive() || !currentWorldSave) return;
   if (worldTurnPendingActive()) discardWorldTurnPending();
@@ -9896,16 +9748,6 @@ async function resetCurrentWorldSave() {
   renderDebugTerminal();
 }
 
-function invalidateTavernAutoMemory(session, messageIds) {
-  const memory = ensureTavernSessionMemory(session);
-  if (!memory?.summaries?.length) return false;
-  const ids = new Set(Array.isArray(messageIds) ? messageIds : [messageIds]);
-  const affected = memory.summaries.some(summary => (summary.sourceMessageIds || []).some(id => ids.has(id)));
-  if (!affected) return false;
-  memory.summaries = [];
-  tavernMemoryStatus.set(session.id, '历史已修改，自动摘要已清除');
-  return true;
-}
 
 /* 记忆条目 */
 function renderMemList() {
@@ -12242,8 +12084,6 @@ function buildMemoryPromptPart() {
   const mems = (userData?.memories || []).filter(m => m.enabled !== false && m.content?.trim());
   const parts = [];
   if (mems.length) parts.push('【记忆】\n' + mems.map(m => '- ' + m.content.trim()).join('\n'));
-  const rolling = buildTavernAutoMemoryPromptPart();
-  if (rolling) parts.push(rolling);
   return parts.join('\n\n');
 }
 
@@ -12388,7 +12228,6 @@ function regexHistoryContent(message) {
 
 function tavernPromptHistoryMessages(session = curSession()) {
   if (!session || !Array.isArray(session.messages)) return [];
-  if (tavernAutoMemoryConfig().enabled) return tavernTurnHistory(session);
   return session.messages
     .filter(message => message && (message.role === 'user' || message.role === 'assistant'))
     .map(message => ({
@@ -12760,95 +12599,8 @@ function summarizeTavernTurnText(turns) {
   }).join('\n\n');
 }
 
-async function requestTavernMemorySummary(turns, config) {
-  if (!settings.baseUrl) throw new Error('未配置 API，自动记忆将在下一轮重试');
-  const payload = {
-    baseUrl: settings.baseUrl,
-    apiKey: settings.apiKey,
-    body: {
-      model: settings.model || 'default',
-      messages: [
-        {
-          role: 'system',
-          content: `你是 RP 对话记忆压缩器。将输入的完整对话压缩成约 ${config.summaryChars} 个中文字符的事实摘要。保留人物关系、关键事件、地点、承诺、未完成目标和重要状态；不要补写未发生的内容。只输出摘要正文，不要标题、解释、JSON、Markdown 代码块或 tavern_options 标签。`,
-        },
-        { role: 'user', content: summarizeTavernTurnText(turns) },
-      ],
-      temperature: Math.min(0.4, Number(settings.temperature) || 0.4),
-      max_tokens: Math.max(96, Math.min(256, Math.ceil(config.summaryChars * 2.5))),
-      top_p: settings.topP,
-      frequency_penalty: settings.frequencyPenalty,
-      presence_penalty: settings.presencePenalty,
-      stream: false,
-    },
-  };
-  const data = await callAPI(payload);
-  const content = data?.choices?.[0]?.message?.content;
-  if (!content || data?.choices?.[0]?.finish_reason === 'length') throw new Error('摘要输出被截断或为空');
-  const text = String(content)
-    .replace(/^```[\s\S]*?\n|```$/g, '')
-    .replace(/^摘要[:：]\s*/i, '')
-    .replace(/<tavern_options>[\s\S]*?<\/tavern_options>/gi, '')
-    .trim();
-  if (!text) throw new Error('摘要输出为空');
-  return Array.from(text).slice(0, config.summaryChars).join('');
-}
 
-async function maybeRollTavernMemory(session = curSession(), { force = false } = {}) {
-  if (mode !== 'tavern' || !session || session !== curSession()) return;
-  const config = tavernAutoMemoryConfig();
-  if ((!force && !config.enabled) || tavernMemoryPending.has(session.id)) {
-    renderTavernAutoMemoryStatus();
-    return;
-  }
-  const changed = ensureTavernMessageIds(session);
-  ensureTavernSessionMemory(session);
-  if (changed) saveSessions(session);
-  const turns = getTavernUnsummarizedTurns(session);
-  if (!turns.length) {
-    if (force) tavernMemoryStatus.set(session.id, '暂无可总结的完整对话');
-    renderTavernAutoMemoryStatus();
-    return;
-  }
-  if (!force && turns.length < config.windowTurns) {
-    renderTavernAutoMemoryStatus();
-    return;
-  }
-  const sourceTurns = turns.slice(0, Math.min(config.summarizeTurns, turns.length));
-  const sourceMessageIds = sourceTurns.flatMap(turn => turn.messages.map(message => message.id));
-  const requestSessionId = session.id;
-  tavernMemoryPending.add(requestSessionId);
-  tavernMemoryStatus.set(requestSessionId, '正在生成摘要…');
-  renderTavernAutoMemoryStatus();
-  try {
-    const text = await requestTavernMemorySummary(sourceTurns, config);
-    const target = sessions.find(item => item.id === requestSessionId && item.kind === 'tavern');
-    if (!target) return;
-    const memory = ensureTavernSessionMemory(target);
-    memory.summaries.push({ id: uid(), text, sourceMessageIds, createdAt: Date.now() });
-    tavernMemoryStatus.delete(requestSessionId);
-    saveSessions(target);
-  } catch (error) {
-    tavernMemoryStatus.set(requestSessionId, `总结失败，将重试：${error.message}`);
-    console.warn('[Tavern] 自动记忆总结失败:', error.message);
-  } finally {
-    tavernMemoryPending.delete(requestSessionId);
-    renderTavernAutoMemoryStatus();
-    if (curSession()?.id === requestSessionId) renderMessages();
-  }
-}
 
-async function manualRollTavernMemory() {
-  const button = $('mem-auto-run');
-  if (button?.disabled) return;
-  const label = button?.textContent || '立即总结';
-  if (button) { button.disabled = true; button.textContent = '总结中…'; }
-  try {
-    await maybeRollTavernMemory(curSession(), { force: true });
-  } finally {
-    if (button) { button.disabled = false; button.textContent = label; }
-  }
-}
 
 function mergeNativeToolCall(toolCalls, delta) {
   if (!delta || typeof delta !== 'object') return;
@@ -15195,7 +14947,6 @@ function saveEdit(m) {
   if (worldModeActive()) queueWorldSave(currentWorldSave);
   else {
     const session = curSession();
-    invalidateTavernAutoMemory(session, m.id);
     saveSessions(session);
   }
   renderMessages();
@@ -15220,7 +14971,6 @@ function deleteMessage(m) {
   const i = s.messages.indexOf(m);
   if (i < 0) return;
   if (!confirm('删除这条消息？')) return;
-  invalidateTavernAutoMemory(s, m.id);
   s.messages.splice(i, 1);
   saveSessions(s);
   renderMessages();
@@ -15247,7 +14997,6 @@ async function regenAssistant(m) {
   if (!s || sending) return;
   const i = s.messages.indexOf(m);
   if (i < 0 || s.messages[i].role !== 'assistant') return;
-  invalidateTavernAutoMemory(s, s.messages.slice(i).map(message => message.id));
   s.messages = s.messages.slice(0, i);
   saveSessions(s);
   renderMessages();
@@ -15290,7 +15039,6 @@ function renderMessages() {
   syncConversationResetButton();
   initTavernCardFrameBridge();
   renderDebugTerminal();
-  renderTavernAutoMemoryStatus();
   if (mode !== 'rpg') clearWorldExtension();
   applyWorldUiSlots();
   chat.innerHTML = '';
@@ -16275,7 +16023,6 @@ async function requestReply() {
       // 否则正文会同时渲染“预览 + 历史”，快捷选项也会一直被“整理中”占位遮住。
       clearResponsePreview();
       pushMessage('assistant', clean, extra);
-      void maybeRollTavernMemory(curSession());
     }
     // 文生图（测试）：回复完成后自动生图（异步，不阻塞对话）
     const ig = settings.imageGen;
@@ -16635,7 +16382,6 @@ function switchView(name) {
     $('memory-mgr').classList.remove('hidden');
     ensureUserData();
     fillUserForm();
-    fillTavernAutoMemoryForm();
     renderMemList();
     setMobileManagerPanel('memory-mgr', 'list', { focus: false });
     return;
@@ -17346,11 +17092,6 @@ function bindEvents() {
   $('um-del').addEventListener('click', deleteUserPreset);
   $('mem-add').addEventListener('click', addMemory);
   $('mem-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') addMemory(); });
-  $('mem-auto-enabled')?.addEventListener('change', readTavernAutoMemoryForm);
-  ['mem-auto-window', 'mem-auto-summarize', 'mem-auto-chars'].forEach(id =>
-    $(id)?.addEventListener('change', readTavernAutoMemoryForm));
-  $('mem-auto-run')?.addEventListener('click', manualRollTavernMemory);
-  $('mem-auto-clear')?.addEventListener('click', clearTavernAutoMemory);
   // AI 生成
   $('cm-profile-add').addEventListener('click', addCharProfileField);
   $('btn-ai-wi').addEventListener('click', aiGenWI);

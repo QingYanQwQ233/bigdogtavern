@@ -240,8 +240,6 @@ const WORLD_EXTENSION_CHANNEL = 'tavern.rpg.extension';
 let worldExtensionState = { iframe: null, nonce: '', signature: '', ready: false, timer: null, pending: new Map(), nextRequestId: 0, surface: 'play' };
 const worldExtensionDeniedApprovals = new Set();
 const cardScriptDeniedApprovals = new Set();
-const tavernMemoryPending = new Set();
-const tavernMemoryStatus = new Map();
 
 /* ─────────── 数据加载 / 保存（JSON 文件存储） ─────────── */
 function saveSettings() {

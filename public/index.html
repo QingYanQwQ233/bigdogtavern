@@ -618,27 +618,6 @@
         <span>💭 记忆条目（自动注入上下文）</span>
         <button class="ghost-btn back-action" data-back-chat data-manager-back data-parent-label="记忆列表" type="button">回到对话</button>
       </div>
-      <section class="memory-auto-panel" aria-labelledby="mem-auto-title">
-        <div class="memory-auto-head">
-          <div>
-            <h3 id="mem-auto-title">↻ RP 自动滚动记忆</h3>
-            <p class="hint">每累计 N 个完整对话轮次，将最早 M 轮压缩成摘要；原始聊天记录不会删除。</p>
-          </div>
-          <label class="switch" title="启用 RP 自动记忆"><input id="mem-auto-enabled" type="checkbox" /><span class="slider"></span></label>
-        </div>
-        <div class="memory-auto-grid">
-          <label class="field"><span>滚动窗口</span><input id="mem-auto-window" type="number" min="2" max="100" /></label>
-          <label class="field"><span>每次总结</span><input id="mem-auto-summarize" type="number" min="1" max="99" /></label>
-          <label class="field"><span>摘要字数</span><input id="mem-auto-chars" type="number" min="20" max="500" /></label>
-        </div>
-        <div class="memory-auto-footer">
-          <p id="mem-auto-status" class="hint" role="status">自动记忆：已关闭。</p>
-          <div class="memory-auto-actions">
-            <button class="ghost-btn small" id="mem-auto-run" type="button">立即总结</button>
-            <button class="ghost-btn small danger" id="mem-auto-clear" type="button">清空当前摘要</button>
-          </div>
-        </div>
-      </section>
       <div class="field">
         <label for="mem-input">新记忆</label>
         <div class="row-inline">

@@ -1478,7 +1478,6 @@ function saveEdit(m) {
   if (worldModeActive()) queueWorldSave(currentWorldSave);
   else {
     const session = curSession();
-    invalidateTavernAutoMemory(session, m.id);
     saveSessions(session);
   }
   renderMessages();
@@ -1503,7 +1502,6 @@ function deleteMessage(m) {
   const i = s.messages.indexOf(m);
   if (i < 0) return;
   if (!confirm('删除这条消息？')) return;
-  invalidateTavernAutoMemory(s, m.id);
   s.messages.splice(i, 1);
   saveSessions(s);
   renderMessages();
@@ -1530,7 +1528,6 @@ async function regenAssistant(m) {
   if (!s || sending) return;
   const i = s.messages.indexOf(m);
   if (i < 0 || s.messages[i].role !== 'assistant') return;
-  invalidateTavernAutoMemory(s, s.messages.slice(i).map(message => message.id));
   s.messages = s.messages.slice(0, i);
   saveSessions(s);
   renderMessages();
@@ -1573,7 +1570,6 @@ function renderMessages() {
   syncConversationResetButton();
   initTavernCardFrameBridge();
   renderDebugTerminal();
-  renderTavernAutoMemoryStatus();
   if (mode !== 'rpg') clearWorldExtension();
   applyWorldUiSlots();
   chat.innerHTML = '';
@@ -2558,7 +2554,6 @@ async function requestReply() {
       // 否则正文会同时渲染“预览 + 历史”，快捷选项也会一直被“整理中”占位遮住。
       clearResponsePreview();
       pushMessage('assistant', clean, extra);
-      void maybeRollTavernMemory(curSession());
     }
     // 文生图（测试）：回复完成后自动生图（异步，不阻塞对话）
     const ig = settings.imageGen;
@@ -2918,7 +2913,6 @@ function switchView(name) {
     $('memory-mgr').classList.remove('hidden');
     ensureUserData();
     fillUserForm();
-    fillTavernAutoMemoryForm();
     renderMemList();
     setMobileManagerPanel('memory-mgr', 'list', { focus: false });
     return;
@@ -3629,11 +3623,6 @@ function bindEvents() {
   $('um-del').addEventListener('click', deleteUserPreset);
   $('mem-add').addEventListener('click', addMemory);
   $('mem-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') addMemory(); });
-  $('mem-auto-enabled')?.addEventListener('change', readTavernAutoMemoryForm);
-  ['mem-auto-window', 'mem-auto-summarize', 'mem-auto-chars'].forEach(id =>
-    $(id)?.addEventListener('change', readTavernAutoMemoryForm));
-  $('mem-auto-run')?.addEventListener('click', manualRollTavernMemory);
-  $('mem-auto-clear')?.addEventListener('click', clearTavernAutoMemory);
   // AI 生成
   $('cm-profile-add').addEventListener('click', addCharProfileField);
   $('btn-ai-wi').addEventListener('click', aiGenWI);
