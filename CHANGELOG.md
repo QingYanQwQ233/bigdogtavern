@@ -1,5 +1,10 @@
 # 更新日志
 
+## 2026-09-25 · 协议容错：未知更新操作不再拒绝整个回合
+
+- `normalizeRpgPatch` 丢弃白名单外的操作（console 告警），契约初检与修复循环都先归一化；模型发明 `npc.relation.set` / `memory.local.add` 不再毁掉回合。
+- 实测：同一选项重放，模型仍发协议外操作，回合正常提交（revision 8→9、turns 10→12）。
+
 ## 2026-09-25 · 修复金币被持久化层误删（compactRpgState）
 
 - `compactRpgState(state, world)` 不再无条件剥掉 `state.player.resources.gold`：只有世界卡未声明 gold 时才清掉遗留值；4 个调用点传入 world。

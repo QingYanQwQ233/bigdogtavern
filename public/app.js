@@ -6578,7 +6578,15 @@ function normalizeRpgPatch(patch, options = patch?.options) {
   return {
     ...patch,
     ...(options === undefined ? {} : { options: normalizeRpgOptions(options) }),
-    updates: patch.updates.filter(update => !(worldModeActive() && RPG_WORLD_DISABLED_UPDATE_TYPES.has(update?.type))).map(update => {
+    updates: patch.updates.filter(update => {
+      if (worldModeActive() && RPG_WORLD_DISABLED_UPDATE_TYPES.has(update?.type)) return false;
+      // 模型可能发明协议外的操作（如 npc.relation.set / memory.local.add）：丢弃并告警，不让单条漂移毁掉整个回合。
+      if (!RPG_PATCH_UPDATE_KEYS[update?.type] && !RPG_RUNTIME_UPDATE_ALIASES.has(update?.type)) {
+        console.warn('[Tavern] 丢弃不受支持的更新操作:', update?.type);
+        return false;
+      }
+      return true;
+    }).map(update => {
       if (RPG_RUNTIME_UPDATE_ALIASES.has(update?.type)) {
         const type = `runtime.${update.type}`;
         if (!update.type.startsWith('variable.')) return { ...update, type };
@@ -14882,6 +14890,8 @@ async function requestReply() {
         processed.patch = recoveredActionPatch.patch;
         setDebugTrace(targetScope, { status: '已接管卡内声明动作结算', error: '', actionIntentRecovery: recoveredActionPatch.reason });
       }
+      // 模型可能发明协议外的操作类型：先丢弃未知操作，再进行契约校验，避免整个回合被拒。
+      if (processed.patch) processed.patch = normalizeRpgPatch(processed.patch);
       const optionRules = worldOptionRules();
       let options = normalizeRpgOptions(processed.options, optionRules);
       processed.options = options.length ? options : null;
@@ -14907,6 +14917,7 @@ async function requestReply() {
             const repairedReply = await repairRpgOutput(payload, reply, optionRules, targetScope, toolTrace, contractError);
             reply = mergeRepairedReply(originalNarrativeReply, repairedReply, 'rpg');
             processed = preserveValidRpgRepairFields(originalProcessed, processAIOutput(reply), optionRules);
+            if (processed.patch) processed.patch = normalizeRpgPatch(processed.patch);
             setResponsePreview(rpgAgentSession?.previewNarrative || reply, rpgResolvedCheck, targetKey, rpgAgentSession?.checkpoints);
           } catch (error) {
             console.warn('[Tavern] RPG 协议修复失败:', error.message);
