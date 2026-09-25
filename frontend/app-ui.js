@@ -2744,7 +2744,7 @@ function syncModeNavigation(view = 'chat') {
 }
 
 // 手机端管理页采用“列表 → 详情”钻取；桌面端继续保留双栏编辑器。
-const MOBILE_MANAGER_IDS = ['char-mgr', 'prompt-mgr', 'regex-mgr', 'lore-mgr', 'memory-mgr', 'world-mgr'];
+const MOBILE_MANAGER_IDS = ['prompt-mgr', 'regex-mgr', 'lore-mgr', 'memory-mgr', 'world-mgr'];
 function isMobileViewport() { return window.matchMedia('(max-width: 960px)').matches; }
 function syncMobileManagerBackLabel(managerId) {
   const manager = $(managerId);
@@ -2861,7 +2861,7 @@ function switchView(name) {
   closeNavDrawer(); // 手机抽屉：切换视图后自动收起
   renderDebugTerminal();
   syncModeNavigation(name);
-  ['char-mgr', 'prompt-mgr', 'regex-mgr', 'lore-mgr', 'memory-mgr', 'world-mgr'].forEach(id => { const el = $(id); if (el) el.classList.add('hidden'); });
+  ['prompt-mgr', 'regex-mgr', 'lore-mgr', 'memory-mgr', 'world-mgr'].forEach(id => { const el = $(id); if (el) el.classList.add('hidden'); });
   if (name === 'worlds') { openWorldLibrary(false); return; }
   if (name === 'chat') {
     if (mode === 'rpg') {
@@ -2869,15 +2869,6 @@ function switchView(name) {
       else if (currentWorldSaveId) openWorldLibrary(true);
       else openWorldLibrary(false);
     }
-    return;
-  }
-  if (name === 'chars') {
-    if (mode === 'rpg') { openWorldLibrary(false); return; }
-    renderBindSelects();
-    $('char-mgr').classList.remove('hidden');
-    renderCharList();
-    if (!cmEditingId && !cmCreating && characters.length) selectCharForEdit(currentCharId || characters[0].id);
-    setMobileManagerPanel('char-mgr', 'list', { focus: false });
     return;
   }
   if (name === 'prompts') {
@@ -2948,7 +2939,7 @@ function applyMode() {
   // RPG 只使用 WorldCard → WorldSave，不创建/激活普通角色会话。
   renderSessions();
   renderMessages();
-  ['char-mgr', 'prompt-mgr', 'regex-mgr', 'lore-mgr', 'memory-mgr'].forEach(id => $(id)?.classList.add('hidden'));
+  ['prompt-mgr', 'regex-mgr', 'lore-mgr', 'memory-mgr'].forEach(id => $(id)?.classList.add('hidden'));
   openWorldLibrary(true);
 }
 
@@ -3641,23 +3632,6 @@ function bindEvents() {
     if (!$('chat-header-menu').contains(e.target)) closeChatHeaderMenu();
   });
   $('session-menu-new').addEventListener('click', () => { newSession(); $('session-menu').classList.add('hidden'); });
-  // 角色管理
-  $('cm-new').addEventListener('click', newCharEditor);
-  $('cm-name').addEventListener('input', () => { if (cmCreating) renderCharList(); });
-  $('cm-save').addEventListener('click', () => { saveCharFromEditor(); renderCharList(); });
-  $('cm-use').addEventListener('click', useCharInEditor);
-  $('cm-del').addEventListener('click', () => {
-    if (cmCreating) {
-      if (!confirm('取消新建角色？未保存内容将丢失。')) return;
-      cmCreating = false;
-      if (currentCharId) selectCharForEdit(currentCharId);
-      else renderCharList();
-      return;
-    }
-    if (cmEditingId) deleteChar(cmEditingId);
-  });
-  $('cm-export').addEventListener('click', exportCurrentChar);
-  $('cm-import').addEventListener('click', () => charFileInput.click());
   // 世界书
   $('wi-new').addEventListener('click', newWIEditor);
   $('wi-save').addEventListener('click', saveWI);
@@ -4331,7 +4305,6 @@ async function init() {
   renderMessages();
   renderCharacter();
   renderSessions();
-  renderCharList();
   renderDevtools();
   updateApiStatusFromSettings();
   await syncWorldDraftRoute();

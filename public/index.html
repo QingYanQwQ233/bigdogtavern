@@ -261,69 +261,6 @@
   <div id="world-ui-overlay" data-ui-level="1" data-ui-region="overlay.world-card" data-ui-owner="host" hidden aria-live="polite" aria-label="世界卡覆盖层"></div>
 
   <!-- ═══ 角色管理页 ═══ -->
-  <div id="char-mgr" class="char-mgr hidden" data-ui-level="2" data-ui-region="tavern.characters" data-ui-owner="host">
-    <div class="cm-side" data-ui-level="3" data-ui-region="tavern.characters.sidebar" data-ui-owner="host">
-      <div class="mobile-manager-head"><button class="ghost-btn back-action" data-back-chat data-manager-back data-parent-label="角色库" type="button">回到对话</button></div>
-      <div class="cm-head">角色库</div>
-      <div id="cm-list" class="cm-list"></div>
-      <button class="btn gold small" id="cm-new" style="width:100%">＋ 新建角色</button>
-      <button class="ghost-btn" id="cm-import" style="width:100%;margin-top:6px">导入角色卡（V1/V2/V3 JSON 或 PNG）</button>
-      <button class="ghost-btn" id="cm-export" style="width:100%;margin-top:6px">导出当前角色（V3 JSON）</button>
-    </div>
-    <div class="cm-edit" data-ui-level="3" data-ui-region="tavern.characters.editor" data-ui-owner="host">
-      <div class="cm-edit-head">
-        <span id="cm-edit-title">编辑角色</span>
-        <button class="ghost-btn back-action" data-back-chat data-manager-back data-parent-label="角色库">回到对话</button>
-      </div>
-        <div class="char-wizard">
-          <div class="cw-panel-head"><span>基本信息</span></div>
-          <div id="cm-profile-fields" class="cm-profile-fields"></div>
-          <div class="cw-actions">
-            <button class="ghost-btn small" id="cm-profile-add">＋ 自定义条目</button>
-          </div>
-        </div>
-      <div class="cm-full-title">完整角色卡 <span class="hint-inline">第三步生成后仍可继续修改</span></div>
-      <div class="field row2">
-        <div class="field"><label for="cm-name">名字</label><input id="cm-name" /></div>
-        <div class="field"><label for="cm-race">种族</label><input id="cm-race" /></div>
-      </div>
-      <div class="field"><label for="cm-role">身份</label><input id="cm-role" /></div>
-      <div class="field"><label for="cm-persona">角色描述 / 外貌（description）</label><textarea id="cm-persona" rows="3"></textarea></div>
-      <div class="field"><label for="cm-personality">性格（personality）</label><textarea id="cm-personality" rows="2"></textarea></div>
-      <div class="field"><label for="cm-scenario">场景（scenario）</label><textarea id="cm-scenario" rows="2"></textarea></div>
-      <div class="field"><label for="cm-first-mes">开场白（first_mes，新会话自动作为首条消息）</label><textarea id="cm-first-mes" rows="3"></textarea></div>
-      <div class="field"><label for="cm-mes-example">示例对话（mes_example）</label><textarea id="cm-mes-example" rows="3"></textarea></div>
-      <div class="field"><label for="cm-system">角色提示词（system_prompt，非空时覆盖全局 / 预设）</label><textarea id="cm-system" rows="4"></textarea></div>
-      <div class="field"><label for="cm-post">历史后指令（post_history_instructions，插在对话末尾，权重高）</label><textarea id="cm-post" rows="3"></textarea></div>
-      <div class="field"><label for="cm-creator-notes">作者备注（creator_notes）</label><textarea id="cm-creator-notes" rows="2"></textarea></div>
-      <div class="field row2">
-        <div class="field"><label for="cm-creator">作者（creator）</label><input id="cm-creator" /></div>
-        <div class="field"><label for="cm-character-version">角色版本（character_version）</label><input id="cm-character-version" /></div>
-      </div>
-      <div class="field row2">
-        <div class="field"><label for="cm-preset">绑定提示词预设 <span class="hint-inline">system_prompt 为空时使用</span></label><select id="cm-preset"></select></div>
-        <div class="field"><label for="cm-lore">绑定世界书 <span class="hint-inline">仅与该角色对话时生效</span></label><select id="cm-lore"></select></div>
-      </div>
-      <div class="field">
-        <label for="cm-ref-image">形象参考图（文生图统一形象）<span class="hint-inline">点「导入图片」从本地选择；或手动填 URL</span></label>
-        <div class="row-inline">
-          <input id="cm-ref-image" placeholder="/images/xxx.png 或 https://..." />
-          <button class="ghost-btn" id="btn-import-ref">📁 导入图片</button>
-          <button class="ghost-btn hidden" id="btn-remove-ref">删除图片</button>
-        </div>
-        <img id="cm-ref-preview" class="ref-preview hidden" alt="参考图预览" />
-        <input type="file" id="cm-ref-file" accept="image/*" class="hidden" />
-      </div>
-      <div class="field"><label for="cm-tags">标签（tags，逗号分隔）</label><input id="cm-tags" /></div>
-      <div class="field"><label for="cm-alt-greetings">备用开场白（alternate_greetings，每行一条）</label><textarea id="cm-alt-greetings" rows="3"></textarea></div>
-      <div class="cm-edit-actions">
-        <button class="btn gold" id="cm-save">保存角色</button>
-        <button class="btn gold" id="cm-use">设为当前角色</button>
-        <button class="ghost-btn" id="cm-del">删除角色</button>
-      </div>
-    </div>
-  </div>
-
   <!-- ═══ 提示词预设页 ═══ -->
   <div id="prompt-mgr" class="char-mgr hidden" data-ui-level="2" data-ui-region="tavern.prompts" data-ui-owner="host">
     <div class="cm-side" data-ui-level="3" data-ui-region="tavern.prompts.sidebar" data-ui-owner="host">
