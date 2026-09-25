@@ -5,6 +5,8 @@ Tavern 是一个面向 AI 角色扮演的本地 Web 应用，采用单一的 **R
 - 玩法维度由世界卡声明驱动，界面不预置任何玩法数值（HP / MP / 经验 / 金币 / 背包…… 一个都不写死）。
 
 > **2026-09 变更**：此前的「酒馆模式」（普通角色卡连续 RP）已移除。理由是两条链路实际不可互通 —— RPG 不导入普通角色卡。相关代码、界面与测试断言已清理，并建立防回退守卫（`scripts/check_st_removed.js`）。口径见 `docs/design/DESIGN_CONSTITUTION.md §11.1`。
+>
+> **2026-09 后续**：世界包 `characters`（角色实体）字段退役（`specVersion 2`）——导出不再携带角色；v1 旧包仍可导入，其中角色字段会被忽略。守卫：`scripts/check_world_package_contract.js`。
 
 项目的核心不变量是：**数据按所有权分层绑定，不跨会话、不跨存档串数据；能结构化保存的状态不只依赖 AI 记忆。**
 
@@ -18,9 +20,9 @@ node server.js
 
 打开 <http://localhost:3000>，然后在「设置 → 连接」中填写 OpenAI 兼容接口的 Base URL、API Key 和模型。支持 OpenAI、DeepSeek、OpenRouter、Ollama、LM Studio 以及其他 `/chat/completions` 兼容服务。
 
-## RP 正则与预设参数
+## 正则与预设参数
 
-「设置 → 连接」显示当前聊天的实际参数及来源，可直接打开当前预设；角色卡绑定的预设优先。预设中的生成参数留空继承连接默认，填写后保存即可覆盖，温度 `0` 和空停止词数组 `[]` 都有效。回复 Token 是输出上限；上下文 Token 包含输入与回复预算，按本地估算裁剪最旧历史回合，保留本轮输入。估算不等于模型实际分词，提示词与本轮输入本身超预算时会提示调整设置。
+「设置 → 连接」显示当前聊天的实际参数及来源，可直接打开当前预设。预设中的生成参数留空继承连接默认，填写后保存即可覆盖，温度 `0` 和空停止词数组 `[]` 都有效。回复 Token 是输出上限；上下文 Token 包含输入与回复预算，按本地估算裁剪最旧历史回合，保留本轮输入。估算不等于模型实际分词，提示词与本轮输入本身超预算时会提示调整设置。
 
 - **只美化聊天**：AI 原始回复 + 仅显示格式化；HTML/CSS 不应勾选历史/System/世界书作为替换目标。
 - **从请求中删除片段**：选择对应的 AI/用户来源，替换为空，勾选仅提示词格式化。显示格式化与提示词格式化都勾选时，同时改变两处但不写回存档。
@@ -28,7 +30,7 @@ node server.js
 
 旧版已保存的显示 HTML，仅在有原始快照且能精确匹配当前规则时恢复请求文本；无法推断被永久替换的原文。兼容语义参考 [SillyTavern 正则文档](https://docs.sillytavern.app/extensions/regex/) 与 [生成设置](https://docs.sillytavern.app/usage/common-settings/)。未实现的 ST 字段仍仅保留用于导出，不代表支持所有 ST 功能。
 
-预设携带的正则可以在「正则」栏目直接编辑、删除并保存回当前预设；世界卡携带的规则仍需复制后修改。切换预设会自动卸下上一预设的规则，只执行新预设的规则；角色卡绑定预设时，实际预设仍以角色卡绑定为准。解除绑定会保留预设副本最后一次编辑的内容。
+预设携带的正则可以在「正则」栏目直接编辑、删除并保存回当前预设；世界卡携带的规则仍需复制后修改。切换预设会自动卸下上一预设的规则，只执行新预设的规则。解除绑定会保留预设副本最后一次编辑的内容。
 
 ## Android APK
 
@@ -153,45 +155,39 @@ node scripts/build_frontend.js
 
 ```text
 _defaults.json
-  ├─ characters.json       角色库
+  ├─ characters.json       兼容保留（世界包 v2 起不再导入导出角色）
   ├─ presets.json          提示词预设
   ├─ lorebooks.json        世界书
   ├─ settings.json         连接与运行设置
-  ├─ user.json             玩家设定与酒馆手动记忆
+  ├─ user.json             玩家设定与手动记忆
   ├─ gen.json              AI 辅助生成字段与提示模板
-  ├─ sessions.json         酒馆会话库（含删除墓碑，首次保存时创建）
+  ├─ sessions.json         会话库（含删除墓碑，首次保存时创建）
   └─ worlds.json            世界卡目录
 
 saves/<saveId>.json        RPG WorldSave，服务端按存档独立读写
 world-deleted.json         已删除世界卡 ID（防止默认模板重新出现）
 ```
 
-`localStorage` 只保存离线缓存和当前 ID，服务端 JSON 是权威源。酒馆会话同样走服务端：启动时与服务端 `sessions.json` 按 ID 取并集合并（冲突保留更新时间新者），删除的会话以墓碑记录，不会在其他浏览器复活，因此更换浏览器聊天记录不丢失。`WorldCard@worldVersion` 保存稳定世界资料；`WorldSave@revision` 保存本局玩家、状态、事件、回合和记忆。世界卡或角色卡后续编辑不会静默覆盖已有存档。
+`localStorage` 只保存离线缓存和当前 ID，服务端 JSON 是权威源。会话同样走服务端：启动时与服务端 `sessions.json` 按 ID 取并集合并（冲突保留更新时间新者），删除的会话以墓碑记录，不会在其他浏览器复活，因此更换浏览器聊天记录不丢失。`WorldCard@worldVersion` 保存稳定世界资料；`WorldSave@revision` 保存本局玩家、状态、事件、回合和记忆。世界卡后续编辑不会静默覆盖已有存档；世界包自 `specVersion 2` 起不再携带角色实体（`characters`），v1 旧包可导入且角色字段被忽略。
 
 世界库中的存档可单独删除；删除世界卡前必须先删除该世界的全部存档，确认后会移除所有已发布版本和未发布草稿。默认世界通过 `world-deleted.json` 记录删除标记，刷新后不会被 `_defaults.json` 自动补回。
 
-## 酒馆模式
-
-酒馆模式围绕“角色卡 + 对话会话”工作：
-
-- 角色卡创建、编辑、删除，以及 Character Card V1/V2/V3 JSON 导入导出；支持读取 PNG 内嵌的 `ccv3` / `chara` 元数据，V3 的角色书与扩展字段按角色卡绑定保存；导出时会把角色绑定的世界书一并写入 `data.character_book`；
-- 三步 AI 写卡：一句话定角色 → JSON Schema 动态填表 → 生成完整结构化角色卡；
-- 动态角色字段、可自定义栏目和运行时保存，不把世界观字段写死在前端；
+## 预设、世界书与聊天体验
 - SillyTavern 风格提示词预设：固定提示词、运行时 Marker、世界书前后、Post-History、In-Chat、Relative、宏、Prompt Order、生成参数和导入导出；
-- Post-History 作为提示词顺序中的 `jailbreak` 固定项显示，可编辑、排序和关闭；回复选项协议由同一预设的独立 `replyOptions` 配置管理，不占用普通 Post-History；
+- Post-History 作为提示词顺序中的 `jailbreak` 固定项显示，可编辑、排序和关闭；
 - 独立「正则」设置：RP / RPG 分模式保存自定义规则，兼容 SillyTavern `extensions.regex_scripts` 的 `placement`、`trimStrings`、`substituteRegex`、深度、`markdownOnly`、`promptOnly`、`runOnEdit` 等字段；规则可作用于用户输入、AI 原始回复、聊天显示、历史/提示词、System/后预设、世界书、思维链和斜杠命令。自定义规则默认绑定当前提示词预设，切换预设不会串用其他预设规则，也可改为模式全局；提示词/显示专用规则只改请求副本或渲染结果，不覆盖存档原文；预设编辑页可绑定当前模式自定义正则，保存或导出预设时会一并写入 ST 的 `extensions.regex_scripts`，运行时避免重复执行；
 - 提示词缓存兼容：请求保持稳定前缀，让支持的 OpenAI / DeepSeek 上游自动复用 KV 缓存；设置中可选发送 `prompt_cache_key`，也可让流式接口回传 `usage` 缓存字段；「AI 往返终端」显示上游缓存读取 / 写入 / 未命中 Token，并用相邻请求估算可复用前缀；项目不在本地缓存模型回复，不会用旧回复替代新请求；
 - 多本世界书：兼容 SillyTavern World Info JSON 的主 / secondary 关键词、四种选择性逻辑、正则、常驻、概率、分组、递归、Sticky / Cooldown / Delay、扫描设置、Outlet 宏、角色绑定，以及 ST JSON 导入 / 导出；
-- 玩家设定、手动记忆、消息编辑/删除/复制/重生成；可在「记忆」页开启 RP 自动滚动记忆：每 20 个完整对话轮次把最早 15 轮压缩为约 100 字摘要，也可随时手动触发总结；原始消息仍保留在当前会话；窗口、总结轮数和摘要字数均可调整；尚未收到 AI 回复的当前玩家回合不会进入摘要覆盖，也不会因历史窗口裁剪而丢失；
+- 玩家设定、手动记忆、消息编辑/删除/复制/重生成；
 - 可选旁白/对白拆分：默认整条回复作为连续正文，按需在「设置 → 输出」开启对白气泡；
-- AI 回复选项：RP 与 RPG 都由模型生成结构化快捷行动，点击后直接发送；酒馆预设可独立开启/关闭、指定 1–8 个选项并自定义提示词，通过末尾临时 char（Assistant）历史消息引导格式，掉格式不再自动重试；关闭后不注入协议、不请求修复、不显示等待提示。RP 的 `<tavern_options>` 与 RPG 的 `<tavern_state_update>` 分别解析，互不复用；
+- AI 回复选项：RPG 回合由模型生成结构化快捷行动（数量按世界卡声明），点击后直接发送；RPG 的 `<tavern_state_update>` 与选项协议分别解析，互不复用；
 - 「设置 → 排版」热调整聊天正文：字体、字号、行间距、段间距、段首缩进（空两格）与左右间距，拖动即时预览、自动保存；RPG 默认工作区同样继承这些设置；
 - 「设置 → 界面」可即时调整 Tavern 的颜色 token、边框透明度、圆角、应用侧栏/RPG 两侧栏宽度和界面缩放；RPG 默认工作区同样继承，世界卡显式声明的同名 token 才会覆盖对应项；支持受校验的高级 CSS 变量 JSON，并可一键恢复默认，刷新后自动恢复；
 - 「设置 → 界面」内置 macOS 深色、Nord、Dracula、Catppuccin Mocha、Tokyo Night 五套界面预设；预设来自公开主题调色板，套用后仍可继续微调并自动保存；
 - AI 消息完整 GFM Markdown 渲染与安全清洗：标题、列表/任务列表、表格、引用、代码块、行内代码、链接、图片、删除线、键盘标记和分隔线；
 - 文生图消息（OpenAI 兼容或 Stable Diffusion），图片保存后可持久化。
 
-酒馆手动记忆仍保存在用户级 `user.json`；自动滚动摘要则保存在对应 `sessions.json` 的当前酒馆会话中，不会跨角色或跨会话共享。关闭自动记忆时继续使用设置里的普通历史条数。
+手动记忆保存在用户级 `user.json`。
 
 ## RPG 世界卡模式
 
@@ -256,7 +252,7 @@ RPG 支持声明式 OpenAI-compatible tools：
 
 Agent 回合采用 `agent-execute → narrate` 两阶段提交。正式状态仍由 WorldSave 服务端校验，Agent 不能直接改写存档。
 
-RPG 顶栏按钮显示为“重置对话”：它会把当前存档的 `turns`、MVU/runtime、NPC 动态状态、事件记忆和 Agent 临时态恢复到该存档的开局基线；酒馆模式仍保留“清空对话”。
+RPG 顶栏按钮显示为“重置对话”：它会把当前存档的 `turns`、MVU/runtime、NPC 动态状态、事件记忆和 Agent 临时态恢复到该存档的开局基线。
 
 不支持原生 function calling 的模型可使用兼容 Agent 模式：模型在唯一状态块的 `toolCalls` 中声明工具，客户端执行受控工具后以 `tavern.rpg.agent.tool_result` 回传，并在 `maxSteps` 内继续请求模型；原生与兼容模式共用工具白名单、客户端骰子和存档提交链。
 
@@ -294,36 +290,36 @@ RPG 记忆不是一段模糊的 AI 摘要，而是几层结构化事实：
 
 对话顶栏的「⌘ 终端」打开独立调试窗口，分区查看：
 
-- 请求历史：当前角色会话或世界存档在本页产生的全部 AI 请求；点击任一条即可回看对应记录，普通回复、Agent 多步调用、协议修复和开场候选会分别保留；
+- 请求历史：当前会话或世界存档在本页产生的全部 AI 请求；点击任一条即可回看对应记录，普通回复、Agent 多步调用、协议修复和开场候选会分别保留；
 - INPUT：发送给 AI 的完整请求；
 - OUTPUT：正则处理前的完整原文、结构化标签摘录和 `reasoning_content`；
 - Prompt：本次请求的 Prompt 分区与字符预算；
 - MEMORY：当前 RPG 存档的记忆诊断与重建入口。
 
-调试记录只保存在当前页面内存，不写入角色、会话或 RPG 存档；每个会话/存档最多保留最近 120 条请求，终端的「复制全部」会导出当前范围的全部保留记录。
+调试记录只保存在当前页面内存，不写入会话或 RPG 存档；每个会话/存档最多保留最近 120 条请求，终端的「复制全部」会导出当前范围的全部保留记录。
 
 ### RPG 开发者实验台
 
-启动页面时追加 `?dev=1`，顶栏会显示「🧪 开发者」。选择一个外置测试场景后直接点击「运行所选测试」即可；场景内部自动填充 `rules.check → dice.roll → tool 回传`、Typed Patch、实体候选和事件记忆，不需要填写 JSON。另有“生命值 -1”和“runtime 数值 -1”调试场景，可快速验证角色资源及 MVU 式 runtime 变量是否写入存档。测试反馈会写入本次 RPG 叙事，选项会恢复为叙事栏下方的快捷按钮。没有完成开局规划的存档不会允许提交。它直接复用正式 `/api/world-saves/:id` 回合协议，不会创建第二套状态路径。
+启动页面时追加 `?dev=1`，顶栏会显示「🧪 开发者」。选择一个外置测试场景后直接点击「运行所选测试」即可；场景内部自动填充 `rules.check → dice.roll → tool 回传`、Typed Patch、实体候选和事件记忆，不需要填写 JSON。另有“生命值 -1”和“runtime 数值 -1”调试场景，可快速验证玩家资源及 MVU 式 runtime 变量是否写入存档。测试反馈会写入本次 RPG 叙事，选项会恢复为叙事栏下方的快捷按钮。没有完成开局规划的存档不会允许提交。它直接复用正式 `/api/world-saves/:id` 回合协议，不会创建第二套状态路径。
 RPG 世界卡当前验收 AI 回合闭环、客户端骰子、Agent 阶段顺序和声明式 runtime Typed Patch；历史硬编码系统不再作为统一 API，复杂玩法应由卡内 schema + action 自己定义。
 开局扩展面板的 planning 存档、草稿修订和提交可用 `node scripts/check_world_setup_surface.js` 验收。
 脚本兼容实验室示例见 `docs/demo-script-compat-world.tavern-world.json`：导入后可直接点击 EJS、MVU、JS 三个面板验收，说明见同名 `.md` 文件。
 自定义 UI 演示卡见 `docs/demo-custom-ui-world.tavern-world.json`：导入后由 `ui.layout:"custom"` + `ui.shell` 接管宿主 RPG 区域、应用导航和顶栏，并提供唯一消息流、自定义选项/输入、MVU/Action、AI 终端、回合状态回执、浏览器全屏、Esc 和返回世界库按钮，说明见 `docs/demo-custom-ui-world.md`。
 开局配置演示卡见 `docs/demo-setup-surface-world.tavern-world.json`：导入后直接体验卡内角色创建、草稿保存、提交后进入原生开场规划，以及正式游玩页的自定义消息/选项/输入；说明见 `docs/demo-setup-surface-world.md`。
-手机端管理页采用父子钻取：先进入角色/预设/正则/世界书/记忆/世界库列表，再进入详情；列表和详情顶部都保留返回条，详情返回只回到上一级，预设条目和世界书条目也有独立的二级返回，不再把两个层级并列堆在小屏幕上。
+手机端管理页采用父子钻取：先进入预设/正则/世界书/记忆/世界库列表，再进入详情；列表和详情顶部都保留返回条，详情返回只回到上一级，预设条目和世界书条目也有独立的二级返回，不再把两个层级并列堆在小屏幕上。
 
 ## 项目结构
 
 ```text
 AGENTS.md                     开发规范（唯一来源，AI 编码工具自动加载）
 server.js                     Node 静态服务、AI/图片代理、世界与存档 API
-frontend/                     前端可编辑源码分片（按 RP / RPG / 共享职责拆分）
-frontend/tavern-rp.js         酒馆 RP：会话、角色、记忆、正则、世界书与 Prompt
+frontend/                     前端可编辑源码分片（按 RPG / 共享职责拆分）
+frontend/tavern-rp.js         会话、记忆、正则、世界书等共享运行时
 frontend/rpg-world.js         RPG：世界卡、存档、建角、世界 UI 与状态面板
-frontend/ai-protocol.js       双模式输出协议与结构化状态边界
+frontend/ai-protocol.js       输出协议与结构化状态边界
 frontend/ai-prompt.js         提示词组装、World Info 激活与分节
 frontend/ai-runtime.js        AI 请求、流式响应与 RPG Agent
-public/index.html             双模式页面与弹窗
+public/index.html             应用页面与弹窗
 public/styles.css             macOS 深色主题与响应式布局
 public/app.js                 由 frontend/ 生成的兼容运行产物（勿直接编辑）
 scripts/build_frontend.js     生成 / 校验 public/app.js 与源码分片一致性
@@ -341,8 +337,8 @@ docs/                          数据结构、世界卡与 Android 文档
 
 ### 已完成
 
-- 酒馆 / RPG 双模式与会话隔离；
-- 角色卡、提示词预设、世界书、世界卡和 WorldSave；
+- 单一 RPG 世界模型与按会话/存档的数据隔离；
+- 提示词预设、世界书、世界卡、WorldSave 与世界包导入导出（`specVersion 2`，v1 兼容）；
 - Schema 驱动的 RPG 建角与开局规划；
 - Typed Patch、revision/CAS、幂等回执和服务端状态校验；
 - 客户端骰子与冲突/事件/成长/失败/结局结算；
@@ -362,18 +358,18 @@ docs/                          数据结构、世界卡与 Android 文档
   → 叙事、选项、侧栏和记忆同步
 ```
 
-本版本把 RPG 运行面收敛到一个可扩展核心：世界卡声明 runtime 变量/集合/动作，AI 负责观察、决策、判定并提交 Typed Patch；宿主只负责校验、持久化和绑定当前存档。旧硬编码投影不再进入新协议，酒馆与 RPG 仍使用各自的角色/世界/会话/存档边界，删除和刷新不会把数据重新串回默认模板。
+本版本把 RPG 运行面收敛到一个可扩展核心：世界卡声明 runtime 变量/集合/动作，AI 负责观察、决策、判定并提交 Typed Patch；宿主只负责校验、持久化和绑定当前存档。旧硬编码投影不再进入新协议；世界卡、会话与存档各自独立，删除和刷新不会把数据重新串回默认模板。
 
 ### 当前限制
 
 - 世界观与角色内容仍有占位，需要实际世界卡填充；
 - 地图展示暂时关闭，地图生成调优暂缓；
-- 酒馆手动记忆仍是用户级共享；
+- 手动记忆仍是用户级共享；
 - RPG 记忆尚无向量检索、自动聚类和完整人工编辑器；
 - Agent 兼容模式不会在模型回复后补掷骰；需要把结果回传给模型时使用原生 Agent 工具模式；
 - 队伍管理和部分作者工作台仍需完善；
 - 服务端默认无鉴权和 SSRF 防护，只适合本地开发/演示；
-- 扩展事件是只读前端通知，不是服务端 Hook；世界卡 `ui.extension` 仍通过 sandbox Bridge、runtime Schema 或 Agent 工具表达行为。绑定角色卡中明确存在的 HTML/CSS/JS 可在显示前经用户确认后进入同源完整兼容 iframe；角色卡脚本可访问宿主 DOM、localStorage、外部脚本和网络，并提供 `triggerSlash('/send …|/trigger')`、`copyToTavernDialog(text)`、`TavernCard.send/copy` 以及注入当前会话/角色书快照的只读 `getLastMessageId()`、`getCurrentMessageId()`、`getChatMessages()`、`getCharWorldbookNames()`、`getWorldbook()` 和 `getCurrentChatId()`，并兼容常见的 `$(selector).load('https://…')` 外部界面加载写法。预设中的 EJS、MVU 和脚本仍保留并标记为不执行；完整兼容模式只对用户明确授权的角色卡开启，请勿导入不可信卡；
+- 扩展事件是只读前端通知，不是服务端 Hook；世界卡 `ui.extension` 仍通过 sandbox Bridge、runtime Schema 或 Agent 工具表达行为；预设中的 EJS、MVU 和脚本保留原文并标记为不执行；
 - Android 需要在真实设备上继续验收。
 
 ### 未来规划（未完成内容）
@@ -410,4 +406,4 @@ docs/                          数据结构、世界卡与 Android 文档
 
 不要把此开发服务器直接暴露到公网。API Key 只应保存在本地运行时数据中；`public/data/*.json`、存档和图片目录已加入 `.gitignore`。
 
-角色卡完整兼容模式会在用户确认后允许卡内脚本访问同源宿主 DOM、localStorage、外部脚本和网络；只导入信任的角色卡。世界卡 `ui.extension` 仍使用隔离 sandbox Bridge。
+世界卡 `ui.extension` 仍在隔离 sandbox Bridge 中运行（需用户授权）；请勿导入不可信世界卡。
