@@ -5734,16 +5734,27 @@ function renderWorldExtension(surface = 'play') {
 }
 
 // 状态条只认运行时声明，不预置任何玩法字段。
-// 有可用 min/max 区间的资源 → 渲染成 meter（这是通用「资源条」形态，至于是生命还是理智由声明决定）
-// 其余维度（属性 / 技能 / 无区间资源 / 派生值） → 渲染成 chip，由 renderRPG 后半段统一处理
+// 角色当前上限约定：state.stats 里以 max<Id> 存储（如 hp→maxHp、mp→maxMp）。
+// 有「角色当前上限」的资源 → 渲染成 meter（角色当前值 / 角色上限）；
+// 其余维度（属性 / 技能 / 无角色上限的资源 / 派生值） → 渲染成 chip，由 renderRPG 后半段统一处理。
+// 世界卡声明的 min/max 是变量域约束（校验/钳制用），不是角色"满值"，不得用作 meter 分母。
+function characterResourceCap(id) {
+  if (!id) return NaN;
+  const stats = currentWorldSave?.state?.stats;
+  if (!stats || typeof stats !== 'object') return NaN;
+  const key = 'max' + String(id).charAt(0).toUpperCase() + String(id).slice(1);
+  const value = Number(stats[key]);
+  return Number.isFinite(value) ? value : NaN;
+}
+
 function statusMeters() {
   if (!worldModeActive()) return [];
   const schema = currentWorldCard()?.playerCreation || {};
-  return (Array.isArray(schema.resources) ? schema.resources : []).filter(definition =>
-    definition && definition.id
-    && Number.isFinite(Number(definition.max))
-    && Number(definition.max) > Number(definition.min ?? 0)
-  );
+  return (Array.isArray(schema.resources) ? schema.resources : []).filter(definition => {
+    if (!definition || !definition.id) return false;
+    const cap = characterResourceCap(definition.id);
+    return Number.isFinite(cap) && cap > Number(definition.min ?? 0);
+  });
 }
 
 function renderStatusMeters() {
@@ -5756,16 +5767,16 @@ function renderStatusMeters() {
   const anchor = $('rpg-dynamic-stats');
   for (const definition of meters) {
     const min = Number.isFinite(Number(definition.min)) ? Number(definition.min) : 0;
-    const max = Number(definition.max);
+    const cap = characterResourceCap(definition.id);
     const raw = player?.resources?.[definition.id];
     const value = raw === undefined || raw === null || raw === '' ? (definition.initial ?? definition.default ?? min) : raw;
     const numeric = Number(value);
-    const pct = Number.isFinite(numeric) ? Math.max(0, Math.min(100, (numeric - min) / (max - min) * 100)) : 0;
+    const pct = Number.isFinite(numeric) && cap > min ? Math.max(0, Math.min(100, (numeric - min) / (cap - min) * 100)) : 0;
     const row = document.createElement('div');
     row.className = 'rpg-stat';
     row.innerHTML = '<span>' + esc(definition.label || definition.id) + '</span>'
       + '<div class="rpg-bar"><i style="width:' + pct.toFixed(2) + '%"></i></div>'
-      + '<b>' + esc(Number.isFinite(numeric) ? numeric + '/' + max : '—') + '</b>';
+      + '<b>' + esc(Number.isFinite(numeric) ? numeric + '/' + cap : '—') + '</b>';
     statusBar.insertBefore(row, anchor);
   }
 }
