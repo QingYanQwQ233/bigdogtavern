@@ -66,12 +66,16 @@
 | `qa-specialist` | 与项目已有的 96 项检查脚本体系重叠 |
 | `user-researcher` | 需要真实用户研究流程，对当前单人开发阶段边际收益低 |
 | `wireframe-agent` | 低保真线框，与 `page-designer` 前置阶段重叠 |
-| `interactive-flow-diagram`（26 KB） | 生成 D3.js 独立 HTML，**需要外链 CDN**，违反离线约束 |
-| `journey-map`（32 KB） | 同上 |
-| `screen-flow-diagram`（31 KB） | 同上 |
+| `interactive-flow-diagram`（26 KB） | 产出独立 HTML，D3 从 `cdn.jsdelivr.net` 加载，另引 Google Fonts |
+| `journey-map`（32 KB） | 同上（D3 from CDN） |
+| `screen-flow-diagram`（31 KB） | 同上（D3 from CDN） |
 | `ux-map-maker` | 元技能，只负责在上面三个之间选择 |
 
-> 四个图表类 skill 合计约 90 KB，占该仓库 `skills/` 体积的绝大部分，且都违反离线约束 —— 这是它们被整体排除的主因。
+> **为什么整体排除**：四者合计约 98 KB，占该仓库 `skills/` 体积的绝大部分；形态上是「复制一段 HTML 模板填数据」的生成器，不是设计知识；且 `ux-map-maker` 只是另外三个的选择器，4 个 skill 干 1 件事。与本项目当前的问题（缺出口 / 页面不统一 / 同级组件不一致）无直接关系。
+>
+> **一处更正**：本表初版把排除理由写成「违反离线约束」，**这个理由不成立**。离线约束管的是随应用分发的资源；这些是开发侧产物（画给人看的图，浏览器打开即用），不进 `public/`、不进 APK，不受该约束管辖。真正的理由是相关性与形态，不是离线约束。
+>
+> 若将来确实需要流程图，可重新评估；CDN 依赖也不是死结（D3 是 MIT，本地放一份即可离线，代价是要改动第三方模板里的一行，需单独记录）。
 
 ### 整体排除的仓库
 
