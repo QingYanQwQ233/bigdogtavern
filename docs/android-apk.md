@@ -26,10 +26,8 @@ server.js 与桌面端是同一份，提供全部 /api/*：
 ## 构建（你本地不用装任何东西）
 
 1. 把项目推到 GitHub（`public/data/*.json` 已被 .gitignore 排除，**你的 API key 不会进仓库**）
-2. GitHub → Actions → **Build Tavern APK** → Run workflow
+2. GitHub → Actions → **Build Tavern APK** → Run workflow（仅手动触发，push 不自动构建）
 3. 构建完在 Actions 页面下载 `tavern-apk` artifact → 安装到手机（允许未知来源）
-
-手动触发：Actions 页 → Build Tavern APK → Run workflow。
 
 ## 手机端使用
 

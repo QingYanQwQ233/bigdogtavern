@@ -32,7 +32,7 @@ node server.js
 
 ## Android APK
 
-推送到 `main` 会触发 [Build Tavern APK](.github/workflows/android-apk.yml)。功能分支已推送时，可在 GitHub 的 **Actions → Build Tavern APK → Run workflow** 选择该分支手动构建。构建完成后，在对应运行页下载 `tavern-apk` artifact；当前产物是已签名的 Debug APK，不会自动发布为 GitHub Release。
+APK 不随 push 自动构建（避免浪费构建额度）；需要时在 GitHub 的 **Actions → Build Tavern APK → Run workflow** 选择目标分支手动触发。构建完成后，在对应运行页下载 `tavern-apk` artifact；当前产物是已签名的 Debug APK，不会自动发布为 GitHub Release。
 
 本地构建需要 JDK 17、Android SDK 与 Gradle 8.7。构建前只复制前端资源和默认模板，不会把本地 API Key、存档或其他运行时数据打进 APK：
 

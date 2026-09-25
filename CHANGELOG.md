@@ -1,5 +1,9 @@
 # 更新日志
 
+## 2026-09-25 · APK 改为仅手动构建
+
+- `android-apk.yml` 取消 `push` 自动触发（避免日常提交浪费构建额度），保留 `workflow_dispatch`：需要 APK 时在 Actions 页 Run workflow；README / AGENTS / docs 同步更新。
+
 ## 2026-09-25 · 世界包 `characters` 字段退役（specVersion 2）
 
 - `content` 不再携带角色实体：导出停写 `characters` / `characterIds` / `start.playerTemplateId`；导入忽略旧包里的这些字段，v1 旧包仍可导入并给出警告。
