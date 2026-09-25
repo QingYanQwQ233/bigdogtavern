@@ -3602,10 +3602,6 @@ function bindEvents() {
   const nd = $('nav-drawer');
   const ndm = nd && nd.querySelector('.nd-mask');
   if (ndm) ndm.addEventListener('click', closeNavDrawer);
-  // 形象参考图导入
-  $('btn-import-ref').addEventListener('click', () => { const f = $('cm-ref-file'); if (f) f.click(); });
-  $('btn-remove-ref').addEventListener('click', removeRefImage);
-  $('cm-ref-file').addEventListener('change', (e) => { importRefImage(e.target.files && e.target.files[0]); e.target.value = ''; });
   // 记忆 / 玩家设定
   $('um-preset').addEventListener('change', () => { userData.currentPreset = $('um-preset').value; fillUserForm(); saveUserData(); });
   $('um-save').addEventListener('click', saveUserForm);
@@ -3614,7 +3610,6 @@ function bindEvents() {
   $('mem-add').addEventListener('click', addMemory);
   $('mem-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') addMemory(); });
   // AI 生成
-  $('cm-profile-add').addEventListener('click', addCharProfileField);
   $('btn-ai-wi').addEventListener('click', aiGenWI);
   // 会话
   $('btn-session').addEventListener('click', e => {

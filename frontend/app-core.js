@@ -153,8 +153,6 @@ let worldUpgrade = null;
 let worldUpgradeOpener = null;
 let worldImport = null;
 let worldImportOpener = null;
-let rpgMigration = null;
-let rpgMigrationOpener = null;
 // ponytail: 仅在超长会话窗口化，保留“加载更早消息”入口；短会话继续走原渲染路径。
 const MESSAGE_RENDER_WINDOW_SIZE = 120;
 const MESSAGE_RENDER_WINDOW_STEP = 80;
