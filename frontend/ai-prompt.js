@@ -679,8 +679,7 @@ function buildRpgPromptPart() {
 }
 
 function buildPromptBlocks() {
-  const char = currentChar();
-  const promptChar = worldModeActive() ? null : char;
+  const promptChar = null;
   const { preset: rawPreset } = resolvePromptPreset();
   const preset = normalizePromptPreset('', rawPreset);
   const presetSettings = preset.modelParameters && typeof preset.modelParameters === 'object' ? preset.modelParameters : {};

@@ -44,7 +44,7 @@ vm.runInContext(`
   };
 `, context);
 
-assert.match(context.result.prompt, /弱点：怕水/);
+assert.doesNotMatch(context.result.prompt, /弱点：怕水/, '角色卡字段已随 ST 移除，不得再进入 prompt');
 assert.deepStrictEqual(JSON.parse(JSON.stringify(context.result.fields)), [{ key: 'weakness', label: '弱点', value: '怕水' }]);
 assert.strictEqual(context.result.zero, '0');
 

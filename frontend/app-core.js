@@ -86,12 +86,6 @@ function buildGuide() {
     return String(ui.rpgEmptyGuide || '当前存档：{save}。RPG 叙事只读取这条世界线。')
       .replace('{save}', currentWorldSave?.name || currentWorldSaveId || '当前世界存档');
   }
-  const char = currentChar();
-  if (char && char.name && char.name !== '？？？' && ui.emptyGuideWithChar) {
-    return ui.emptyGuideWithChar
-      .replace('{name}', char.name)
-      .replace('{role}', char.role || '');
-  }
   return ui.emptyGuide || '';
 }
 
@@ -322,7 +316,7 @@ async function downloadBlob(blob, filename) {
 }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 function currentChar() { return characters.find(c => c.id === currentCharId) || null; }
-function sessionMatches(s) { return !!s && s.charId === currentCharId && s.kind === mode; }
+function sessionMatches(s) { return !!s && s.kind === mode; }
 function saveSessions(updatedSession = curSession()) {
   const cur = updatedSession && Array.isArray(sessions)
     ? sessions.find(session => session.id === updatedSession.id) || curSession()

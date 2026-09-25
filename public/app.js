@@ -87,12 +87,6 @@ function buildGuide() {
     return String(ui.rpgEmptyGuide || '当前存档：{save}。RPG 叙事只读取这条世界线。')
       .replace('{save}', currentWorldSave?.name || currentWorldSaveId || '当前世界存档');
   }
-  const char = currentChar();
-  if (char && char.name && char.name !== '？？？' && ui.emptyGuideWithChar) {
-    return ui.emptyGuideWithChar
-      .replace('{name}', char.name)
-      .replace('{role}', char.role || '');
-  }
   return ui.emptyGuide || '';
 }
 
@@ -323,7 +317,7 @@ async function downloadBlob(blob, filename) {
 }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 function currentChar() { return characters.find(c => c.id === currentCharId) || null; }
-function sessionMatches(s) { return !!s && s.charId === currentCharId && s.kind === mode; }
+function sessionMatches(s) { return !!s && s.kind === mode; }
 function saveSessions(updatedSession = curSession()) {
   const cur = updatedSession && Array.isArray(sessions)
     ? sessions.find(session => session.id === updatedSession.id) || curSession()
@@ -3486,10 +3480,10 @@ function renderRpgMigrationReport(data) {
   root.innerHTML = `<div class="world-import-facts"><span><b>${esc(report.source?.turns || 0)}</b>回合</span><span><b>${esc(report.state?.inventory || 0)}</b>背包</span><span><b>${esc(report.state?.quests || 0)}</b>任务</span><span><b>${report.state?.hasMap ? '有' : '无'}</b>地图</span></div>${errors ? `<section class="world-import-errors"><h3>无法迁移</h3><ul>${errors}</ul></section>` : '<p class="world-import-ready">✓ 校验通过；原会话不会被修改。</p>'}${warnings ? `<section class="world-import-warnings"><h3>迁移提示</h3><ul>${warnings}</ul></section>` : ''}`;
 }
 function legacyRpgSessions() {
-  return (Array.isArray(sessions) ? sessions : []).filter(s => s && s.kind === 'rpg' && (!currentCharId || s.charId === currentCharId));
+  return (Array.isArray(sessions) ? sessions : []).filter(s => s && s.kind === 'rpg');
 }
 function migrationCharacterSnapshot() {
-  const char = currentChar() || {};
+  const char = {};
   const copy = { name: char.name, race: char.race, role: char.role, persona: char.persona, profileFields: Array.isArray(char.profileFields) ? char.profileFields : [] };
   return Object.fromEntries(Object.entries(copy).filter(([, value]) => value !== undefined));
 }
@@ -3569,10 +3563,9 @@ async function commitWorldPackageImport() {
     currentWorldSaveId = null;
     localStorage.setItem(LS_CURRENT_WORLD, currentWorldId);
     localStorage.removeItem(LS_CURRENT_WORLD_SAVE);
-    const [nextCharacters, nextLorebooks, nextPresets] = await Promise.all([
-      loadServerData('characters'), loadServerData('lorebooks'), loadServerData('presets'),
+    const [nextLorebooks, nextPresets] = await Promise.all([
+      loadServerData('lorebooks'), loadServerData('presets'),
     ]);
-    if (Array.isArray(nextCharacters)) characters = nextCharacters;
     if (nextLorebooks && typeof nextLorebooks === 'object') lorebooks = nextLorebooks;
     if (nextPresets && typeof nextPresets === 'object') promptPresets = nextPresets;
     $('world-import-dialog').close('committed');
@@ -6080,7 +6073,7 @@ function renderRPG() {
   const cs = $('rpg-char-summary');
   const c = mode === 'rpg'
     ? (worldModeActive() ? (currentWorldSave.player?.snapshot || null) : null)
-    : currentChar();
+        : null;
   if (cs) {
     cs.innerHTML = c
       ? `<div class="rpg-item"><span class="rpg-item-name">${esc(c.name || '未命名冒险者')}</span><div class="rpg-item-sub">${esc([c.race, c.role].filter(Boolean).join(' · ') || '种族/身份待定')}</div></div>`
@@ -7636,8 +7629,7 @@ function buildRpgPromptPart() {
 }
 
 function buildPromptBlocks() {
-  const char = currentChar();
-  const promptChar = worldModeActive() ? null : char;
+  const promptChar = null;
   const { preset: rawPreset } = resolvePromptPreset();
   const preset = normalizePromptPreset('', rawPreset);
   const presetSettings = preset.modelParameters && typeof preset.modelParameters === 'object' ? preset.modelParameters : {};
