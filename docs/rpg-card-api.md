@@ -560,6 +560,7 @@ ui 的可写顶层字段是 schemaVersion、layout、theme、slots、regions、s
 | theme.tokens | 最多 32 个受校验 CSS Token；值不能含脚本、URL、花括号或分号 |
 | slots | 旧兼容可见性声明 |
 | regions | 每个区域独立选择 decorate、replace、append、hide；区域名只允许 topbar、sidebar.left、narrative、options、input、sidebar.right、status、overlay |
+| sections | 右侧状态面板逐块显示控制：quests、goals、hooks、leads、events、factions、failure、worldline、summary、experiences → true 常显 / false 隐藏 / 未声明 = 有内容才显示（默认不再全量铺开） |
 | shell | navigation/topbar 为 show 或 hide；fullscreen 为布尔；escape 为 fullscreen、world、none |
 | sidebar.panels | 最多 24 个声明式数据面板 |
 | extension | 隔离 HTML/CSS/JS 配置；permissions 是请求的能力标签，不是直接写存档的授权 |

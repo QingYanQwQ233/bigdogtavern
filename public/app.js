@@ -5785,6 +5785,47 @@ function renderStatusMeters() {
   }
 }
 
+// 右侧状态区块可见性：世界卡可用 ui.sections 逐块控制（true=常显 / false=隐藏 / 未声明=auto：有内容才显示）。
+// 默认不再把全部区块铺开——空维度不渲染，只有卡显式声明或确有内容时才出现。
+const RPG_RIGHT_SECTION_KEYS = ['quests', 'goals', 'hooks', 'leads', 'events', 'factions', 'failure', 'worldline', 'summary', 'experiences'];
+function rpgRightSectionMode(key) {
+  const ui = currentWorldCard()?.ui;
+  const sections = ui && typeof ui.sections === 'object' && !Array.isArray(ui.sections) ? ui.sections : null;
+  const raw = sections ? sections[key] : undefined;
+  if (raw === true || raw === 'show') return 'show';
+  if (raw === false || raw === 'hide') return 'hide';
+  return 'auto';
+}
+function rpgRightSectionHasContent(key) {
+  const state = currentWorldSave?.state || {};
+  switch (key) {
+    case 'quests': return Array.isArray(state.quests) && state.quests.length > 0;
+    case 'goals': return Array.isArray(state.goals) && state.goals.length > 0;
+    case 'hooks': return (Array.isArray(state.activeHooks) && state.activeHooks.length > 0) || !!state.openingScenario?.initialHook;
+    case 'leads': return Array.isArray(state.leads) && state.leads.length > 0;
+    case 'events': return Array.isArray(state.worldEvents) && state.worldEvents.length > 0;
+    case 'factions': {
+      const cardFactions = currentWorldCard()?.factions;
+      if (Array.isArray(cardFactions) && cardFactions.length) return true;
+      const factionStates = state.factionStates;
+      return !!(factionStates && typeof factionStates === 'object' && Object.keys(factionStates).length);
+    }
+    case 'failure': return !!state.failure;
+    case 'experiences': return Array.isArray(state.experiences) && state.experiences.length > 0;
+    default: return true; // worldline / summary：宿主会话功能，默认常显
+  }
+}
+function applyRpgSectionVisibility() {
+  const root = $('rpg-legacy-world-right');
+  if (!root || !worldModeActive()) return;
+  for (const key of RPG_RIGHT_SECTION_KEYS) {
+    const section = root.querySelector('[data-rpg-section="' + key + '"]');
+    if (!section) continue;
+    const mode = rpgRightSectionMode(key);
+    section.hidden = !(mode === 'show' || (mode === 'auto' && rpgRightSectionHasContent(key)));
+  }
+}
+
 function renderRPG() {
   applyWorldUiSlots();
   const rs = curRpgState();
@@ -5796,6 +5837,7 @@ function renderRPG() {
     const rightRegion = worldModeActive() ? worldUiRegions()['sidebar.right'] : null;
     legacyWorldRight.hidden = !!(rightRegion && (rightRegion.mode === 'hide' || rightRegion.mode === 'replace' || rightRegion.visible === false));
   }
+  applyRpgSectionVisibility();
   const sendButton = $('btn-send');
   if (sendButton && !sending) sendButton.disabled = worldSavePlanning();
   const setT = (id, v) => { const el = $(id); if (el) el.textContent = v; };
@@ -5963,20 +6005,7 @@ function renderRPG() {
   addDeadlineLabels('rpg-goals', worldModeActive() ? currentWorldSave.state?.goals : rs.goals);
   addDeadlineLabels('rpg-leads', worldModeActive() ? currentWorldSave.state?.leads : rs.leads);
   const eventList = $('rpg-world-events');
-  let factionList = $('rpg-factions');
-  if (!factionList && eventList?.parentElement) {
-    const heading = document.createElement('div');
-    heading.className = 'rpg-panel-head';
-    heading.style.marginTop = '10px';
-    heading.textContent = '🏛 派系';
-    factionList = document.createElement('div');
-    factionList.id = 'rpg-factions';
-    factionList.className = 'rpg-list';
-    factionList.setAttribute('role', 'list');
-    factionList.setAttribute('aria-label', '当前派系');
-    eventList.parentElement.insertBefore(heading, eventList);
-    eventList.parentElement.insertBefore(factionList, eventList);
-  }
+  const factionList = $('rpg-factions');
   if (factionList) {
     const world = worldModeActive() ? currentWorldCard() : null;
     const definitions = Array.isArray(world?.factions) ? world.factions : [];
