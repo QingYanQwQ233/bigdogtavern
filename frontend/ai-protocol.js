@@ -309,6 +309,16 @@ function canonicalizeRpgRepairOutput(value, revision = currentWorldSave?.revisio
   return `${RPG_UPDATE_OPEN}${JSON.stringify(payload)}${RPG_UPDATE_CLOSE}`;
 }
 
+/* 从修复器规范化输出（<tavern_state_update>…</tavern_state_update>）中取回控制数据，供手动补全选项等场景使用。 */
+function extractRpgRepairPayload(output) {
+  const text = String(output || '').trim();
+  const open = text.indexOf(RPG_UPDATE_OPEN);
+  const close = text.lastIndexOf(RPG_UPDATE_CLOSE);
+  if (open < 0 || close <= open) return null;
+  try { return JSON.parse(text.slice(open + RPG_UPDATE_OPEN.length, close)); }
+  catch { return null; }
+}
+
 function parseRpgUpdatePayload(rawUpdate) {
   const raw = String(rawUpdate || '').trim();
   if (!raw) return { payload: null, errorCode: 'update.empty', errorMessage: '状态更新区为空', repairable: true };

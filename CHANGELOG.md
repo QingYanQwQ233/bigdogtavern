@@ -1,4 +1,8 @@
 # 更新日志
+## 2026-09-25 · 缺选项手动补全（正文零改写）
+- 世界回合缺行动选项时，快捷栏在原提示旁显示「补全选项」按钮：仅请求控制数据（协议修复器不输出正文），补出后经编辑消息同款保存通道写回存档。
+- 协议修复器提示词明示「绝不改变、重写或续写正文内容」；check_rpg_protocol 增加 extractRpgRepairPayload 与提示词约束断言。
+
 ## 2026-09-25 · 协议容错：state.locationId 地点漂移归一化
 - 模型把地点切换写成状态字段路径（`state.locationId`）时，前端与服务端均归一为 `location.set`（原先按未知操作逐条丢弃）。
 - 实机捕获：模型发出 `{"type":"state.locationId","id":"wolf-tooth-inn"}` 被丢弃；`check_rpg_protocol` 增加同名回归断言。

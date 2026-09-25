@@ -400,6 +400,60 @@ async function retryWorldTurn() {
   try { await requestReply(); }
   finally { worldTurnPreparing = false; }
 }
+/* 手动补全：最后一个已提交回合缺行动选项时，只请求控制数据（不动正文），补出后走与「编辑消息」相同的保存通道写回存档。 */
+let worldOptionsCompletionBusy = false;
+function worldLastCommittedAssistantTurn() {
+  const turns = Array.isArray(currentWorldSave?.turns) ? currentWorldSave.turns : [];
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const turn = turns[i];
+    if (turn && turn.role === 'assistant' && !isLegacyWorldDiceMessage(turn)) return turn;
+  }
+  return null;
+}
+function worldTurnNeedsOptions(turn) {
+  if (!turn) return false;
+  const count = Array.isArray(turn.options) ? turn.options.length : 0;
+  return count === 0 || count < worldOptionRules().min;
+}
+function worldOptionsCompletionAvailable() {
+  if (!worldModeActive()) return false;
+  if (worldOptionsCompletionBusy) return true;
+  if (sending || worldTurnPreparing || worldTurnPendingActive() || worldTurnErrorActive()) return false;
+  return worldTurnNeedsOptions(worldLastCommittedAssistantTurn());
+}
+async function completeLastTurnOptions() {
+  if (!worldOptionsCompletionAvailable() || worldOptionsCompletionBusy) return;
+  const turn = worldLastCommittedAssistantTurn();
+  if (!turn) return;
+  const rules = worldOptionRules();
+  const target = rules.min > 0 ? rules.min : Math.min(4, Math.max(1, rules.max));
+  if (!(target >= 1)) return;
+  worldOptionsCompletionBusy = true;
+  renderQuickActions();
+  try {
+    if (!settings.baseUrl) throw new Error('请先在设置中填写 Base URL');
+    const base = effectiveChatParameters();
+    const payload = { baseUrl: settings.baseUrl, apiKey: settings.apiKey, body: { model: base.model } };
+    const repaired = await repairRpgOutput(payload, String(turn.content || ''), { min: target, max: target }, activeConversationScope(), [], '本回合缺少行动选项，需要按契约补全');
+    const repairedPayload = extractRpgRepairPayload(repaired);
+    const options = normalizeRpgOptions(repairedPayload?.options, rules);
+    if (!options.length) throw new Error('模型未返回可用的行动选项');
+    const idx = (currentWorldSave.turns || []).indexOf(turn);
+    if (idx < 0) throw new Error('回合已变化，请重试');
+    currentWorldSave.turns[idx].options = options;
+    renderMessages();
+    await queueWorldSave(currentWorldSave);
+    const status = $('world-open-status');
+    if (status) status.textContent = `已补全行动选项（${options.length} 条）。`;
+  } catch (err) {
+    const status = $('world-open-status');
+    if (status) status.textContent = `⚠️ 补全选项失败：${err.message}`;
+  } finally {
+    worldOptionsCompletionBusy = false;
+    renderQuickActions();
+  }
+}
+
 async function resumeWorldAgentNarration() {
   if (!worldTurnPendingActive() || !worldTurnPending.agentExecution || sending || worldTurnPreparing) return;
   worldTurnPreparing = true;

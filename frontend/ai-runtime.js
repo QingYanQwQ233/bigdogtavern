@@ -1022,8 +1022,8 @@ async function repairRpgOutput(payload, reply, optionRules, targetScope, toolTra
     temperature: 0.1,
     max_tokens: Math.min(2048, Math.max(512, Number(payload.body?.max_tokens) || 2048)),
     messages: [
-      { role: 'system', content: '你是 Tavern RPG 协议修复器。只整理已有控制数据，不续写故事、不推演新事实、不执行工具。若收到结构化函数，必须用它返回；否则只输出一个 JSON 对象，不要解释或输出代码围栏。' },
-      { role: 'user', content: `修复以下本回合草稿的控制数据。只返回 updates、options、可选 eventMemory/createEntities；protocol、version、baseRevision 由客户端从当前存档注入。options=${optionRules.min}-${optionRules.max} 个非空、不重复的纯字符串，不得含 toolCalls。每个 update 只用协议字段；runtime.action.execute 只允许 type、actionId、可选 input。${RPG_RUNTIME_UPDATE_FORMAT_HINT} JSON 示例：${JSON.stringify({ updates: [], options: Array.from({ length: Math.max(0, Number(optionRules.min) || 0) }, (_, index) => `行动 ${index + 1}`) })}。校验错误：${validationError || '结构不完整'}。已成功工具结果（只可引用，不可重做）：${JSON.stringify(successfulTools)}。草稿：\n${draft}` },
+      { role: 'system', content: '你是 Tavern RPG 协议修复器。绝不改变、重写或续写正文内容——正文保持逐字原样；只按格式整理/补全已有控制数据（行动选项、状态更新等），不推演新事实、不执行工具。若收到结构化函数，必须用它返回；否则只输出一个 JSON 对象，不要解释或输出代码围栏。' },
+      { role: 'user', content: `修复以下本回合草稿的控制数据（正文保持逐字原样，不要输出或改写正文）。只返回 updates、options、可选 eventMemory/createEntities；protocol、version、baseRevision 由客户端从当前存档注入。options=${optionRules.min}-${optionRules.max} 个非空、不重复的纯字符串，不得含 toolCalls。每个 update 只用协议字段；runtime.action.execute 只允许 type、actionId、可选 input。${RPG_RUNTIME_UPDATE_FORMAT_HINT} JSON 示例：${JSON.stringify({ updates: [], options: Array.from({ length: Math.max(0, Number(optionRules.min) || 0) }, (_, index) => `行动 ${index + 1}`) })}。校验错误：${validationError || '结构不完整'}。已成功工具结果（只可引用，不可重做）：${JSON.stringify(successfulTools)}。草稿：\n${draft}` },
     ],
   };
   body.tools = [buildRpgRepairToolDefinition(optionRules)];

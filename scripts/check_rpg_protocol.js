@@ -96,6 +96,12 @@ assert.strictEqual(repairTool.function.name, 'tavern_rpg_turn_repair');
 assert.strictEqual(repairTool.function.parameters.properties.options.minItems, 3);
 assert.strictEqual(repairTool.function.parameters.properties.options.maxItems, 4);
 assert.deepStrictEqual(repairTool.function.parameters.required, ['updates', 'options']);
+/* 手动补全：修复器标签输出可被还原为控制数据；修复提示词必须声明正文零改写。 */
+const extractedRepair = vm.runInContext(`extractRpgRepairPayload('<tavern_state_update>{"protocol":"tavern.rpg.turn","version":1,"baseRevision":7,"updates":[],"options":["甲","乙","丙","丁"]}</tavern_state_update>')`, context);
+assert.deepStrictEqual(JSON.parse(JSON.stringify(extractedRepair.options)), ['甲', '乙', '丙', '丁']);
+assert.strictEqual(vm.runInContext(`extractRpgRepairPayload('纯正文，无标签')`, context), null);
+assert.ok(fs.readFileSync('frontend/ai-runtime.js', 'utf8').includes('绝不改变、重写或续写正文内容'), '修复提示词必须声明不改正文');
+
 
 const terminalOriginalPayload = {
   protocol: 'tavern.rpg.turn', version: 1, baseRevision: 20,

@@ -749,6 +749,60 @@ async function retryWorldTurn() {
   try { await requestReply(); }
   finally { worldTurnPreparing = false; }
 }
+/* 手动补全：最后一个已提交回合缺行动选项时，只请求控制数据（不动正文），补出后走与「编辑消息」相同的保存通道写回存档。 */
+let worldOptionsCompletionBusy = false;
+function worldLastCommittedAssistantTurn() {
+  const turns = Array.isArray(currentWorldSave?.turns) ? currentWorldSave.turns : [];
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const turn = turns[i];
+    if (turn && turn.role === 'assistant' && !isLegacyWorldDiceMessage(turn)) return turn;
+  }
+  return null;
+}
+function worldTurnNeedsOptions(turn) {
+  if (!turn) return false;
+  const count = Array.isArray(turn.options) ? turn.options.length : 0;
+  return count === 0 || count < worldOptionRules().min;
+}
+function worldOptionsCompletionAvailable() {
+  if (!worldModeActive()) return false;
+  if (worldOptionsCompletionBusy) return true;
+  if (sending || worldTurnPreparing || worldTurnPendingActive() || worldTurnErrorActive()) return false;
+  return worldTurnNeedsOptions(worldLastCommittedAssistantTurn());
+}
+async function completeLastTurnOptions() {
+  if (!worldOptionsCompletionAvailable() || worldOptionsCompletionBusy) return;
+  const turn = worldLastCommittedAssistantTurn();
+  if (!turn) return;
+  const rules = worldOptionRules();
+  const target = rules.min > 0 ? rules.min : Math.min(4, Math.max(1, rules.max));
+  if (!(target >= 1)) return;
+  worldOptionsCompletionBusy = true;
+  renderQuickActions();
+  try {
+    if (!settings.baseUrl) throw new Error('请先在设置中填写 Base URL');
+    const base = effectiveChatParameters();
+    const payload = { baseUrl: settings.baseUrl, apiKey: settings.apiKey, body: { model: base.model } };
+    const repaired = await repairRpgOutput(payload, String(turn.content || ''), { min: target, max: target }, activeConversationScope(), [], '本回合缺少行动选项，需要按契约补全');
+    const repairedPayload = extractRpgRepairPayload(repaired);
+    const options = normalizeRpgOptions(repairedPayload?.options, rules);
+    if (!options.length) throw new Error('模型未返回可用的行动选项');
+    const idx = (currentWorldSave.turns || []).indexOf(turn);
+    if (idx < 0) throw new Error('回合已变化，请重试');
+    currentWorldSave.turns[idx].options = options;
+    renderMessages();
+    await queueWorldSave(currentWorldSave);
+    const status = $('world-open-status');
+    if (status) status.textContent = `已补全行动选项（${options.length} 条）。`;
+  } catch (err) {
+    const status = $('world-open-status');
+    if (status) status.textContent = `⚠️ 补全选项失败：${err.message}`;
+  } finally {
+    worldOptionsCompletionBusy = false;
+    renderQuickActions();
+  }
+}
+
 async function resumeWorldAgentNarration() {
   if (!worldTurnPendingActive() || !worldTurnPending.agentExecution || sending || worldTurnPreparing) return;
   worldTurnPreparing = true;
@@ -6381,6 +6435,16 @@ function canonicalizeRpgRepairOutput(value, revision = currentWorldSave?.revisio
     if (Object.prototype.hasOwnProperty.call(candidate, key)) payload[key] = candidate[key];
   }
   return `${RPG_UPDATE_OPEN}${JSON.stringify(payload)}${RPG_UPDATE_CLOSE}`;
+}
+
+/* 从修复器规范化输出（<tavern_state_update>…</tavern_state_update>）中取回控制数据，供手动补全选项等场景使用。 */
+function extractRpgRepairPayload(output) {
+  const text = String(output || '').trim();
+  const open = text.indexOf(RPG_UPDATE_OPEN);
+  const close = text.lastIndexOf(RPG_UPDATE_CLOSE);
+  if (open < 0 || close <= open) return null;
+  try { return JSON.parse(text.slice(open + RPG_UPDATE_OPEN.length, close)); }
+  catch { return null; }
 }
 
 function parseRpgUpdatePayload(rawUpdate) {
@@ -12306,8 +12370,8 @@ async function repairRpgOutput(payload, reply, optionRules, targetScope, toolTra
     temperature: 0.1,
     max_tokens: Math.min(2048, Math.max(512, Number(payload.body?.max_tokens) || 2048)),
     messages: [
-      { role: 'system', content: '你是 Tavern RPG 协议修复器。只整理已有控制数据，不续写故事、不推演新事实、不执行工具。若收到结构化函数，必须用它返回；否则只输出一个 JSON 对象，不要解释或输出代码围栏。' },
-      { role: 'user', content: `修复以下本回合草稿的控制数据。只返回 updates、options、可选 eventMemory/createEntities；protocol、version、baseRevision 由客户端从当前存档注入。options=${optionRules.min}-${optionRules.max} 个非空、不重复的纯字符串，不得含 toolCalls。每个 update 只用协议字段；runtime.action.execute 只允许 type、actionId、可选 input。${RPG_RUNTIME_UPDATE_FORMAT_HINT} JSON 示例：${JSON.stringify({ updates: [], options: Array.from({ length: Math.max(0, Number(optionRules.min) || 0) }, (_, index) => `行动 ${index + 1}`) })}。校验错误：${validationError || '结构不完整'}。已成功工具结果（只可引用，不可重做）：${JSON.stringify(successfulTools)}。草稿：\n${draft}` },
+      { role: 'system', content: '你是 Tavern RPG 协议修复器。绝不改变、重写或续写正文内容——正文保持逐字原样；只按格式整理/补全已有控制数据（行动选项、状态更新等），不推演新事实、不执行工具。若收到结构化函数，必须用它返回；否则只输出一个 JSON 对象，不要解释或输出代码围栏。' },
+      { role: 'user', content: `修复以下本回合草稿的控制数据（正文保持逐字原样，不要输出或改写正文）。只返回 updates、options、可选 eventMemory/createEntities；protocol、version、baseRevision 由客户端从当前存档注入。options=${optionRules.min}-${optionRules.max} 个非空、不重复的纯字符串，不得含 toolCalls。每个 update 只用协议字段；runtime.action.execute 只允许 type、actionId、可选 input。${RPG_RUNTIME_UPDATE_FORMAT_HINT} JSON 示例：${JSON.stringify({ updates: [], options: Array.from({ length: Math.max(0, Number(optionRules.min) || 0) }, (_, index) => `行动 ${index + 1}`) })}。校验错误：${validationError || '结构不完整'}。已成功工具结果（只可引用，不可重做）：${JSON.stringify(successfulTools)}。草稿：\n${draft}` },
     ],
   };
   body.tools = [buildRpgRepairToolDefinition(optionRules)];
@@ -15941,6 +16005,15 @@ function renderQuickActions() {
       s.className = 'quick-hint';
       s.textContent = hint;
       qa.appendChild(s);
+      if (typeof worldOptionsCompletionAvailable === 'function' && worldOptionsCompletionAvailable()) {
+        const fix = document.createElement('button');
+        fix.type = 'button';
+        fix.className = 'chip';
+        fix.textContent = worldOptionsCompletionBusy ? '正在补全选项…' : '补全选项';
+        fix.disabled = !!worldOptionsCompletionBusy;
+        fix.addEventListener('click', () => { if (!fix.disabled) void completeLastTurnOptions(); });
+        qa.appendChild(fix);
+      }
     }
     return;
   }

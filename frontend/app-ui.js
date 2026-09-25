@@ -3449,6 +3449,15 @@ function renderQuickActions() {
       s.className = 'quick-hint';
       s.textContent = hint;
       qa.appendChild(s);
+      if (typeof worldOptionsCompletionAvailable === 'function' && worldOptionsCompletionAvailable()) {
+        const fix = document.createElement('button');
+        fix.type = 'button';
+        fix.className = 'chip';
+        fix.textContent = worldOptionsCompletionBusy ? '正在补全选项…' : '补全选项';
+        fix.disabled = !!worldOptionsCompletionBusy;
+        fix.addEventListener('click', () => { if (!fix.disabled) void completeLastTurnOptions(); });
+        qa.appendChild(fix);
+      }
     }
     return;
   }
