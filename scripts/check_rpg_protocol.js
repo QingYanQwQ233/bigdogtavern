@@ -237,6 +237,9 @@ assert.strictEqual(Object.hasOwn(toolCandidate.patch, 'toolCalls'), false);
 
 const locationPatch = vm.runInContext(`processAIOutput(${JSON.stringify('<tavern_state_update>' + JSON.stringify({ protocol: 'tavern.rpg.turn', version: 1, baseRevision: 7, updates: [{ type: 'location.set', location: { id: 'wolf-tooth-inn' }, name: '多余显示名' }], options: [] }) + '</tavern_state_update>')})`, context);
 assert.deepStrictEqual(JSON.parse(JSON.stringify(locationPatch.patch.updates)), [{ type: 'location.set', locationId: 'wolf-tooth-inn' }]);
+// 模型把地点切换写成状态字段路径（state.locationId）时应归一为 location.set，而不是逐条丢弃。
+const locationAliasPatch = vm.runInContext(`processAIOutput(${JSON.stringify('<tavern_state_update>' + JSON.stringify({ protocol: 'tavern.rpg.turn', version: 1, baseRevision: 7, updates: [{ type: 'state.locationId', id: 'wolf-tooth-inn' }], options: [] }) + '</tavern_state_update>')})`, context);
+assert.deepStrictEqual(JSON.parse(JSON.stringify(locationAliasPatch.patch.updates)), [{ type: 'location.set', locationId: 'wolf-tooth-inn' }]);
 
 const malformedActionPatch = vm.runInContext(`validateRpgPatchShape(${JSON.stringify({
   protocol: 'tavern.rpg.turn', version: 1, baseRevision: 7, updates: [
