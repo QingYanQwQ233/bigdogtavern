@@ -2443,6 +2443,8 @@ async function requestReply() {
         processed.patch = recoveredActionPatch.patch;
         setDebugTrace(targetScope, { status: '已接管卡内声明动作结算', error: '', actionIntentRecovery: recoveredActionPatch.reason });
       }
+      // 模型可能发明协议外的操作类型：先丢弃未知操作，再进行契约校验，避免整个回合被拒。
+      if (processed.patch) processed.patch = normalizeRpgPatch(processed.patch);
       const optionRules = worldOptionRules();
       let options = normalizeRpgOptions(processed.options, optionRules);
       processed.options = options.length ? options : null;
@@ -2468,6 +2470,7 @@ async function requestReply() {
             const repairedReply = await repairRpgOutput(payload, reply, optionRules, targetScope, toolTrace, contractError);
             reply = mergeRepairedReply(originalNarrativeReply, repairedReply, 'rpg');
             processed = preserveValidRpgRepairFields(originalProcessed, processAIOutput(reply), optionRules);
+            if (processed.patch) processed.patch = normalizeRpgPatch(processed.patch);
             setResponsePreview(rpgAgentSession?.previewNarrative || reply, rpgResolvedCheck, targetKey, rpgAgentSession?.checkpoints);
           } catch (error) {
             console.warn('[Tavern] RPG 协议修复失败:', error.message);
