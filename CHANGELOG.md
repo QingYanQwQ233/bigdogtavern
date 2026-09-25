@@ -2,58 +2,37 @@
 
 ## 2026-09-25 · 世界包 `characters` 字段退役（specVersion 2）
 
-背景：ST 模式移除后，世界包格式仍强制携带 `characters`（角色实体数组），而仓库 7 个官方示例包全部为空数组、前端 0 引用——「没有消费者，却必须存在」。本次直接退役。
+`content.characters` 是强制的角色实体数组（缺失即拒收），但 7 个官方示例包全为空数组、前端 0 引用 —— 整条链路退役。
 
-**server（格式与管线）**
-- 导出不再收集角色实体：`content` 只剩 `world / lorebooks / presets`；`character-reference` 资源、`manifest.references.characters` 一并移除；导出时剔除 `characterIds` / `start.playerTemplateId`。
-- 导入不再重映射角色 ID、不再写 `characters.json`；`characterIds` / `start.playerTemplateId` 不保留，外部 `npcIds` 过滤为内嵌 NPC；无引用后 `mergeImportedArray` 一并删除。
-- `specVersion` 升到 `2`；**v1 旧包仍可导入**，其中 `characters` / `characterIds` / `start.playerTemplateId` 被忽略，并在预演报告给出「旧版角色字段已忽略」警告。
-- `npcIds` 保留：它是 NPC 登记表（与内嵌 `npcs` 同步），运行时 `worldNpcIds` 仍在用。
+- **导出**：`content` 只保留 `world / lorebooks / presets`；移除 `character-reference` 资源与 `manifest.references.characters`；`characterIds` / `start.playerTemplateId` 不再写入。
+- **导入**：删除整条角色映射（`characterIdMap` / characters 落库 / `mergeImportedArray`）；`characterIds`、`start.playerTemplateId` 不保留，外部 `npcIds` 过滤为内嵌 NPC；不再写 `characters.json`。
+- **版本**：`specVersion 1 → 2`；v1 旧包仍可导入（`LEGACY_WORLD_PACKAGE_VERSIONS`），角色字段忽略并在预演报告出警告。
+- **保留**：`npcIds` 是 NPC 登记表（与内嵌 `npcs` 同步），运行时 `worldNpcIds` 在用；本地 `characters.json` 存储与前端角色书挂接链未动。
+- **前端 / 示例**：导入预演去掉「角色」计数；7 个 `docs/*.tavern-world.json` 再生成（builder 同步更新；maoruyi 按当前草案源刷新）。
+- **守卫**：新增 `scripts/check_world_package_contract.js`（旧包忽略 / 新包无角色字段 / 导入不写 `characters.json` / 导出回环）。
 
-**前端 / 示例 / 检查**
-- 世界包导入预演不再显示「角色」计数与相关文案。
-- 7 个 `docs/*.tavern-world.json` 全部再生成（4 个 builder 同步更新；maoruyi 由当前草案源重新生成）。
-- 新增 `scripts/check_world_package_contract.js`：旧包忽略 + 新包无角色字段 + 导入不写 `characters.json` + 导出回环。
-
-**边界**：应用本地数据存储 `characters.json` 与前端兼容链（角色书挂接等）维持现状，不在本次范围。
-
-相关提交：`09f8afc`（实现与守卫）→ `7c928b6`（合并 main）。
+**验证**：全量 101/101（`09f8afc` → 合并 `7c928b6`）。
 
 ## 2026-09-25 · ST（酒馆）模式全面移除，应用固定为 RPG 单模式
 
-背景：RPG 不导入普通角色卡，「酒馆模式」与「RPG 模式」两条链路实际不可互通；保留双模式只会让后续维护同时背两套分支。本批把 ST 产品面从代码里清掉，并为「不得复活」建立守卫。
+双模式实际不可互通（RPG 不导入普通角色卡），维护面却要背两套分支 —— 整批把 ST 产品面清掉。
 
-**产品面移除**
-- 移除模式开关（`a4ee4cf`）：应用固定为 RPG，界面文本「酒馆」清零。
-- 移除角色卡的 prompt 覆盖链（`a73a960`）、自动写卡与 AI 角色工坊（`07e1714`）、回复选项协议的指令构造器（`215cf17`）、ST 自动滚动记忆（`ca2267f`）。
-- 切断角色卡脚本帧入口并删除兼容桥本体（`11c29cf`、`208f187`，净减 1276 行）。
-- 角色库整体拆除：UI 面板 / 导航 / 编辑器入口（`8caa2bd`、`a147d7b`）与编辑器函数族（`b2be15b`、`994e221`）。
-- 世界书**保留**并接入 RPG 导航（`cac4c67`）—— 它是被 RPG 读取的机制，不属于 ST 产品面。
-
-**数据与协议解耦**
-- 会话不再按角色隔离：`sessionMatches` 只按 kind 匹配，`charId` 停止写入（`4e326ea`、`4cb979d`）。
-- 共享路径上的角色卡依赖解耦（`43c638a`、`c1e20ec`）：`promptChar = null`、`buildWorldInfo` 的 `char.loreId` 支路、`getGreeting` 的 char 兜底链。
+- **产品面移除**：模式开关（`a4ee4cf`，界面「酒馆」清零）、角色卡 prompt 覆盖链（`a73a960`）、自动写卡 / 角色工坊（`07e1714`）、回复选项指令构造器（`215cf17`）、ST 自动滚动记忆（`ca2267f`）、角色卡脚本帧与兼容桥（`11c29cf`、`208f187`，净减 1276 行）、角色库 UI 与编辑器函数族（`8caa2bd`、`a147d7b`、`b2be15b`、`994e221`）；世界书保留并接入 RPG 导航（`cac4c67`）。
+- **解耦**：`sessionMatches` 只按 kind 匹配、`charId` 停止写入（`4e326ea`、`4cb979d`）；共享路径去角色依赖（`43c638a`、`c1e20ec`：`promptChar = null`、`buildWorldInfo` 的 `char.loreId` 支路、`getGreeting` 的 char 兜底链）。
 - **保留（被 RPG / 世界包复用，不得删）**：`characterBookForChar`、`normalizeCharProfileFields`、卡片序列化工具族、`saveChars` / `ensureChars`。
-
-**防回退**
-- 新增 `scripts/check_st_removed.js`：已移除项不得复活的断言 + 被复用机制必须留存的反向断言。
-
-**未处理（已登记）**
-- 世界包（server 侧 `characters` 字段）：**已完成退役**（同日，specVersion 2），见顶部条目。
-- 存档与协议层的 `hp / mp / exp / gold` 同上，见 `docs/design/DESIGN_CONSTITUTION.md §11.1`。
+- **守卫**：新增 `scripts/check_st_removed.js`（已移除项不得复活 + 保留项必须留存的反向断言）。
+- **遗留**：存档与协议层的 `hp / mp / exp / gold` 未动（`DESIGN_CONSTITUTION §11.1`）。
 
 ## 2026-09-25 · 杀掉 RPG 状态条的写死玩法数值（UI 层）
 
-RPG 模式要的是「高度自定义的玩法框架」，不是某一套具体玩法。此前 `#rpg-status` 里并列着写死的 HP / MP / EXP / 金币 / 状态 五行。
+`#rpg-status` 里并列着写死的 HP / MP / EXP / 金币 / 状态 五行 —— 与「玩法框架不预置数值」冲突。
 
 - **`public/index.html`**：删除 5 行写死标记（`rpg-hp-bar` / `rpg-hp-text` / `rpg-mp-*` / `rpg-exp-*` / `rpg-gold2` / `rpg-buffs`）
-- **`public/styles.css`**：删除按玩法字段配色的 3 条渐变规则与 `.rpg-buffs`；解除 `body[data-mode="rpg"] #rpg-dynamic-stats { display: none }`（通用层此前一直渲染但被藏住）；资源条改用 `var(--accent)`
-- **`frontend/rpg-world.js`**：新增 `statusMeters()` / `renderStatusMeters()` —— 有 `min`/`max` 区间的资源渲染成通用 meter，其余维度仍走 `#rpg-dynamic-stats` chip；**删除按名字硬排除的过滤** `!['hp','mp','gold'].includes(id)`
-- **`scripts/check_frontend_state_guards.js`**：旧断言「世界存档态不能保留空的旧状态栏占位」守的是写死行的 workaround，写死行删掉后它失去意义。换成 4 条新断言：不许再写死玩法数值行 / 资源条不得按玩法字段配色 / meter 必须取自运行时声明 / `renderRPG` 必须先渲染声明驱动部分
-
-**效果**：没有声明的世界卡 → 状态条为空，**不再显示一排 0**；有 `resources` 声明的世界卡 → 按 `min`/`max` 自动出 meter，叫什么名字、是生命还是理智，全由卡决定。
-
-**未完成（已登记）**：状态层（`defaultRpgState` / `worldRpgState`）与协议层（`ai-protocol.js` / `ai-prompt.js`）里仍有 `hp / mp / exp / gold`。这一层是 AI 输出协议 + 存档格式，删除会改变世界卡契约并影响已有存档，需要 ADR + 兼容窗口。完整清单见 `docs/design/DESIGN_CONSTITUTION.md §11.1`。
+- **`public/styles.css`**：删除按玩法字段配色的 3 条渐变规则与 `.rpg-buffs`；解除 `body[data-mode="rpg"] #rpg-dynamic-stats { display: none }`；资源条改用 `var(--accent)`
+- **`frontend/rpg-world.js`**：新增 `statusMeters()` / `renderStatusMeters()` —— 有 `min`/`max` 区间的资源渲染成通用 meter，其余维度仍走 `#rpg-dynamic-stats` chip；删除按名字硬排除的 `!['hp','mp','gold'].includes(id)`
+- **`scripts/check_frontend_state_guards.js`**：旧断言（守写死行 workaround）换成 4 条：不许写死玩法数值行 / 资源条不得按玩法字段配色 / meter 必须取自运行时声明 / `renderRPG` 先渲染声明驱动部分
+- **效果**：未声明的世界卡 → 状态条为空（不再显示一排 0）；声明了 `resources` → 按 `min`/`max` 出 meter，名称与含义由卡决定
+- **遗留**：状态层（`defaultRpgState` / `worldRpgState`）与协议层（`ai-protocol.js` / `ai-prompt.js`）的 `hp / mp / exp / gold` 未动 —— 涉及 AI 输出协议与存档格式，需要 ADR + 兼容窗口（`DESIGN_CONSTITUTION §11.1`）
 
 ## 2026-09-25 · 追加两个流程图 skill + RPG 玩法中立性立为硬约束
 
