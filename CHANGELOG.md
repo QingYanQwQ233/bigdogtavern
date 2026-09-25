@@ -1,5 +1,10 @@
 # 更新日志
 
+## 2026-09-25 · 修复金币被持久化层误删（compactRpgState）
+
+- `compactRpgState(state, world)` 不再无条件剥掉 `state.player.resources.gold`：只有世界卡未声明 gold 时才清掉遗留值；4 个调用点传入 world。
+- 实测：回合提交后存档 `resources={hp:20,mp:5,gold:10}`（revision 7）存活；状态提示不再出现「金币已移除」。
+
 ## 2026-09-25 · 状态条分母修正：角色当前上限 ≠ 世界卡变量上限
 
 - 状态条 meter 分母改用「角色当前上限」（约定存于 `state.stats.max<Id>`，如 `maxHp` / `maxMp`），不再拿世界卡声明的变量 `max` 当分母；生命/魔力按角色满值显示（实测 20/20、5/5）。

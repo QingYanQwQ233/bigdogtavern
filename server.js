@@ -150,12 +150,14 @@ function compactRpgWorld(world) {
   return next;
 }
 
-function compactRpgState(state) {
+function compactRpgState(state, world) {
   if (!state || typeof state !== 'object' || Array.isArray(state)) return state;
   const next = cloneJson(state);
   for (const key of ['inventory', 'equipment', 'currencies', 'quests', 'goals', 'leads', 'activeHooks', 'worldEvents', 'factionStates', 'conflicts', 'growthCandidates', 'growthApplications', 'experiences', 'map']) delete next[key];
   if (next.stats && typeof next.stats === 'object') delete next.stats.gold;
-  if (next.player?.resources && typeof next.player.resources === 'object') delete next.player.resources.gold;
+  // 资源按世界卡声明保留：只有世界卡未声明 gold 时，才清掉遗留的 resources.gold。
+  const declaredResourceIds = new Set((playerCreationSchema(world)?.resources || []).map(item => item && item.id).filter(Boolean));
+  if (!declaredResourceIds.has('gold') && next.player?.resources && typeof next.player.resources === 'object') delete next.player.resources.gold;
   if (next.player && typeof next.player === 'object') delete next.player.initialInventory;
   return next;
 }
@@ -6187,7 +6189,7 @@ async function handleWorldSavePut(req, res, saveId) {
         return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
       }
       if (current.setup?.status === 'planning') return send(res, 409, JSON.stringify({ error: '请先完成开局规划，再提交正式回合' }), 'application/json');
-      const nextState = compactRpgState(payload.state);
+      const nextState = compactRpgState(payload.state, world);
       if (current.state?.failure !== undefined) nextState.failure = cloneJson(current.state.failure);
       if (current.state?.ending !== undefined) nextState.ending = cloneJson(current.state.ending);
       nextState.conflicts = materializeConflictOutcomes(world, nextState.conflicts);
@@ -6240,11 +6242,11 @@ function worldSaveResetBaseline(current, world) {
   };
   const seeded = {
     ...current,
-    state: compactRpgState(baseState),
+    state: compactRpgState(baseState, world),
     npcStates: initialNpcStates(world, { locationId }, snapshot?.relations || {}),
   };
   const initialized = current?.setup?.plan ? initializeWorldStateFromOpeningPlan(seeded, world, current.setup.plan) : seeded;
-  return { state: compactRpgState(initialized.state), npcStates: cloneJson(initialized.npcStates || {}) };
+  return { state: compactRpgState(initialized.state, world), npcStates: cloneJson(initialized.npcStates || {}) };
 }
 
 async function handleWorldSaveReset(req, res, saveId) {
@@ -7279,7 +7281,7 @@ async function handleWorldTurnPost(req, res, saveId, forcedAgentPhase = null) {
         settledState = failureResult.state;
         checkResolutions = cloneJson(agentCheckResolutions.resolutions || []);
       }
-      settledState = compactRpgState(settledState);
+      settledState = compactRpgState(settledState, world);
       const materializedGeneratedEntities = agentPhase === 'narrate' && pending.generatedEntities
         ? cloneJson(pending.generatedEntities)
         : (payload.createEntities && payload.createEntities.length
