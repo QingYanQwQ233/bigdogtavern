@@ -773,14 +773,6 @@ function renderBubble(content, options = {}) {
       const normalizedSource = normalizeTavernHtmlBlocks(source);
       const extracted = extractTavernStyles(normalizedSource);
       const renderSource = extractTavernScripts(extracted.markup);
-      const runCardScripts = options.allowCardScripts === true
-        && approveCharacterCardScripts(renderSource.scripts);
-      if (runCardScripts) {
-        const frameStyles = extractTavernStyles(normalizedSource, false);
-        const frameSource = extractTavernScripts(frameStyles.markup);
-        const frameMarkup = sanitizeTavernMarkup(frameSource.markup, parser, true);
-        return { html: tavernCardScriptFrame(frameStyles.styles, frameMarkup, frameSource.scripts, tavernCardCompatibilitySnapshot(), tavernCardScrollMode()), md: false, scripted: true };
-      }
       return { html: extracted.styles + sanitizeTavernMarkup(renderSource.markup, parser), md: !!parser };
     } catch { /* 解析失败则回退纯文本 */ }
   }

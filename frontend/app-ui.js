@@ -1663,7 +1663,7 @@ function renderMessages() {
           el.className = 'msg assistant';
           el.innerHTML = renderEditBubble(m);
         } else {
-          const { html: h, md } = renderBubble(seg.type === 'dialogue' ? seg.text.slice(1, -1) : seg.text, { allowCardScripts: true });
+          const { html: h, md } = renderBubble(seg.type === 'dialogue' ? seg.text.slice(1, -1) : seg.text);
           html = h;
           if (seg.type === 'narration') {
             el.className = `msg narration${bubbleDialogue ? '' : ' tavern-prose'}`;

@@ -8576,14 +8576,6 @@ function renderBubble(content, options = {}) {
       const normalizedSource = normalizeTavernHtmlBlocks(source);
       const extracted = extractTavernStyles(normalizedSource);
       const renderSource = extractTavernScripts(extracted.markup);
-      const runCardScripts = options.allowCardScripts === true
-        && approveCharacterCardScripts(renderSource.scripts);
-      if (runCardScripts) {
-        const frameStyles = extractTavernStyles(normalizedSource, false);
-        const frameSource = extractTavernScripts(frameStyles.markup);
-        const frameMarkup = sanitizeTavernMarkup(frameSource.markup, parser, true);
-        return { html: tavernCardScriptFrame(frameStyles.styles, frameMarkup, frameSource.scripts, tavernCardCompatibilitySnapshot(), tavernCardScrollMode()), md: false, scripted: true };
-      }
       return { html: extracted.styles + sanitizeTavernMarkup(renderSource.markup, parser), md: !!parser };
     } catch { /* 解析失败则回退纯文本 */ }
   }
@@ -15100,7 +15092,7 @@ function renderMessages() {
           el.className = 'msg assistant';
           el.innerHTML = renderEditBubble(m);
         } else {
-          const { html: h, md } = renderBubble(seg.type === 'dialogue' ? seg.text.slice(1, -1) : seg.text, { allowCardScripts: true });
+          const { html: h, md } = renderBubble(seg.type === 'dialogue' ? seg.text.slice(1, -1) : seg.text);
           html = h;
           if (seg.type === 'narration') {
             el.className = `msg narration${bubbleDialogue ? '' : ' tavern-prose'}`;
