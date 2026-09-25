@@ -1,5 +1,11 @@
 # 更新日志
 
+## 2026-09-25 · 修复初始化绑定中断（大量 UI「点了没反应」）
+
+- `bindEvents` 里 4 条指向已删除元素（角色编辑器）的绑定在初始化时抛错，其后整段绑定不再执行；已删除残留绑定。
+- 清理前端孤儿的「旧 RPG 会话迁移」块（无入口、DOM 不存在；后端 `/api/rpg-migrations` 接口保留）。
+- 新增 `scripts/check_ui_bindings.js` 守卫：引用不存在的元素 id 必须走白名单。
+
 ## 2026-09-25 · APK 改为仅手动构建
 
 - `android-apk.yml` 取消 `push` 自动触发（避免日常提交浪费构建额度），保留 `workflow_dispatch`：需要 APK 时在 Actions 页 Run workflow；README / AGENTS / docs 同步更新。
