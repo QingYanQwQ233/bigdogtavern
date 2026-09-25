@@ -8105,12 +8105,11 @@ async function fetchDefaults() {
 
 function ensureSessions() {
   if (sessions && sessions.length) {
-    // 迁移旧会话：无 kind → 酒馆；无 charId → 当前角色。已有归属绝不改写。
+    // 迁移旧会话：无 kind → 酒馆。已有归属绝不改写。
     for (const s of sessions) {
       if (!s.kind) s.kind = 'tavern';
-      if (!s.charId || s.charId === 'undefined') s.charId = currentCharId;
     }
-    // 当前会话必须同时属于当前角色与当前模式。
+    // 当前会话必须属于当前模式。
     if (!curSession()) currentSessionId = (sessions.find(sessionMatches) || {}).id || null;
     saveSessions();
     return;
@@ -8119,7 +8118,7 @@ function ensureSessions() {
   const oldMsgs = loadJSON(LS_CHAT, null);
   const oldKind = oldMsgs && oldMsgs.length ? 'tavern' : mode;
   sessions = [{
-    id: uid(), name: '会话 1', charId: currentCharId, kind: oldKind,
+    id: uid(), name: '会话 1', kind: oldKind,
     messages: (oldMsgs && oldMsgs.length) ? oldMsgs : [],
     createdAt: Date.now(),
   }];
@@ -8146,7 +8145,7 @@ function newSession(askName = true) {
   } else if (defaults && defaults.ui && defaults.ui.noGreeting) {
     messages.push({ role: 'system', content: defaults.ui.noGreeting, ts: Date.now() });
   }
-  const session = { id: uid(), name, charId: currentCharId, kind: mode, messages, createdAt: Date.now() };
+  const session = { id: uid(), name, kind: mode, messages, createdAt: Date.now() };
   sessions.unshift(session);
   currentSessionId = sessions[0].id;
   saveSessions();

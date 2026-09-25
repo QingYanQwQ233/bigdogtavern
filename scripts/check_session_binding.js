@@ -51,7 +51,7 @@ assert.ok(context.check.a);
 // 新契约：会话不再按角色隔离。旧模型下 b-t 因 charId 不符被判无效、回退到 a-t；
 // 现在 b-t 合法，显式选中的会话被尊重。
 assert.strictEqual(context.check.current, 'b-t');
-assert.strictEqual(context.check.legacyChar, context.check.a);
+assert.strictEqual(context.check.legacyChar, undefined, '会话不再回填 charId（B6 解绑）');
 assert.strictEqual(context.check.mapSeed, 1);
 assert.strictEqual(context.check.mapImage, '/images/a.png');
 // 新契约：会话是全局的，切换角色不再使其失效。
