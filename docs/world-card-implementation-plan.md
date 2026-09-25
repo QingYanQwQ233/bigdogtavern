@@ -34,7 +34,7 @@
 - `public/app.js` 仍是单文件，但 W2 已通过 `worldModeActive()` 把世界模式的时间线、状态、地图和图片路径切到当前 `WorldSave`。
 - 旧 RPG 会话仍使用 `session.rpgState` 与 `localStorage`，新世界存档不读取或改写该路径。
 - `server.js` 已增加按 `saveId` 的 `PUT`、`expectedRevision` CAS、原子 JSON 写入与地图图片路径 / 网格校验；完整回合事务与幂等 receipt 留给 W3。
-- Android 的 `TavernServer.kt` 复制了数据 API，Web 端接口稳定后必须单独补齐，不能假定自动兼容。
+- ~~Android 的 `TavernServer.kt` 复制了数据 API，Web 端接口稳定后必须单独补齐，不能假定自动兼容。~~ **已解决**：Android 已改为内嵌 Node 运行时运行同一份 `server.js`，数据 API 自动一致。
 - 项目零 npm 依赖；实施优先使用浏览器能力与 Node 标准库，不引入数据库、框架或状态管理库。
 - 只做本地 commit，不 push；本阶段只修改新 WorldSave 主链，不自动迁移旧 RPG 数据。
 
@@ -312,7 +312,7 @@ W1 的刻意边界：世界库目前是独立入口，不会拦截或改写旧 R
 - **W7.1 Web 回归**：酒馆角色 → 对话绑定仍成立；世界卡 → 世界存档绑定成立；两条 Prompt 与存储路径完全分离。
 - **W7.2 异常演练**：服务端已覆盖模型代理超时（504）、坏 JSON、超大请求、revision 冲突、缺失/损坏存档的 Node 回归；断网、迟到响应、图片缺失与真实 Web UI 恢复表现待浏览器访问权限恢复后演练。
 - **W7.3 PWA**：已更新静态缓存版本，并让预缓存脚本使用与页面一致的版本查询参数；API 与运行时存档仍以网络/服务端文件为权威。离线真实设备验证待浏览器访问权限恢复后执行。
-- **W7.4 Android API 对齐**：在 `TavernServer.kt` 实现已稳定的世界 / 存档接口、路径校验和写入恢复，再构建 APK；不在 Web API 仍变化时双线开发。
+- **W7.4 Android API 对齐**：~~在 `TavernServer.kt` 实现已稳定的世界 / 存档接口、路径校验和写入恢复~~ **已由后端单源化完成**——Android 直接运行同一份 `server.js`，接口、路径校验和写入恢复天然一致；此项只保留真机回归。
 - **W7.5 性能边界**：用实际规模验证存档列表扫描和单存档大小；只有出现可测瓶颈时增加可重建索引或时间线分页。
 - **W7.6 文档**：同步 README、数据结构、Android、世界包和迁移说明，明确“已实现 / 未实现 / 已验证环境”。
 - **W7.7 Git 交付**：复核 diff、密钥、玩家数据和运行时 JSON；分阶段本地 commit，未经用户明确要求不 push、不触发 APK Actions。

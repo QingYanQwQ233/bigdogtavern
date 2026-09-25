@@ -1,11 +1,12 @@
 # Tavern · AI RP / RPG 框架
 
-Tavern 是一个面向 AI 角色扮演的本地 Web 应用。它把普通的角色卡聊天和“大世界” RPG 存档拆成两条独立链路：
+Tavern 是一个面向 AI 角色扮演的本地 Web 应用，采用单一的 **RPG 世界模型**：
+- **世界卡**是规则与世界的来源，AI 扮演 DM / 世界化身，玩家通过世界存档参与一条独立世界线。
+- 玩法维度由世界卡声明驱动，界面不预置任何玩法数值（HP / MP / 经验 / 金币 / 背包…… 一个都不写死）。
 
-- **酒馆模式**：角色卡是创作对象，AI 负责连续的 RP 叙事。
-- **RPG 模式**：世界卡是规则与世界的来源，AI 负责扮演 DM / 世界化身，玩家通过存档参与一条独立世界线。
+> **2026-09 变更**：此前的「酒馆模式」（普通角色卡连续 RP）已移除。理由是两条链路实际不可互通 —— RPG 不导入普通角色卡。相关代码、界面与测试断言已清理，并建立防回退守卫（`scripts/check_st_removed.js`）。口径见 `docs/design/DESIGN_CONSTITUTION.md §11.1`。
 
-项目的核心不变量是：**数据按所有权分层绑定，不跨角色、跨会话、跨存档串数据；能结构化保存的状态不只依赖 AI 记忆。**
+项目的核心不变量是：**数据按所有权分层绑定，不跨会话、不跨存档串数据；能结构化保存的状态不只依赖 AI 记忆。**
 
 ## 快速开始
 
@@ -68,7 +69,7 @@ APK 输出路径：`android/app/build/outputs/apk/debug/app-debug.apk`。
 - 预设页新增 ST 生成参数与 Utility Prompt 配置；导入的采样参数、格式模板、新聊天提示和 assistant prefill 会进入实际请求，模型/服务商字段只做无损往返。
 - SillyTavern 导入正确区分 `system_prompt` 与 `marker`，保留多个 `prompt_order` Profile；v1/v2 预设和旧全局提示词会自动迁移。
 - 当前玩家输入独立于旧聊天历史组装：即使关闭 Chat History、缩短历史窗口或启用自动摘要，也会在请求中准确保留一次。
-- 本轮实现依据 SillyTavern 官方的 [Prompt Manager](https://docs.sillytavern.app/usage/prompts/prompt-manager/)、[World Info](https://docs.sillytavern.app/usage/core-concepts/worldinfo/) 与 [Character Design](https://docs.sillytavern.app/usage/core-concepts/characterdesign/) 结构；完整仓库检查为 84/84 通过，包括 Android WebView 83 兼容检查。
+- 本轮实现依据 SillyTavern 官方的 [Prompt Manager](https://docs.sillytavern.app/usage/prompts/prompt-manager/)、[World Info](https://docs.sillytavern.app/usage/core-concepts/worldinfo/) 与 [Character Design](https://docs.sillytavern.app/usage/core-concepts/characterdesign/) 结构；完整仓库检查全部通过（`node scripts/run_checks.js`），包括 Android WebView 内核下限守卫（`check_webview_floor.js`）。
 
 ## 本次更新 · 2026-09-03
 
@@ -111,12 +112,14 @@ GitHub Release 提供 `tavern-*-portable-win-x64.zip`。解压后双击「启动
 - 角色卡导入入口可自动识别误选的 ST World Info JSON，并转入世界书库；世界书页仍提供独立的 ST 世界书导入入口。
 - RP / RPG 回复选项改为预设协议驱动，选项不再写死在前端；编辑消息时输入框按聊天区域自适应并支持拖高。
 - Android 套壳补齐 `user.json` 与数组/对象 JSON 原子持久化校验；推送后由 GitHub Actions 构建 APK。
-- Android APK 支持 Android System WebView/Chromium 83 起；入口会在加载本地依赖前补齐 `Array.prototype.at`、`Object.hasOwn` 和 `Element.replaceChildren`，并避开 83 无法解析的逻辑赋值语法；低于 83 才提示更新。
+- Android APK 最低支持 Android System WebView / Chromium 111。入口在内核能力不足时提示更新（判定用 `CSS.supports` 检测 `color-mix()`，不依赖 UA 版本号），并在加载本地依赖前补齐 `Array.prototype.at`、`Object.hasOwn` 和 `Element.replaceChildren` 作为降级层；提示可关闭，不阻断使用。
 - Android 导出桥接：角色卡、预设、世界书、世界包、世界存档和设置可直接导出到系统 `Download` 文件夹；Android 10+ 使用 MediaStore，旧系统按需申请存储权限，浏览器端仍保留下载回退。
 - 新增 Android 导出回归检查 `node scripts/check_android_api.js`，覆盖 WebView JavaScript bridge、文件名清理、大小限制和前端下载回退。
 - 发布 Windows x64 便携文件夹包，内置 Node.js，解压即可启动。
 
 详细变更与验证命令见 [CHANGELOG.md](CHANGELOG.md)。
+
+开发规范（仓库结构、改动约束、验证门与交付要求）见 [AGENTS.md](AGENTS.md)——AI 编码工具会从仓库根目录自动加载它。
 
 常用检查：
 
@@ -312,11 +315,13 @@ RPG 世界卡当前验收 AI 回合闭环、客户端骰子、Agent 阶段顺序
 ## 项目结构
 
 ```text
+AGENTS.md                     开发规范（唯一来源，AI 编码工具自动加载）
 server.js                     Node 静态服务、AI/图片代理、世界与存档 API
 frontend/                     前端可编辑源码分片（按 RP / RPG / 共享职责拆分）
 frontend/tavern-rp.js         酒馆 RP：会话、角色、记忆、正则、世界书与 Prompt
 frontend/rpg-world.js         RPG：世界卡、存档、建角、世界 UI 与状态面板
 frontend/ai-protocol.js       双模式输出协议与结构化状态边界
+frontend/ai-prompt.js         提示词组装、World Info 激活与分节
 frontend/ai-runtime.js        AI 请求、流式响应与 RPG Agent
 public/index.html             双模式页面与弹窗
 public/styles.css             macOS 深色主题与响应式布局
@@ -327,7 +332,7 @@ public/data/_defaults.json    默认配置、预设、世界卡与输出协议
 public/data/*.json             本地运行时数据（含 API Key，不入库）
 public/data/saves/*.json       WorldSave（不入库）
 public/vendor/                 marked、DOMPurify、mapgen2 本地依赖
-android/                       NanoHTTPD + WebView Android 套壳
+android/                       内嵌 Node 运行时 + WebView Android 套壳
 scripts/                       回归检查、打包与图标脚本
 docs/                          数据结构、世界卡与 Android 文档
 ```
@@ -384,7 +389,7 @@ docs/                          数据结构、世界卡与 Android 文档
 
 这些规划不会改变当前的核心约束：数据由 WorldCard / Preset / WorldSave 分层拥有，AI 只能提交候选，服务端才是状态权威源。
 
-项目总览（功能、架构、接口和开发命令）见 [docs/project-overview.md](docs/project-overview.md)；交给下一位 Harness 的接手提示词见 [docs/handoff-next-harness.md](docs/handoff-next-harness.md)。
+项目总览（功能、架构、接口和开发命令）见 [docs/project-overview.md](docs/project-overview.md)；开发规范见 [AGENTS.md](AGENTS.md)，每次交接的状态快照见 [docs/handoff-next-harness.md](docs/handoff-next-harness.md)。
 
 制作世界卡请先读 [从零创建一张可玩的 RPG 世界卡](docs/rpg-card-tutorial.md)，接口、Runtime 与回合协议见 [RPG 世界卡、运行时与 HTTP 接口参考](docs/rpg-card-api.md)。兼容历史见 [docs/data-structure.md](docs/data-structure.md)，世界卡 UI 美化声明见 [docs/ui-beauty-declaration.md](docs/ui-beauty-declaration.md)，产品路线见 [docs/rpg-card-product-roadmap.md](docs/rpg-card-product-roadmap.md)。
 

@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Base64
+import android.util.Log
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
@@ -22,13 +23,18 @@ import java.io.FileOutputStream
 
 /**
  * Tavern · 离线 APK 入口
- * 启动内嵌 HTTP 服务（127.0.0.1:3000），WebView 加载同源页面。
- * 前端代码与桌面版完全一致（零改动）；数据/图片存应用私有目录。
+ *
+ * 后端 = 仓库里的 server.js 本体（唯一来源），由内嵌 Node 运行时（nodejs-mobile）
+ * 直接执行，不再用 Kotlin 重写一份。前端代码与桌面版完全一致（零改动）；
+ * 数据/图片存应用私有目录。
+ *
+ * 启动顺序：解包 assets → 拉起 Node → 轮询等端口就绪 → WebView 加载同源页面。
  */
 class MainActivity : Activity() {
 
-    private lateinit var server: TavernServer
     private lateinit var webView: WebView
+    private val port = NodeBootstrap.PORT
+
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private val FILE_CHOOSER_REQ = 1001
     private val DOWNLOAD_PERMISSION_REQ = 1002
@@ -38,15 +44,6 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        server = TavernServer(applicationContext)
-        try {
-            server.start(10_000, false) // 端口 3000；timeout 10s
-        } catch (e: Exception) {
-            server.stop()
-            finish()
-            return
-        }
 
         webView = WebView(this)
         webView.settings.javaScriptEnabled = true
@@ -80,7 +77,7 @@ class MainActivity : Activity() {
         webView.webViewClient = object : WebViewClient() {
             // 外部链接（非本地服务）移交系统浏览器，避免塞进 WebView
             override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
-                if (url.startsWith("http://127.0.0.1:3000") || url.startsWith("http://localhost:3000")) return false
+                if (url.startsWith("http://127.0.0.1:$port") || url.startsWith("http://localhost:$port")) return false
                 if (url.startsWith("http://") || url.startsWith("https://")) {
                     try {
                         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
@@ -91,7 +88,40 @@ class MainActivity : Activity() {
             }
         }
         setContentView(webView)
-        webView.loadUrl("http://127.0.0.1:3000/")
+        bootNode()
+    }
+
+    /** 解包 assets → 应用私有目录，拉起内嵌 Node，等 server.js 开始监听后再加载页面 */
+    private fun bootNode() {
+        Thread({
+            try {
+                val dir = NodeBootstrap.start(applicationContext)
+                Log.i(TAG, "运行目录: ${dir.absolutePath}")
+                if (NodeBootstrap.awaitReady(30_000L)) {
+                    Log.i(TAG, "server.js 已监听端口 $port")
+                    runOnUiThread { webView.loadUrl("http://127.0.0.1:$port/") }
+                } else {
+                    Log.e(TAG, "等待 server.js 监听端口 $port 超时")
+                    showBootFailure("后端启动超时（30 秒内未监听端口 $port）")
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "Node 启动失败", t)
+                showBootFailure(t.message ?: t.toString())
+            }
+        }, "tavern-node-boot").start()
+    }
+
+    private fun showBootFailure(detail: String) {
+        val safe = detail.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        val html = """
+            <!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
+            <body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:#1c1c1e;font:14px -apple-system,sans-serif">
+            <div style="text-align:center;padding:24px">
+            <p style="color:#ff453a;margin:0 0 8px">后端启动失败</p>
+            <p style="color:#98989d;margin:0">$safe</p>
+            </div></body>
+        """.trimIndent()
+        runOnUiThread { webView.loadDataWithBaseURL(null, html, "text/html", "utf-8", null) }
     }
 
     private inner class DownloadBridge {
@@ -180,8 +210,12 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
-        server.stop()
+        // Node 线程随进程结束而终止；这里只回收 WebView
         webView.destroy()
         super.onDestroy()
+    }
+
+    private companion object {
+        const val TAG = "TavernAndroid"
     }
 }

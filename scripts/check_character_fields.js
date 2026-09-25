@@ -44,7 +44,7 @@ vm.runInContext(`
   };
 `, context);
 
-assert.match(context.result.prompt, /弱点：怕水/);
+assert.doesNotMatch(context.result.prompt, /弱点：怕水/, '角色卡字段已随 ST 移除，不得再进入 prompt');
 assert.deepStrictEqual(JSON.parse(JSON.stringify(context.result.fields)), [{ key: 'weakness', label: '弱点', value: '怕水' }]);
 assert.strictEqual(context.result.zero, '0');
 
@@ -106,15 +106,6 @@ assert.strictEqual(context.lorebookImportResult.stBook.entries[0].keys, '青石�
 assert.strictEqual(context.lorebookImportResult.stBook.entries[0].title, '地点');
 assert.strictEqual(context.lorebookImportResult.stBook.entries[0].order, 12);
 vm.runInContext(`
-  mode = 'tavern'; currentWorldSave = null; currentWorldSaveId = null;
-  characters = [{ id: 'nested-book-card', name: '嵌套世界书卡', loreId: 'nested-st' }]; currentCharId = 'nested-book-card';
-  sessions = [{ id: 'nested-book-session', charId: currentCharId, kind: 'tavern', messages: [{ role: 'user', content: '嵌套触发词' }] }]; currentSessionId = 'nested-book-session';
-  lorebooks = { default: { name: '默认', entries: [] }, 'nested-st': { worldInfo: { entries: { '0': { key: ['嵌套触发词'], content: '嵌套 ST 世界书' } } } } };
-  prefs = { activeLoreId: 'default', wiScanDepth: 20, wiWholeWord: false };
-  globalThis.nestedStPrompt = buildWorldInfo();
-`, context);
-assert.deepStrictEqual(JSON.parse(JSON.stringify(context.nestedStPrompt)), ['嵌套 ST 世界书']);
-vm.runInContext(`
   globalThis.extendedStBook = normalizeImportedLorebook({ entries: {
     '0': { key: ['雾港'], keysecondary: ['钟声'], content: '高级条目', extensions: {
       depth: 2, position: 1, probability: 50, group: '港口', group_weight: 30, scan_depth: 3,
@@ -147,17 +138,6 @@ vm.runInContext(`
   globalThis.deletedBookStaysDeleted = Object.keys(lorebooks).length;
 `, context);
 assert.strictEqual(context.deletedBookStaysDeleted, 1);
-vm.runInContext(`
-  mode = 'tavern'; currentWorldSave = null; currentWorldSaveId = null;
-  const selectedCard = lorebookImportResult.cardCharacter;
-  lorebooks = { default: { name: '默认', entries: [] }, [lorebookImportResult.firstBook.id]: { name: lorebookImportResult.firstBook.name, entries: normalizeCharacterBookEntries(selectedCard.characterBook), source: { type: 'character-card', fingerprint: 'test' } } };
-  selectedCard.loreId = lorebookImportResult.firstBook.id;
-  characters = [selectedCard]; currentCharId = selectedCard.id;
-  sessions = [{ id: 'card-book-session', charId: selectedCard.id, kind: 'tavern', messages: [] }]; currentSessionId = 'card-book-session';
-  prefs = { activeLoreId: 'default', wiScanDepth: 20, wiWholeWord: false };
-  globalThis.selectedCardWorldInfo = buildWorldInfo();
-`, context);
-assert.deepStrictEqual(JSON.parse(JSON.stringify(context.selectedCardWorldInfo)), ['卡片世界设定']);
 
 vm.runInContext(`
   mode = 'tavern'; currentWorldSave = null; currentWorldSaveId = null;
@@ -235,13 +215,4 @@ assert.match(worldLoreHost.innerHTML, /缺失引用/);
 worldLoreHost.querySelectorAll = selector => selector.includes(':checked') ? [{ value: 'lore-test' }, { value: 'missing-book' }] : [];
 assert.deepStrictEqual(JSON.parse(JSON.stringify(vm.runInContext('collectWorldDraftLorebookIds()', context))), ['lore-test', 'missing-book']);
 context.document.createElement = () => ({ className: '', innerHTML: '', addEventListener() {} });
-vm.runInContext(`
-  characters = [{ id: 'saved', name: '已保存角色' }];
-  currentCharId = 'saved'; cmEditingId = null; cmCreating = true;
-  renderCharList();
-`, context);
-assert.match(list.children[0].className, /active/);
-assert.match(list.children[0].innerHTML, /新角色.*未保存/);
-assert.doesNotMatch(list.children[1].className, /active/);
-assert.match(list.children[1].innerHTML, /已保存角色.*使用中/);
 console.log('character fields check passed');

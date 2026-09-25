@@ -86,12 +86,6 @@ function buildGuide() {
     return String(ui.rpgEmptyGuide || '当前存档：{save}。RPG 叙事只读取这条世界线。')
       .replace('{save}', currentWorldSave?.name || currentWorldSaveId || '当前世界存档');
   }
-  const char = currentChar();
-  if (char && char.name && char.name !== '？？？' && ui.emptyGuideWithChar) {
-    return ui.emptyGuideWithChar
-      .replace('{name}', char.name)
-      .replace('{role}', char.role || '');
-  }
   return ui.emptyGuide || '';
 }
 
@@ -166,12 +160,16 @@ const MESSAGE_RENDER_WINDOW_SIZE = 120;
 const MESSAGE_RENDER_WINDOW_STEP = 80;
 let messageRenderWindow = { key: '', start: 0, preserveScroll: false };
 let theme = FIXED_THEME;
-let mode = localStorage.getItem(LS_MODE) || 'tavern'; // 'tavern' 酒馆模式 | 'rpg' RPG 模式
+// ST（酒馆）模式已移除，应用固定为 RPG 单模式。LS_MODE 已无读取方，
+// 旧存档里的 'tavern' 一并改写，避免留下一个指向已删除模式的化石值。
+let mode = 'rpg';
+if (localStorage.getItem(LS_MODE) !== mode) localStorage.setItem(LS_MODE, mode);
 let sending = false;
 let activeRequestController = null;
 let requestAbortRequested = false;
-// 83 版 WebView 缺少 at / Object.hasOwn / replaceChildren。函数体保持 ES5，供隔离 iframe 原样注入。
-function webview83CompatBootstrap() {
+// 旧内核缺少 at / Object.hasOwn / replaceChildren。函数体保持 ES5：既供隔离 iframe 原样注入，
+// 也作为低于最低内核版本时的 JS 降级层（内核过旧的用户关闭提示后仍可继续使用）。
+function webCompatBootstrap() {
   if (typeof Array.prototype.at !== 'function') {
     Object.defineProperty(Array.prototype, 'at', {
       configurable: true,
@@ -205,8 +203,8 @@ function webview83CompatBootstrap() {
     };
   }
 }
-function webview83CompatSource() {
-  return `(${webview83CompatBootstrap.toString()}());`;
+function webCompatSource() {
+  return `(${webCompatBootstrap.toString()}());`;
 }
 // 仅本页内存、按 session.id 隔离；完整 Prompt 不写入角色、会话或世界存档。
 const debugTraces = new Map();
@@ -236,8 +234,6 @@ const WORLD_EXTENSION_CHANNEL = 'tavern.rpg.extension';
 let worldExtensionState = { iframe: null, nonce: '', signature: '', ready: false, timer: null, pending: new Map(), nextRequestId: 0, surface: 'play' };
 const worldExtensionDeniedApprovals = new Set();
 const cardScriptDeniedApprovals = new Set();
-const tavernMemoryPending = new Set();
-const tavernMemoryStatus = new Map();
 
 /* ─────────── 数据加载 / 保存（JSON 文件存储） ─────────── */
 function saveSettings() {
@@ -320,4 +316,35 @@ async function downloadBlob(blob, filename) {
 }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 function currentChar() { return characters.find(c => c.id === currentCharId) || null; }
-function sessionMatches(s) { return !!s && s.charId === currentCharId && s.kind === mode; }
+function sessionMatches(s) { return !!s && s.kind === mode; }
+function saveSessions(updatedSession = curSession()) {
+  const cur = updatedSession && Array.isArray(sessions)
+    ? sessions.find(session => session.id === updatedSession.id) || curSession()
+    : curSession();
+  if (cur) cur.updatedAt = Date.now(); // 跨浏览器合并时按更新时间取新
+  try {
+    // 图片消息存的是本地相对路径（/images/xxx.png，很小），可以安全持久化
+    saveJSON(LS_SESSIONS, sessions);
+  } catch (e) {
+    console.warn('[Tavern] 会话保存失败（可能超出本地存储配额）:', e.message);
+  }
+  saveJSON(LS_SESSIONS_DELETED, sessionsDeleted);
+  // server JSON 是权威源：与 characters / lorebooks 等一致的双写
+  saveServerData('sessions', { schemaVersion: 1, sessions: Array.isArray(sessions) ? sessions : [], deletedIds: sessionsDeleted });
+}
+
+/* 会话跨浏览器同步：server 未同步时推送本地（迁移）；已同步时按 ID 取并集、冲突取 updatedAt 新者，
+   双方删除墓碑都生效，合并结果推回 server，让另一台浏览器下次加载也能收敛。 */
+function lorebookHash(value) {
+  let hash = 2166136261;
+  for (const ch of String(value || '')) {
+    hash ^= ch.codePointAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function currentUserPreset() {
+  ensureUserData();
+  return userData.presets[userData.currentPreset] || Object.values(userData.presets)[0] || userData.presets.default;
+}

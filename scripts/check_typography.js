@@ -85,7 +85,7 @@ const varFontSizeCount = (css.match(/font-size: var\(--chat-font-size\)/g) || []
 assert.ok(varFontSizeCount >= 3, '变量字号应同时覆盖 .msg .bubble / .msg.tavern-prose .bubble / .rpg-prose，实际 ' + varFontSizeCount + ' 处');
 const varLineHeightCount = (css.match(/line-height: var\(--chat-line-height\)/g) || []).length;
 assert.ok(varLineHeightCount >= 3, '变量行距应同时覆盖三层正文，实际 ' + varLineHeightCount + ' 处');
-assert.ok(css.includes('padding: 22px var(--chat-side-pad)'), '聊天列左右留白应 1:1 使用设置值');
+assert.ok(css.includes('padding: 20px var(--chat-side-pad)'), '聊天列左右留白应 1:1 使用设置值');
 assert.ok(!css.includes('968px'), '不应残留居中列与滑块的耦合常量（保证线性）');
 assert.match(css, /\.msg-actions\s*\{[^}]*position:\s*static;[^}]*flex:\s*0 0 100%;[^}]*width:\s*100%;/s, '消息操作按钮应独占文末一行，不能覆盖正文或被窄屏推出');
 const html = fs.readFileSync('public/index.html', 'utf8');

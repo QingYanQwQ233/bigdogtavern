@@ -12,18 +12,19 @@
 <body data-theme="vibrancy" data-layout="classic">
   <canvas id="bg-fx" aria-hidden="true"></canvas>
 
-  <!-- 旧 Android WebView 可能无法解析 app.js；这里故意使用 ES5 语法，并在其他脚本前补齐 83 所缺 API。 -->
+  <!-- 兼容层：本段必须保持 ES5 语法并早于 vendor / app.js 执行。它补齐旧内核缺失的 API，
+       并在内核能力不足时提示更新。最低要求见下方 minimum 常量（当前 Chromium 111）。 -->
   <aside id="webview-compat-warning" class="webview-compat-warning" hidden role="alertdialog" aria-modal="true" aria-labelledby="webview-compat-title" aria-describedby="webview-compat-message">
     <div class="webview-compat-card">
       <div class="webview-compat-kicker">TAVERN / COMPATIBILITY</div>
-      <h1 id="webview-compat-title">Android WebView 版本过低</h1>
-      <p id="webview-compat-message">当前 Android WebView 版本过低，可能导致按钮无法点击或界面异常，请更新 Android System WebView / Chrome 后重试。</p>
+      <h1 id="webview-compat-title">浏览器内核版本过低</h1>
+      <p id="webview-compat-message">当前运行环境的内核版本低于本版本要求，部分样式与交互可能异常。请更新 Android System WebView / Chrome，或改用较新的浏览器。</p>
       <p id="webview-compat-version" class="webview-compat-version"></p>
       <button id="webview-compat-close" class="btn gold" type="button">知道了</button>
     </div>
   </aside>
-  <script id="webview-83-compat">
-    // 只使用 WebView 83 可解析的 ES5 语法；必须先于 vendor 和 app.js 执行。
+  <script id="webview-compat-bootstrap">
+    // 保持 ES5 语法并早于 vendor / app.js 执行：这是唯一能在过旧内核上运行、并告知用户版本过低的通道。
     (function () {
       if (typeof Array.prototype.at !== 'function') {
         Object.defineProperty(Array.prototype, 'at', {
@@ -62,13 +63,24 @@
       var isWebView = isAndroid && (/\bwv\b/i.test(ua) || /;\s*wv\)/i.test(ua) || (/Version\/4\.0/i.test(ua) && /Chrome\//i.test(ua)));
       var match = ua.match(/(?:Chrome|Chromium)\/(\d+)/i);
       var major = match ? parseInt(match[1], 10) : 0;
-      var minimum = 83;
-      if (!isWebView || !major || major >= minimum) return;
+      var minimum = 111;
+      // 判定以内核能力为准，而不是 UA 里的版本号：版本号可能被改写、缺失或降级，CSS.supports 不会说谎。
+      // color-mix() 是当前样式中要求最高的特性（Chromium 111）；它可用即代表
+      // :has() / :is() / inset / aspect-ratio / :focus-visible / flex gap 全部可用。
+      var capable = false;
+      try {
+        capable = !!(window.CSS && typeof window.CSS.supports === 'function' &&
+          window.CSS.supports('color', 'color-mix(in srgb, red 50%, blue)'));
+      } catch (error) {
+        capable = false;
+      }
+      if (capable) return;
       var warning = document.getElementById('webview-compat-warning');
       var version = document.getElementById('webview-compat-version');
       var close = document.getElementById('webview-compat-close');
       if (!warning) return;
-      if (version) version.textContent = '检测到：Android WebView / Chromium ' + major + '；本版本最低要求为 83，请更新 Android System WebView / Chrome。';
+      var label = isWebView ? 'Android System WebView' : (isAndroid ? 'Android 浏览器' : '浏览器');
+      if (version) version.textContent = '检测到：' + label + (major ? ' / Chromium ' + major : '（内核版本未知）') + '；本版本最低要求为 Chromium ' + minimum + '，请更新 Android System WebView / Chrome 或改用较新的浏览器。';
       warning.hidden = false;
       if (close) {
         close.addEventListener('click', function () { warning.hidden = true; });
@@ -97,11 +109,11 @@
         <div class="sidebar-mode-nav" data-mode-nav="rpg" aria-label="RPG 导航">
           <button class="nav-item active" data-view="chat"><span class="icon">⚔</span><span class="label">工作台</span></button>
           <button class="nav-item" data-view="worlds"><span class="icon">🗺</span><span class="label">世界与存档</span></button>
+          <button class="nav-item" data-view="lore"><span class="icon">📖</span><span class="label">世界书</span></button>
           <button class="nav-item" data-view="regex"><span class="icon">⌁</span><span class="label">正则</span></button>
         </div>
       </nav>
       <div class="sidebar-footer">
-        <button class="nav-item api-entry js-mode-switch" id="btn-mode-switch"><span class="icon">🍺</span><span class="label mode-switch-label">模式：酒馆</span></button>
         <button class="nav-item api-entry js-settings"><span class="icon">🔮</span><span class="label">设置</span></button>
       </div>
     </aside>
@@ -208,11 +220,6 @@
         <div id="rpg-custom-right" aria-live="polite"></div>
       </aside>
       <div id="rpg-status" class="rpg-status" data-ui-level="3" data-ui-region="workspace.status" data-ui-owner="host">
-        <div class="rpg-stat hp"><span>HP</span><div class="rpg-bar"><i id="rpg-hp-bar"></i></div><b id="rpg-hp-text">0/0</b></div>
-        <div class="rpg-stat mp"><span>MP</span><div class="rpg-bar"><i id="rpg-mp-bar"></i></div><b id="rpg-mp-text">0/0</b></div>
-        <div class="rpg-stat exp" hidden><span>EXP</span><div class="rpg-bar"><i id="rpg-exp-bar"></i></div><b id="rpg-exp-text">0/0</b></div>
-        <div class="rpg-stat gold" hidden><span>💰</span><b id="rpg-gold2">0</b></div>
-        <div class="rpg-stat buffs"><span>状态</span><span id="rpg-buffs" class="rpg-buffs">—</span></div>
         <div id="rpg-dynamic-stats" class="rpg-dynamic-stats" aria-live="polite"></div>
       </div>
 
@@ -254,92 +261,6 @@
   <div id="world-ui-overlay" data-ui-level="1" data-ui-region="overlay.world-card" data-ui-owner="host" hidden aria-live="polite" aria-label="世界卡覆盖层"></div>
 
   <!-- ═══ 角色管理页 ═══ -->
-  <div id="char-mgr" class="char-mgr hidden" data-ui-level="2" data-ui-region="tavern.characters" data-ui-owner="host">
-    <div class="cm-side" data-ui-level="3" data-ui-region="tavern.characters.sidebar" data-ui-owner="host">
-      <div class="mobile-manager-head"><button class="ghost-btn back-action" data-back-chat data-manager-back data-parent-label="角色库" type="button">回到对话</button></div>
-      <div class="cm-head">角色库</div>
-      <div id="cm-list" class="cm-list"></div>
-      <button class="btn gold small" id="cm-new" style="width:100%">＋ 新建角色</button>
-      <button class="ghost-btn" id="cm-import" style="width:100%;margin-top:6px">导入角色卡（V1/V2/V3 JSON 或 PNG）</button>
-      <button class="ghost-btn" id="cm-export" style="width:100%;margin-top:6px">导出当前角色（V3 JSON）</button>
-    </div>
-    <div class="cm-edit" data-ui-level="3" data-ui-region="tavern.characters.editor" data-ui-owner="host">
-      <div class="cm-edit-head">
-        <span id="cm-edit-title">编辑角色</span>
-        <button class="ghost-btn back-action" data-back-chat data-manager-back data-parent-label="角色库">回到对话</button>
-      </div>
-      <div class="char-wizard" aria-labelledby="cw-title">
-        <div class="cw-head">
-          <span id="cw-title">AI 角色工坊</span>
-          <ol class="cw-steps" aria-label="角色卡生成进度">
-            <li class="active" data-cw-step="1">1 定角色</li>
-            <li data-cw-step="2">2 调整信息</li>
-            <li data-cw-step="3">3 完整角色卡</li>
-          </ol>
-        </div>
-        <section class="cw-panel" id="cw-panel-1">
-          <label for="cm-ai-desc">用一句话确定角色</label>
-          <div class="row-inline">
-            <input id="cm-ai-desc" placeholder="例如：傲娇的猫娘旅店老板娘" />
-            <button class="btn gold small" id="btn-ai-char">AI 填写基本信息</button>
-          </div>
-        </section>
-        <section class="cw-panel hidden" id="cw-panel-2">
-          <div class="cw-panel-head"><span>检查并调整基本信息</span><button class="ghost-btn small" id="cw-back-1">修改一句话</button></div>
-          <div id="cm-profile-fields" class="cm-profile-fields"></div>
-          <div class="cw-actions">
-            <button class="ghost-btn small" id="cm-profile-add">＋ 自定义条目</button>
-            <button class="btn gold small" id="btn-ai-char-full">AI 完善并生成完整角色卡</button>
-          </div>
-        </section>
-        <section class="cw-panel hidden" id="cw-panel-3">
-          <div class="cw-done">完整 JSON 角色卡已生成，请检查下方内容后保存。</div>
-          <button class="ghost-btn small back-action" id="cw-back-2">返回调整基本信息</button>
-        </section>
-        <div id="cm-ai-status" class="hint" aria-live="polite"></div>
-      </div>
-      <div class="cm-full-title">完整角色卡 <span class="hint-inline">第三步生成后仍可继续修改</span></div>
-      <div class="field row2">
-        <div class="field"><label for="cm-name">名字</label><input id="cm-name" /></div>
-        <div class="field"><label for="cm-race">种族</label><input id="cm-race" /></div>
-      </div>
-      <div class="field"><label for="cm-role">身份</label><input id="cm-role" /></div>
-      <div class="field"><label for="cm-persona">角色描述 / 外貌（description）</label><textarea id="cm-persona" rows="3"></textarea></div>
-      <div class="field"><label for="cm-personality">性格（personality）</label><textarea id="cm-personality" rows="2"></textarea></div>
-      <div class="field"><label for="cm-scenario">场景（scenario）</label><textarea id="cm-scenario" rows="2"></textarea></div>
-      <div class="field"><label for="cm-first-mes">开场白（first_mes，新会话自动作为首条消息）</label><textarea id="cm-first-mes" rows="3"></textarea></div>
-      <div class="field"><label for="cm-mes-example">示例对话（mes_example）</label><textarea id="cm-mes-example" rows="3"></textarea></div>
-      <div class="field"><label for="cm-system">角色提示词（system_prompt，非空时覆盖全局 / 预设）</label><textarea id="cm-system" rows="4"></textarea></div>
-      <div class="field"><label for="cm-post">历史后指令（post_history_instructions，插在对话末尾，权重高）</label><textarea id="cm-post" rows="3"></textarea></div>
-      <div class="field"><label for="cm-creator-notes">作者备注（creator_notes）</label><textarea id="cm-creator-notes" rows="2"></textarea></div>
-      <div class="field row2">
-        <div class="field"><label for="cm-creator">作者（creator）</label><input id="cm-creator" /></div>
-        <div class="field"><label for="cm-character-version">角色版本（character_version）</label><input id="cm-character-version" /></div>
-      </div>
-      <div class="field row2">
-        <div class="field"><label for="cm-preset">绑定提示词预设 <span class="hint-inline">system_prompt 为空时使用</span></label><select id="cm-preset"></select></div>
-        <div class="field"><label for="cm-lore">绑定世界书 <span class="hint-inline">仅与该角色对话时生效</span></label><select id="cm-lore"></select></div>
-      </div>
-      <div class="field">
-        <label for="cm-ref-image">形象参考图（文生图统一形象）<span class="hint-inline">点「导入图片」从本地选择；或手动填 URL</span></label>
-        <div class="row-inline">
-          <input id="cm-ref-image" placeholder="/images/xxx.png 或 https://..." />
-          <button class="ghost-btn" id="btn-import-ref">📁 导入图片</button>
-          <button class="ghost-btn hidden" id="btn-remove-ref">删除图片</button>
-        </div>
-        <img id="cm-ref-preview" class="ref-preview hidden" alt="参考图预览" />
-        <input type="file" id="cm-ref-file" accept="image/*" class="hidden" />
-      </div>
-      <div class="field"><label for="cm-tags">标签（tags，逗号分隔）</label><input id="cm-tags" /></div>
-      <div class="field"><label for="cm-alt-greetings">备用开场白（alternate_greetings，每行一条）</label><textarea id="cm-alt-greetings" rows="3"></textarea></div>
-      <div class="cm-edit-actions">
-        <button class="btn gold" id="cm-save">保存角色</button>
-        <button class="btn gold" id="cm-use">设为当前角色</button>
-        <button class="ghost-btn" id="cm-del">删除角色</button>
-      </div>
-    </div>
-  </div>
-
   <!-- ═══ 提示词预设页 ═══ -->
   <div id="prompt-mgr" class="char-mgr hidden" data-ui-level="2" data-ui-region="tavern.prompts" data-ui-owner="host">
     <div class="cm-side" data-ui-level="3" data-ui-region="tavern.prompts.sidebar" data-ui-owner="host">
@@ -457,7 +378,7 @@
     <div class="cm-side" data-ui-level="3" data-ui-region="tavern.regex.sidebar" data-ui-owner="host">
       <div class="mobile-manager-head"><button class="ghost-btn back-action" data-back-chat data-manager-back data-parent-label="正则列表" type="button">回到对话</button></div>
       <div class="cm-head">输出正则</div>
-      <p class="hint" id="regex-mode-note">当前模式：酒馆</p>
+      <p class="hint" id="regex-mode-note">当前模式：RPG</p>
       <div id="regex-list" class="cm-list"></div>
       <button class="btn gold small" id="regex-new" style="width:100%">＋ 新建自定义正则</button>
       <p class="hint" style="margin-top:10px">当前预设携带的正则会自动识别并执行；自定义正则只作用于当前模式。</p>
@@ -517,7 +438,7 @@
       <input id="lb-import-file" type="file" accept=".json,application/json" hidden />
       <button class="ghost-btn" id="lb-export" style="width:100%;margin-top:6px">⇩ 导出 ST 世界书</button>
       <button class="ghost-btn" id="lb-del" style="width:100%;margin-top:6px">删除当前世界书</button>
-      <p class="hint" style="margin-top:10px">支持 SillyTavern World Info JSON；「设为全局」对所有酒馆对话生效，角色卡和世界卡都可选择绑定。</p>
+      <p class="hint" style="margin-top:10px">支持 SillyTavern World Info JSON；「设为全局」对所有对话生效，世界卡可选择绑定。</p>
     </div>
     <div class="cm-edit" data-ui-level="3" data-ui-region="tavern.lorebooks.editor" data-ui-owner="host">
       <div class="cm-edit-head">
@@ -634,27 +555,6 @@
         <span>💭 记忆条目（自动注入上下文）</span>
         <button class="ghost-btn back-action" data-back-chat data-manager-back data-parent-label="记忆列表" type="button">回到对话</button>
       </div>
-      <section class="memory-auto-panel" aria-labelledby="mem-auto-title">
-        <div class="memory-auto-head">
-          <div>
-            <h3 id="mem-auto-title">↻ RP 自动滚动记忆</h3>
-            <p class="hint">每累计 N 个完整对话轮次，将最早 M 轮压缩成摘要；原始聊天记录不会删除。</p>
-          </div>
-          <label class="switch" title="启用 RP 自动记忆"><input id="mem-auto-enabled" type="checkbox" /><span class="slider"></span></label>
-        </div>
-        <div class="memory-auto-grid">
-          <label class="field"><span>滚动窗口</span><input id="mem-auto-window" type="number" min="2" max="100" /></label>
-          <label class="field"><span>每次总结</span><input id="mem-auto-summarize" type="number" min="1" max="99" /></label>
-          <label class="field"><span>摘要字数</span><input id="mem-auto-chars" type="number" min="20" max="500" /></label>
-        </div>
-        <div class="memory-auto-footer">
-          <p id="mem-auto-status" class="hint" role="status">自动记忆：已关闭。</p>
-          <div class="memory-auto-actions">
-            <button class="ghost-btn small" id="mem-auto-run" type="button">立即总结</button>
-            <button class="ghost-btn small danger" id="mem-auto-clear" type="button">清空当前摘要</button>
-          </div>
-        </div>
-      </section>
       <div class="field">
         <label for="mem-input">新记忆</label>
         <div class="row-inline">
@@ -687,9 +587,9 @@
         <div class="sidebar-mode-nav" data-mode-nav="rpg" aria-label="RPG 导航">
           <button class="nav-item active" data-view="chat"><span class="icon">⚔</span><span class="label">工作台</span></button>
           <button class="nav-item" data-view="worlds"><span class="icon">🗺</span><span class="label">世界与存档</span></button>
+          <button class="nav-item" data-view="lore"><span class="icon">📖</span><span class="label">世界书</span></button>
           <button class="nav-item" data-view="regex"><span class="icon">⌁</span><span class="label">正则</span></button>
         </div>
-        <button class="nav-item api-entry js-mode-switch" type="button"><span class="icon">🍺</span><span class="label mode-switch-label">模式：酒馆</span></button>
         <button class="nav-item api-entry js-settings"><span class="icon">🔮</span><span class="label">设置</span></button>
       </nav>
     </div>
@@ -887,7 +787,7 @@
         <!-- ── Tab 排版 ── -->
         <div id="st-panel-typo" class="hidden" role="tabpanel" aria-labelledby="st-tab-typo">
           <div class="field">
-            <label for="t-font">正文字体 <span class="hint-inline">作用于酒馆对话与 RPG 叙事正文</span></label>
+            <label for="t-font">正文字体 <span class="hint-inline">作用于 RPG 叙事正文</span></label>
             <select id="t-font">
               <option value="default">跟随界面（默认）</option>
               <option value="sans">黑体 · 无衬线</option>

@@ -87,12 +87,6 @@ function buildGuide() {
     return String(ui.rpgEmptyGuide || '当前存档：{save}。RPG 叙事只读取这条世界线。')
       .replace('{save}', currentWorldSave?.name || currentWorldSaveId || '当前世界存档');
   }
-  const char = currentChar();
-  if (char && char.name && char.name !== '？？？' && ui.emptyGuideWithChar) {
-    return ui.emptyGuideWithChar
-      .replace('{name}', char.name)
-      .replace('{role}', char.role || '');
-  }
   return ui.emptyGuide || '';
 }
 
@@ -167,12 +161,16 @@ const MESSAGE_RENDER_WINDOW_SIZE = 120;
 const MESSAGE_RENDER_WINDOW_STEP = 80;
 let messageRenderWindow = { key: '', start: 0, preserveScroll: false };
 let theme = FIXED_THEME;
-let mode = localStorage.getItem(LS_MODE) || 'tavern'; // 'tavern' 酒馆模式 | 'rpg' RPG 模式
+// ST（酒馆）模式已移除，应用固定为 RPG 单模式。LS_MODE 已无读取方，
+// 旧存档里的 'tavern' 一并改写，避免留下一个指向已删除模式的化石值。
+let mode = 'rpg';
+if (localStorage.getItem(LS_MODE) !== mode) localStorage.setItem(LS_MODE, mode);
 let sending = false;
 let activeRequestController = null;
 let requestAbortRequested = false;
-// 83 版 WebView 缺少 at / Object.hasOwn / replaceChildren。函数体保持 ES5，供隔离 iframe 原样注入。
-function webview83CompatBootstrap() {
+// 旧内核缺少 at / Object.hasOwn / replaceChildren。函数体保持 ES5：既供隔离 iframe 原样注入，
+// 也作为低于最低内核版本时的 JS 降级层（内核过旧的用户关闭提示后仍可继续使用）。
+function webCompatBootstrap() {
   if (typeof Array.prototype.at !== 'function') {
     Object.defineProperty(Array.prototype, 'at', {
       configurable: true,
@@ -206,8 +204,8 @@ function webview83CompatBootstrap() {
     };
   }
 }
-function webview83CompatSource() {
-  return `(${webview83CompatBootstrap.toString()}());`;
+function webCompatSource() {
+  return `(${webCompatBootstrap.toString()}());`;
 }
 // 仅本页内存、按 session.id 隔离；完整 Prompt 不写入角色、会话或世界存档。
 const debugTraces = new Map();
@@ -237,8 +235,6 @@ const WORLD_EXTENSION_CHANNEL = 'tavern.rpg.extension';
 let worldExtensionState = { iframe: null, nonce: '', signature: '', ready: false, timer: null, pending: new Map(), nextRequestId: 0, surface: 'play' };
 const worldExtensionDeniedApprovals = new Set();
 const cardScriptDeniedApprovals = new Set();
-const tavernMemoryPending = new Set();
-const tavernMemoryStatus = new Map();
 
 /* ─────────── 数据加载 / 保存（JSON 文件存储） ─────────── */
 function saveSettings() {
@@ -321,7 +317,38 @@ async function downloadBlob(blob, filename) {
 }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 function currentChar() { return characters.find(c => c.id === currentCharId) || null; }
-function sessionMatches(s) { return !!s && s.charId === currentCharId && s.kind === mode; }
+function sessionMatches(s) { return !!s && s.kind === mode; }
+function saveSessions(updatedSession = curSession()) {
+  const cur = updatedSession && Array.isArray(sessions)
+    ? sessions.find(session => session.id === updatedSession.id) || curSession()
+    : curSession();
+  if (cur) cur.updatedAt = Date.now(); // 跨浏览器合并时按更新时间取新
+  try {
+    // 图片消息存的是本地相对路径（/images/xxx.png，很小），可以安全持久化
+    saveJSON(LS_SESSIONS, sessions);
+  } catch (e) {
+    console.warn('[Tavern] 会话保存失败（可能超出本地存储配额）:', e.message);
+  }
+  saveJSON(LS_SESSIONS_DELETED, sessionsDeleted);
+  // server JSON 是权威源：与 characters / lorebooks 等一致的双写
+  saveServerData('sessions', { schemaVersion: 1, sessions: Array.isArray(sessions) ? sessions : [], deletedIds: sessionsDeleted });
+}
+
+/* 会话跨浏览器同步：server 未同步时推送本地（迁移）；已同步时按 ID 取并集、冲突取 updatedAt 新者，
+   双方删除墓碑都生效，合并结果推回 server，让另一台浏览器下次加载也能收敛。 */
+function lorebookHash(value) {
+  let hash = 2166136261;
+  for (const ch of String(value || '')) {
+    hash ^= ch.codePointAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function currentUserPreset() {
+  ensureUserData();
+  return userData.presets[userData.currentPreset] || Object.values(userData.presets)[0] || userData.presets.default;
+}
 /* ─────────── 世界库 / 世界存档（W2：RPG 主链由当前 WorldSave 持有） ─────────── */
 function worldCardById(id) { return worldCards.find(w => w.id === id) || null; }
 function worldCardKey(id, version) { return `${id}@${version}`; }
@@ -2277,7 +2304,7 @@ function renderWorldDraftLorebookOptions(selectedIds = []) {
   const missing = [...selected].filter(id => !known.has(id)).map(id => [id, { name: '缺失引用' }]);
   const options = [...available, ...missing];
   if (!options.length) {
-    host.innerHTML = '<p class="world-draft-lorebook-empty">当前没有可选择的世界书，请先在酒馆模式的“世界书”页创建。</p>';
+    host.innerHTML = '<p class="world-draft-lorebook-empty">当前没有可选择的世界书，请先在“世界书”页创建。</p>';
     return;
   }
   host.innerHTML = options.map(([id, book]) => {
@@ -3453,10 +3480,10 @@ function renderRpgMigrationReport(data) {
   root.innerHTML = `<div class="world-import-facts"><span><b>${esc(report.source?.turns || 0)}</b>回合</span><span><b>${esc(report.state?.inventory || 0)}</b>背包</span><span><b>${esc(report.state?.quests || 0)}</b>任务</span><span><b>${report.state?.hasMap ? '有' : '无'}</b>地图</span></div>${errors ? `<section class="world-import-errors"><h3>无法迁移</h3><ul>${errors}</ul></section>` : '<p class="world-import-ready">✓ 校验通过；原会话不会被修改。</p>'}${warnings ? `<section class="world-import-warnings"><h3>迁移提示</h3><ul>${warnings}</ul></section>` : ''}`;
 }
 function legacyRpgSessions() {
-  return (Array.isArray(sessions) ? sessions : []).filter(s => s && s.kind === 'rpg' && (!currentCharId || s.charId === currentCharId));
+  return (Array.isArray(sessions) ? sessions : []).filter(s => s && s.kind === 'rpg');
 }
 function migrationCharacterSnapshot() {
-  const char = currentChar() || {};
+  const char = {};
   const copy = { name: char.name, race: char.race, role: char.role, persona: char.persona, profileFields: Array.isArray(char.profileFields) ? char.profileFields : [] };
   return Object.fromEntries(Object.entries(copy).filter(([, value]) => value !== undefined));
 }
@@ -3536,10 +3563,9 @@ async function commitWorldPackageImport() {
     currentWorldSaveId = null;
     localStorage.setItem(LS_CURRENT_WORLD, currentWorldId);
     localStorage.removeItem(LS_CURRENT_WORLD_SAVE);
-    const [nextCharacters, nextLorebooks, nextPresets] = await Promise.all([
-      loadServerData('characters'), loadServerData('lorebooks'), loadServerData('presets'),
+    const [nextLorebooks, nextPresets] = await Promise.all([
+      loadServerData('lorebooks'), loadServerData('presets'),
     ]);
-    if (Array.isArray(nextCharacters)) characters = nextCharacters;
     if (nextLorebooks && typeof nextLorebooks === 'object') lorebooks = nextLorebooks;
     if (nextPresets && typeof nextPresets === 'object') promptPresets = nextPresets;
     $('world-import-dialog').close('committed');
@@ -4033,11 +4059,8 @@ function closeWorldLibrary() {
 
 /* 开场白兜底链：char.firstMes → preset.firstMes → settings.firstMes（新会话 / 清空聊天共用） */
 function getGreeting() {
-  const char = currentChar();
   const preset = resolvePromptPreset().preset;
-  return (char && char.firstMes && char.firstMes.trim())
-    || (char && Array.isArray(char.alternateGreetings) && char.alternateGreetings.find(g => String(g || '').trim()))
-    || (preset && preset.firstMes && preset.firstMes.trim())
+  return (preset && preset.firstMes && preset.firstMes.trim())
     || settings.firstMes || '';
 }
 function worldCardHasSetupSurface(world = currentWorldCard()) {
@@ -5507,7 +5530,7 @@ function worldExtensionSrcdoc(extension, nonce, themeTokens = {}) {
   const theme = Object.entries(themeTokens && typeof themeTokens === 'object' ? themeTokens : {})
     .map(([key, value]) => `--${key}:${value}`).join(';');
   const css = `${theme ? `:root{${theme}}` : ''}${rawCss}`;
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"><style>*{-webkit-tap-highlight-color:transparent}html,body{width:100%;height:100%;margin:0;min-height:100%;overflow:hidden;background:transparent;color:#f2f2f7;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;scrollbar-width:thin;scrollbar-color:rgba(119,230,213,.7) transparent}*{scrollbar-width:thin;scrollbar-color:rgba(119,230,213,.7) transparent}*::-webkit-scrollbar{width:8px;height:8px}*::-webkit-scrollbar-track{background:rgba(255,255,255,.04);border-radius:8px}*::-webkit-scrollbar-thumb{background:linear-gradient(180deg,rgba(119,230,213,.85),rgba(93,139,202,.85));border:2px solid transparent;background-clip:padding-box;border-radius:8px}*::-webkit-scrollbar-thumb:hover{background:linear-gradient(180deg,#77e6d5,#6a9de5);border:1px solid transparent;background-clip:padding-box;border-radius:8px}#tavern-extension-root{width:100%;height:100%;min-height:100%;box-sizing:border-box}#tavern-extension-root>:first-child{box-sizing:border-box;min-height:100%}button,input,textarea,select{font:inherit}button{cursor:pointer}[data-tavern-messages]{display:flex;flex-direction:column;gap:10px;min-height:0;overflow:auto;overscroll-behavior:contain}[data-tavern-messages] .tavern-message{white-space:pre-wrap;overflow-wrap:anywhere}[data-tavern-messages] .tavern-message-user{align-self:flex-end}[data-tavern-messages] .tavern-message-assistant{align-self:flex-start}[data-tavern-narrative]{overflow-wrap:anywhere}[data-tavern-narrative][hidden]{display:none!important}[data-tavern-rendered] p{margin:.45em 0;line-height:1.7}[data-tavern-rendered] p:first-child{margin-top:0}[data-tavern-rendered] p:last-child{margin-bottom:0}[data-tavern-rendered] ul,[data-tavern-rendered] ol{padding-left:1.35em}[data-tavern-rendered] blockquote{margin:.7em 0;padding:.2em .8em;border-left:3px solid rgba(119,230,213,.7);background:rgba(119,230,213,.08)}[data-tavern-rendered] pre{max-width:100%;overflow:auto;padding:.7em;border-radius:8px;background:rgba(0,0,0,.28)}[data-tavern-rendered] code{overflow-wrap:anywhere}[data-tavern-options]{display:flex;flex-wrap:wrap;gap:10px}[data-tavern-options] .tavern-option{min-height:44px;padding:10px 14px;border-radius:10px}[data-tavern-input]{display:flex;gap:10px}[data-tavern-input] input,[data-tavern-input] textarea{min-width:0;flex:1;box-sizing:border-box}${css}</style></head><body><main id="tavern-extension-root">${html}</main><script>${webview83CompatSource()}</script><script>${extensionBridgeSource(nonce)}\n${js}</script></body></html>`;
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"><style>*{-webkit-tap-highlight-color:transparent}html,body{width:100%;height:100%;margin:0;min-height:100%;overflow:hidden;background:transparent;color:#f2f2f7;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;scrollbar-width:thin;scrollbar-color:rgba(119,230,213,.7) transparent}*{scrollbar-width:thin;scrollbar-color:rgba(119,230,213,.7) transparent}*::-webkit-scrollbar{width:8px;height:8px}*::-webkit-scrollbar-track{background:rgba(255,255,255,.04);border-radius:8px}*::-webkit-scrollbar-thumb{background:linear-gradient(180deg,rgba(119,230,213,.85),rgba(93,139,202,.85));border:2px solid transparent;background-clip:padding-box;border-radius:8px}*::-webkit-scrollbar-thumb:hover{background:linear-gradient(180deg,#77e6d5,#6a9de5);border:1px solid transparent;background-clip:padding-box;border-radius:8px}#tavern-extension-root{width:100%;height:100%;min-height:100%;box-sizing:border-box}#tavern-extension-root>:first-child{box-sizing:border-box;min-height:100%}button,input,textarea,select{font:inherit}button{cursor:pointer}[data-tavern-messages]{display:flex;flex-direction:column;gap:10px;min-height:0;overflow:auto;overscroll-behavior:contain}[data-tavern-messages] .tavern-message{white-space:pre-wrap;overflow-wrap:anywhere}[data-tavern-messages] .tavern-message-user{align-self:flex-end}[data-tavern-messages] .tavern-message-assistant{align-self:flex-start}[data-tavern-narrative]{overflow-wrap:anywhere}[data-tavern-narrative][hidden]{display:none!important}[data-tavern-rendered] p{margin:.45em 0;line-height:1.7}[data-tavern-rendered] p:first-child{margin-top:0}[data-tavern-rendered] p:last-child{margin-bottom:0}[data-tavern-rendered] ul,[data-tavern-rendered] ol{padding-left:1.35em}[data-tavern-rendered] blockquote{margin:.7em 0;padding:.2em .8em;border-left:3px solid rgba(119,230,213,.7);background:rgba(119,230,213,.08)}[data-tavern-rendered] pre{max-width:100%;overflow:auto;padding:.7em;border-radius:8px;background:rgba(0,0,0,.28)}[data-tavern-rendered] code{overflow-wrap:anywhere}[data-tavern-options]{display:flex;flex-wrap:wrap;gap:10px}[data-tavern-options] .tavern-option{min-height:44px;padding:10px 14px;border-radius:10px}[data-tavern-input]{display:flex;gap:10px}[data-tavern-input] input,[data-tavern-input] textarea{min-width:0;flex:1;box-sizing:border-box}${css}</style></head><body><main id="tavern-extension-root">${html}</main><script>${webCompatSource()}</script><script>${extensionBridgeSource(nonce)}\n${js}</script></body></html>`;
 }
 
 function postWorldExtensionContext() {
@@ -5792,6 +5815,43 @@ function renderWorldExtension(surface = 'play') {
   }, Math.max(200, Math.min(5000, Number(extension.timeoutMs) || 1200)));
 }
 
+// 状态条只认运行时声明，不预置任何玩法字段。
+// 有可用 min/max 区间的资源 → 渲染成 meter（这是通用「资源条」形态，至于是生命还是理智由声明决定）
+// 其余维度（属性 / 技能 / 无区间资源 / 派生值） → 渲染成 chip，由 renderRPG 后半段统一处理
+function statusMeters() {
+  if (!worldModeActive()) return [];
+  const schema = currentWorldCard()?.playerCreation || {};
+  return (Array.isArray(schema.resources) ? schema.resources : []).filter(definition =>
+    definition && definition.id
+    && Number.isFinite(Number(definition.max))
+    && Number(definition.max) > Number(definition.min ?? 0)
+  );
+}
+
+function renderStatusMeters() {
+  const statusBar = $('rpg-status');
+  if (!statusBar) return;
+  statusBar.querySelectorAll(':scope > .rpg-stat').forEach(element => element.remove());
+  const meters = statusMeters();
+  if (!meters.length) return;
+  const player = currentWorldSave?.state?.player;
+  const anchor = $('rpg-dynamic-stats');
+  for (const definition of meters) {
+    const min = Number.isFinite(Number(definition.min)) ? Number(definition.min) : 0;
+    const max = Number(definition.max);
+    const raw = player?.resources?.[definition.id];
+    const value = raw === undefined || raw === null || raw === '' ? (definition.initial ?? definition.default ?? min) : raw;
+    const numeric = Number(value);
+    const pct = Number.isFinite(numeric) ? Math.max(0, Math.min(100, (numeric - min) / (max - min) * 100)) : 0;
+    const row = document.createElement('div');
+    row.className = 'rpg-stat';
+    row.innerHTML = '<span>' + esc(definition.label || definition.id) + '</span>'
+      + '<div class="rpg-bar"><i style="width:' + pct.toFixed(2) + '%"></i></div>'
+      + '<b>' + esc(Number.isFinite(numeric) ? numeric + '/' + max : '—') + '</b>';
+    statusBar.insertBefore(row, anchor);
+  }
+}
+
 function renderRPG() {
   applyWorldUiSlots();
   const rs = curRpgState();
@@ -5799,30 +5859,18 @@ function renderRPG() {
   const worldRuntime = worldModeActive();
   const legacyWorldRight = $('rpg-legacy-world-right');
   if (legacyWorldRight) legacyWorldRight.hidden = worldRuntime;
-  const statusBar = $('rpg-status');
-  if (statusBar) statusBar.hidden = worldRuntime;
-  statusBar?.querySelectorAll(':scope > .rpg-stat').forEach(element => { element.hidden = worldRuntime; });
   const sendButton = $('btn-send');
   if (sendButton && !sending) sendButton.disabled = worldSavePlanning();
   const setT = (id, v) => { const el = $(id); if (el) el.textContent = v; };
-  const setW = (id, pct) => { const el = $(id); if (el) el.style.width = pct; };
-  setT('rpg-level', rs.level);
-  setT('rpg-gold', rs.gold);
-  setT('rpg-gold2', rs.gold);
   setT('rpg-loc', rs.location || '—');
-  setT('rpg-hp-text', `${rs.hp}/${rs.maxHp}`);
-  setT('rpg-mp-text', `${rs.mp}/${rs.maxMp}`);
-  setT('rpg-exp-text', `${rs.exp}/${rs.expNext}`);
-  setW('rpg-hp-bar', rs.maxHp ? Math.max(0, Math.min(100, rs.hp / rs.maxHp * 100)) + '%' : '0%');
-  setW('rpg-mp-bar', rs.maxMp ? Math.max(0, Math.min(100, rs.mp / rs.maxMp * 100)) + '%' : '0%');
-  setW('rpg-exp-bar', rs.expNext ? Math.max(0, Math.min(100, rs.exp / rs.expNext * 100)) + '%' : '0%');
-  setT('rpg-buffs', rs.buffs && rs.buffs.length ? rs.buffs.join('、') : '—');
+  renderStatusMeters();
   const dynamicStats = $('rpg-dynamic-stats');
   if (dynamicStats) {
     const schema = worldModeActive() ? currentWorldCard()?.playerCreation : null;
     const playerState = worldModeActive() ? currentWorldSave.state?.player : null;
+    const meterIds = new Set(statusMeters().map(definition => definition.id));
     const definitions = [...(Array.isArray(schema?.attributes) ? schema.attributes : []), ...(Array.isArray(schema?.skills) ? schema.skills : []), ...(Array.isArray(schema?.resources) ? schema.resources : [])]
-      .filter(definition => definition && !['hp', 'mp', 'gold'].includes(definition.id));
+      .filter(definition => definition && definition.id && !meterIds.has(definition.id));
     dynamicStats.innerHTML = definitions.map(definition => {
       const bucket = schema?.attributes?.some(item => item.id === definition.id) ? playerState?.attributes
         : schema?.skills?.some(item => item.id === definition.id) ? playerState?.skills : playerState?.resources;
@@ -6022,7 +6070,7 @@ function renderRPG() {
   const cs = $('rpg-char-summary');
   const c = mode === 'rpg'
     ? (worldModeActive() ? (currentWorldSave.player?.snapshot || null) : null)
-    : currentChar();
+        : null;
   if (cs) {
     cs.innerHTML = c
       ? `<div class="rpg-item"><span class="rpg-item-name">${esc(c.name || '未命名冒险者')}</span><div class="rpg-item-sub">${esc([c.race, c.role].filter(Boolean).join(' · ') || '种族/身份待定')}</div></div>`
@@ -6880,6 +6928,863 @@ function applyRpgUpdate(payload) {
   renderRPG();
   return { options, createEntities, eventMemory };
 }
+function applyOutputRegex(text, targetMode = mode) {
+  return applyOutputRegexRules(text, activeOutputRegexRules(targetMode, 'ai_response'));
+}
+
+function tavernReplyOptionRules(preset = null) {
+  const config = tavernReplyOptionsConfig(preset);
+  if (!config || config.enabled === false) return { enabled: false, min: 0, max: 0, count: 0, noOptions: '' };
+  const rawMin = Number(config.min);
+  const rawMax = Number(config.max);
+  const min = Number.isFinite(rawMin) ? Math.max(0, Math.min(8, Math.floor(rawMin))) : 4;
+  const max = Number.isFinite(rawMax) ? Math.max(min, Math.min(8, Math.floor(rawMax))) : Math.max(min, 4);
+  const rawCount = Number(config.count);
+  const count = Number.isFinite(rawCount) ? Math.max(min, Math.min(max, Math.floor(rawCount))) : max;
+  return { enabled: true, min, max, count, noOptions: String(config.noOptions || '（等待 AI 生成可选行动…）') };
+}
+
+
+/* ═══════════════ Tavern · 提示词组装层 ═══════════════
+ * prompt 组装、World Info 激活与分节、预设解析。
+ * 由 ai-runtime.js 的 buildPromptBlocks() 入口调用，RP / RPG 两条链路共用。
+ */
+function lorebookEntriesForPrompt(book) {
+  if (book && typeof book === 'object' && Array.isArray(book.entries)) return normalizeCharacterBookEntries(book);
+  try { return normalizeImportedLorebook(book, book?.name || book?.title || '').entries; }
+  catch { return []; }
+}
+
+function presetMode(name, preset) {
+  if (preset && ['tavern', 'rpg', 'both'].includes(preset.mode)) return preset.mode;
+  if (name === GLOBAL_PRESET_KEY) return 'both';
+  return /RPG/i.test(name || '') ? 'rpg' : 'tavern';
+}
+
+function resolvePromptPreset() {
+  const world = currentWorldCard();
+  const worldBound = mode === 'rpg' && world?.rpgPresetName && promptPresets[world.rpgPresetName]
+    && ['rpg', 'both'].includes(presetMode(world.rpgPresetName, promptPresets[world.rpgPresetName])) ? world.rpgPresetName : '';
+  const name = worldBound || activePresetNameForMode(mode);
+  return { name, preset: promptPresets[name] || promptPresets[GLOBAL_PRESET_KEY] || normalizePromptPreset(GLOBAL_PRESET_KEY, {}) };
+}
+
+function buildWorldInfo({ dryRun = false, withOutlets = false } = {}) {
+  const char = currentChar();
+  const sources = [];
+  const worldLoreIds = worldModeActive()
+    ? (Array.isArray(currentWorldCard()?.lorebookIds) && currentWorldCard().lorebookIds.length
+      ? currentWorldCard().lorebookIds
+      : ['default'])
+    : (prefs.activeLoreId ? [prefs.activeLoreId] : []);
+  for (const loreId of [...new Set(worldLoreIds)]) {
+    const book = lorebooks && lorebooks[loreId];
+    const entries = book ? lorebookEntriesForPrompt(book) : [];
+    const bookSettings = normalizeLorebookSettings(book);
+    if (entries.length) sources.push(...entries.map(entry => ({ ...entry, __worldId: loreId, __sourceType: 'global', __bookSettings: bookSettings })));
+  }
+  // V3 character_book 属于角色卡本身，只对绑定该角色的对话生效，不能并入全局世界书。
+  const characterBook = characterBookForChar(char);
+  // 如果用户选择了系统自动注册的角色书副本，就只注入副本，避免原书 + 副本重复。
+  const registeredBookSelected = char?.characterBookLoreId && (char.loreId === char.characterBookLoreId || prefs.activeLoreId === char.characterBookLoreId);
+  if (!worldModeActive() && characterBook && !registeredBookSelected) {
+    const bookSettings = normalizeLorebookSettings(characterBook);
+    sources.push(...normalizeCharacterBookEntries(characterBook).map(entry => ({ ...entry, __worldId: char?.id || 'character-book', __sourceType: 'character', __bookSettings: bookSettings })));
+  }
+  const defaultDepth = Math.max(0, prefs.wiScanDepth || 0);
+  const allMessages = curMessages();
+  const sourceSettings = sources.map(source => source.__bookSettings || {}).filter(Boolean);
+  const bookRecursion = sourceSettings.some(settings => settings.recursive === true);
+  const bookRecursionSteps = sourceSettings.map(settings => Number(settings.maxRecursionSteps)).filter(Number.isFinite);
+  const bookMinActivations = sourceSettings.map(settings => Number(settings.minActivations)).filter(value => Number.isFinite(value) && value > 0);
+  const bookMinDepths = sourceSettings.map(settings => Number(settings.minActivationsDepthMax)).filter(value => Number.isFinite(value) && value > 0);
+  const bookBudgets = sourceSettings.map(settings => Number(settings.budget)).filter(value => Number.isFinite(value) && value > 0);
+  const bookStrategies = sourceSettings.map(settings => settings.insertionStrategy).filter(strategy => ['evenly', 'character_first', 'global_first'].includes(strategy));
+  const settings = {
+    includeNames: prefs.wiIncludeNames !== false,
+    minActivations: Math.max(Number(prefs.wiMinActivations) || 0, ...bookMinActivations),
+    minActivationsDepthMax: Math.max(Number(prefs.wiMinActivationsDepthMax) || 0, ...bookMinDepths),
+    recursive: (prefs.wiRecursive === true || bookRecursion) && !(Number(prefs.wiMinActivations) > 0 || bookMinActivations.length),
+    maxRecursion: Math.min(8, Math.max(1, Math.max(Number(prefs.wiMaxRecursionSteps) || 3, ...bookRecursionSteps))),
+    budget: Math.max(0, Number(prefs.wiBudget) || (bookBudgets.length ? Math.min(...bookBudgets) : 0)),
+    groupScoring: prefs.wiUseGroupScoring === true || sourceSettings.some(book => book.useGroupScoring === true),
+    insertionStrategy: bookStrategies[0] || prefs.wiInsertionStrategy || 'evenly',
+  };
+  const scanTextFor = (depth, extra = '', includeNames = settings.includeNames) => {
+    const msgs = depth ? allMessages.slice(-depth) : [];
+    const lines = msgs.map(m => (includeNames ? (m.role === 'user' ? '玩家：' : '角色：') : '') + m.content);
+    return [lines.join('\n'), extra].filter(Boolean).join('\n');
+  };
+  const scope = activeConversationScope();
+  const effects = dryRun ? { sticky: {}, cooldown: {} } : worldInfoScopeEffects(scope);
+  const messageCount = allMessages.length;
+  const entryKey = e => `${e.__worldId || 'world'}.${e.uid ?? e.id ?? e.title}`;
+  const active = new Map();
+  let recursionText = '';
+  const chooseGroups = candidates => {
+    const grouped = new Map();
+    candidates.forEach(item => String(item.entry.group || '').split(',').map(x => x.trim()).filter(Boolean).forEach(group => {
+      if (!grouped.has(group)) grouped.set(group, []);
+      grouped.get(group).push(item);
+    }));
+    const keep = new Set(candidates);
+    for (const group of grouped.values()) {
+      if (group.length < 2) continue;
+      const winner = group.some(item => item.entry.groupOverride)
+        ? [...group].sort((a, b) => Number(b.entry.order || 0) - Number(a.entry.order || 0))[0]
+        : settings.groupScoring || group.some(item => item.entry.useGroupScoring === true)
+          ? [...group].sort((a, b) => b.score - a.score || Number(b.entry.order || 0) - Number(a.entry.order || 0))[0]
+          : (() => {
+            const total = group.reduce((sum, item) => sum + Math.max(0, Number(item.entry.groupWeight ?? 100)), 0);
+            let roll = Math.random() * (total || 1);
+            return group.find(item => (roll -= Math.max(0, Number(item.entry.groupWeight ?? 100))) <= 0) || group[0];
+          })();
+      group.forEach(item => { if (item !== winner) keep.delete(item); });
+    }
+    return candidates.filter(item => keep.has(item));
+  };
+  const evaluate = (level, extra, minActivationScan = false) => {
+    const candidates = [];
+    for (const e of sources) {
+      const key = entryKey(e);
+      if (active.has(key) || e.enabled === false) continue;
+      if (level === 0 && e.delayUntilRecursion) continue;
+      if (level > 0 && e.excludeRecursion) continue;
+      const stickyUntil = Number(effects.sticky[key] || 0);
+      const cooldownUntil = Number(effects.cooldown[key] || 0);
+      if (stickyUntil && stickyUntil > messageCount) { candidates.push({ entry: e, score: 999 }); continue; }
+      if (stickyUntil && stickyUntil <= messageCount && e.cooldown > 0 && !dryRun) {
+        effects.cooldown[key] = stickyUntil + Number(e.cooldown);
+        delete effects.sticky[key];
+      }
+      if (cooldownUntil && cooldownUntil > messageCount) continue;
+      if (e.delay > 0 && messageCount < e.delay) continue;
+      const extraSources = [];
+      if (e.matchPersonaDescription) extraSources.push(currentUserPreset()?.persona);
+      if (e.matchCharacterDescription) extraSources.push(char?.description);
+      if (e.matchCharacterPersonality) extraSources.push(char?.personality);
+      if (e.matchCharacterDepthPrompt) extraSources.push(char?.depthPrompt || char?.note);
+      if (e.matchScenario) extraSources.push(char?.scenario);
+      if (e.matchCreatorNotes) extraSources.push(char?.creatorNotes);
+      const bookSettings = e.__bookSettings || {};
+      const depth = minActivationScan
+        ? (settings.minActivationsDepthMax || allMessages.length)
+        : (Number.isInteger(e.scanDepth) ? e.scanDepth : (bookSettings.scanDepth ?? defaultDepth));
+      const text = scanTextFor(depth, [extra, ...extraSources].filter(Boolean).join('\n'), bookSettings.includeNames ?? settings.includeNames);
+      const stats = worldInfoMatchStats(e, text);
+      const triggered = e.constant || stats.ok;
+      if (!triggered) continue;
+      if (!e.constant && !stats.ok) continue;
+      if (e.useProbability !== false && Number(e.probability ?? 100) < 100 && Math.random() * 100 >= Number(e.probability)) continue;
+      candidates.push({ entry: e, score: stats.score });
+    }
+    return chooseGroups(candidates);
+  };
+  const allHits = [];
+  const maxLevel = settings.recursive ? settings.maxRecursion : 0;
+  for (let level = 0; level <= maxLevel; level++) {
+    let chosen = evaluate(level, recursionText);
+    if (level === 0 && settings.minActivations > chosen.length && allMessages.length > defaultDepth) {
+      // ST 的最少激活会扩大扫描窗口；这里保留同一套筛选/分组规则，避免另造一条激活管线。
+      chosen = evaluate(level, recursionText, true);
+    }
+    if (!chosen.length) break;
+    for (const item of chosen) {
+      const e = item.entry;
+      const key = entryKey(e);
+      active.set(key, e);
+      allHits.push(e);
+      if (!dryRun) {
+        if (e.sticky > 0) effects.sticky[key] = messageCount + Number(e.sticky);
+        else if (e.cooldown > 0) effects.cooldown[key] = messageCount + Number(e.cooldown);
+      }
+      if (!e.preventRecursion && e.content) recursionText += '\n' + e.content;
+    }
+    if (!settings.recursive) break;
+  }
+  const positionOrder = [WORLD_INFO_POSITION.before, WORLD_INFO_POSITION.exampleTop, WORLD_INFO_POSITION.anTop,
+    WORLD_INFO_POSITION.atDepth, WORLD_INFO_POSITION.after, WORLD_INFO_POSITION.exampleBottom, WORLD_INFO_POSITION.anBottom, WORLD_INFO_POSITION.outlet];
+  const sourceRank = entry => entry.__sourceType === 'character' ? 0 : 1;
+  allHits.sort((a, b) => (Number(b.constant) - Number(a.constant))
+    || (positionOrder.indexOf(normalizeWorldInfoPosition(a.wiPosition ?? a.position)) - positionOrder.indexOf(normalizeWorldInfoPosition(b.wiPosition ?? b.position)))
+    || (settings.insertionStrategy === 'character_first' || settings.insertionStrategy === 'global_first'
+      ? ((settings.insertionStrategy === 'character_first' ? sourceRank(a) : sourceRank(b)) - (settings.insertionStrategy === 'character_first' ? sourceRank(b) : sourceRank(a))) : 0)
+    || (Number(a.order || 0) - Number(b.order || 0)));
+  let used = 0;
+  const outlets = {};
+  const positions = {
+    before: [],
+    after: [],
+    exampleTop: [],
+    exampleBottom: [],
+    anTop: [],
+    anBottom: [],
+    atDepth: [],
+  };
+  const entries = [];
+  for (const e of allHits) {
+    const content = String(e.content || '').trim();
+    if (!content) continue;
+    const position = normalizeWorldInfoPosition(e.wiPosition ?? e.position);
+    if (position === WORLD_INFO_POSITION.outlet) {
+      const name = String(e.outletName || '').trim();
+      if (!name) continue;
+      if (settings.budget > 0 && !e.ignoreBudget && used + content.length > settings.budget) continue;
+      if (name) (outlets[name] || (outlets[name] = [])).push(content);
+      used += content.length;
+      continue;
+    }
+    if (settings.budget > 0 && !e.ignoreBudget && used + content.length > settings.budget) continue;
+    used += content.length;
+    entries.push(content);
+    if (position === WORLD_INFO_POSITION.before) positions.before.push(content);
+    else if (position === WORLD_INFO_POSITION.after) positions.after.push(content);
+    else if (position === WORLD_INFO_POSITION.exampleTop) positions.exampleTop.push(content);
+    else if (position === WORLD_INFO_POSITION.exampleBottom) positions.exampleBottom.push(content);
+    else if (position === WORLD_INFO_POSITION.anTop) positions.anTop.push(content);
+    else if (position === WORLD_INFO_POSITION.anBottom) positions.anBottom.push(content);
+    else if (position === WORLD_INFO_POSITION.atDepth) positions.atDepth.push({
+      content,
+      role: worldInfoRoleValue(e.role) === WORLD_INFO_ROLE.user ? 'user'
+        : (worldInfoRoleValue(e.role) === WORLD_INFO_ROLE.assistant ? 'assistant' : 'system'),
+      depth: Math.max(0, Number(e.depth ?? 4) || 0),
+      order: Number(e.order ?? 100) || 0,
+    });
+  }
+  return withOutlets ? {
+    entries,
+    positions,
+    outlets: Object.fromEntries(Object.entries(outlets).map(([name, values]) => [name, values.join('\n\n')])),
+  } : entries;
+}
+
+/* ─────────── 提示词构建管线（SillyTavern prompts + prompt_order） ─────────── */
+function formatWorldInfoPrompt(entries, presetSettings = {}) {
+  const content = (Array.isArray(entries) ? entries : []).filter(Boolean).join('\n\n');
+  return applySTFormatTemplate(presetSettings.wi_format, '{0}', content);
+}
+
+function worldNpcQuestIds(quest) {
+  if (!quest || typeof quest !== 'object') return [];
+  const ids = [];
+  for (const key of ['npcId', 'giverNpcId', 'targetNpcId', 'actorNpcId']) {
+    if (typeof quest[key] === 'string') ids.push(quest[key]);
+  }
+  for (const key of ['npcIds', 'relatedNpcIds', 'participantNpcIds']) {
+    if (Array.isArray(quest[key])) ids.push(...quest[key]);
+  }
+  if (Array.isArray(quest.objectives)) {
+    for (const objective of quest.objectives) {
+      if (objective && typeof objective.npcId === 'string') ids.push(objective.npcId);
+    }
+  }
+  return ids.filter(id => id.trim()).map(id => id.trim());
+}
+
+function worldContextBudget() {
+  const configured = Number(prefs?.worldContextBudget);
+  return Number.isFinite(configured) && configured > 0
+    ? Math.max(6000, Math.min(60000, Math.floor(configured)))
+    : 24000;
+}
+
+function worldPromptPriority(part) {
+  const heading = /^【([^】]+)】/.exec(String(part || ''))?.[1];
+  if (!heading) return null;
+  return {
+    '回合契约': 115,
+    '当前不可用 Runtime 动作': 114,
+    '世界时间': 112,
+    '当前玩家动态状态': 110,
+    'RPG 状态': 110,
+    '目标': 108,
+    '线索': 108,
+    '目标 / 线索时限': 108,
+    '长期事件记忆': 106,
+    '当前世界卡': 104,
+    '当前作用域 NPC': 102,
+    '当前玩家只读派生值': 100,
+    '背包': 98,
+    '世界存档中的玩家快照': 96,
+    '已提交世界事件': 94,
+    '冲突状态': 92,
+    '物品 / 装备 / 经济规则': 88,
+    '成长候选与人物经历': 76,
+    '地图': 70,
+    '当前作用域派系': 64,
+    '任务': 108,
+  }[heading] ?? 40;
+}
+
+function clipWorldPromptPart(text, limit) {
+  if (text.length <= limit) return text;
+  const suffix = '…（本段受上下文预算裁剪）';
+  const max = Math.max(0, limit - suffix.length);
+  const lines = text.split('\n');
+  let output = '';
+  for (const line of lines) {
+    const next = output ? `${output}\n${line}` : line;
+    if (next.length > max) break;
+    output = next;
+  }
+  if (!output) output = text.slice(0, max);
+  return output + suffix;
+}
+
+function budgetWorldPromptParts(parts) {
+  if (!worldModeActive()) return parts;
+  const sections = parts.map((part, index) => ({
+    part,
+    index,
+    text: typeof part === 'object' && part !== null ? String(part.text || '') : String(part || ''),
+  }));
+  const entries = sections.map(entry => ({ ...entry, priority: worldPromptPriority(entry.text) }))
+    .filter(entry => entry.priority !== null && entry.text);
+  if (!entries.length) return parts;
+  let remaining = worldContextBudget();
+  const kept = new Map();
+  for (const entry of [...entries].sort((a, b) => b.priority - a.priority || a.index - b.index)) {
+    const separatorCost = kept.size ? 2 : 0;
+    if (remaining <= separatorCost) break;
+    const clipped = clipWorldPromptPart(entry.text, remaining - separatorCost);
+    if (!clipped) continue;
+    kept.set(entry.index, clipped);
+    remaining -= clipped.length + separatorCost;
+  }
+  return sections.map(({ part, text, index }) => {
+    const priority = worldPromptPriority(text);
+    if (priority === null) return part;
+    const clipped = kept.get(index) || '';
+    return typeof part === 'object' && part !== null ? { ...part, text: clipped } : clipped;
+  }).filter(Boolean);
+}
+
+function worldNpcLocationIds(npc) {
+  if (!npc || typeof npc !== 'object') return [];
+  const ids = [];
+  if (typeof npc.locationId === 'string') ids.push(npc.locationId);
+  if (typeof npc.homeLocationId === 'string') ids.push(npc.homeLocationId);
+  if (Array.isArray(npc.locationIds)) ids.push(...npc.locationIds);
+  return ids.filter(id => typeof id === 'string' && id.trim()).map(id => id.trim());
+}
+
+function worldNpcVisibleSecretText(npc, npcState) {
+  const knowledge = new Set(Array.isArray(npcState?.knowledge) ? npcState.knowledge.filter(item => typeof item === 'string').map(item => item.trim()) : []);
+  const secrets = Array.isArray(npc?.secrets) ? npc.secrets : [];
+  return secrets
+    .filter(secret => secret && typeof secret === 'object')
+    .map(secret => ({ id: typeof secret.id === 'string' ? secret.id.trim() : '', content: typeof secret.content === 'string' ? secret.content.trim() : '' }))
+    .filter(secret => secret.id && secret.content && knowledge.has(secret.id))
+    .map(secret => `${secret.id}：${secret.content}`);
+}
+
+function buildWorldNpcPromptPart() {
+  if (!worldModeActive()) return '';
+  const world = currentWorldCard();
+  const save = currentWorldSave;
+  const generatedNpcs = save.generatedEntities?.npcs && typeof save.generatedEntities.npcs === 'object' && !Array.isArray(save.generatedEntities.npcs)
+    ? Object.values(save.generatedEntities.npcs)
+    : [];
+  const definitions = [...(Array.isArray(world?.npcs) ? world.npcs : []), ...generatedNpcs]
+    .filter(npc => npc && typeof npc.id === 'string' && npc.id.trim())
+    .filter((npc, index, list) => list.findIndex(item => item.id === npc.id) === index);
+  if (!definitions.length) return '';
+  const state = save.state || {};
+  const currentLocationId = typeof state.locationId === 'string' ? state.locationId : '';
+  const partyIds = new Set(Array.isArray(save.party?.memberIds) ? save.party.memberIds.filter(id => typeof id === 'string') : []);
+  const objectiveIds = new Set([
+    ...(Array.isArray(state.quests) ? state.quests : []),
+    ...(Array.isArray(state.goals) ? state.goals : []),
+    ...(Array.isArray(state.leads) ? state.leads : []),
+  ].flatMap(worldNpcQuestIds));
+  const conflictIds = new Set(Object.values(state.conflicts && typeof state.conflicts === 'object' ? state.conflicts : {}).flatMap(conflict => [
+    conflict?.targetId,
+    ...(Array.isArray(conflict?.participants) ? conflict.participants.map(item => typeof item === 'string' ? item : item?.id) : []),
+  ].filter(id => typeof id === 'string' && id.trim())));
+  const memoryIds = new Set((Array.isArray(save.eventMemory) ? save.eventMemory : [])
+    .filter(memory => memory && memory.visibility !== 'hidden'
+      && (memory.visibility !== 'local' || !memory.locationId || memory.locationId === currentLocationId))
+    .flatMap(memory => Array.isArray(memory.entityIds) ? memory.entityIds : [])
+    .filter(id => typeof id === 'string' && id.trim()));
+  const npcStates = save.npcStates && typeof save.npcStates === 'object' ? save.npcStates : {};
+  const selected = definitions.filter(npc => {
+    const id = npc.id.trim();
+    const npcState = npcStates[id];
+    return partyIds.has(id)
+      || objectiveIds.has(id)
+      || conflictIds.has(id)
+      || memoryIds.has(id)
+      || (npcState && npcState.locationId === currentLocationId)
+      || worldNpcLocationIds(npc).includes(currentLocationId);
+  });
+  if (!selected.length) return '';
+  const sections = selected.map(npc => {
+    const id = npc.id.trim();
+    const npcState = npcStates[id] || {};
+    const fields = [`ID：${id}`, `名称：${npc.name || id}`];
+    for (const key of ['role', 'description', 'persona', 'personality', 'appearance', 'speechStyle', 'publicFacts', 'publicGoals', 'desires', 'fears', 'goals', 'activity']) {
+      const value = npc[key];
+      if (Array.isArray(value) && value.length) fields.push(`${key}：${value.join('；')}`);
+      else if (typeof value === 'string' && value.trim()) fields.push(`${key}：${value.trim()}`);
+    }
+    const visibleSecrets = worldNpcVisibleSecretText(npc, npcState);
+    if (visibleSecrets.length) fields.push(`当前存档已解锁秘密（仅使用这些）：${visibleSecrets.join('；')}`);
+    if (npcState.locationId) fields.push(`当前存档位置：${npcState.locationId}`);
+    if (npcState.lastActivity) fields.push(`最近活动：${npcState.lastActivity}`);
+    if (npcState.lastActionId) fields.push(`最近行动模板：${npcState.lastActionId}`);
+    if (npcState.relation && Object.keys(npcState.relation).length) fields.push(`当前存档关系：${JSON.stringify(npcState.relation)}`);
+    if (Array.isArray(npcState.knowledge) && npcState.knowledge.length) fields.push(`当前存档已知事实：${npcState.knowledge.join('；')}`);
+    if (Array.isArray(npcState.status) && npcState.status.length) fields.push(`当前存档状态：${npcState.status.join('；')}`);
+    const openingContext = Array.isArray(save.state?.openingScenario?.npcContexts)
+      ? save.state.openingScenario.npcContexts.find(context => context?.npcId === id)
+      : null;
+    if (openingContext) fields.push(`开局上下文：${JSON.stringify({ relationship: openingContext.relationship || '', currentGoal: openingContext.currentGoal || '', currentState: openingContext.currentState || '', knowsPlayer: openingContext.knowsPlayer === true, playerKnowsTruth: openingContext.playerKnowsTruth === true })}`);
+    return fields.join('\n');
+  });
+  return '【当前作用域 NPC】\n只允许引用以下 NPC；未列出的世界 NPC 不在本回合上下文中。静态资料仅代表公开信息；不得臆测未注入的秘密。NPC 只能使用公共资料、本存档已知事实和已解锁秘密，不得读取其他存档或其他 NPC 的知识。\n' + sections.join('\n\n');
+}
+
+function buildWorldFactLayerPromptPart() {
+  if (!worldModeActive()) return '';
+  const world = currentWorldCard();
+  const save = currentWorldSave;
+  const state = save.state || {};
+  const staticScope = `${world?.id || save.worldId || 'world'}@v${world?.version || save.worldVersion || 1}`;
+  const saveScope = `${save.id || currentWorldSaveId || 'save'}@r${Number.isInteger(save.revision) ? save.revision : 0}`;
+  const currentLocation = state.locationId || '未指定';
+  const currentTime = state.time ? `${state.time.value} ${state.time.unit}` : '未指定';
+  const setting = world?.setting && typeof world.setting === 'object' ? Object.entries(world.setting).filter(([, value]) => typeof value === 'string' && value.trim()).map(([key, value]) => `${key}：${value.trim()}`).join('\n') : '';
+  const rules = world?.rules && typeof world.rules === 'object' ? [
+    Array.isArray(world.rules.hard) && world.rules.hard.length ? `硬规则：${world.rules.hard.join('；')}` : '',
+    Array.isArray(world.rules.soft) && world.rules.soft.length ? `软规则：${world.rules.soft.join('；')}` : '',
+    Array.isArray(world.rules.checks) && world.rules.checks.length ? `可用判定：${world.rules.checks.map(check => {
+      if (typeof check === 'string') return check;
+      const modifier = check.modifier && typeof check.modifier === 'object' && !Array.isArray(check.modifier)
+        ? `；修正来源=${JSON.stringify(check.modifier)}（只在 dice.roll.modifier 传入，禁止写进 expr）`
+        : (check.modifier !== undefined ? ` + ${check.modifier}` : '');
+      return `${check.id}${check.label ? `（${check.label}）` : ''}${check.roll ? ` ${check.roll}` : ''}${modifier}${check.target !== undefined ? ` vs ${check.target}` : ''}`;
+    }).join('；')}` : '',
+  ].filter(Boolean).join('\n') : '';
+  return `【世界事实分层】
+稳定设定来源：WorldCard ${staticScope}。世界简介、登记地点、NPC 公共资料和规则属于稳定设定；不要因为某个存档的变化而改写它们。
+${setting ? `世界观设定（只读）：\n${setting}\n` : ''}${rules ? `作者规则（只读；硬规则优先，软规则用于叙事取舍）：\n${rules}\n` : ''}
+当前事实来源：WorldSave ${saveScope}。当前地点=${currentLocation}；当前时间=${currentTime}；玩家状态、NPC 位置/关系/认知和长期记忆只属于这个存档。
+状态处理：同一实体或地点同时出现静态资料与存档状态时，静态资料解释默认设定，存档状态解释当前局面；两者都要保留，不能把一次存档变化宣称为世界卡永久改写，也不能用旧静态默认值覆盖已提交状态。`;
+}
+
+function buildWorldEventPromptPart() {
+  if (!worldModeActive()) return '';
+  const state = currentWorldSave.state || {};
+  const currentLocationId = state.locationId || null;
+  const events = Array.isArray(state.worldEvents) ? state.worldEvents : [];
+  const visible = events.filter(event => event && event.visibility !== 'hidden');
+  const local = visible.filter(event => event.visibility === 'local' && (!event.locationId || event.locationId === currentLocationId)).slice(-8);
+  const global = visible.filter(event => event.visibility !== 'local' && (!event.locationId || event.locationId === currentLocationId)).slice(-8);
+  const selected = [...global, ...local].filter((event, index, list) => list.findIndex(item => item.eventId === event.eventId) === index);
+  if (!selected.length) return '';
+  return '【已提交世界事件】\n以下事件已由服务端在成功回合后结算，只能视为已发生事实，不得跨存档引用：\n'
+    + selected.map(event => {
+      const consequences = Array.isArray(event.consequences) && event.consequences.length ? `；后果：${event.consequences.join('；')}` : '';
+      const time = event.time ? `（${event.time.value} ${event.time.unit}）` : '';
+      return `- ${event.title || event.eventId}${time}：${event.description || '（无公开描述）'}${consequences}`;
+    }).join('\n');
+}
+
+function buildWorldEventMemoryPromptPart() {
+  if (!worldModeActive()) return '';
+  const save = currentWorldSave;
+  const currentLocationId = save.state?.locationId || null;
+  const memories = (Array.isArray(save.eventMemory) ? save.eventMemory : [])
+    .filter(memory => memory && memory.visibility !== 'hidden'
+      && (memory.visibility !== 'local' || !memory.locationId || memory.locationId === currentLocationId))
+    .slice(-32);
+  if (!memories.length) return '';
+  return '【长期事件记忆】\n以下记忆只来自当前世界存档已提交的回合，带有来源 revision；不得跨世界或跨存档引用，也不得把记忆摘要当作未发生事实。\n'
+    + memories.map(memory => {
+      const entities = Array.isArray(memory.entityIds) && memory.entityIds.length ? `；实体：${memory.entityIds.join('、')}` : '';
+      const time = memory.time ? `；时间：${memory.time.value} ${memory.time.unit}` : '';
+      const location = memory.locationId ? `；地点：${memory.locationId}` : '';
+      return `- ${memory.summary}${entities}${location}${time}（来源 revision ${memory.sourceRevision}）`;
+    }).join('\n');
+}
+
+function buildWorldFactionPromptPart() {
+  if (!worldModeActive()) return '';
+  const world = currentWorldCard();
+  const state = currentWorldSave?.state || {};
+  const currentLocationId = state.locationId || null;
+  const recentFactionIds = new Set((Array.isArray(state.worldEvents) ? state.worldEvents : []).slice(-32).map(event => event?.factionId).filter(Boolean));
+  const definitions = (Array.isArray(world?.factions) ? world.factions : []).filter(faction => recentFactionIds.has(faction.id)
+    || (Array.isArray(faction.actions) && faction.actions.some(action => !action?.trigger?.locationId || action.trigger.locationId === currentLocationId)));
+  if (!definitions.length) return '';
+  const states = state.factionStates && typeof state.factionStates === 'object' ? state.factionStates : {};
+  return '【当前作用域派系】\n派系定义属于当前世界卡；动态状态属于当前存档，禁止跨世界或跨存档引用。\n' + definitions.map(faction => {
+    const state = states[faction.id] || {};
+    const goals = Array.isArray(state.goals) && state.goals.length ? state.goals : (Array.isArray(faction.goals) ? faction.goals : []);
+    const resources = Array.isArray(faction.resources) ? faction.resources.map(resource => `${resource.id}=${state.resources?.[resource.id] ?? resource.initial ?? resource.min ?? 0}`).join(', ') : '';
+    return [`ID: ${faction.id}`, `名称: ${faction.name || faction.id}`, faction.description, goals.length ? `目标: ${goals.join('；')}` : '', `关系: ${state.relation ?? 0}`, `影响力: ${state.influence ?? 0}`, resources ? `资源: ${resources}` : ''].filter(Boolean).join('\n');
+  }).join('\n\n');
+}
+
+function buildWorldConflictPromptPart() {
+  if (!worldModeActive()) return '';
+  const world = currentWorldCard();
+  const definitions = new Map((Array.isArray(world?.conflicts) ? world.conflicts : []).map(conflict => [conflict.id, conflict]));
+  const states = currentWorldSave?.state?.conflicts && typeof currentWorldSave.state.conflicts === 'object' ? Object.values(currentWorldSave.state.conflicts) : [];
+  if (!definitions.size && !states.length) return '';
+  const lines = states.length ? states.map(state => {
+    const definition = definitions.get(state.templateId);
+    const actions = Array.isArray(state.availableActions) ? state.availableActions.join('、') : '';
+    const participants = Array.isArray(state.participants) ? state.participants.map(item => {
+      if (typeof item === 'string') return item;
+      const hp = Number.isFinite(Number(item?.hp)) && Number.isFinite(Number(item?.maxHp)) ? ` HP=${item.hp}/${item.maxHp}` : '';
+      const defense = Number.isFinite(Number(item?.defense)) ? ` 防御=${item.defense}` : '';
+      return `${item?.id || ''}${hp}${defense}`.trim();
+    }).filter(Boolean).join('、') : '';
+    return `- ${state.id}：${definition?.label || state.templateId}，状态=${state.status || 'active'}，阶段=${state.phase || '未分阶段'}，第 ${state.round || 1} 轮${state.targetId ? `，目标=${state.targetId}` : ''}${participants ? `，参与者=${participants}` : ''}${actions ? `，可用行动=${actions}` : ''}${state.outcome ? `，结果=${state.outcome}` : ''}`;
+  }).join('\n') : '（当前没有进行中的冲突）';
+  const templates = [...definitions.values()].map(definition => {
+    const actions = Array.isArray(definition.actions) ? definition.actions.map(action => {
+      const check = action.check;
+      const checkText = check
+        ? ` [基础骰式=${check.roll || '未声明'}${check.modifier && typeof check.modifier === 'object' ? `；modifierRule=${JSON.stringify(check.modifier)}` : check.modifier !== undefined ? `；固定修正=${check.modifier}` : ''}；目标=${check.target}${check.damage ? `；伤害基础骰式=${check.damage.roll}` : ''}]`
+        : '';
+      return `${action.id}:${action.label}${checkText}`;
+    }).join('、') : '';
+    const phases = Array.isArray(definition.phases) ? definition.phases.map(phase => `${phase.id}:${phase.label}`).join('、') : '';
+    const outcomes = Array.isArray(definition.outcomes) ? definition.outcomes.map(outcome => `${outcome.id}:${outcome.label}`).join('、') : '';
+    return `- ${definition.id}（${definition.type || 'custom'}）：阶段=${phases || '无'}；行动=${actions || '无'}；结果=${outcomes || '无'}`;
+  }).join('\n');
+  const recentChecks = (Array.isArray(currentWorldSave?.receipts) ? currentWorldSave.receipts : [])
+    .slice(-8).flatMap(receipt => Array.isArray(receipt?.conflictChecks) ? receipt.conflictChecks : [])
+    .filter(check => states.some(state => state.id === check.conflictId));
+  const checkLines = recentChecks.length
+    ? '\n最近服务端判定：\n' + recentChecks.slice(-8).map(check => `- ${check.conflictId} ${check.type} ${check.actionId}：${check.check.total} vs ${check.check.target}，${check.check.success ? '成功' : '失败'}`).join('\n')
+    : '';
+  return `【冲突状态】\n冲突是当前世界存档独立拥有的状态，不得跨存档引用。只能使用已声明模板；生命周期只能 start（开始）、advance（推进一轮）或 end（以 declared outcome 结束），已结束冲突不可重开。战斗 action 的 check 由服务端掷骰并写回参与者 HP；social / stealth action 的 check 只记录技能判定结果，不读取或扣除 HP。AI 只选择 actionId 与必要的 targetId，不得伪造 HP、骰子或判定结果。\n当前状态：\n${lines}\n可用模板：\n${templates}${checkLines}`;
+}
+
+function buildWorldGrowthPromptPart() {
+  if (!worldModeActive()) return '';
+  const growth = currentWorldCard()?.playerCreation?.growth;
+  if (!growth || typeof growth !== 'object') return '';
+  const sources = (Array.isArray(growth.sources) ? growth.sources : []).map(source => `${source.id}:${source.label}`).join('、');
+  const candidates = (Array.isArray(growth.candidates) ? growth.candidates : []).map(candidate => `${candidate.id}:${candidate.label}（${candidate.sourceId} → ${growthEffectLabel(candidate)}）`).join('、');
+  const proposed = Array.isArray(currentWorldSave?.state?.growthCandidates) ? currentWorldSave.state.growthCandidates : [];
+  const proposedText = proposed.length ? proposed.map(candidate => `${candidate.candidateId}（${candidate.sourceId}，待确认）`).join('、') : '（暂无）';
+  const experiences = Array.isArray(currentWorldSave?.state?.experiences) ? currentWorldSave.state.experiences.slice(-8) : [];
+  const experienceText = experiences.length ? experiences.map(item => `${item.title}：${item.summary}`).join('；') : '（暂无）';
+  return `【成长候选与人物经历】\n成长来源属于当前世界卡，候选记录只属于当前存档；来源=${sources || '无'}。可提议候选=${candidates || '无'}。当前待确认=${proposedText}。已确认人物经历=${experienceText}。当前 typed patch 只允许更新已存在的数值与目标，不要在状态更新块中创建或接受成长候选；成长候选将在专用回合协议中提交。`;
+}
+
+function buildWorldFailurePromptPart() {
+  if (!worldModeActive()) return '';
+  const failure = currentWorldCard()?.failure;
+  const modes = Array.isArray(failure?.modes) ? failure.modes : [];
+  const modeText = modes.length ? modes.map(mode => `${mode.id}:${mode.label || mode.id}${mode.terminal ? '（终止）' : ''}${mode.hpRatio !== undefined ? ` HP=${mode.hpRatio}` : ''}`).join('、') : '使用服务端内置安全模式';
+  const current = currentWorldSave?.state?.failure;
+  return `【失败与死亡规则】失败结算由服务端根据 WorldCard.failure 触发，AI 不得直接写入 state.failure、伪造 HP/骰子结果或绕过模式。可用模式：${modeText}。HP 降到 0 与冲突失败由服务端判定；当前失败状态：${current ? `${current.mode}/${current.status}` : '未触发'}。永久死亡后不得继续普通回合。`;
+}
+
+function buildWorldEndingPromptPart() {
+  if (!worldModeActive()) return '';
+  const ending = currentWorldCard()?.ending;
+  const options = Array.isArray(ending?.endings) ? ending.endings.map(item => `${item.id}:${item.label || item.id}`).join('、') : 'player-choice:玩家主动结束';
+  const current = currentWorldSave?.state?.ending;
+  return `【开放式结局】世界卡不强制唯一结局，可用结局：${options}。AI 只能叙述候选结果，不得自行结束世界线或写入 state.ending；玩家必须通过界面明确确认，服务端才会提交结局。当前状态：${current ? `${current.endingId}/ended` : '进行中'}。`;
+}
+
+function buildWorldReopenPromptPart() {
+  if (!worldModeActive()) return '';
+  const info = currentWorldSave?.reopenInfo;
+  if (!info) return '';
+  const summary = info.sourceSummary && typeof info.sourceSummary === 'object' ? JSON.stringify(info.sourceSummary).slice(0, 12000) : '无可用总结';
+  return `【世界线重开上下文】当前存档来自 ${info.sourceSaveId || '上一条世界线'}（${info.sourceStatus || 'reopen'}）。以下内容是只读的过去世界线记录，必须作为背景连续性参考，不得直接改写当前 state、结局或回合账本：${summary}`;
+}
+
+function buildRpgPromptSections() {
+  if (mode !== 'rpg') return [];
+  const sections = [];
+  const pushSection = (id, text, source = 'runtime') => {
+    if (text) sections.push({ id, source, text: String(text) });
+  };
+  const unshiftSection = (id, text, source = 'runtime') => {
+    if (text) sections.unshift({ id, source, text: String(text) });
+  };
+  const rs = curRpgState();
+  const agentProfile = buildRpgAgentProfile();
+  const agentContext = buildRpgAgentContext(agentProfile);
+  const enabledAgentTools = Object.entries(agentProfile.tools)
+    .filter(([, config]) => config.enabled !== false)
+    .map(([name, config]) => `${name}（${config.execution || 'server'}）`);
+  pushSection('agent.profile', `【Agent Runtime】protocol=${agentProfile.protocol} v${agentProfile.version}；mode=${agentProfile.mode}；maxSteps=${agentProfile.maxSteps}；可用工具=${enabledAgentTools.length ? enabledAgentTools.join('、') : '无'}。工具只能通过当前存档的服务端校验产生结果，不能跨 saveId、改写 runtime schema 或直接写入未声明字段。世界卡定义的变量、集合和动作属于本局状态的一部分，必须使用声明式 runtime 更新。`);
+  if (agentContext) pushSection('agent.context', `【Agent 请求上下文】以下是本次请求唯一的作用域快照；缺失字段不得由模型猜测，稳定事实与本局状态必须按标注来源区分：\n${JSON.stringify(agentContext)}`);
+  if (rs) {
+    if (worldModeActive()) pushSection('turn.commit-contract', `【结构化回合提交】当前 saveId=${currentWorldSave.id}，revision=${currentWorldSave.revision}。回复末尾的 <tavern_state_update> 必须原样使用 protocol=tavern.rpg.turn、version=1、baseRevision=${currentWorldSave.revision}；只允许玩家状态、地点/时间、必要判定和 options，服务端会以此 revision 做原子提交。`);
+    const stateText = worldModeActive()
+      ? `HP ${rs.hp}/${rs.maxHp}，MP ${rs.mp}/${rs.maxMp}，当前位置：${rs.location}`
+      : `等级 ${rs.level}（经验 ${rs.exp}/${rs.expNext}），HP ${rs.hp}/${rs.maxHp}，MP ${rs.mp}/${rs.maxMp}，金币 ${rs.gold}，当前位置：${rs.location}`;
+    pushSection('save.rpg-state', '【RPG 状态】' + stateText
+      + (rs.buffs?.length ? `，状态效果：${rs.buffs.join('、')}` : ''));
+    if (!worldModeActive()) pushSection('save.inventory', '【背包】' + (rs.inventory.length ? rs.inventory.map(i => `${i.name}×${i.count}${i.desc ? `（${i.desc}）` : ''}`).join('、') : '（空）'));
+    if (!worldModeActive()) {
+      pushSection('save.quests', '【任务】' + (rs.quests.length ? rs.quests.map(x => `${x.title}${x.status === 'done' ? '（已完成）' : ''}`).join('、') : '（无）'));
+      pushSection('save.goals', '【目标】' + (rs.goals?.length ? rs.goals.map(x => `${x.title}${x.status && x.status !== 'active' ? `（${x.status}）` : ''}`).join('、') : '（无）'));
+      pushSection('save.leads', '【线索】' + (rs.leads?.length ? rs.leads.map(x => `${x.title}${x.status && x.status !== 'active' ? `（${x.status}）` : ''}`).join('、') : '（无）'));
+      const deadlineObjectives = [...(rs.goals || []), ...(rs.leads || [])];
+      const deadlineText = deadlineObjectives.filter(item => item?.deadline && item.status === 'active' && Number.isFinite(item.deadline.value) && item.deadline.unit).map(item => `${item.title || item.id} 截止 ${item.deadline.value} ${item.deadline.unit}`).join('；');
+      if (deadlineText) pushSection('save.deadlines', '【目标 / 线索时限】' + deadlineText);
+    }
+  }
+  if (worldModeActive()) {
+    const world = currentWorldCard();
+    if (world) {
+      const factLayerPrompt = buildWorldFactLayerPromptPart();
+      if (factLayerPrompt) pushSection('world.fact-layer', factLayerPrompt);
+      const setupPrompt = buildWorldSetupPromptPart();
+      if (setupPrompt) pushSection('save.setup', setupPrompt);
+      const knowledgePrompt = buildWorldKnowledgePromptPart();
+      if (knowledgePrompt) pushSection('knowledge.scope', knowledgePrompt);
+      const worldTime = currentWorldSave.state?.time;
+      if (worldTime) unshiftSection('world.time', `【世界时间】${worldTime.value} ${worldTime.unit}（每次正式回合由服务端推进，AI 不得直接篡改）`);
+      unshiftSection('world.card', '【当前世界卡】\n' + [
+        `世界：${world.title || world.id}（v${world.version || 1}）`,
+        world.summary || '',
+        '位置协议：state.locationId 与 NPC locationId 只能使用已登记的稳定 locationId；地点名称只用于叙事，不得写入状态。',
+        world.locations?.length ? '已登记地点：' + world.locations.map(x => `${x.name || x.id}（id: ${x.id}；${x.type || '地点'}）`).join('、') : '',
+        currentWorldSave.opening ? '开局：' + currentWorldSave.opening : '',
+      ].filter(Boolean).join('\n'));
+      const player = currentWorldSave.player?.snapshot;
+      if (player) unshiftSection('save.player-snapshot', '【世界存档中的玩家快照】\n' + Object.entries(player).filter(([k, v]) => k !== 'profileFields' && v != null && String(v).trim()).map(([k, v]) => `${k}：${typeof v === 'object' ? JSON.stringify(v) : v}`).join('\n'));
+      const dynamicPlayer = currentWorldSave.state?.player;
+      if (dynamicPlayer) unshiftSection('save.player-state', '【当前玩家动态状态】\n' + ['attributes', 'skills', 'resources', 'traits', 'relations', 'identity', 'effects'].filter(key => dynamicPlayer[key] !== undefined).map(key => `${key}：${JSON.stringify(dynamicPlayer[key])}`).join('\n'));
+      const derivedValues = evaluateWorldDerivedValues(world.playerCreation, dynamicPlayer);
+      if (derivedValues.length) unshiftSection('save.derived-values', '【当前玩家只读派生值】\n' + derivedValues.map(item => `${item.id}: ${item.value === null ? 'N/A' : item.value}`).join('\n') + '\n这些值由属性/技能/资源实时计算，仅供阅读，禁止写回 ```rpg``` 状态块。');
+      const optionRules = worldOptionRules();
+      pushSection('turn.options-contract', `【回合契约】行动选项数量 ${optionRules.min}-${optionRules.max}；自由文本输入始终可用。AI 不得替玩家补写未表达的核心意图、台词或不可逆行动。`);
+      const intent = worldTurnPendingActive() ? currentWorldSave?.agentRuntime?.pending?.actionIntent || worldTurnPending?.actionIntent : null;
+      if (intent?.actionId) {
+        const intentAction = (Array.isArray(world.runtime?.actions) ? world.runtime.actions : []).find(action => action?.id === intent.actionId);
+        const intentAvailability = intentAction && !rpgRuntimeActionAvailabilityUsesInput(intentAction)
+          ? rpgRuntimeActionAvailabilityError(intentAction, currentWorldSave?.state?.runtime || {}) : '';
+        pushSection('turn.action-intent', `【玩家明确动作意图】本回合 actionId=${intent.actionId}${intentAction ? `（${intentAction.label || intentAction.id}）` : '（未声明，不能执行）'}。actionId 是玩家通过卡内按钮或自由输入精确匹配明确提交的动作，不得只当作叙事描述：动作已声明且可用时必须调用一次 runtime.action.execute；需要判定时先完成该 actionId 的 rules.check → dice.roll，只有达到目标才执行。绝不把该动作的效果手写成 item.delta、runtime.collection.patch 或其他等价 updates；卡内动作的状态效果只能由声明的 runtime.action.execute 结算。${intentAvailability ? `当前不可用：${intentAvailability}。不要调用、不要手写等价 updates，只在正文说明资源或条件不足。` : '若工具返回 accepted=candidate，最终提交必须保留该动作候选。'}`);
+      }
+      pushSection('turn.side-effects', '【副作用边界】Markdown 叙事、NPC 台词、行动选项和普通文本中的骰子表达式都只是文本，不会自动执行骰子或改写状态；只有协议中通过服务端校验的结构化更新才可产生状态变化。');
+      pushSection('turn.tool-candidates', agentProfile.mode === 'native'
+        ? '【Agent 步骤协议】每一步只做一件事：需要信息/判定时调用工具并等待真实结果；已有结果时继续叙事。只有同时存在风险、不确定性与后果才判定，顺序固定为 context.retrieve → rules.check → dice.roll → 状态候选。dice.roll 只写基础 1dN，修正必须原样引用已声明的属性/技能/runtime 数值，禁止猜值。最终一步不得再调用工具：输出 Markdown 正文与唯一状态标签，正文不要列行动选项。'
+        : '【Agent 兼容步骤协议】中间步骤可在唯一 <tavern_state_update> 的 toolCalls 中请求工具，然后等待真实结果；最终步骤必须删除 toolCalls，只输出 Markdown 正文与唯一状态标签。只有同时存在风险、不确定性与后果才按 context.retrieve → rules.check → dice.roll → 状态候选执行；dice.roll 只写基础 1dN，修正引用已声明数值。正文不要重复行动选项。');
+      const npcPrompt = buildWorldNpcPromptPart();
+      if (npcPrompt) pushSection('world.npcs', npcPrompt);
+      const failurePrompt = buildWorldFailurePromptPart();
+      if (failurePrompt) pushSection('rules.failure', failurePrompt);
+      const endingPrompt = buildWorldEndingPromptPart();
+      if (endingPrompt) pushSection('rules.ending', endingPrompt);
+      const reopenPrompt = buildWorldReopenPromptPart();
+      if (reopenPrompt) pushSection('world.reopen', reopenPrompt);
+      const runtime = world.runtime && typeof world.runtime === 'object' ? world.runtime : null;
+      if (runtime) {
+        const runtimeState = currentWorldSave.state?.runtime || {};
+        const unavailableActions = (Array.isArray(runtime.actions) ? runtime.actions : [])
+          .filter(action => !rpgRuntimeActionAvailabilityUsesInput(action))
+          .map(action => ({ action, error: rpgRuntimeActionAvailabilityError(action, runtimeState) }))
+          .filter(item => item.error)
+          // ponytail: prompt only lists 8 unavailable actions; the Agent guard checks every action at execution time.
+          .slice(0, 8);
+        if (unavailableActions.length) pushSection('world.runtime-unavailable-actions', `【当前不可用 Runtime 动作】${unavailableActions.map(({ action, error }) => `${action.label || action.id}（${action.id}）：${error}`).join('；')}。这些动作已耗尽或条件不足，不能调用 runtime.action.execute，也不得写入 updates；应据此继续叙事或选择其他可用行动。`);
+        const runtimeProjection = JSON.stringify({
+          schema: runtime,
+          state: runtimeState,
+        });
+        const runtimeLimit = Math.min(12000, Math.max(4000, Math.floor(worldContextBudget() / 2)));
+        pushSection('world.runtime-contract', `【世界卡 Runtime 契约】只可使用以下已声明的变量、集合和动作；不得修改 schema 或凭空创建字段。Agent 调用 state.patch 工具时，updates 不得包含 runtime.action.execute；执行声明式动作只能调用同名工具，并使用当前 runtime.actions 已声明的 actionId。玩家行动没有对应 action 时，应使用当前协议已声明的其他 Typed Patch（如 runtime.variable.* 或 runtime.collection.*），不能编造 actionId。状态变化放入唯一标签的 updates，动作有 check 时须先完成同 actionId 判定。\n${runtimeProjection.slice(0, runtimeLimit)}`);
+      } else {
+        pushSection('world.runtime-contract', '【世界卡 Runtime 契约】当前世界卡未声明自定义 runtime；不要猜测或提交 runtime 更新。');
+      }
+    }
+  }
+  if (worldModeActive()) {
+    const budgeted = budgetWorldPromptParts(sections);
+    sections.length = 0;
+    sections.push(...budgeted);
+  }
+  if (defaults?.rpg?.diceInstruction) pushSection('turn.dice-contract', defaults.rpg.diceInstruction, 'preset');
+  const stateInstruction = worldModeActive()
+    ? `⚠️ RPG 最终输出：Markdown 正文 + 末尾唯一 <tavern_state_update>JSON</tavern_state_update>。最终 JSON 仅含 protocol、version、baseRevision、updates、options、eventMemory；protocol="tavern.rpg.turn"，version=1，baseRevision 等于当前 revision。updates 只改已声明字段；options 仅在 JSON 中提供，不得写进正文。中间工具步骤可临时包含 toolCalls，收到工具结果后的最终输出必须删除 toolCalls。${RPG_RUNTIME_UPDATE_FORMAT_HINT}`
+    : ((defaults?.rpg?.stateInstruction) || '每次回复末尾输出唯一的 <tavern_state_update> JSON 状态更新块。');
+  pushSection('output.protocol', stateInstruction, 'preset');
+  if (defaults?.rpg?.eventMemoryInstruction) pushSection('output.event-memory', defaults.rpg.eventMemoryInstruction, 'preset');
+  return sections;
+}
+
+function buildRpgPromptPart() {
+  return buildRpgPromptSections().map(section => section.text).join('\n\n');
+}
+
+function buildPromptBlocks() {
+  const promptChar = null;
+  const { preset: rawPreset } = resolvePromptPreset();
+  const preset = normalizePromptPreset('', rawPreset);
+  const presetSettings = preset.modelParameters && typeof preset.modelParameters === 'object' ? preset.modelParameters : {};
+  const wiResult = buildWorldInfo({ withOutlets: true });
+  // 提示词正则只作用于本次请求副本；世界书/历史原文与会话存档保持不变。
+  const wi = wiResult.entries.map(entry => applyRegexStage(entry, 'world_info', { includePromptOnly: true }));
+  const formatWorldInfoEntries = entries => (Array.isArray(entries) ? entries : [])
+    .map(entry => applyRegexStage(entry, 'world_info', { includePromptOnly: true }));
+  const wiPositions = wiResult.positions || { before: wi, after: [], exampleTop: [], exampleBottom: [], anTop: [], anBottom: [], atDepth: [] };
+  const charParts = worldModeActive()
+    ? { description: '', personality: '', scenario: '', rawDescription: '', rawPersonality: '', rawScenario: '' }
+    : buildCharacterPromptParts(promptChar, presetSettings);
+  const userPart = worldModeActive() ? '' : buildUserPromptPart();
+  const rpgSections = buildRpgPromptSections();
+  const macroMessages = (worldModeActive() ? worldTimelineMessages() : curMessages())
+    // 骰点等 meta 是本轮附加记录，不应覆盖 {{lastMessage}} 或增加 {{messageCount}}。
+    .filter(message => message && !message.meta && (message.role === 'user' || message.role === 'assistant'));
+  const lastMacroMessage = macroMessages.at(-1)?.content || '';
+  const lastMacroUserMessage = [...macroMessages].reverse().find(message => message.role === 'user' && !message.meta)?.content || '';
+  const lastMacroCharMessage = [...macroMessages].reverse().find(message => message.role === 'assistant')?.content || '';
+  const runtime = {
+    worldInfoBefore: formatWorldInfoPrompt(formatWorldInfoEntries(wiPositions.before), presetSettings),
+    worldInfoAfter: formatWorldInfoPrompt(formatWorldInfoEntries(wiPositions.after), presetSettings),
+    personaDescription: userPart,
+    charDescription: charParts.description,
+    charPersonality: charParts.personality,
+    scenario: charParts.scenario,
+    tavernMemory: buildMemoryPromptPart(),
+    tavernRpg: rpgSections.map(section => section.text).join('\n\n'),
+    tavernRpgSections: rpgSections,
+    outlets: wiResult.outlets,
+  };
+  const macroContext = {
+    user: currentUserPreset()?.name || '玩家',
+    char: worldModeActive() ? (currentWorldCard()?.title || '世界') : (promptChar?.name || '角色'),
+    persona: currentUserPreset()?.persona || '',
+    description: charParts.rawDescription,
+    personality: charParts.rawPersonality,
+    scenario: charParts.rawScenario,
+    mesExamples: promptChar?.mesExample || promptChar?.mes_example || '',
+    mesExamplesRaw: promptChar?.mesExample || promptChar?.mes_example || '',
+    lastMessage: lastMacroMessage,
+    lastUserMessage: lastMacroUserMessage,
+    lastCharMessage: lastMacroCharMessage,
+    messageCount: String(macroMessages.length),
+    outlets: wiResult.outlets,
+    group: '',
+    charIfNotGroup: worldModeActive() ? (currentWorldCard()?.title || '世界') : (promptChar?.name || '角色'),
+  };
+  const variables = {};
+  const promptMap = new Map(preset.prompts.map(p => [p.identifier, p]));
+  const systemParts = [];
+  const beforeHistory = [];
+  const afterHistory = [];
+  const relativeBefore = [];
+  const relativeAfter = [];
+  const injections = [];
+  const postParts = [];
+  let includeHistory = false;
+  let reachedHistory = false;
+
+  for (const item of preset.promptOrder) {
+    if (item.enabled === false) continue;
+    const prompt = promptMap.get(item.identifier);
+    if (!prompt) continue;
+    if (prompt.identifier === 'chatHistory') {
+      includeHistory = true;
+      reachedHistory = true;
+      const newChatPrompt = expandPresetMacros(presetSettings.new_chat_prompt || '', macroContext, variables);
+      if (newChatPrompt) {
+        systemParts.push(newChatPrompt);
+        relativeBefore.push({ role: 'system', content: newChatPrompt });
+      }
+      continue;
+    }
+    if (prompt.identifier === 'dialogueExamples' && prompt.marker) {
+      const exampleMessages = buildDialogueExampleMessages(
+        promptChar?.mesExample || promptChar?.mes_example || '',
+        formatWorldInfoEntries(wiPositions.exampleTop),
+        formatWorldInfoEntries(wiPositions.exampleBottom),
+        presetSettings,
+        macroContext,
+      );
+      for (const message of exampleMessages) {
+        const content = expandPresetMacros(message.content, macroContext, variables);
+        if (!content) continue;
+        if (message.role === 'system') systemParts.push(content);
+        else (reachedHistory ? afterHistory : beforeHistory).push({ role: message.role, content });
+        (reachedHistory ? relativeAfter : relativeBefore).push({ role: message.role, content, _example: true });
+      }
+      continue;
+    }
+    let content = prompt.marker ? runtime[prompt.identifier] ?? prompt.content : prompt.content;
+    if (prompt.identifier === 'main') {
+      content = prompt.content || RPG_TASK_FALLBACK;
+    }
+    if (prompt.identifier === 'jailbreak') {
+      content = prompt.content;
+    }
+    content = expandPresetMacros(content, macroContext, variables);
+    if (!content) continue;
+    if (prompt.position === 'in_chat' && !prompt.marker) {
+      injections.push({ role: prompt.role, content, depth: prompt.depth, order: prompt.order });
+      if (prompt.role === 'system') systemParts.push(content);
+    } else if (prompt.role === 'system' || prompt.marker) {
+      systemParts.push(content);
+      (reachedHistory ? relativeAfter : relativeBefore).push({ role: 'system', content });
+    } else {
+      (reachedHistory ? afterHistory : beforeHistory).push({ role: prompt.role, content });
+      (reachedHistory ? relativeAfter : relativeBefore).push({ role: prompt.role, content });
+    }
+  }
+
+  for (const entry of Array.isArray(wiPositions.atDepth) ? wiPositions.atDepth : []) {
+    const content = expandPresetMacros(applyRegexStage(entry.content, 'world_info', { includePromptOnly: true }), macroContext, variables);
+    if (!content) continue;
+    injections.push({ role: entry.role, content, depth: entry.depth, order: entry.order });
+    if (entry.role === 'system') systemParts.push(content);
+  }
+
+  const recentContext = worldModeActive() ? buildWorldRecentContext() : null;
+  const historySource = recentContext ? recentContext.messages : tavernPromptHistoryMessages();
+  const splitTurn = splitLatestPlayerTurn(historySource);
+  let previousHistory = splitTurn.history;
+  const currentTurn = splitTurn.current;
+  if (!recentContext) {
+    // 先过滤对话消息、再限制历史，并为本轮输入保留一个固定槽位；meta 骰点不再挤掉玩家输入。
+    const historyLimit = Math.max(1, Math.floor(Number(settings.history) || 20));
+    const previousLimit = Math.max(0, historyLimit - currentTurn.length);
+    previousHistory = previousLimit ? previousHistory.slice(-previousLimit) : [];
+  }
+  previousHistory = previousHistory.map(message => ({ ...message, _history: true }));
+  // “聊天历史”只控制已完成的旧上下文；本轮玩家输入是当前请求参数，始终保留。
+  const exampleHistory = [];
+  if (mode === 'rpg' && defaults?.rpg?.exampleTurn) {
+    const ex = defaults.rpg.exampleTurn;
+    if (ex.user && ex.assistant) exampleHistory.push({ role: 'user', content: ex.user }, { role: 'assistant', content: ex.assistant });
+  }
+  let history = [...exampleHistory, ...(includeHistory ? previousHistory : [])];
+  history = mergeHistoryInjections(history, injections);
+  const orderedChat = mergeHistoryInjections([...exampleHistory, ...(includeHistory ? previousHistory : []), ...currentTurn], injections);
+  // 兼容调试投影仍把本轮玩家输入保留为最后一条 user；真实请求使用下方 orderedPromptMessages。
+  const promptHistory = [...beforeHistory, ...history, ...afterHistory, ...currentTurn].map((message, index, list) => ({
+    role: message.role,
+    content: applyRegexStage(message.content, 'prompt_history', { role: message.role, depth: Math.max(0, list.filter(item => item.role !== 'system').length - list.slice(0, index + 1).filter(item => item.role !== 'system').length) }),
+  }));
+  const orderedPromptMessages = [...relativeBefore, ...orderedChat, ...relativeAfter].map((message, index, list) => ({
+    role: message.role,
+    content: applyRegexStage(message.content, message.role === 'system' ? 'system_prompt' : 'prompt_history', { role: message.role, depth: Math.max(0, list.filter(item => item.role !== 'system').length - list.slice(0, index + 1).filter(item => item.role !== 'system').length) }),
+    ...(message._example ? { _example: true } : {}),
+    ...(message._history ? { _history: true } : {}),
+  }));
+  return {
+    system: applyRegexStage(systemParts.join('\n\n'), 'system_prompt'),
+    wi,
+    history: promptHistory,
+    promptMessages: orderedPromptMessages,
+    post: applyRegexStage(postParts.filter(Boolean).join('\n\n'), 'system_prompt'),
+    assistantPrefill: expandPresetMacros(presetSettings.assistant_prefill || '', macroContext, variables),
+    recentContext,
+    rpgSections,
+  };
+}
 /* ─────────── 掷骰（D&D 风格：d20+5 / 2d6-1 自动掷骰） ─────────── */
 const DICE_RE = /(\d*)d(\d+)([+-]\d+)?/gi;
 const MAX_DICE_BONUS = 1000;
@@ -6993,142 +7898,6 @@ function extractTavernScripts(source) {
 
 const TAVERN_CARD_EVENT_ATTRS = ['onclick', 'ondblclick', 'onchange', 'oninput', 'onsubmit', 'onload', 'onerror', 'onkeydown', 'onkeyup', 'onfocus', 'onblur'];
 
-function safeTavernCardScriptUrl(value) {
-  try {
-    const parsed = new URL(String(value || ''), window.location.href);
-    // ST 角色卡允许声明外部脚本；仍拒绝 javascript/data/file 等可执行协议。
-    if (!['http:', 'https:'].includes(parsed.protocol)) return '';
-    return parsed.href;
-  } catch { return ''; }
-}
-
-function cardScriptInventory(char = currentChar()) {
-  const entries = [];
-  const seen = new Set();
-  const visit = node => {
-    if (typeof node === 'string') {
-      if (!/<script\b/i.test(node)) return;
-      // 角色卡正则常把完整 HTML（含脚本）放在 ```text``` 围栏里；
-      // 与实际渲染保持同一解围栏规则，避免授权清单误判为未知脚本。
-      for (const entry of extractTavernScripts(normalizeTavernHtmlBlocks(node)).scripts) entries.push(entry);
-      return;
-    }
-    if (!node || typeof node !== 'object' || seen.has(node)) return;
-    seen.add(node);
-    if (Array.isArray(node)) { node.forEach(visit); return; }
-    Object.values(node).forEach(visit);
-  };
-  visit(char?.firstMes || '');
-  visit(char?.cardData);
-  visit(char?.cardExtensions);
-  const unique = new Map(entries.map(entry => [`${entry.src}\n${entry.code}`, entry]));
-  return [...unique.values()];
-}
-
-function approveCharacterCardScripts(scripts) {
-  const character = currentChar();
-  if (!character || !Array.isArray(scripts) || !scripts.length) return false;
-  // 展示渲染会先展开 {{user}} 宏，再提取脚本；授权比对必须使用同一份规范化源码。
-  const inventory = cardScriptInventory(character).map(entry => ({
-    ...entry,
-    code: expandDisplayMacros(entry.code),
-  }));
-  const inventoryKeys = new Set(inventory.map(entry => `${entry.src}\n${entry.code}`));
-  if (scripts.some(entry => !inventoryKeys.has(`${entry.src}\n${entry.code}`))) return false;
-  const supportedExternal = scripts.filter(entry => entry.src).map(entry => safeTavernCardScriptUrl(entry.src));
-  if (supportedExternal.some(src => !src)) return false;
-  const key = `${character.id || 'character'}:${lorebookHash(JSON.stringify(inventory))}`;
-  const approvals = prefs.cardScriptApprovals && typeof prefs.cardScriptApprovals === 'object' ? prefs.cardScriptApprovals : {};
-  if (approvals[key] === true) return true;
-  if (cardScriptDeniedApprovals.has(key)) return false;
-  const inlineCount = scripts.filter(entry => !entry.src).length;
-  const externalCount = scripts.filter(entry => entry.src).length;
-  const approved = typeof window !== 'undefined' && typeof window.confirm === 'function'
-    ? window.confirm(`当前角色卡包含 ${inlineCount} 个内联脚本${externalCount ? `和 ${externalCount} 个外部依赖` : ''}。\n确认后将在同源完整兼容 iframe 中运行，不启用 sandbox/CSP 隔离；卡片脚本可访问宿主 DOM、localStorage、外部脚本和网络请求。\n已提供 ST Lite 的 SillyTavern/getContext/eventSource/substituteParams、triggerSlash('/send …|/trigger')、copyToTavernDialog()、TavernCard.send/copy，以及当前会话变量读写和角色卡世界书读取。\n仅导入你信任的角色卡；是否启用本卡脚本？`)
-    : false;
-  if (approved) {
-    prefs.cardScriptApprovals = { ...approvals, [key]: true };
-    saveJSON(LS_PREFS, prefs);
-  } else {
-    cardScriptDeniedApprovals.add(key);
-  }
-  return approved;
-}
-
-// ST 角色卡脚本需要同步读取聊天/角色书；注入当前卡片作用域快照，变量写入单独经过宿主桥持久化。
-function tavernCardCompatibilitySnapshot() {
-  const char = currentChar();
-  const session = curSession();
-  const sourceMessages = curMessages();
-  // ponytail: cap the injected snapshot at 200 messages; raise only for cards that need deeper history.
-  const messages = (Array.isArray(sourceMessages) ? sourceMessages : []).slice(-200).map((message, index) => {
-    // ST's getChatMessages() returns the pre-display message. Keep that
-    // channel when available so card-side loaders can still see structured
-    // tags that a display regex intentionally removes from `content`.
-    const content = String(message?.rawContent ?? message?.content ?? '');
-    const isUser = message?.role === 'user';
-    const isSystem = message?.role === 'system' || message?.meta === true;
-    return {
-      message_id: index,
-      message: content,
-      mes: content,
-      content,
-      name: isUser ? String(currentUserPreset()?.name || '玩家') : (isSystem ? '系统' : String(char?.name || '角色')),
-      is_user: isUser,
-      is_system: isSystem,
-      role: String(message?.role || 'assistant'),
-      send_date: message?.ts ? new Date(message.ts).toISOString() : '',
-    };
-  });
-  const books = {};
-  const names = { primary: '', additional: [] };
-  const addBook = (bookId, fallbackName = '') => {
-    const book = bookId && lorebooks && lorebooks[bookId];
-    if (!book) return '';
-    const name = String(book.name || fallbackName || bookId);
-    books[name] = (Array.isArray(book.entries) ? book.entries : Object.values(book.entries || {})).map((entry, index) => {
-      const serialized = serializeSTWorldInfoEntry(entry, index);
-      return { ...serialized, name: serialized.comment };
-    });
-    return name;
-  };
-  const primaryName = addBook(char?.characterBookLoreId) || addBook(char?.loreId) || '';
-  if (primaryName) names.primary = primaryName;
-  const activeName = addBook(prefs?.activeLoreId);
-  if (activeName && activeName !== primaryName) names.additional.push(activeName);
-  const inlineBook = characterBookForChar(char);
-  if (inlineBook && !primaryName) {
-    const name = String(inlineBook.name || `${char?.name || '角色'} · 角色卡世界书`);
-    books[name] = normalizeCharacterBookEntries(inlineBook).map((entry, index) => {
-      const serialized = serializeSTWorldInfoEntry(entry, index);
-      return { ...serialized, name: serialized.comment };
-    });
-    names.primary = name;
-  }
-  const userName = String(currentUserPreset()?.name || '玩家').slice(0, 120);
-  const character = char ? {
-    id: String(char.id || currentCharId || ''),
-    name: String(char.name || '').slice(0, 240),
-    description: String(char.description || '').slice(0, 20000),
-    personality: String(char.personality || '').slice(0, 6000),
-    scenario: String(char.scenario || '').slice(0, 6000),
-    firstMessage: String(char.firstMes || '').slice(0, 20000),
-    alternateGreetings: Array.isArray(char.alternateGreetings)
-      ? char.alternateGreetings.map(value => String(value || '').slice(0, 20000)).slice(0, 32)
-      : [],
-  } : null;
-  const variables = session?.stVariables && typeof session.stVariables === 'object' && !Array.isArray(session.stVariables)
-    ? JSON.parse(JSON.stringify(session.stVariables)) : {};
-  const context = {
-    mode: 'tavern',
-    chatId: String(currentSessionId || ''),
-    currentChatId: String(currentSessionId || ''),
-    user: { name: userName },
-    character,
-    char: character,
-  };
-  return { messages, worldbooks: { names, books }, currentChatId: String(currentSessionId || ''), user: { name: userName }, character, char: character, variables, context };
-}
 
 function sanitizeTavernMarkup(source, parser, allowEvents = false) {
   const raw = parser ? parser.parse(source, {
@@ -7158,491 +7927,6 @@ function sanitizeTavernMarkup(source, parser, allowEvents = false) {
   return div.innerHTML;
 }
 
-function tavernCardFrameBridgeSource(nonce, compatibility = {}) {
-  const token = JSON.stringify(String(nonce || ''));
-  const snapshot = JSON.stringify(compatibility).replace(/</g, '\\u003c');
-  return `(function(global){
-  if (global.__tavernCardBridge) { global.__tavernCardBridge.install(); return; }
-  const nonce = ${token};
-  const compatibility = ${snapshot};
-  const pending = new Map();
-  const eventListeners = new Map();
-  let installed = false;
-  let sequence = 0;
-  const event_types = Object.freeze({
-    CHAT_CHANGED: 'CHAT_CHANGED',
-    MESSAGE_SENT: 'MESSAGE_SENT',
-    MESSAGE_RECEIVED: 'MESSAGE_RECEIVED',
-    CHARACTER_MESSAGE_RENDERED: 'CHARACTER_MESSAGE_RENDERED',
-    USER_MESSAGE_RENDERED: 'USER_MESSAGE_RENDERED',
-    GENERATION_STARTED: 'GENERATION_STARTED',
-    GENERATION_ENDED: 'GENERATION_ENDED',
-    WORLDINFO_ENTRIES_LOADED: 'WORLDINFO_ENTRIES_LOADED',
-  });
-  // ST 卡片常用 $(selector).load(url) 把远程 HTML 挂入卡片。
-  // 这里只提供这个兼容面；普通消息仍不会执行脚本，完整卡片脚本仍需用户授权。
-  function installLegacyQuery() {
-    if (typeof global.$ === 'function') return;
-    const query = selector => {
-      const queryText = String(selector || '').trim();
-      const root = document.getElementById('tavern-card-frame-root');
-      const nodes = /^body$/i.test(queryText) && root
-        ? [root]
-        : (queryText ? [...document.querySelectorAll(queryText)] : []);
-      const api = {
-        length: nodes.length,
-        0: nodes[0],
-        html(value) {
-          if (value === undefined) return nodes[0]?.innerHTML || '';
-          nodes.forEach(node => { node.innerHTML = String(value); });
-          return api;
-        },
-        text(value) {
-          if (value === undefined) return nodes[0]?.textContent || '';
-          nodes.forEach(node => { node.textContent = String(value); });
-          return api;
-        },
-        append(value) {
-          nodes.forEach(node => node.insertAdjacentHTML('beforeend', String(value ?? '')));
-          return api;
-        },
-        on(name, listener) {
-          if (typeof listener === 'function') nodes.forEach(node => node.addEventListener(String(name), listener));
-          return api;
-        },
-        load(url, data, complete) {
-          if (typeof data === 'function') complete = data;
-          let target;
-          try {
-            target = new URL(String(url || ''), document.baseURI);
-            if (!['http:', 'https:'].includes(target.protocol)) throw new Error('仅允许 http(s) 外部链接');
-          } catch (error) {
-            return Promise.reject(error);
-          }
-          const frame = document.createElement('iframe');
-          frame.src = target.href;
-          frame.title = '外部角色卡界面';
-          frame.referrerPolicy = 'no-referrer';
-          frame.style.cssText = 'display:block;width:100%;height:720px;max-width:100%;border:0;background:transparent';
-          if (!nodes.length) return Promise.resolve(api);
-          nodes.forEach(node => node.replaceChildren(frame));
-          return new Promise((resolve, reject) => {
-            frame.addEventListener('load', () => {
-              if (typeof complete === 'function') complete.call(nodes[0], '', 'success', frame);
-              resolve(api);
-            }, { once: true });
-            frame.addEventListener('error', error => {
-              if (typeof complete === 'function') complete.call(nodes[0], '', 'error', error);
-              reject(new Error('外部页面加载失败'));
-            }, { once: true });
-          });
-        },
-      };
-      return api;
-    };
-    global.$ = query;
-  }
-  function eventName(name) { return String(name || '').trim(); }
-  const eventSource = {
-    on(name, listener) {
-      const key = eventName(name);
-      if (!key || typeof listener !== 'function') return () => {};
-      const bucket = eventListeners.get(key) || new Set();
-      bucket.add(listener);
-      eventListeners.set(key, bucket);
-      return () => this.off(key, listener);
-    },
-    addListener(name, listener) { return this.on(name, listener); },
-    once(name, listener) {
-      let dispose = () => {};
-      dispose = this.on(name, detail => { dispose(); listener(detail); });
-      return dispose;
-    },
-    off(name, listener) {
-      const bucket = eventListeners.get(eventName(name));
-      if (!bucket) return;
-      bucket.delete(listener);
-      if (!bucket.size) eventListeners.delete(eventName(name));
-    },
-    removeListener(name, listener) { return this.off(name, listener); },
-    emit(name, detail) {
-      const key = eventName(name);
-      (eventListeners.get(key) || []).forEach(listener => {
-        try { listener(detail); } catch (error) { setTimeout(() => { throw error; }, 0); }
-      });
-      try { global.dispatchEvent(new CustomEvent('tavern-st-event', { detail: { name: key, payload: detail } })); } catch (_) {}
-      return true;
-    },
-  };
-  function clone(value) {
-    try { return JSON.parse(JSON.stringify(value)); } catch (_) { return value; }
-  }
-  function getContext() {
-    const base = clone(compatibility.context || {
-      mode: 'tavern',
-      chatId: String(compatibility.currentChatId || ''),
-      currentChatId: String(compatibility.currentChatId || ''),
-      user: compatibility.user || { name: '玩家' },
-      character: compatibility.character || null,
-      char: compatibility.char || compatibility.character || null,
-      worldbooks: compatibility.worldbooks || { names: { primary: '', additional: [] }, books: {} },
-      variables: compatibility.variables || {},
-    });
-    if (!Array.isArray(base.chat)) base.chat = clone(compatibility.messages || []);
-    if (!Array.isArray(base.messages)) base.messages = base.chat;
-    if (!base.worldbooks) base.worldbooks = clone(compatibility.worldbooks || { names: { primary: '', additional: [] }, books: {} });
-    if (!base.variables) base.variables = clone(compatibility.variables || {});
-    return base;
-  }
-  function substituteParams(value) {
-    const context = getContext();
-    const userName = text(context.user?.name || context.user || '玩家');
-    const charName = text(context.character?.name || context.char?.name || '角色');
-    const last = Array.isArray(context.messages) && context.messages.length ? context.messages[context.messages.length - 1] : null;
-    return text(value).replace(/\\{\\{\\s*(user(?:\\.name)?|char(?:\\.name)?|lastMessage|chatId)\\s*\\}\\}/gi, (_, key) => {
-      const name = String(key || '').toLowerCase();
-      if (name === 'user' || name === 'user.name') return userName;
-      if (name === 'char' || name === 'char.name') return charName;
-      if (name === 'lastmessage') return text(last?.content || last?.mes || '');
-      return text(context.chatId || '');
-    });
-  }
-  function request(action, payload) {
-    return new Promise(resolve => {
-      const requestId = 'card-' + (++sequence);
-      pending.set(requestId, resolve);
-      try {
-        parent.postMessage({ channel: 'tavern.card.frame', type: 'action', nonce, action, requestId, payload }, '*');
-      } catch (_) {
-        pending.delete(requestId);
-        resolve({ ok: false, error: '宿主桥不可用' });
-        return;
-      }
-      setTimeout(() => {
-        if (!pending.has(requestId)) return;
-        pending.delete(requestId);
-        resolve({ ok: false, error: '宿主响应超时' });
-      }, 5000);
-    });
-  }
-  function text(value) { return String(value == null ? '' : value); }
-  function copy(value) { return request('copy', { text: text(value) }); }
-  function send(value) {
-    const body = text(value);
-    return request('send', { text: body }).then(result => {
-      eventSource.emit(event_types.MESSAGE_SENT, { text: body, result });
-      return result;
-    });
-  }
-  function notice(value) { return request('notice', { text: text(value).slice(0, 4000) }); }
-  function triggerSlash(command) {
-    const value = text(command).trim();
-    if (!/^\\/send(?:\\s|$)/i.test(value)) {
-      console.warn('[Tavern] 角色卡仅兼容 /send 命令');
-      return Promise.resolve({ ok: false, error: '仅支持 /send 命令' });
-    }
-    const body = value.replace(/^\\/send\\s*/i, '').replace(/\\s*\\|\\/trigger\\s*$/i, '').trim();
-    return body ? send(body) : Promise.resolve({ ok: false, error: '发送内容为空' });
-  }
-  function chatRange(range) {
-    const list = Array.isArray(compatibility.messages) ? compatibility.messages : [];
-    if (range == null || range === '') return list.slice().map(clone);
-    const value = String(range).trim();
-    let start = 0;
-    let end = list.length - 1;
-    const match = value.match(/^(-?\\d+)\\s*-\\s*(-?\\d+)$/);
-    if (match) {
-      start = Number(match[1]);
-      end = Number(match[2]);
-    } else if (/^-?\\d+$/.test(value)) {
-      start = Number(value);
-      end = start;
-    }
-    if (start < 0) start = Math.max(0, list.length + start);
-    if (end < 0) end = Math.max(0, list.length + end);
-    if (end < start) return [];
-    return list.slice(Math.max(0, start), Math.min(list.length, end + 1)).map(clone);
-  }
-  function getLastMessageId() { return Math.max(-1, (compatibility.messages || []).length - 1); }
-  function getCurrentMessageId() { return getLastMessageId(); }
-  function getChatMessages(range) { return chatRange(range); }
-  function getAllChatMessages() { return chatRange(); }
-  function getCharWorldbookNames() { return clone(compatibility.worldbooks?.names || { primary: '', additional: [] }); }
-  function getWorldbook(name) { return clone(compatibility.worldbooks?.books?.[String(name || '')] || []); }
-  function getCurrentChatId() { return String(compatibility.currentChatId || ''); }
-  function getVariables() { return clone(compatibility.variables || {}); }
-  function getVariable(name, fallback) {
-    const key = text(name).trim();
-    const values = getVariables();
-    return Object.prototype.hasOwnProperty.call(values, key) ? values[key] : fallback;
-  }
-  function setVariable(name, value) {
-    const key = text(name).trim();
-    if (!/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(key)) return Promise.reject(new Error('变量名无效'));
-    return request('variables.set', { values: { [key]: value } }).then(result => {
-      if (result?.variables) compatibility.variables = clone(result.variables);
-      return result;
-    });
-  }
-  function updateVariables(values) {
-    if (!values || typeof values !== 'object' || Array.isArray(values)) return Promise.reject(new Error('变量对象无效'));
-    return request('variables.set', { values }).then(result => {
-      if (result?.variables) compatibility.variables = clone(result.variables);
-      return result;
-    });
-  }
-  function memoryStorage() {
-    const values = Object.create(null);
-    return {
-      get length() { return Object.keys(values).length; },
-      key(index) { return Object.keys(values)[Number(index)] ?? null; },
-      getItem(key) { const name = String(key); return Object.prototype.hasOwnProperty.call(values, name) ? values[name] : null; },
-      setItem(key, value) { values[String(key)] = String(value); },
-      removeItem(key) { delete values[String(key)]; },
-      clear() { Object.keys(values).forEach(key => delete values[key]); },
-    };
-  }
-  function installStorage() {
-    ['localStorage', 'sessionStorage'].forEach(name => {
-      let available = false;
-      try { available = !!global[name]; } catch (_) {}
-      if (available) return;
-      try { Object.defineProperty(global, name, { configurable: true, enumerable: true, value: memoryStorage() }); } catch (_) {}
-    });
-  }
-  function jsonResponse(value) {
-    const body = JSON.stringify(value);
-    if (typeof global.Response === 'function') return Promise.resolve(new global.Response(body, { status: 200, headers: { 'content-type': 'application/json' } }));
-    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(value), text: () => Promise.resolve(body) });
-  }
-  function installFixtureFetch() {
-    if (global.__tavernCardFetchInstalled) return;
-    try {
-      const nativeFetch = typeof global.fetch === 'function' ? global.fetch.bind(global) : null;
-      Object.defineProperty(global, 'fetch', {
-        configurable: true,
-        writable: true,
-        value(input, init) {
-          const raw = typeof input === 'string' ? input : input?.url;
-          const path = String(raw || '').split(/[?#]/, 1)[0];
-          if (/(?:^|\\/)(?:testMessage_data|testWorldBooks)\\.json$/i.test(path)) {
-            if (/testWorldBooks/i.test(path)) {
-              const books = compatibility.worldbooks?.books || {};
-              const firstBook = Object.keys(books)[0];
-              return jsonResponse(firstBook ? books[firstBook] : []);
-            }
-            return jsonResponse(Array.isArray(compatibility.messages) ? compatibility.messages : []);
-          }
-          return nativeFetch ? nativeFetch(input, init) : Promise.reject(new TypeError('角色卡运行环境没有 fetch'));
-        },
-      });
-      global.__tavernCardFetchInstalled = true;
-    } catch (_) {}
-  }
-  function worldbookContent(fragment) {
-    const books = compatibility.worldbooks?.books || {};
-    for (const entries of Object.values(books)) {
-      for (const entry of Array.isArray(entries) ? entries : []) {
-        if (String(entry?.name || '').includes(fragment) && String(entry?.content || '').trim()) return String(entry.content);
-      }
-    }
-    return '[]';
-  }
-  function installSTDataGlobals() {
-    const values = {
-      POV_Style: worldbookContent('视角标签数据源'),
-      worldview_list_data: worldbookContent('世界观标签数据源'),
-      character_list_data: worldbookContent('角色标签数据源'),
-      rule_list_data: worldbookContent('规则标签数据源'),
-      writing_new_style_list_data: worldbookContent('文风标签数据源'),
-    };
-    Object.entries(values).forEach(([name, value]) => {
-      try {
-        if (typeof global[name] === 'undefined') global[name] = value;
-      } catch (_) {}
-    });
-  }
-  function install() {
-    if (installed) return;
-    installed = true;
-    installLegacyQuery();
-    installStorage();
-    installFixtureFetch();
-    installSTDataGlobals();
-    const extension_settings = global.extension_settings && typeof global.extension_settings === 'object'
-      ? global.extension_settings : {};
-    global.extension_settings = extension_settings;
-    global.saveSettingsDebounced = global.saveSettingsDebounced || (() => Promise.resolve());
-    global.SillyTavern = Object.assign(global.SillyTavern || {}, { getContext, eventSource, event_types, extension_settings });
-    global.TavernHelper = Object.assign(global.TavernHelper || {}, { getContext, eventSource, event_types, substituteParams, getVariables, getVariable, setVariable, updateVariables, getChatMessages, getWorldbook, triggerSlash });
-    global.eventSource = eventSource;
-    global.event_types = event_types;
-    global.getContext = getContext;
-    global.substituteParams = substituteParams;
-    global.getVariables = getVariables;
-    global.getVariable = getVariable;
-    global.setVariable = setVariable;
-    global.updateVariables = updateVariables;
-    global.TavernCard = { send, copy, setInput: copy, getContext, requestContext: () => request('context'), eventSource, event_types, getVariables, getVariable, setVariable, updateVariables };
-    global.triggerSlash = triggerSlash;
-    global.copyToTavernDialog = copy;
-    global.getLastMessageId = getLastMessageId;
-    global.getCurrentMessageId = getCurrentMessageId;
-    global.getChatMessages = getChatMessages;
-    global.getAllChatMessages = getAllChatMessages;
-    global.getCharWorldbookNames = getCharWorldbookNames;
-    global.getWorldbook = getWorldbook;
-    global.getCurrentChatId = getCurrentChatId;
-    if (typeof global.simpleLog !== 'function') global.simpleLog = (...args) => console.debug('[Tavern card]', ...args);
-    if (typeof global.writeLog !== 'function') global.writeLog = (...args) => console.debug('[Tavern card]', ...args);
-    global.__TAVERN_ST_LITE__ = { version: 1, mode: 'tavern', features: ['events', 'context', 'macros', 'variables', 'worldbooks', 'card-actions'] };
-    setTimeout(() => {
-      const context = getContext();
-      eventSource.emit(event_types.CHAT_CHANGED, context);
-      eventSource.emit(event_types.MESSAGE_RECEIVED, context);
-    }, 0);
-  }
-  global.addEventListener('message', event => {
-    const data = event.data;
-    if (!data || data.channel !== 'tavern.card.frame' || data.nonce !== nonce || data.type !== 'response') return;
-    const resolve = pending.get(data.requestId);
-    if (!resolve) return;
-    pending.delete(data.requestId);
-    resolve(data.ok ? { ok: true, result: data.result } : { ok: false, error: data.error || '宿主桥请求失败' });
-  });
-  global.__tavernCardBridge = { install };
-  install();
-})(window);`;
-}
-
-function tavernCardScriptFrame(css, markup, scripts, compatibility = {}, scrollMode = 'auto') {
-  const nonce = uid() + '-' + uid();
-  const normalizedScrollMode = ['host', 'card', 'auto'].includes(String(scrollMode)) ? String(scrollMode) : 'auto';
-  const frameOverflow = normalizedScrollMode === 'host' ? 'hidden' : 'auto';
-  const frameScrolling = normalizedScrollMode === 'host' ? ' scrolling="no"' : '';
-  const scriptMarkup = scripts.map(entry => {
-    if (entry.src) {
-      const src = safeTavernCardScriptUrl(entry.src);
-      return src ? `<script src="${esc(src)}"></script>` : '';
-    }
-    const code = String(entry.code || '').replace(/<\/script/gi, '<\\/script');
-    return `<script>(function(){\n${code}\n}).call(window);</script>`;
-  }).join('');
-  // `extractTavernStyles()` returns style wrappers for the host renderer; the
-  // iframe owns the wrapper, so keep only the sanitized declarations here.
-  const safeCss = String(css || '')
-    .replace(/<\/?style\b[^>]*>/gi, '')
-    .replace(/<\/style/gi, '<\\/style');
-  const bridge = tavernCardFrameBridgeSource(nonce, compatibility).replace(/<\/script/gi, '<\\/script');
-  const srcdoc = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{-webkit-tap-highlight-color:transparent}html,body{margin:0;min-height:0;overflow:${frameOverflow}}#tavern-card-frame-root{width:100%;min-height:0;box-sizing:border-box}${safeCss}</style></head><body><main id="tavern-card-frame-root">${markup}</main><script>${webview83CompatSource()}</script><script>(function(){const nonce=${JSON.stringify(nonce)};function report(){try{const root=document.getElementById('tavern-card-frame-root');const rect=root?.getBoundingClientRect();const height=Math.ceil(Math.max(root?.scrollHeight||0,rect?.height||0));parent.postMessage({channel:'tavern.card.frame',type:'resize',nonce,height},'*')}catch(_){}}addEventListener('load',report);setTimeout(report,0);const root=document.getElementById('tavern-card-frame-root');if(typeof ResizeObserver==='function'&&root)new ResizeObserver(report).observe(root);})();</script><script>${bridge}</script>${scriptMarkup}<script>${bridge}</script></body></html>`;
-  return `<div class="tavern-card-script-shell" data-tavern-card-script data-tavern-card-mode="full" data-tavern-card-scroll="${normalizedScrollMode}"><iframe class="tavern-card-script-frame" title="角色卡完整兼容运行区" data-tavern-card-nonce="${esc(nonce)}" referrerpolicy="no-referrer"${frameScrolling} srcdoc="${esc(srcdoc)}"></iframe></div>`;
-}
-
-function tavernCardScrollMode(char = currentChar()) {
-  const tavern = char?.cardExtensions?.tavern;
-  const ui = tavern?.ui && typeof tavern.ui === 'object' ? tavern.ui : {};
-  const value = ui.scrollMode ?? ui.scroll;
-  return ['host', 'card', 'auto'].includes(String(value)) ? String(value) : 'auto';
-}
-
-let tavernCardFrameBridgeReady = false;
-function setTavernCardDialogInput(value) {
-  const input = $('input');
-  if (!input) throw new Error('当前页面没有 Tavern 输入框');
-  input.value = String(value || '').trim();
-  input.dispatchEvent(new Event('input', { bubbles: true }));
-  input.focus();
-  setApiStatus('角色卡内容已填入当前对话框');
-  return { textLength: input.value.length };
-}
-
-function tavernCardSessionVariables(session = curSession()) {
-  if (!session || session.kind !== 'tavern') return {};
-  if (!session.stVariables || typeof session.stVariables !== 'object' || Array.isArray(session.stVariables)) session.stVariables = {};
-  return session.stVariables;
-}
-
-function saveTavernCardVariables(values) {
-  if (mode !== 'tavern') throw new Error('ST Lite 变量只在 Tavern 模式可写');
-  const session = curSession();
-  if (!session) throw new Error('当前没有 Tavern 会话');
-  if (!values || typeof values !== 'object' || Array.isArray(values)) throw new Error('变量对象无效');
-  const entries = Object.entries(values);
-  if (entries.length > 32) throw new Error('单次变量更新不能超过 32 项');
-  const current = tavernCardSessionVariables(session);
-  for (const [key, value] of entries) {
-    if (!/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(String(key))) throw new Error(`变量名无效：${key}`);
-    if (value === undefined || JSON.stringify(value).length > 12000) throw new Error(`变量值无效：${key}`);
-    current[key] = cloneValue(value);
-  }
-  saveSessions(session);
-  return { variables: cloneValue(current) };
-}
-
-function tavernCardActionText(data) {
-  const value = data?.payload && typeof data.payload === 'object' ? data.payload.text : data?.text;
-  const text = String(value == null ? '' : value).trim();
-  if (!text) throw new Error('角色卡发送内容为空');
-  if (text.length > 40000) throw new Error('角色卡发送内容超过 40000 字符限制');
-  return text;
-}
-
-function initTavernCardFrameBridge() {
-  if (tavernCardFrameBridgeReady || typeof window === 'undefined') return;
-  tavernCardFrameBridgeReady = true;
-  window.addEventListener('message', event => {
-    if (event.data?.channel !== 'tavern.card.frame') return;
-    const frame = [...document.querySelectorAll('[data-tavern-card-script] iframe')]
-      .find(item => item.contentWindow === event.source && item.dataset.tavernCardNonce === String(event.data.nonce || ''));
-    if (!frame) return;
-    const data = event.data;
-    if (data.type === 'resize') {
-      const height = Math.max(1, Math.min(2400, Number(data.height) || 1));
-      frame.style.height = `${height}px`;
-      return;
-    }
-    if (data.type !== 'action' || !data.requestId) return;
-    const respond = (ok, result, error) => event.source.postMessage({
-      channel: 'tavern.card.frame', type: 'response', nonce: frame.dataset.tavernCardNonce,
-      requestId: data.requestId, ok, ...(ok ? { result } : { error: String(error || '角色卡桥请求失败') }),
-    }, '*');
-    try {
-      if (data.action === 'context') {
-        respond(true, tavernCardCompatibilitySnapshot());
-        return;
-      }
-      if (data.action === 'variables.get') {
-        respond(true, { variables: cloneValue(tavernCardSessionVariables()) });
-        return;
-      }
-      if (data.action === 'variables.set') {
-        respond(true, saveTavernCardVariables(data.payload?.values));
-        return;
-      }
-      const text = tavernCardActionText(data);
-      if (data.action === 'notice') {
-        setApiStatus(`角色卡：${text.slice(0, 4000)}`);
-        respond(true, { shown: true });
-        return;
-      }
-      if (data.action === 'copy') {
-        respond(true, setTavernCardDialogInput(text));
-        return;
-      }
-      if (data.action === 'send') {
-        if (mode === 'rpg') throw new Error('角色卡桥只能在 Tavern 模式发送');
-        if (sending || worldTurnPreparing || worldTurnPending) throw new Error('当前对话正在生成，请稍后再试');
-        setTavernCardDialogInput(applyRegexStage(text, 'slash_command'));
-        void sendMessage().catch(error => setApiStatus(`角色卡发送失败：${error.message}`, true));
-        respond(true, { sent: true, textLength: text.length });
-        return;
-      }
-      throw new Error('角色卡桥 action 不受支持');
-    } catch (error) {
-      respond(false, null, error.message);
-    }
-  });
-}
 
 function renderBubble(content, options = {}) {
   const source = expandDisplayMacros(content);
@@ -7655,14 +7939,6 @@ function renderBubble(content, options = {}) {
       const normalizedSource = normalizeTavernHtmlBlocks(source);
       const extracted = extractTavernStyles(normalizedSource);
       const renderSource = extractTavernScripts(extracted.markup);
-      const runCardScripts = options.allowCardScripts === true
-        && approveCharacterCardScripts(renderSource.scripts);
-      if (runCardScripts) {
-        const frameStyles = extractTavernStyles(normalizedSource, false);
-        const frameSource = extractTavernScripts(frameStyles.markup);
-        const frameMarkup = sanitizeTavernMarkup(frameSource.markup, parser, true);
-        return { html: tavernCardScriptFrame(frameStyles.styles, frameMarkup, frameSource.scripts, tavernCardCompatibilitySnapshot(), tavernCardScrollMode()), md: false, scripted: true };
-      }
       return { html: extracted.styles + sanitizeTavernMarkup(renderSource.markup, parser), md: !!parser };
     } catch { /* 解析失败则回退纯文本 */ }
   }
@@ -7738,25 +8014,24 @@ function splitNarration(text) {
   if (!segs.length) segs.push({ type: 'narration', text });
   return segs;
 }
-/* ─────────── 会话管理 ─────────── */
-function saveSessions(updatedSession = curSession()) {
-  const cur = updatedSession && Array.isArray(sessions)
-    ? sessions.find(session => session.id === updatedSession.id) || curSession()
-    : curSession();
-  if (cur) cur.updatedAt = Date.now(); // 跨浏览器合并时按更新时间取新
-  try {
-    // 图片消息存的是本地相对路径（/images/xxx.png，很小），可以安全持久化
-    saveJSON(LS_SESSIONS, sessions);
-  } catch (e) {
-    console.warn('[Tavern] 会话保存失败（可能超出本地存储配额）:', e.message);
-  }
-  saveJSON(LS_SESSIONS_DELETED, sessionsDeleted);
-  // server JSON 是权威源：与 characters / lorebooks 等一致的双写
-  saveServerData('sessions', { schemaVersion: 1, sessions: Array.isArray(sessions) ? sessions : [], deletedIds: sessionsDeleted });
+function applyRegexStage(text, stage, { targetMode = mode, depth = null, editing = false, includePromptOnly = true, role = 'assistant' } = {}) {
+  const rules = activeOutputRegexRules(targetMode, stage, { depth, editing, includePromptOnly, role });
+  return rules.length ? applyOutputRegexRules(text, rules) : String(text ?? '');
 }
 
-/* 会话跨浏览器同步：server 未同步时推送本地（迁移）；已同步时按 ID 取并集、冲突取 updatedAt 新者，
-   双方删除墓碑都生效，合并结果推回 server，让另一台浏览器下次加载也能收敛。 */
+function renderOutputContent(text, targetMode = mode, { fromRaw = true, role = 'assistant', depth = null } = {}) {
+  const source = String(text || '');
+  const rules = activeOutputRegexRules(targetMode, fromRaw ? 'chat_display' : 'chat_display_persisted', { role, depth });
+  const needsRegex = rules.some(rule => {
+    const regex = buildOutputRegex(rule);
+    if (!regex) return false;
+    regex.lastIndex = 0;
+    return regex.test(source);
+  });
+  return recoverStructuredTagOutput(needsRegex ? applyOutputRegexRules(source, rules) : source);
+}
+
+/* ─────────── 会话管理 ─────────── */
 function syncSessionsFromServer(remote) {
   const local = Array.isArray(sessions) ? sessions : [];
   if (!remote || typeof remote !== 'object' || !Array.isArray(remote.sessions)) {
@@ -7830,13 +8105,11 @@ async function fetchDefaults() {
 
 function ensureSessions() {
   if (sessions && sessions.length) {
-    // 迁移旧会话：无 kind → 酒馆；无 charId → 当前角色。已有归属绝不改写。
+    // 迁移旧会话：无 kind → 酒馆。已有归属绝不改写。
     for (const s of sessions) {
       if (!s.kind) s.kind = 'tavern';
-      if (!s.charId || s.charId === 'undefined') s.charId = currentCharId;
-      if (s.kind === 'tavern') ensureTavernSessionMemory(s);
     }
-    // 当前会话必须同时属于当前角色与当前模式。
+    // 当前会话必须属于当前模式。
     if (!curSession()) currentSessionId = (sessions.find(sessionMatches) || {}).id || null;
     saveSessions();
     return;
@@ -7845,41 +8118,22 @@ function ensureSessions() {
   const oldMsgs = loadJSON(LS_CHAT, null);
   const oldKind = oldMsgs && oldMsgs.length ? 'tavern' : mode;
   sessions = [{
-    id: uid(), name: '会话 1', charId: currentCharId, kind: oldKind,
+    id: uid(), name: '会话 1', kind: oldKind,
     messages: (oldMsgs && oldMsgs.length) ? oldMsgs : [],
     createdAt: Date.now(),
   }];
-  if (oldKind === 'tavern') ensureTavernSessionMemory(sessions[0]);
   currentSessionId = sessionMatches(sessions[0]) ? sessions[0].id : null;
   saveSessions();
 }
 
 function activateSessionScope() {
   ensureSessions();
-  if (!currentCharId) { currentSessionId = null; return; }
   if (!curSession()) newSession(false);
 }
 
 function newSession(askName = true) {
   if (mode === 'rpg') { openWorldLibrary(); return; }
-  const char = currentChar();
-  if (!char) { if (askName) alert('请先创建 / 选择角色'); return; }
-  const defaultName = '会话 ' + (sessions.filter(sessionMatches).length + 1);
-  const name = askName ? ((prompt('新会话名称：', defaultName) || defaultName).trim() || defaultName) : defaultName;
-  const messages = [];
-  const greeting = getGreeting();
-  if (greeting) {
-    messages.push(createTavernGreetingMessage(greeting)); // 开场白：与 AI 回复共用协议解析
-  } else if (defaults && defaults.ui && defaults.ui.noGreeting) {
-    messages.push({ role: 'system', content: defaults.ui.noGreeting, ts: Date.now() });
-  }
-  const session = { id: uid(), name, charId: currentCharId, kind: mode, messages, createdAt: Date.now() };
-  if (mode === 'tavern') ensureTavernSessionMemory(session);
-  sessions.unshift(session);
-  currentSessionId = sessions[0].id;
-  saveSessions();
-  renderSessions();
-  renderMessages();
+  // 单模式下没有本地会话创建：新会话 = 在世界库创建/打开世界存档
 }
 
 function switchSession(id) {
@@ -7900,57 +8154,6 @@ function deleteSession(id) {
   saveSessions();
   renderSessions();
   renderMessages();
-}
-
-function renderSessions() {
-  const nameEl = $('session-name');
-  if (worldModeActive()) {
-    if (nameEl) nameEl.textContent = currentWorldSave.name || '世界存档';
-    const player = currentWorldSave.player?.snapshot || {};
-    const hdrName = $('hdr-char-name');
-    const hdrRace = $('hdr-char-race');
-    if (hdrName) hdrName.textContent = player.name || currentWorldCard()?.title || '世界存档';
-    if (hdrRace) hdrRace.textContent = `${[player.race, player.role].filter(Boolean).join(' · ') || '玩家快照'} · 世界存档`;
-    const ml = $('session-menu-list');
-    if (ml) ml.innerHTML = '<div class="sess-empty">当前显示世界存档，不读取旧 RPG 会话</div>';
-    const saveMark = $('rpg-world-save');
-    if (saveMark) { saveMark.hidden = false; saveMark.textContent = `世界 · ${currentWorldSave.name || currentWorldSave.id}`; }
-    return;
-  }
-  if (mode === 'rpg') {
-    if (nameEl) nameEl.textContent = '选择世界存档';
-    const hdrName = $('hdr-char-name');
-    const hdrRace = $('hdr-char-race');
-    if (hdrName) hdrName.textContent = '选择世界存档';
-    if (hdrRace) hdrRace.textContent = 'RPG 只使用世界存档中的玩家角色';
-    const saveMark = $('rpg-world-save');
-    if (saveMark) saveMark.hidden = true;
-    const ml = $('session-menu-list');
-    if (ml) ml.innerHTML = '<div class="sess-empty">请先从世界库创建或打开世界存档</div>';
-    return;
-  }
-  const s = curSession();
-  if (nameEl) nameEl.textContent = s ? s.name : '—';
-  const saveMark = $('rpg-world-save');
-  if (saveMark) saveMark.hidden = true;
-  // 头部下拉（只列当前模式 kind 的会话）
-  const ml = $('session-menu-list');
-  if (ml) {
-    ml.innerHTML = '';
-    for (const ses of sessions.filter(sessionMatches)) {
-      const el = document.createElement('div');
-      el.className = 'sess-item' + (ses.id === currentSessionId ? ' active' : '');
-      el.innerHTML = `<span>${esc(ses.name)}</span><span class="sess-btns"><span class="sess-x" data-act="rename" title="重命名">✎</span><span class="sess-x" data-act="del" title="删除">✕</span></span>`;
-      el.addEventListener('click', (ev) => {
-        const act = ev.target.dataset && ev.target.dataset.act;
-        if (act === 'del') { deleteSession(ses.id); return; }
-        if (act === 'rename') { renameSession(ses.id); return; }
-        switchSession(ses.id);
-        $('session-menu').classList.add('hidden');
-      });
-      ml.appendChild(el);
-    }
-  }
 }
 
 function renameSession(id) {
@@ -8022,33 +8225,6 @@ function renderCharacter() {
   $('hdr-char-race').textContent = `${race} · ${role}`;
 }
 
-function renderCharList() {
-  const list = $('cm-list');
-  if (!list) return;
-  list.innerHTML = '';
-  if (cmCreating) {
-    const draft = document.createElement('div');
-    draft.className = 'cm-item cm-draft active';
-    draft.innerHTML = `<span class="cm-name">${esc($('cm-name').value.trim() || '新角色')}<span class="cm-draft-mark">未保存</span></span>`;
-    list.appendChild(draft);
-  }
-  for (const c of characters) {
-    const el = document.createElement('div');
-    const inUse = c.id === currentCharId;
-    el.className = 'cm-item' + (c.id === cmEditingId ? ' active' : '');
-    el.tabIndex = 0;
-    el.innerHTML = `<span class="cm-name">${esc(c.name || '未命名')}</span><span class="world-lb-actions"><button class="cm-x world-lb-use" type="button" data-act="use" aria-pressed="${inUse ? 'true' : 'false'}" title="${inUse ? '当前正在使用' : '设为当前使用'}">${inUse ? '使用中' : '设为使用'}</button><button class="cm-x world-lb-delete" type="button" data-act="delete" aria-label="删除 ${esc(c.name || '未命名')}" title="删除角色">删除</button></span>`;
-    el.addEventListener('click', (ev) => {
-      const action = ev.target.closest?.('[data-act]')?.dataset.act;
-      if (action === 'use') { useCharById(c.id); return; }
-      if (action === 'delete') { deleteChar(c.id); return; }
-      setMobileManagerPanel('char-mgr', 'detail');
-      selectCharForEdit(c.id);
-    });
-    list.appendChild(el);
-  }
-}
-
 /* 填充角色卡绑定下拉（预设 / 世界书） */
 function renderBindSelects() {
   const ps = $('cm-preset');
@@ -8093,240 +8269,9 @@ function normalizeCharProfileFields(fields) {
   }));
 }
 
-function setCharWizardStep(step) {
-  document.querySelectorAll('[data-cw-step]').forEach(el => {
-    const n = Number(el.dataset.cwStep);
-    el.classList.toggle('active', n === step);
-    el.classList.toggle('done', n < step);
-  });
-  [1, 2, 3].forEach(n => $('cw-panel-' + n).classList.toggle('hidden', n !== step));
-}
-
-function appendCharFieldRow(field, custom = false) {
-  const row = document.createElement('div');
-  row.className = 'cm-profile-row';
-  row.dataset.key = field.key;
-  row.dataset.custom = custom ? '1' : '0';
-  if (custom) {
-    const label = document.createElement('input');
-    label.className = 'cm-profile-label';
-    label.value = field.label || '';
-    label.placeholder = '条目名称';
-    label.setAttribute('aria-label', '自定义条目名称');
-    row.appendChild(label);
-  } else {
-    const label = document.createElement('label');
-    label.textContent = field.label;
-    label.htmlFor = 'cpf-' + field.key;
-    row.appendChild(label);
-  }
-  const input = document.createElement('input');
-  input.id = 'cpf-' + field.key;
-  input.className = 'cm-profile-value';
-  input.value = field.value || '';
-  input.placeholder = field.placeholder || '填写' + (field.label || '内容');
-  input.setAttribute('aria-label', (field.label || '自定义条目') + '内容');
-  if (CHAR_FIELD_FORM[field.key]) input.addEventListener('input', () => {
-    $(CHAR_FIELD_FORM[field.key]).value = input.value;
-    if (cmCreating && field.key === 'name') renderCharList();
-  });
-  row.appendChild(input);
-  const remove = document.createElement('button');
-  remove.type = 'button';
-  remove.className = 'ghost-btn cm-profile-remove';
-  remove.textContent = '删除';
-  remove.setAttribute('aria-label', '删除“' + (field.label || '自定义') + '”条目');
-  remove.addEventListener('click', () => row.remove());
-  row.appendChild(remove);
-  $('cm-profile-fields').appendChild(row);
-  return row;
-}
-
-function renderCharProfileFields(char, generated) {
-  const list = $('cm-profile-fields');
-  list.innerHTML = '';
-  const stored = normalizeCharProfileFields(char && char.profileFields);
-  const storedByKey = new Map(stored.map(f => [f.key, f]));
-  const defined = new Set();
-  for (const def of charFieldDefs()) {
-    defined.add(def.key);
-    const old = storedByKey.get(def.key);
-    const coreValue = char && CHAR_FIELD_FORM[def.key] ? (char[def.key] || '') : '';
-    const value = generated && Object.prototype.hasOwnProperty.call(generated, def.key)
-      ? generated[def.key] : ((old && old.value) || coreValue);
-    appendCharFieldRow({ ...def, value: String(value || '') });
-  }
-  for (const field of stored) {
-    if (!defined.has(field.key)) appendCharFieldRow(field, true);
-  }
-}
-
-function addCharProfileField() {
-  const row = appendCharFieldRow({ key: 'custom_' + uid(), label: '', value: '' }, true);
-  row.querySelector('.cm-profile-label').focus();
-}
-
-function collectCharProfileFields(syncCore = false) {
-  const coreValues = Object.fromEntries(Object.entries(CHAR_FIELD_FORM).map(([key, id]) => [key, $(id).value.trim()]));
-  return [...document.querySelectorAll('#cm-profile-fields .cm-profile-row')].map(row => {
-    const custom = row.dataset.custom === '1';
-    const labelEl = row.querySelector(custom ? '.cm-profile-label' : 'label');
-    const key = row.dataset.key;
-    return {
-      key,
-      label: (custom ? labelEl.value : labelEl.textContent).trim() || '自定义条目',
-      value: syncCore && Object.prototype.hasOwnProperty.call(coreValues, key) ? coreValues[key] : row.querySelector('.cm-profile-value').value.trim(),
-    };
-  }).filter(field => field.key && field.value);
-}
-
-function syncProfileFieldsToForm() {
-  for (const row of document.querySelectorAll('#cm-profile-fields .cm-profile-row')) {
-    const id = CHAR_FIELD_FORM[row.dataset.key];
-    if (id) $(id).value = row.querySelector('.cm-profile-value').value.trim();
-  }
-  if (cmCreating) renderCharList();
-}
-
-function selectCharForEdit(id) {
-  const c = characters.find(x => x.id === id);
-  if (!c) return;
-  cmCreating = false;
-  cmEditingId = id;
-  $('cm-del').textContent = '删除角色';
-  $('cm-edit-title').textContent = '编辑角色：' + (c.name || '未命名');
-  $('cm-name').value = c.name || '';
-  $('cm-race').value = c.race || '';
-  $('cm-role').value = c.role || '';
-  $('cm-persona').value = c.description != null ? c.description : (c.persona || '');
-  $('cm-personality').value = c.personality || '';
-  $('cm-scenario').value = c.scenario || '';
-  $('cm-first-mes').value = c.firstMes || '';
-  $('cm-mes-example').value = c.mesExample || '';
-  $('cm-system').value = c.systemPrompt || '';
-  $('cm-post').value = c.postHistory || '';
-  $('cm-creator-notes').value = c.creatorNotes || '';
-  $('cm-creator').value = c.creator || '';
-  $('cm-character-version').value = c.characterVersion || '';
-  $('cm-preset').value = c.presetName || '';
-  $('cm-lore').value = c.loreId || '';
-  $('cm-ref-image').value = c.refImage || '';
-  updateRefPreview(c.refImage || '');
-  $('cm-tags').value = c.tags || '';
-  $('cm-alt-greetings').value = Array.isArray(c.alternateGreetings) ? c.alternateGreetings.join('\n\n') : '';
-  $('cm-alt-greetings').dataset.initial = $('cm-alt-greetings').value;
-  renderCharProfileFields(c);
-  setCharWizardStep(2);
-  $('cm-ai-status').textContent = '';
-  renderCharList();
-}
 
 /* 参考图预览：有图显示，无图隐藏 */
-function updateRefPreview(src) {
-  const img = $('cm-ref-preview');
-  if (!img) return;
-  if (src) { img.src = src; img.classList.remove('hidden'); }
-  else { img.removeAttribute('src'); img.classList.add('hidden'); }
-  $('btn-remove-ref').classList.toggle('hidden', !src);
-}
-
-function removeRefImage() {
-  if (!confirm('删除当前角色的参考图？图片文件仍会保留在本地。')) return;
-  $('cm-ref-image').value = '';
-  updateRefPreview('');
-  const c = characters.find(x => x.id === cmEditingId);
-  if (c) { c.refImage = ''; saveChars(); }
-}
-
 /* 导入本地图片 → 上传到 server → 填入参考图 */
-function importRefImage(file) {
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = async () => {
-    try {
-      const res = await fetch('/api/image-save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json; charset=utf-8' },
-        body: JSON.stringify({ b64: reader.result }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.path) throw new Error('上传失败: ' + (data.error || res.status));
-      $('cm-ref-image').value = data.path;
-      updateRefPreview(data.path);
-      const c = characters.find(x => x.id === cmEditingId);
-      if (c) { c.refImage = data.path; saveChars(); }
-    } catch (err) {
-      console.error('[Tavern] 参考图导入失败:', err.message);
-      alert('❌ 参考图导入失败：' + err.message);
-    }
-  };
-  reader.readAsDataURL(file);
-}
-
-function newCharEditor() {
-  setMobileManagerPanel('char-mgr', 'detail');
-  cmCreating = true;
-  cmEditingId = null;
-  $('cm-edit-title').textContent = '新建角色';
-  $('cm-del').textContent = '取消新建';
-  ['cm-name', 'cm-race', 'cm-role', 'cm-persona', 'cm-personality', 'cm-scenario', 'cm-first-mes', 'cm-mes-example', 'cm-system', 'cm-post', 'cm-creator-notes', 'cm-creator', 'cm-character-version', 'cm-ref-image', 'cm-tags', 'cm-alt-greetings']
-    .forEach(id => { $(id).value = ''; });
-  $('cm-alt-greetings').dataset.initial = '';
-  $('cm-ai-desc').value = '';
-  $('cm-ai-status').textContent = '';
-  renderCharProfileFields(null);
-  setCharWizardStep(1);
-  updateRefPreview(''); // 清空参考图预览（新建角色不复用上个角色的图）
-  renderCharList();
-  $('cm-ai-desc').focus();
-}
-
-function saveCharFromEditor() {
-  const existing = cmEditingId ? characters.find(x => x.id === cmEditingId) : null;
-  const alternateText = $('cm-alt-greetings').value;
-  const alternateGreetings = existing && $('cm-alt-greetings').dataset.initial === alternateText && Array.isArray(existing.alternateGreetings)
-    ? existing.alternateGreetings
-    : alternateText.split(/\n\s*\n/).map(s => s.trim()).filter(Boolean);
-  const data = {
-    name: $('cm-name').value.trim() || '未命名',
-    race: $('cm-race').value.trim(),
-    role: $('cm-role').value.trim(),
-    description: $('cm-persona').value,
-    personality: $('cm-personality').value,
-    // persona 是旧版内部字段：保留它以兼容旧提示词和外部数据。
-    persona: $('cm-personality').value || $('cm-persona').value,
-    scenario: $('cm-scenario').value,
-    firstMes: $('cm-first-mes').value,
-    mesExample: $('cm-mes-example').value,
-    systemPrompt: $('cm-system').value,
-    postHistory: $('cm-post').value,
-    creatorNotes: $('cm-creator-notes').value,
-    creator: $('cm-creator').value.trim(),
-    characterVersion: $('cm-character-version').value.trim(),
-    presetName: $('cm-preset').value || '',
-    loreId: $('cm-lore').value || '',
-    characterBookLoreId: existing?.characterBookLoreId || '',
-    refImage: $('cm-ref-image').value.trim(),
-    tags: $('cm-tags').value.trim(),
-    alternateGreetings,
-    profileFields: collectCharProfileFields(true),
-  };
-  if (cmEditingId) {
-    const c = characters.find(x => x.id === cmEditingId);
-    Object.assign(c, data);
-  } else {
-    const c = { id: uid(), ...data, createdAt: Date.now() };
-    characters.push(c);
-    cmEditingId = c.id;
-  }
-  cmCreating = false;
-  $('cm-edit-title').textContent = '编辑角色：' + data.name;
-  $('cm-del').textContent = '删除角色';
-  saveChars();
-  renderCharList();
-  renderCharacter();
-}
-
 function useCharById(id) {
   const target = characters.find(x => x.id === id);
   if (target) {
@@ -8335,31 +8280,9 @@ function useCharById(id) {
   }
   activateSessionScope();
   renderCharacter();
-  renderCharList();
   renderSessions();
   renderMessages();
   switchView('chat');
-}
-
-function useCharInEditor() {
-  saveCharFromEditor();
-  useCharById(cmEditingId || characters[characters.length - 1]?.id);
-}
-
-function deleteChar(id) {
-  if (!confirm('删除该角色？关联会话保留但不再绑定角色。')) return;
-  characters = characters.filter(c => c.id !== id);
-  if (currentCharId === id) { currentCharId = characters.length ? characters[0].id : null; localStorage.setItem(LS_CURRENT_CHAR, currentCharId || ''); }
-  saveChars();
-  activateSessionScope();
-  if (cmEditingId === id) {
-    if (currentCharId) selectCharForEdit(currentCharId);
-    else newCharEditor();
-  }
-  renderCharList();
-  renderCharacter();
-  renderSessions();
-  renderMessages();
 }
 
 /* 角色卡导入 / 导出（Character Card V1/V2/V3） */
@@ -8596,8 +8519,6 @@ function importCharFromText(text) {
   renderBindSelects();
   renderLBList();
   if ($('world-draft-lorebooks')) renderWorldDraftLorebookOptions(worldDraft?.world?.lorebookIds || []);
-  renderCharList();
-  selectCharForEdit(c.id);
   return { character: c, lorebook };
 }
 
@@ -8630,15 +8551,6 @@ async function exportCurrentChar() {
 /* ─────────── 提示词预设（独立栏目） ─────────── */
 
 function currentLB() { return (lorebooks && lorebooks[lbEditingId]) || null; }
-
-function lorebookHash(value) {
-  let hash = 2166136261;
-  for (const ch of String(value || '')) {
-    hash ^= ch.codePointAt(0);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(36);
-}
 
 function importedLorebookEntries(value) {
   if (Array.isArray(value)) return value;
@@ -8727,12 +8639,6 @@ function normalizeLorebookSettings(bookOrSettings) {
 }
 
 // SillyTavern 旧导出可能把世界书包在 worldInfo/world_info/data 下；读取时即时映射，避免启动迁移改写原件。
-function lorebookEntriesForPrompt(book) {
-  if (book && typeof book === 'object' && Array.isArray(book.entries)) return normalizeCharacterBookEntries(book);
-  try { return normalizeImportedLorebook(book, book?.name || book?.title || '').entries; }
-  catch { return []; }
-}
-
 function registerCharacterBookLorebook(char) {
   const book = characterBookValue(char?.characterBook);
   const entries = book?.entries;
@@ -8804,10 +8710,6 @@ function saveUserData() {
   saveJSON(LS_USER, userData);
   saveServerData('user', userData);
 }
-function currentUserPreset() {
-  ensureUserData();
-  return userData.presets[userData.currentPreset] || Object.values(userData.presets)[0] || userData.presets.default;
-}
 function renderUserPresets() {
   const sel = $('um-preset');
   if (!sel) return;
@@ -8863,161 +8765,18 @@ function deleteUserPreset() {
   fillUserForm();
 }
 
-/* ─────────── RP 自动滚动记忆 ───────────
- * 原始消息始终保留在会话中；这里只记录摘要覆盖了哪些消息，并在发给 AI 时替换旧历史。
- */
-function tavernAutoMemoryDefaults() {
-  const source = defaults?.prefs?.tavernAutoMemory;
-  return {
-    enabled: source?.enabled === true,
-    windowTurns: Number(source?.windowTurns) || 20,
-    summarizeTurns: Number(source?.summarizeTurns) || 15,
-    summaryChars: Number(source?.summaryChars) || 100,
-  };
-}
 
-function tavernAutoMemoryConfig() {
-  const base = tavernAutoMemoryDefaults();
-  const saved = prefs?.tavernAutoMemory && typeof prefs.tavernAutoMemory === 'object'
-    ? prefs.tavernAutoMemory : {};
-  const windowTurns = Math.max(2, Math.min(100, Number(saved.windowTurns) || base.windowTurns));
-  const summarizeTurns = Math.max(1, Math.min(windowTurns - 1, Number(saved.summarizeTurns) || base.summarizeTurns));
-  return {
-    enabled: saved.enabled === undefined ? base.enabled : saved.enabled === true,
-    windowTurns,
-    summarizeTurns,
-    summaryChars: Math.max(20, Math.min(500, Number(saved.summaryChars) || base.summaryChars)),
-  };
-}
 
-function ensureTavernSessionMemory(session) {
-  if (!session || session.kind !== 'tavern') return null;
-  if (!session.autoMemory || typeof session.autoMemory !== 'object' || Array.isArray(session.autoMemory)) {
-    session.autoMemory = { version: 1, summaries: [] };
-  }
-  if (!Array.isArray(session.autoMemory.summaries)) session.autoMemory.summaries = [];
-  session.autoMemory.version = 1;
-  return session.autoMemory;
-}
 
-function ensureTavernMessageIds(session) {
-  if (!session || session.kind !== 'tavern' || !Array.isArray(session.messages)) return false;
-  let changed = false;
-  for (const message of session.messages) {
-    if (!message || (message.role !== 'user' && message.role !== 'assistant')) continue;
-    if (!message.id) { message.id = uid(); changed = true; }
-  }
-  return changed;
-}
 
-function getTavernTurns(session) {
-  if (!session || session.kind !== 'tavern' || !Array.isArray(session.messages)) return [];
-  const turns = [];
-  let pendingMessages = [];
-  for (const message of session.messages) {
-    if (!message) continue;
-    if (message.role === 'user') {
-      // 骰点等 meta 用户消息属于当前玩家回合，必须随该回合一起总结和保留。
-      // 连续的用户消息也视作同一轮，避免在异常恢复后静默覆盖较早输入。
-      if (!message.meta || pendingMessages.some(item => !item.meta)) pendingMessages.push(message);
-      continue;
-    }
-    if (message.role !== 'assistant') continue;
-    if (!pendingMessages.some(item => !item.meta)) { pendingMessages = []; continue; }
-    turns.push({ messages: [...pendingMessages, message] });
-    pendingMessages = [];
-  }
-  return turns;
-}
 
-function getTavernSummarizedIds(session) {
-  const memory = ensureTavernSessionMemory(session);
-  return new Set(memory.summaries.flatMap(summary => Array.isArray(summary.sourceMessageIds) ? summary.sourceMessageIds : []));
-}
 
-function getTavernUnsummarizedTurns(session) {
-  const summarizedIds = getTavernSummarizedIds(session);
-  return getTavernTurns(session).filter(turn => turn.messages.every(message => !summarizedIds.has(message.id)));
-}
 
-function tavernTurnHistory(session = curSession()) {
-  if (!session || !Array.isArray(session.messages)) return [];
-  const summarizedIds = getTavernSummarizedIds(session);
-  // 历史请求不能只展开“完整回合”：发送请求时最新玩家输入天然还没有 AI 配对。
-  return session.messages
-    .filter(message => message && (message.role === 'user' || message.role === 'assistant') && !summarizedIds.has(message.id))
-    .map(message => ({
-      role: message.role,
-      content: regexHistoryContent(message),
-      ...(message.meta ? { meta: true } : {}),
-    }));
-}
 
-function buildTavernAutoMemoryPromptPart(session = curSession()) {
-  if (mode !== 'tavern' || !tavernAutoMemoryConfig().enabled || !session) return '';
-  const summaries = ensureTavernSessionMemory(session).summaries.filter(summary => summary?.text?.trim());
-  if (!summaries.length) return '';
-  return '【本会话自动记忆】\n' + summaries.map((summary, index) => `- ${index + 1}. ${summary.text.trim()}`).join('\n');
-}
 
-function renderTavernAutoMemoryStatus() {
-  const status = $('mem-auto-status');
-  if (!status) return;
-  if (mode !== 'tavern') {
-    status.textContent = '自动记忆仅在酒馆模式生效。';
-    return;
-  }
-  const config = tavernAutoMemoryConfig();
-  const session = curSession();
-  if (!session) {
-    status.textContent = config.enabled ? '自动记忆：已开启，等待 RP 会话。' : '自动记忆：已关闭。';
-    return;
-  }
-  const memory = ensureTavernSessionMemory(session);
-  const pending = getTavernUnsummarizedTurns(session).length;
-  const lastError = tavernMemoryStatus.get(session.id);
-  status.textContent = config.enabled
-    ? `自动记忆：已开启 · 已生成 ${memory.summaries.length} 段摘要 · 待总结 ${pending}/${config.windowTurns} 轮${lastError ? ` · ${lastError}` : ''}`
-    : `自动记忆：已关闭 · 当前会话已有 ${memory.summaries.length} 段摘要（重新开启后继续使用）`;
-  status.classList.toggle('error', !!lastError);
-}
 
-function fillTavernAutoMemoryForm() {
-  const config = tavernAutoMemoryConfig();
-  if ($('mem-auto-enabled')) $('mem-auto-enabled').checked = config.enabled;
-  if ($('mem-auto-window')) $('mem-auto-window').value = config.windowTurns;
-  if ($('mem-auto-summarize')) $('mem-auto-summarize').value = config.summarizeTurns;
-  if ($('mem-auto-chars')) $('mem-auto-chars').value = config.summaryChars;
-  renderTavernAutoMemoryStatus();
-}
 
-function readTavernAutoMemoryForm() {
-  if (!$('mem-auto-enabled')) return;
-  const current = tavernAutoMemoryConfig();
-  const windowTurns = Math.max(2, Math.min(100, Number($('mem-auto-window').value) || current.windowTurns));
-  const summarizeTurns = Math.max(1, Math.min(windowTurns - 1, Number($('mem-auto-summarize').value) || current.summarizeTurns));
-  const summaryChars = Math.max(20, Math.min(500, Number($('mem-auto-chars').value) || current.summaryChars));
-  prefs.tavernAutoMemory = {
-    enabled: $('mem-auto-enabled').checked,
-    windowTurns,
-    summarizeTurns,
-    summaryChars,
-  };
-  saveJSON(LS_PREFS, prefs);
-  renderTavernAutoMemoryStatus();
-}
 
-function clearTavernAutoMemory() {
-  const session = curSession();
-  if (!session) return;
-  const memory = ensureTavernSessionMemory(session);
-  if (!memory.summaries.length) return;
-  if (!confirm('清空当前会话的自动摘要？原始聊天记录不会删除。')) return;
-  memory.summaries = [];
-  tavernMemoryStatus.delete(session.id);
-  saveSessions(session);
-  renderMessages();
-}
 async function resetCurrentWorldSave() {
   if (!worldModeActive() || !currentWorldSave) return;
   if (worldTurnPendingActive()) discardWorldTurnPending();
@@ -9048,16 +8807,6 @@ async function resetCurrentWorldSave() {
   renderDebugTerminal();
 }
 
-function invalidateTavernAutoMemory(session, messageIds) {
-  const memory = ensureTavernSessionMemory(session);
-  if (!memory?.summaries?.length) return false;
-  const ids = new Set(Array.isArray(messageIds) ? messageIds : [messageIds]);
-  const affected = memory.summaries.some(summary => (summary.sourceMessageIds || []).some(id => ids.has(id)));
-  if (!affected) return false;
-  memory.summaries = [];
-  tavernMemoryStatus.set(session.id, '历史已修改，自动摘要已清除');
-  return true;
-}
 
 /* 记忆条目 */
 function renderMemList() {
@@ -9306,11 +9055,6 @@ function activeOutputRegexRules(targetMode = mode, stage = 'ai_response', option
   return activeRegexRules(targetMode).filter(rule => regexRuleAppliesToStage(rule, stage, options));
 }
 
-function applyRegexStage(text, stage, { targetMode = mode, depth = null, editing = false, includePromptOnly = true, role = 'assistant' } = {}) {
-  const rules = activeOutputRegexRules(targetMode, stage, { depth, editing, includePromptOnly, role });
-  return rules.length ? applyOutputRegexRules(text, rules) : String(text ?? '');
-}
-
 function applyOutputRegexRule(output, rule, regex) {
   const replacement = expandRegexMacros(rule.replaceString || '');
   if (!replacement.includes('{{match}}') && !rule.trimStrings.length) return output.replace(regex, replacement);
@@ -9372,24 +9116,8 @@ function recoverStructuredTagOutput(text) {
 }
 
 /* 渲染旧消息时重新检查当前规则；避免消息首次生成时规则尚未载入而永久保留原始标签。 */
-function renderOutputContent(text, targetMode = mode, { fromRaw = true, role = 'assistant', depth = null } = {}) {
-  const source = String(text || '');
-  const rules = activeOutputRegexRules(targetMode, fromRaw ? 'chat_display' : 'chat_display_persisted', { role, depth });
-  const needsRegex = rules.some(rule => {
-    const regex = buildOutputRegex(rule);
-    if (!regex) return false;
-    regex.lastIndex = 0;
-    return regex.test(source);
-  });
-  return recoverStructuredTagOutput(needsRegex ? applyOutputRegexRules(source, rules) : source);
-}
-
 function applyCharacterCardOutputRegex(text) {
   return recoverStructuredTagOutput(applyOutputRegexRules(text, activeOutputRegexRules('tavern', 'chat_display').filter(rule => rule.source === 'character')));
-}
-
-function applyOutputRegex(text, targetMode = mode) {
-  return applyOutputRegexRules(text, activeOutputRegexRules(targetMode, 'ai_response'));
 }
 
 function serializeOutputRegexRule(rule) {
@@ -9420,12 +9148,6 @@ function serializeOutputRegexRule(rule) {
     ...(rule.minDepth !== null ? { minDepth: rule.minDepth } : {}),
     ...(rule.maxDepth !== null ? { maxDepth: rule.maxDepth } : {}),
   };
-}
-
-function presetMode(name, preset) {
-  if (preset && ['tavern', 'rpg', 'both'].includes(preset.mode)) return preset.mode;
-  if (name === GLOBAL_PRESET_KEY) return 'both';
-  return /RPG/i.test(name || '') ? 'rpg' : 'tavern';
 }
 
 function presetPromptEnabledByDefault(identifier, targetMode = mode) {
@@ -9755,17 +9477,6 @@ function setActivePresetName(name) {
   saveJSON(LS_PREFS, prefs);
 }
 
-function resolvePromptPreset() {
-  const char = currentChar();
-  const world = currentWorldCard();
-  const bound = mode === 'tavern' && char?.presetName && promptPresets[char.presetName]
-    && ['tavern', 'both'].includes(presetMode(char.presetName, promptPresets[char.presetName])) ? char.presetName : '';
-  const worldBound = mode === 'rpg' && world?.rpgPresetName && promptPresets[world.rpgPresetName]
-    && ['rpg', 'both'].includes(presetMode(world.rpgPresetName, promptPresets[world.rpgPresetName])) ? world.rpgPresetName : '';
-  const name = bound || worldBound || activePresetNameForMode(mode);
-  return { name, preset: promptPresets[name] || promptPresets[GLOBAL_PRESET_KEY] || normalizePromptPreset(GLOBAL_PRESET_KEY, {}) };
-}
-
 function renderPGList() {
   const list = $('pg-list');
   if (!list) return;
@@ -9814,9 +9525,8 @@ function fillPGActive() {
   const active = actualName || '全局默认';
   const char = currentChar();
   const world = currentWorldCard();
-  const boundByCharacter = !!actualName && mode === 'tavern' && char?.presetName === actualName;
   const boundByWorld = !!actualName && mode === 'rpg' && world?.rpgPresetName === actualName;
-  const source = boundByCharacter ? '（由当前角色卡绑定）' : (boundByWorld ? '（由当前世界卡绑定）' : '');
+  const source = boundByWorld ? '（由当前世界卡绑定）' : '';
   const note = $('pg-active-note');
   if (note) note.textContent = `当前${mode === 'rpg' ? 'RPG' : '酒馆'}模式实际使用：${active}${source}。左侧列表用于编辑预设内容。`;
 }
@@ -11383,201 +11093,6 @@ async function exportCurrentLorebook() {
 }
 
 /* 世界书匹配：最近 N 条消息里找触发词（含正则），实现 ST 的选择性、递归、分组和定时效果。 */
-function buildWorldInfo({ dryRun = false, withOutlets = false } = {}) {
-  const char = currentChar();
-  const sources = [];
-  const worldLoreIds = worldModeActive()
-    ? (Array.isArray(currentWorldCard()?.lorebookIds) && currentWorldCard().lorebookIds.length
-      ? currentWorldCard().lorebookIds
-      : ['default'])
-    : (prefs.activeLoreId ? [prefs.activeLoreId] : []);
-  for (const loreId of [...new Set(worldLoreIds)]) {
-    const book = lorebooks && lorebooks[loreId];
-    const entries = book ? lorebookEntriesForPrompt(book) : [];
-    const bookSettings = normalizeLorebookSettings(book);
-    if (entries.length) sources.push(...entries.map(entry => ({ ...entry, __worldId: loreId, __sourceType: 'global', __bookSettings: bookSettings })));
-  }
-  if (!worldModeActive() && char && char.loreId && lorebooks && lorebooks[char.loreId] && char.loreId !== prefs.activeLoreId) {
-    const book = lorebooks[char.loreId];
-    const bookSettings = normalizeLorebookSettings(book);
-    sources.push(...lorebookEntriesForPrompt(book).map(entry => ({ ...entry, __worldId: char.loreId, __sourceType: 'character', __bookSettings: bookSettings })));
-  }
-  // V3 character_book 属于角色卡本身，只对绑定该角色的对话生效，不能并入全局世界书。
-  const characterBook = characterBookForChar(char);
-  // 如果用户选择了系统自动注册的角色书副本，就只注入副本，避免原书 + 副本重复。
-  const registeredBookSelected = char?.characterBookLoreId && (char.loreId === char.characterBookLoreId || prefs.activeLoreId === char.characterBookLoreId);
-  if (!worldModeActive() && characterBook && !registeredBookSelected) {
-    const bookSettings = normalizeLorebookSettings(characterBook);
-    sources.push(...normalizeCharacterBookEntries(characterBook).map(entry => ({ ...entry, __worldId: char?.id || 'character-book', __sourceType: 'character', __bookSettings: bookSettings })));
-  }
-  const defaultDepth = Math.max(0, prefs.wiScanDepth || 0);
-  const allMessages = curMessages();
-  const sourceSettings = sources.map(source => source.__bookSettings || {}).filter(Boolean);
-  const bookRecursion = sourceSettings.some(settings => settings.recursive === true);
-  const bookRecursionSteps = sourceSettings.map(settings => Number(settings.maxRecursionSteps)).filter(Number.isFinite);
-  const bookMinActivations = sourceSettings.map(settings => Number(settings.minActivations)).filter(value => Number.isFinite(value) && value > 0);
-  const bookMinDepths = sourceSettings.map(settings => Number(settings.minActivationsDepthMax)).filter(value => Number.isFinite(value) && value > 0);
-  const bookBudgets = sourceSettings.map(settings => Number(settings.budget)).filter(value => Number.isFinite(value) && value > 0);
-  const bookStrategies = sourceSettings.map(settings => settings.insertionStrategy).filter(strategy => ['evenly', 'character_first', 'global_first'].includes(strategy));
-  const settings = {
-    includeNames: prefs.wiIncludeNames !== false,
-    minActivations: Math.max(Number(prefs.wiMinActivations) || 0, ...bookMinActivations),
-    minActivationsDepthMax: Math.max(Number(prefs.wiMinActivationsDepthMax) || 0, ...bookMinDepths),
-    recursive: (prefs.wiRecursive === true || bookRecursion) && !(Number(prefs.wiMinActivations) > 0 || bookMinActivations.length),
-    maxRecursion: Math.min(8, Math.max(1, Math.max(Number(prefs.wiMaxRecursionSteps) || 3, ...bookRecursionSteps))),
-    budget: Math.max(0, Number(prefs.wiBudget) || (bookBudgets.length ? Math.min(...bookBudgets) : 0)),
-    groupScoring: prefs.wiUseGroupScoring === true || sourceSettings.some(book => book.useGroupScoring === true),
-    insertionStrategy: bookStrategies[0] || prefs.wiInsertionStrategy || 'evenly',
-  };
-  const scanTextFor = (depth, extra = '', includeNames = settings.includeNames) => {
-    const msgs = depth ? allMessages.slice(-depth) : [];
-    const lines = msgs.map(m => (includeNames ? (m.role === 'user' ? '玩家：' : '角色：') : '') + m.content);
-    return [lines.join('\n'), extra].filter(Boolean).join('\n');
-  };
-  const scope = activeConversationScope();
-  const effects = dryRun ? { sticky: {}, cooldown: {} } : worldInfoScopeEffects(scope);
-  const messageCount = allMessages.length;
-  const entryKey = e => `${e.__worldId || 'world'}.${e.uid ?? e.id ?? e.title}`;
-  const active = new Map();
-  let recursionText = '';
-  const chooseGroups = candidates => {
-    const grouped = new Map();
-    candidates.forEach(item => String(item.entry.group || '').split(',').map(x => x.trim()).filter(Boolean).forEach(group => {
-      if (!grouped.has(group)) grouped.set(group, []);
-      grouped.get(group).push(item);
-    }));
-    const keep = new Set(candidates);
-    for (const group of grouped.values()) {
-      if (group.length < 2) continue;
-      const winner = group.some(item => item.entry.groupOverride)
-        ? [...group].sort((a, b) => Number(b.entry.order || 0) - Number(a.entry.order || 0))[0]
-        : settings.groupScoring || group.some(item => item.entry.useGroupScoring === true)
-          ? [...group].sort((a, b) => b.score - a.score || Number(b.entry.order || 0) - Number(a.entry.order || 0))[0]
-          : (() => {
-            const total = group.reduce((sum, item) => sum + Math.max(0, Number(item.entry.groupWeight ?? 100)), 0);
-            let roll = Math.random() * (total || 1);
-            return group.find(item => (roll -= Math.max(0, Number(item.entry.groupWeight ?? 100))) <= 0) || group[0];
-          })();
-      group.forEach(item => { if (item !== winner) keep.delete(item); });
-    }
-    return candidates.filter(item => keep.has(item));
-  };
-  const evaluate = (level, extra, minActivationScan = false) => {
-    const candidates = [];
-    for (const e of sources) {
-      const key = entryKey(e);
-      if (active.has(key) || e.enabled === false) continue;
-      if (level === 0 && e.delayUntilRecursion) continue;
-      if (level > 0 && e.excludeRecursion) continue;
-      const stickyUntil = Number(effects.sticky[key] || 0);
-      const cooldownUntil = Number(effects.cooldown[key] || 0);
-      if (stickyUntil && stickyUntil > messageCount) { candidates.push({ entry: e, score: 999 }); continue; }
-      if (stickyUntil && stickyUntil <= messageCount && e.cooldown > 0 && !dryRun) {
-        effects.cooldown[key] = stickyUntil + Number(e.cooldown);
-        delete effects.sticky[key];
-      }
-      if (cooldownUntil && cooldownUntil > messageCount) continue;
-      if (e.delay > 0 && messageCount < e.delay) continue;
-      const extraSources = [];
-      if (e.matchPersonaDescription) extraSources.push(currentUserPreset()?.persona);
-      if (e.matchCharacterDescription) extraSources.push(char?.description);
-      if (e.matchCharacterPersonality) extraSources.push(char?.personality);
-      if (e.matchCharacterDepthPrompt) extraSources.push(char?.depthPrompt || char?.note);
-      if (e.matchScenario) extraSources.push(char?.scenario);
-      if (e.matchCreatorNotes) extraSources.push(char?.creatorNotes);
-      const bookSettings = e.__bookSettings || {};
-      const depth = minActivationScan
-        ? (settings.minActivationsDepthMax || allMessages.length)
-        : (Number.isInteger(e.scanDepth) ? e.scanDepth : (bookSettings.scanDepth ?? defaultDepth));
-      const text = scanTextFor(depth, [extra, ...extraSources].filter(Boolean).join('\n'), bookSettings.includeNames ?? settings.includeNames);
-      const stats = worldInfoMatchStats(e, text);
-      const triggered = e.constant || stats.ok;
-      if (!triggered) continue;
-      if (!e.constant && !stats.ok) continue;
-      if (e.useProbability !== false && Number(e.probability ?? 100) < 100 && Math.random() * 100 >= Number(e.probability)) continue;
-      candidates.push({ entry: e, score: stats.score });
-    }
-    return chooseGroups(candidates);
-  };
-  const allHits = [];
-  const maxLevel = settings.recursive ? settings.maxRecursion : 0;
-  for (let level = 0; level <= maxLevel; level++) {
-    let chosen = evaluate(level, recursionText);
-    if (level === 0 && settings.minActivations > chosen.length && allMessages.length > defaultDepth) {
-      // ST 的最少激活会扩大扫描窗口；这里保留同一套筛选/分组规则，避免另造一条激活管线。
-      chosen = evaluate(level, recursionText, true);
-    }
-    if (!chosen.length) break;
-    for (const item of chosen) {
-      const e = item.entry;
-      const key = entryKey(e);
-      active.set(key, e);
-      allHits.push(e);
-      if (!dryRun) {
-        if (e.sticky > 0) effects.sticky[key] = messageCount + Number(e.sticky);
-        else if (e.cooldown > 0) effects.cooldown[key] = messageCount + Number(e.cooldown);
-      }
-      if (!e.preventRecursion && e.content) recursionText += '\n' + e.content;
-    }
-    if (!settings.recursive) break;
-  }
-  const positionOrder = [WORLD_INFO_POSITION.before, WORLD_INFO_POSITION.exampleTop, WORLD_INFO_POSITION.anTop,
-    WORLD_INFO_POSITION.atDepth, WORLD_INFO_POSITION.after, WORLD_INFO_POSITION.exampleBottom, WORLD_INFO_POSITION.anBottom, WORLD_INFO_POSITION.outlet];
-  const sourceRank = entry => entry.__sourceType === 'character' ? 0 : 1;
-  allHits.sort((a, b) => (Number(b.constant) - Number(a.constant))
-    || (positionOrder.indexOf(normalizeWorldInfoPosition(a.wiPosition ?? a.position)) - positionOrder.indexOf(normalizeWorldInfoPosition(b.wiPosition ?? b.position)))
-    || (settings.insertionStrategy === 'character_first' || settings.insertionStrategy === 'global_first'
-      ? ((settings.insertionStrategy === 'character_first' ? sourceRank(a) : sourceRank(b)) - (settings.insertionStrategy === 'character_first' ? sourceRank(b) : sourceRank(a))) : 0)
-    || (Number(a.order || 0) - Number(b.order || 0)));
-  let used = 0;
-  const outlets = {};
-  const positions = {
-    before: [],
-    after: [],
-    exampleTop: [],
-    exampleBottom: [],
-    anTop: [],
-    anBottom: [],
-    atDepth: [],
-  };
-  const entries = [];
-  for (const e of allHits) {
-    const content = String(e.content || '').trim();
-    if (!content) continue;
-    const position = normalizeWorldInfoPosition(e.wiPosition ?? e.position);
-    if (position === WORLD_INFO_POSITION.outlet) {
-      const name = String(e.outletName || '').trim();
-      if (!name) continue;
-      if (settings.budget > 0 && !e.ignoreBudget && used + content.length > settings.budget) continue;
-      if (name) (outlets[name] || (outlets[name] = [])).push(content);
-      used += content.length;
-      continue;
-    }
-    if (settings.budget > 0 && !e.ignoreBudget && used + content.length > settings.budget) continue;
-    used += content.length;
-    entries.push(content);
-    if (position === WORLD_INFO_POSITION.before) positions.before.push(content);
-    else if (position === WORLD_INFO_POSITION.after) positions.after.push(content);
-    else if (position === WORLD_INFO_POSITION.exampleTop) positions.exampleTop.push(content);
-    else if (position === WORLD_INFO_POSITION.exampleBottom) positions.exampleBottom.push(content);
-    else if (position === WORLD_INFO_POSITION.anTop) positions.anTop.push(content);
-    else if (position === WORLD_INFO_POSITION.anBottom) positions.anBottom.push(content);
-    else if (position === WORLD_INFO_POSITION.atDepth) positions.atDepth.push({
-      content,
-      role: worldInfoRoleValue(e.role) === WORLD_INFO_ROLE.user ? 'user'
-        : (worldInfoRoleValue(e.role) === WORLD_INFO_ROLE.assistant ? 'assistant' : 'system'),
-      depth: Math.max(0, Number(e.depth ?? 4) || 0),
-      order: Number(e.order ?? 100) || 0,
-    });
-  }
-  return withOutlets ? {
-    entries,
-    positions,
-    outlets: Object.fromEntries(Object.entries(outlets).map(([name, values]) => [name, values.join('\n\n')])),
-  } : entries;
-}
-
-/* ─────────── 提示词构建管线（SillyTavern prompts + prompt_order） ─────────── */
 function applySTFormatTemplate(template, marker, content) {
   const value = String(content || '').trim();
   if (!value) return '';
@@ -11627,14 +11142,7 @@ function buildMemoryPromptPart() {
   const mems = (userData?.memories || []).filter(m => m.enabled !== false && m.content?.trim());
   const parts = [];
   if (mems.length) parts.push('【记忆】\n' + mems.map(m => '- ' + m.content.trim()).join('\n'));
-  const rolling = buildTavernAutoMemoryPromptPart();
-  if (rolling) parts.push(rolling);
   return parts.join('\n\n');
-}
-
-function formatWorldInfoPrompt(entries, presetSettings = {}) {
-  const content = (Array.isArray(entries) ? entries : []).filter(Boolean).join('\n\n');
-  return applySTFormatTemplate(presetSettings.wi_format, '{0}', content);
 }
 
 function parseDialogueExampleBlock(block, userName, charName) {
@@ -11680,15 +11188,6 @@ function buildDialogueExampleMessages(rawExamples, beforeEntries = [], afterEntr
   return messages;
 }
 
-function resolveCharacterPromptOverride(value, original) {
-  const override = String(value || '').trim();
-  const fallback = String(original || '').trim();
-  if (!override) return fallback;
-  return /\{\{original\}\}/i.test(override)
-    ? override.replace(/\{\{original\}\}/gi, fallback)
-    : override;
-}
-
 function tavernReplyOptionsConfig(preset = null) {
   const base = defaults?.tavern?.replyOptions && typeof defaults.tavern.replyOptions === 'object'
     ? defaults.tavern.replyOptions : null;
@@ -11707,505 +11206,7 @@ function tavernReplyOptionsConfig(preset = null) {
   return merged;
 }
 
-function tavernReplyOptionRules(preset = null) {
-  const config = tavernReplyOptionsConfig(preset);
-  if (!config || config.enabled === false) return { enabled: false, min: 0, max: 0, count: 0, noOptions: '' };
-  const rawMin = Number(config.min);
-  const rawMax = Number(config.max);
-  const min = Number.isFinite(rawMin) ? Math.max(0, Math.min(8, Math.floor(rawMin))) : 4;
-  const max = Number.isFinite(rawMax) ? Math.max(min, Math.min(8, Math.floor(rawMax))) : Math.max(min, 4);
-  const rawCount = Number(config.count);
-  const count = Number.isFinite(rawCount) ? Math.max(min, Math.min(max, Math.floor(rawCount))) : max;
-  return { enabled: true, min, max, count, noOptions: String(config.noOptions || '（等待 AI 生成可选行动…）') };
-}
 
-function buildTavernReplyOptionsPrompt(preset = null) {
-  if (mode !== 'tavern') return '';
-  const config = tavernReplyOptionsConfig(preset);
-  const rules = tavernReplyOptionRules(preset);
-  const instruction = String(config?.instruction || '').trim();
-  if (!rules.enabled || !instruction) return '';
-  const customized = formatTavernReplyOptionsInstruction(instruction, rules);
-  // 自定义内容可以只描述选项风格；机器可解析的标签契约仍由 JSON 默认模板兜底。
-  const fallbackInstruction = String(defaults?.tavern?.replyOptions?.instruction || builtInTavernReplyOptionsInstruction() || '').trim();
-  const fallback = formatTavernReplyOptionsInstruction(fallbackInstruction, rules);
-  if (customized === fallback) return customized;
-  return fallback && hasTavernReplyOptionsProtocol(fallback)
-    ? [customized, fallback].filter(Boolean).join('\n\n')
-    : customized;
-}
-
-function buildTavernReplyOptionsAssistantMessage(preset = null) {
-  if (mode !== 'tavern') return '';
-  const rules = tavernReplyOptionRules(preset);
-  if (!rules.enabled) return '';
-  const config = tavernReplyOptionsConfig(preset);
-  const template = String(config?.assistantMessage || defaults?.tavern?.replyOptions?.assistantMessage || '').trim();
-  return formatTavernReplyOptionsInstruction(template, rules);
-}
-
-function formatTavernReplyOptionsInstruction(instruction, rules) {
-  return String(instruction || '')
-    .replace(/\{count\}/g, String(rules?.count ?? 4))
-    .replace(/\{min\}/g, String(rules?.min ?? 4))
-    .replace(/\{max\}/g, String(rules?.max ?? 4));
-}
-
-function worldNpcQuestIds(quest) {
-  if (!quest || typeof quest !== 'object') return [];
-  const ids = [];
-  for (const key of ['npcId', 'giverNpcId', 'targetNpcId', 'actorNpcId']) {
-    if (typeof quest[key] === 'string') ids.push(quest[key]);
-  }
-  for (const key of ['npcIds', 'relatedNpcIds', 'participantNpcIds']) {
-    if (Array.isArray(quest[key])) ids.push(...quest[key]);
-  }
-  if (Array.isArray(quest.objectives)) {
-    for (const objective of quest.objectives) {
-      if (objective && typeof objective.npcId === 'string') ids.push(objective.npcId);
-    }
-  }
-  return ids.filter(id => id.trim()).map(id => id.trim());
-}
-
-function worldContextBudget() {
-  const configured = Number(prefs?.worldContextBudget);
-  return Number.isFinite(configured) && configured > 0
-    ? Math.max(6000, Math.min(60000, Math.floor(configured)))
-    : 24000;
-}
-
-function worldPromptPriority(part) {
-  const heading = /^【([^】]+)】/.exec(String(part || ''))?.[1];
-  if (!heading) return null;
-  return {
-    '回合契约': 115,
-    '当前不可用 Runtime 动作': 114,
-    '世界时间': 112,
-    '当前玩家动态状态': 110,
-    'RPG 状态': 110,
-    '目标': 108,
-    '线索': 108,
-    '目标 / 线索时限': 108,
-    '长期事件记忆': 106,
-    '当前世界卡': 104,
-    '当前作用域 NPC': 102,
-    '当前玩家只读派生值': 100,
-    '背包': 98,
-    '世界存档中的玩家快照': 96,
-    '已提交世界事件': 94,
-    '冲突状态': 92,
-    '物品 / 装备 / 经济规则': 88,
-    '成长候选与人物经历': 76,
-    '地图': 70,
-    '当前作用域派系': 64,
-    '任务': 108,
-  }[heading] ?? 40;
-}
-
-function clipWorldPromptPart(text, limit) {
-  if (text.length <= limit) return text;
-  const suffix = '…（本段受上下文预算裁剪）';
-  const max = Math.max(0, limit - suffix.length);
-  const lines = text.split('\n');
-  let output = '';
-  for (const line of lines) {
-    const next = output ? `${output}\n${line}` : line;
-    if (next.length > max) break;
-    output = next;
-  }
-  if (!output) output = text.slice(0, max);
-  return output + suffix;
-}
-
-function budgetWorldPromptParts(parts) {
-  if (!worldModeActive()) return parts;
-  const sections = parts.map((part, index) => ({
-    part,
-    index,
-    text: typeof part === 'object' && part !== null ? String(part.text || '') : String(part || ''),
-  }));
-  const entries = sections.map(entry => ({ ...entry, priority: worldPromptPriority(entry.text) }))
-    .filter(entry => entry.priority !== null && entry.text);
-  if (!entries.length) return parts;
-  let remaining = worldContextBudget();
-  const kept = new Map();
-  for (const entry of [...entries].sort((a, b) => b.priority - a.priority || a.index - b.index)) {
-    const separatorCost = kept.size ? 2 : 0;
-    if (remaining <= separatorCost) break;
-    const clipped = clipWorldPromptPart(entry.text, remaining - separatorCost);
-    if (!clipped) continue;
-    kept.set(entry.index, clipped);
-    remaining -= clipped.length + separatorCost;
-  }
-  return sections.map(({ part, text, index }) => {
-    const priority = worldPromptPriority(text);
-    if (priority === null) return part;
-    const clipped = kept.get(index) || '';
-    return typeof part === 'object' && part !== null ? { ...part, text: clipped } : clipped;
-  }).filter(Boolean);
-}
-
-function worldNpcLocationIds(npc) {
-  if (!npc || typeof npc !== 'object') return [];
-  const ids = [];
-  if (typeof npc.locationId === 'string') ids.push(npc.locationId);
-  if (typeof npc.homeLocationId === 'string') ids.push(npc.homeLocationId);
-  if (Array.isArray(npc.locationIds)) ids.push(...npc.locationIds);
-  return ids.filter(id => typeof id === 'string' && id.trim()).map(id => id.trim());
-}
-
-function worldNpcVisibleSecretText(npc, npcState) {
-  const knowledge = new Set(Array.isArray(npcState?.knowledge) ? npcState.knowledge.filter(item => typeof item === 'string').map(item => item.trim()) : []);
-  const secrets = Array.isArray(npc?.secrets) ? npc.secrets : [];
-  return secrets
-    .filter(secret => secret && typeof secret === 'object')
-    .map(secret => ({ id: typeof secret.id === 'string' ? secret.id.trim() : '', content: typeof secret.content === 'string' ? secret.content.trim() : '' }))
-    .filter(secret => secret.id && secret.content && knowledge.has(secret.id))
-    .map(secret => `${secret.id}：${secret.content}`);
-}
-
-function buildWorldNpcPromptPart() {
-  if (!worldModeActive()) return '';
-  const world = currentWorldCard();
-  const save = currentWorldSave;
-  const generatedNpcs = save.generatedEntities?.npcs && typeof save.generatedEntities.npcs === 'object' && !Array.isArray(save.generatedEntities.npcs)
-    ? Object.values(save.generatedEntities.npcs)
-    : [];
-  const definitions = [...(Array.isArray(world?.npcs) ? world.npcs : []), ...generatedNpcs]
-    .filter(npc => npc && typeof npc.id === 'string' && npc.id.trim())
-    .filter((npc, index, list) => list.findIndex(item => item.id === npc.id) === index);
-  if (!definitions.length) return '';
-  const state = save.state || {};
-  const currentLocationId = typeof state.locationId === 'string' ? state.locationId : '';
-  const partyIds = new Set(Array.isArray(save.party?.memberIds) ? save.party.memberIds.filter(id => typeof id === 'string') : []);
-  const objectiveIds = new Set([
-    ...(Array.isArray(state.quests) ? state.quests : []),
-    ...(Array.isArray(state.goals) ? state.goals : []),
-    ...(Array.isArray(state.leads) ? state.leads : []),
-  ].flatMap(worldNpcQuestIds));
-  const conflictIds = new Set(Object.values(state.conflicts && typeof state.conflicts === 'object' ? state.conflicts : {}).flatMap(conflict => [
-    conflict?.targetId,
-    ...(Array.isArray(conflict?.participants) ? conflict.participants.map(item => typeof item === 'string' ? item : item?.id) : []),
-  ].filter(id => typeof id === 'string' && id.trim())));
-  const memoryIds = new Set((Array.isArray(save.eventMemory) ? save.eventMemory : [])
-    .filter(memory => memory && memory.visibility !== 'hidden'
-      && (memory.visibility !== 'local' || !memory.locationId || memory.locationId === currentLocationId))
-    .flatMap(memory => Array.isArray(memory.entityIds) ? memory.entityIds : [])
-    .filter(id => typeof id === 'string' && id.trim()));
-  const npcStates = save.npcStates && typeof save.npcStates === 'object' ? save.npcStates : {};
-  const selected = definitions.filter(npc => {
-    const id = npc.id.trim();
-    const npcState = npcStates[id];
-    return partyIds.has(id)
-      || objectiveIds.has(id)
-      || conflictIds.has(id)
-      || memoryIds.has(id)
-      || (npcState && npcState.locationId === currentLocationId)
-      || worldNpcLocationIds(npc).includes(currentLocationId);
-  });
-  if (!selected.length) return '';
-  const sections = selected.map(npc => {
-    const id = npc.id.trim();
-    const npcState = npcStates[id] || {};
-    const fields = [`ID：${id}`, `名称：${npc.name || id}`];
-    for (const key of ['role', 'description', 'persona', 'personality', 'appearance', 'speechStyle', 'publicFacts', 'publicGoals', 'desires', 'fears', 'goals', 'activity']) {
-      const value = npc[key];
-      if (Array.isArray(value) && value.length) fields.push(`${key}：${value.join('；')}`);
-      else if (typeof value === 'string' && value.trim()) fields.push(`${key}：${value.trim()}`);
-    }
-    const visibleSecrets = worldNpcVisibleSecretText(npc, npcState);
-    if (visibleSecrets.length) fields.push(`当前存档已解锁秘密（仅使用这些）：${visibleSecrets.join('；')}`);
-    if (npcState.locationId) fields.push(`当前存档位置：${npcState.locationId}`);
-    if (npcState.lastActivity) fields.push(`最近活动：${npcState.lastActivity}`);
-    if (npcState.lastActionId) fields.push(`最近行动模板：${npcState.lastActionId}`);
-    if (npcState.relation && Object.keys(npcState.relation).length) fields.push(`当前存档关系：${JSON.stringify(npcState.relation)}`);
-    if (Array.isArray(npcState.knowledge) && npcState.knowledge.length) fields.push(`当前存档已知事实：${npcState.knowledge.join('；')}`);
-    if (Array.isArray(npcState.status) && npcState.status.length) fields.push(`当前存档状态：${npcState.status.join('；')}`);
-    const openingContext = Array.isArray(save.state?.openingScenario?.npcContexts)
-      ? save.state.openingScenario.npcContexts.find(context => context?.npcId === id)
-      : null;
-    if (openingContext) fields.push(`开局上下文：${JSON.stringify({ relationship: openingContext.relationship || '', currentGoal: openingContext.currentGoal || '', currentState: openingContext.currentState || '', knowsPlayer: openingContext.knowsPlayer === true, playerKnowsTruth: openingContext.playerKnowsTruth === true })}`);
-    return fields.join('\n');
-  });
-  return '【当前作用域 NPC】\n只允许引用以下 NPC；未列出的世界 NPC 不在本回合上下文中。静态资料仅代表公开信息；不得臆测未注入的秘密。NPC 只能使用公共资料、本存档已知事实和已解锁秘密，不得读取其他存档或其他 NPC 的知识。\n' + sections.join('\n\n');
-}
-
-function buildWorldFactLayerPromptPart() {
-  if (!worldModeActive()) return '';
-  const world = currentWorldCard();
-  const save = currentWorldSave;
-  const state = save.state || {};
-  const staticScope = `${world?.id || save.worldId || 'world'}@v${world?.version || save.worldVersion || 1}`;
-  const saveScope = `${save.id || currentWorldSaveId || 'save'}@r${Number.isInteger(save.revision) ? save.revision : 0}`;
-  const currentLocation = state.locationId || '未指定';
-  const currentTime = state.time ? `${state.time.value} ${state.time.unit}` : '未指定';
-  const setting = world?.setting && typeof world.setting === 'object' ? Object.entries(world.setting).filter(([, value]) => typeof value === 'string' && value.trim()).map(([key, value]) => `${key}：${value.trim()}`).join('\n') : '';
-  const rules = world?.rules && typeof world.rules === 'object' ? [
-    Array.isArray(world.rules.hard) && world.rules.hard.length ? `硬规则：${world.rules.hard.join('；')}` : '',
-    Array.isArray(world.rules.soft) && world.rules.soft.length ? `软规则：${world.rules.soft.join('；')}` : '',
-    Array.isArray(world.rules.checks) && world.rules.checks.length ? `可用判定：${world.rules.checks.map(check => {
-      if (typeof check === 'string') return check;
-      const modifier = check.modifier && typeof check.modifier === 'object' && !Array.isArray(check.modifier)
-        ? `；修正来源=${JSON.stringify(check.modifier)}（只在 dice.roll.modifier 传入，禁止写进 expr）`
-        : (check.modifier !== undefined ? ` + ${check.modifier}` : '');
-      return `${check.id}${check.label ? `（${check.label}）` : ''}${check.roll ? ` ${check.roll}` : ''}${modifier}${check.target !== undefined ? ` vs ${check.target}` : ''}`;
-    }).join('；')}` : '',
-  ].filter(Boolean).join('\n') : '';
-  return `【世界事实分层】
-稳定设定来源：WorldCard ${staticScope}。世界简介、登记地点、NPC 公共资料和规则属于稳定设定；不要因为某个存档的变化而改写它们。
-${setting ? `世界观设定（只读）：\n${setting}\n` : ''}${rules ? `作者规则（只读；硬规则优先，软规则用于叙事取舍）：\n${rules}\n` : ''}
-当前事实来源：WorldSave ${saveScope}。当前地点=${currentLocation}；当前时间=${currentTime}；玩家状态、NPC 位置/关系/认知和长期记忆只属于这个存档。
-状态处理：同一实体或地点同时出现静态资料与存档状态时，静态资料解释默认设定，存档状态解释当前局面；两者都要保留，不能把一次存档变化宣称为世界卡永久改写，也不能用旧静态默认值覆盖已提交状态。`;
-}
-
-function buildWorldEventPromptPart() {
-  if (!worldModeActive()) return '';
-  const state = currentWorldSave.state || {};
-  const currentLocationId = state.locationId || null;
-  const events = Array.isArray(state.worldEvents) ? state.worldEvents : [];
-  const visible = events.filter(event => event && event.visibility !== 'hidden');
-  const local = visible.filter(event => event.visibility === 'local' && (!event.locationId || event.locationId === currentLocationId)).slice(-8);
-  const global = visible.filter(event => event.visibility !== 'local' && (!event.locationId || event.locationId === currentLocationId)).slice(-8);
-  const selected = [...global, ...local].filter((event, index, list) => list.findIndex(item => item.eventId === event.eventId) === index);
-  if (!selected.length) return '';
-  return '【已提交世界事件】\n以下事件已由服务端在成功回合后结算，只能视为已发生事实，不得跨存档引用：\n'
-    + selected.map(event => {
-      const consequences = Array.isArray(event.consequences) && event.consequences.length ? `；后果：${event.consequences.join('；')}` : '';
-      const time = event.time ? `（${event.time.value} ${event.time.unit}）` : '';
-      return `- ${event.title || event.eventId}${time}：${event.description || '（无公开描述）'}${consequences}`;
-    }).join('\n');
-}
-
-function buildWorldEventMemoryPromptPart() {
-  if (!worldModeActive()) return '';
-  const save = currentWorldSave;
-  const currentLocationId = save.state?.locationId || null;
-  const memories = (Array.isArray(save.eventMemory) ? save.eventMemory : [])
-    .filter(memory => memory && memory.visibility !== 'hidden'
-      && (memory.visibility !== 'local' || !memory.locationId || memory.locationId === currentLocationId))
-    .slice(-32);
-  if (!memories.length) return '';
-  return '【长期事件记忆】\n以下记忆只来自当前世界存档已提交的回合，带有来源 revision；不得跨世界或跨存档引用，也不得把记忆摘要当作未发生事实。\n'
-    + memories.map(memory => {
-      const entities = Array.isArray(memory.entityIds) && memory.entityIds.length ? `；实体：${memory.entityIds.join('、')}` : '';
-      const time = memory.time ? `；时间：${memory.time.value} ${memory.time.unit}` : '';
-      const location = memory.locationId ? `；地点：${memory.locationId}` : '';
-      return `- ${memory.summary}${entities}${location}${time}（来源 revision ${memory.sourceRevision}）`;
-    }).join('\n');
-}
-
-function buildWorldFactionPromptPart() {
-  if (!worldModeActive()) return '';
-  const world = currentWorldCard();
-  const state = currentWorldSave?.state || {};
-  const currentLocationId = state.locationId || null;
-  const recentFactionIds = new Set((Array.isArray(state.worldEvents) ? state.worldEvents : []).slice(-32).map(event => event?.factionId).filter(Boolean));
-  const definitions = (Array.isArray(world?.factions) ? world.factions : []).filter(faction => recentFactionIds.has(faction.id)
-    || (Array.isArray(faction.actions) && faction.actions.some(action => !action?.trigger?.locationId || action.trigger.locationId === currentLocationId)));
-  if (!definitions.length) return '';
-  const states = state.factionStates && typeof state.factionStates === 'object' ? state.factionStates : {};
-  return '【当前作用域派系】\n派系定义属于当前世界卡；动态状态属于当前存档，禁止跨世界或跨存档引用。\n' + definitions.map(faction => {
-    const state = states[faction.id] || {};
-    const goals = Array.isArray(state.goals) && state.goals.length ? state.goals : (Array.isArray(faction.goals) ? faction.goals : []);
-    const resources = Array.isArray(faction.resources) ? faction.resources.map(resource => `${resource.id}=${state.resources?.[resource.id] ?? resource.initial ?? resource.min ?? 0}`).join(', ') : '';
-    return [`ID: ${faction.id}`, `名称: ${faction.name || faction.id}`, faction.description, goals.length ? `目标: ${goals.join('；')}` : '', `关系: ${state.relation ?? 0}`, `影响力: ${state.influence ?? 0}`, resources ? `资源: ${resources}` : ''].filter(Boolean).join('\n');
-  }).join('\n\n');
-}
-
-function buildWorldConflictPromptPart() {
-  if (!worldModeActive()) return '';
-  const world = currentWorldCard();
-  const definitions = new Map((Array.isArray(world?.conflicts) ? world.conflicts : []).map(conflict => [conflict.id, conflict]));
-  const states = currentWorldSave?.state?.conflicts && typeof currentWorldSave.state.conflicts === 'object' ? Object.values(currentWorldSave.state.conflicts) : [];
-  if (!definitions.size && !states.length) return '';
-  const lines = states.length ? states.map(state => {
-    const definition = definitions.get(state.templateId);
-    const actions = Array.isArray(state.availableActions) ? state.availableActions.join('、') : '';
-    const participants = Array.isArray(state.participants) ? state.participants.map(item => {
-      if (typeof item === 'string') return item;
-      const hp = Number.isFinite(Number(item?.hp)) && Number.isFinite(Number(item?.maxHp)) ? ` HP=${item.hp}/${item.maxHp}` : '';
-      const defense = Number.isFinite(Number(item?.defense)) ? ` 防御=${item.defense}` : '';
-      return `${item?.id || ''}${hp}${defense}`.trim();
-    }).filter(Boolean).join('、') : '';
-    return `- ${state.id}：${definition?.label || state.templateId}，状态=${state.status || 'active'}，阶段=${state.phase || '未分阶段'}，第 ${state.round || 1} 轮${state.targetId ? `，目标=${state.targetId}` : ''}${participants ? `，参与者=${participants}` : ''}${actions ? `，可用行动=${actions}` : ''}${state.outcome ? `，结果=${state.outcome}` : ''}`;
-  }).join('\n') : '（当前没有进行中的冲突）';
-  const templates = [...definitions.values()].map(definition => {
-    const actions = Array.isArray(definition.actions) ? definition.actions.map(action => {
-      const check = action.check;
-      const checkText = check
-        ? ` [基础骰式=${check.roll || '未声明'}${check.modifier && typeof check.modifier === 'object' ? `；modifierRule=${JSON.stringify(check.modifier)}` : check.modifier !== undefined ? `；固定修正=${check.modifier}` : ''}；目标=${check.target}${check.damage ? `；伤害基础骰式=${check.damage.roll}` : ''}]`
-        : '';
-      return `${action.id}:${action.label}${checkText}`;
-    }).join('、') : '';
-    const phases = Array.isArray(definition.phases) ? definition.phases.map(phase => `${phase.id}:${phase.label}`).join('、') : '';
-    const outcomes = Array.isArray(definition.outcomes) ? definition.outcomes.map(outcome => `${outcome.id}:${outcome.label}`).join('、') : '';
-    return `- ${definition.id}（${definition.type || 'custom'}）：阶段=${phases || '无'}；行动=${actions || '无'}；结果=${outcomes || '无'}`;
-  }).join('\n');
-  const recentChecks = (Array.isArray(currentWorldSave?.receipts) ? currentWorldSave.receipts : [])
-    .slice(-8).flatMap(receipt => Array.isArray(receipt?.conflictChecks) ? receipt.conflictChecks : [])
-    .filter(check => states.some(state => state.id === check.conflictId));
-  const checkLines = recentChecks.length
-    ? '\n最近服务端判定：\n' + recentChecks.slice(-8).map(check => `- ${check.conflictId} ${check.type} ${check.actionId}：${check.check.total} vs ${check.check.target}，${check.check.success ? '成功' : '失败'}`).join('\n')
-    : '';
-  return `【冲突状态】\n冲突是当前世界存档独立拥有的状态，不得跨存档引用。只能使用已声明模板；生命周期只能 start（开始）、advance（推进一轮）或 end（以 declared outcome 结束），已结束冲突不可重开。战斗 action 的 check 由服务端掷骰并写回参与者 HP；social / stealth action 的 check 只记录技能判定结果，不读取或扣除 HP。AI 只选择 actionId 与必要的 targetId，不得伪造 HP、骰子或判定结果。\n当前状态：\n${lines}\n可用模板：\n${templates}${checkLines}`;
-}
-
-function buildWorldGrowthPromptPart() {
-  if (!worldModeActive()) return '';
-  const growth = currentWorldCard()?.playerCreation?.growth;
-  if (!growth || typeof growth !== 'object') return '';
-  const sources = (Array.isArray(growth.sources) ? growth.sources : []).map(source => `${source.id}:${source.label}`).join('、');
-  const candidates = (Array.isArray(growth.candidates) ? growth.candidates : []).map(candidate => `${candidate.id}:${candidate.label}（${candidate.sourceId} → ${growthEffectLabel(candidate)}）`).join('、');
-  const proposed = Array.isArray(currentWorldSave?.state?.growthCandidates) ? currentWorldSave.state.growthCandidates : [];
-  const proposedText = proposed.length ? proposed.map(candidate => `${candidate.candidateId}（${candidate.sourceId}，待确认）`).join('、') : '（暂无）';
-  const experiences = Array.isArray(currentWorldSave?.state?.experiences) ? currentWorldSave.state.experiences.slice(-8) : [];
-  const experienceText = experiences.length ? experiences.map(item => `${item.title}：${item.summary}`).join('；') : '（暂无）';
-  return `【成长候选与人物经历】\n成长来源属于当前世界卡，候选记录只属于当前存档；来源=${sources || '无'}。可提议候选=${candidates || '无'}。当前待确认=${proposedText}。已确认人物经历=${experienceText}。当前 typed patch 只允许更新已存在的数值与目标，不要在状态更新块中创建或接受成长候选；成长候选将在专用回合协议中提交。`;
-}
-
-function buildWorldFailurePromptPart() {
-  if (!worldModeActive()) return '';
-  const failure = currentWorldCard()?.failure;
-  const modes = Array.isArray(failure?.modes) ? failure.modes : [];
-  const modeText = modes.length ? modes.map(mode => `${mode.id}:${mode.label || mode.id}${mode.terminal ? '（终止）' : ''}${mode.hpRatio !== undefined ? ` HP=${mode.hpRatio}` : ''}`).join('、') : '使用服务端内置安全模式';
-  const current = currentWorldSave?.state?.failure;
-  return `【失败与死亡规则】失败结算由服务端根据 WorldCard.failure 触发，AI 不得直接写入 state.failure、伪造 HP/骰子结果或绕过模式。可用模式：${modeText}。HP 降到 0 与冲突失败由服务端判定；当前失败状态：${current ? `${current.mode}/${current.status}` : '未触发'}。永久死亡后不得继续普通回合。`;
-}
-
-function buildWorldEndingPromptPart() {
-  if (!worldModeActive()) return '';
-  const ending = currentWorldCard()?.ending;
-  const options = Array.isArray(ending?.endings) ? ending.endings.map(item => `${item.id}:${item.label || item.id}`).join('、') : 'player-choice:玩家主动结束';
-  const current = currentWorldSave?.state?.ending;
-  return `【开放式结局】世界卡不强制唯一结局，可用结局：${options}。AI 只能叙述候选结果，不得自行结束世界线或写入 state.ending；玩家必须通过界面明确确认，服务端才会提交结局。当前状态：${current ? `${current.endingId}/ended` : '进行中'}。`;
-}
-
-function buildWorldReopenPromptPart() {
-  if (!worldModeActive()) return '';
-  const info = currentWorldSave?.reopenInfo;
-  if (!info) return '';
-  const summary = info.sourceSummary && typeof info.sourceSummary === 'object' ? JSON.stringify(info.sourceSummary).slice(0, 12000) : '无可用总结';
-  return `【世界线重开上下文】当前存档来自 ${info.sourceSaveId || '上一条世界线'}（${info.sourceStatus || 'reopen'}）。以下内容是只读的过去世界线记录，必须作为背景连续性参考，不得直接改写当前 state、结局或回合账本：${summary}`;
-}
-
-function buildRpgPromptSections() {
-  if (mode !== 'rpg') return [];
-  const sections = [];
-  const pushSection = (id, text, source = 'runtime') => {
-    if (text) sections.push({ id, source, text: String(text) });
-  };
-  const unshiftSection = (id, text, source = 'runtime') => {
-    if (text) sections.unshift({ id, source, text: String(text) });
-  };
-  const rs = curRpgState();
-  const agentProfile = buildRpgAgentProfile();
-  const agentContext = buildRpgAgentContext(agentProfile);
-  const enabledAgentTools = Object.entries(agentProfile.tools)
-    .filter(([, config]) => config.enabled !== false)
-    .map(([name, config]) => `${name}（${config.execution || 'server'}）`);
-  pushSection('agent.profile', `【Agent Runtime】protocol=${agentProfile.protocol} v${agentProfile.version}；mode=${agentProfile.mode}；maxSteps=${agentProfile.maxSteps}；可用工具=${enabledAgentTools.length ? enabledAgentTools.join('、') : '无'}。工具只能通过当前存档的服务端校验产生结果，不能跨 saveId、改写 runtime schema 或直接写入未声明字段。世界卡定义的变量、集合和动作属于本局状态的一部分，必须使用声明式 runtime 更新。`);
-  if (agentContext) pushSection('agent.context', `【Agent 请求上下文】以下是本次请求唯一的作用域快照；缺失字段不得由模型猜测，稳定事实与本局状态必须按标注来源区分：\n${JSON.stringify(agentContext)}`);
-  if (rs) {
-    if (worldModeActive()) pushSection('turn.commit-contract', `【结构化回合提交】当前 saveId=${currentWorldSave.id}，revision=${currentWorldSave.revision}。回复末尾的 <tavern_state_update> 必须原样使用 protocol=tavern.rpg.turn、version=1、baseRevision=${currentWorldSave.revision}；只允许玩家状态、地点/时间、必要判定和 options，服务端会以此 revision 做原子提交。`);
-    const stateText = worldModeActive()
-      ? `HP ${rs.hp}/${rs.maxHp}，MP ${rs.mp}/${rs.maxMp}，当前位置：${rs.location}`
-      : `等级 ${rs.level}（经验 ${rs.exp}/${rs.expNext}），HP ${rs.hp}/${rs.maxHp}，MP ${rs.mp}/${rs.maxMp}，金币 ${rs.gold}，当前位置：${rs.location}`;
-    pushSection('save.rpg-state', '【RPG 状态】' + stateText
-      + (rs.buffs?.length ? `，状态效果：${rs.buffs.join('、')}` : ''));
-    if (!worldModeActive()) pushSection('save.inventory', '【背包】' + (rs.inventory.length ? rs.inventory.map(i => `${i.name}×${i.count}${i.desc ? `（${i.desc}）` : ''}`).join('、') : '（空）'));
-    if (!worldModeActive()) {
-      pushSection('save.quests', '【任务】' + (rs.quests.length ? rs.quests.map(x => `${x.title}${x.status === 'done' ? '（已完成）' : ''}`).join('、') : '（无）'));
-      pushSection('save.goals', '【目标】' + (rs.goals?.length ? rs.goals.map(x => `${x.title}${x.status && x.status !== 'active' ? `（${x.status}）` : ''}`).join('、') : '（无）'));
-      pushSection('save.leads', '【线索】' + (rs.leads?.length ? rs.leads.map(x => `${x.title}${x.status && x.status !== 'active' ? `（${x.status}）` : ''}`).join('、') : '（无）'));
-      const deadlineObjectives = [...(rs.goals || []), ...(rs.leads || [])];
-      const deadlineText = deadlineObjectives.filter(item => item?.deadline && item.status === 'active' && Number.isFinite(item.deadline.value) && item.deadline.unit).map(item => `${item.title || item.id} 截止 ${item.deadline.value} ${item.deadline.unit}`).join('；');
-      if (deadlineText) pushSection('save.deadlines', '【目标 / 线索时限】' + deadlineText);
-    }
-  }
-  if (worldModeActive()) {
-    const world = currentWorldCard();
-    if (world) {
-      const factLayerPrompt = buildWorldFactLayerPromptPart();
-      if (factLayerPrompt) pushSection('world.fact-layer', factLayerPrompt);
-      const setupPrompt = buildWorldSetupPromptPart();
-      if (setupPrompt) pushSection('save.setup', setupPrompt);
-      const knowledgePrompt = buildWorldKnowledgePromptPart();
-      if (knowledgePrompt) pushSection('knowledge.scope', knowledgePrompt);
-      const worldTime = currentWorldSave.state?.time;
-      if (worldTime) unshiftSection('world.time', `【世界时间】${worldTime.value} ${worldTime.unit}（每次正式回合由服务端推进，AI 不得直接篡改）`);
-      unshiftSection('world.card', '【当前世界卡】\n' + [
-        `世界：${world.title || world.id}（v${world.version || 1}）`,
-        world.summary || '',
-        '位置协议：state.locationId 与 NPC locationId 只能使用已登记的稳定 locationId；地点名称只用于叙事，不得写入状态。',
-        world.locations?.length ? '已登记地点：' + world.locations.map(x => `${x.name || x.id}（id: ${x.id}；${x.type || '地点'}）`).join('、') : '',
-        currentWorldSave.opening ? '开局：' + currentWorldSave.opening : '',
-      ].filter(Boolean).join('\n'));
-      const player = currentWorldSave.player?.snapshot;
-      if (player) unshiftSection('save.player-snapshot', '【世界存档中的玩家快照】\n' + Object.entries(player).filter(([k, v]) => k !== 'profileFields' && v != null && String(v).trim()).map(([k, v]) => `${k}：${typeof v === 'object' ? JSON.stringify(v) : v}`).join('\n'));
-      const dynamicPlayer = currentWorldSave.state?.player;
-      if (dynamicPlayer) unshiftSection('save.player-state', '【当前玩家动态状态】\n' + ['attributes', 'skills', 'resources', 'traits', 'relations', 'identity', 'effects'].filter(key => dynamicPlayer[key] !== undefined).map(key => `${key}：${JSON.stringify(dynamicPlayer[key])}`).join('\n'));
-      const derivedValues = evaluateWorldDerivedValues(world.playerCreation, dynamicPlayer);
-      if (derivedValues.length) unshiftSection('save.derived-values', '【当前玩家只读派生值】\n' + derivedValues.map(item => `${item.id}: ${item.value === null ? 'N/A' : item.value}`).join('\n') + '\n这些值由属性/技能/资源实时计算，仅供阅读，禁止写回 ```rpg``` 状态块。');
-      const optionRules = worldOptionRules();
-      pushSection('turn.options-contract', `【回合契约】行动选项数量 ${optionRules.min}-${optionRules.max}；自由文本输入始终可用。AI 不得替玩家补写未表达的核心意图、台词或不可逆行动。`);
-      const intent = worldTurnPendingActive() ? currentWorldSave?.agentRuntime?.pending?.actionIntent || worldTurnPending?.actionIntent : null;
-      if (intent?.actionId) {
-        const intentAction = (Array.isArray(world.runtime?.actions) ? world.runtime.actions : []).find(action => action?.id === intent.actionId);
-        const intentAvailability = intentAction && !rpgRuntimeActionAvailabilityUsesInput(intentAction)
-          ? rpgRuntimeActionAvailabilityError(intentAction, currentWorldSave?.state?.runtime || {}) : '';
-        pushSection('turn.action-intent', `【玩家明确动作意图】本回合 actionId=${intent.actionId}${intentAction ? `（${intentAction.label || intentAction.id}）` : '（未声明，不能执行）'}。actionId 是玩家通过卡内按钮或自由输入精确匹配明确提交的动作，不得只当作叙事描述：动作已声明且可用时必须调用一次 runtime.action.execute；需要判定时先完成该 actionId 的 rules.check → dice.roll，只有达到目标才执行。绝不把该动作的效果手写成 item.delta、runtime.collection.patch 或其他等价 updates；卡内动作的状态效果只能由声明的 runtime.action.execute 结算。${intentAvailability ? `当前不可用：${intentAvailability}。不要调用、不要手写等价 updates，只在正文说明资源或条件不足。` : '若工具返回 accepted=candidate，最终提交必须保留该动作候选。'}`);
-      }
-      pushSection('turn.side-effects', '【副作用边界】Markdown 叙事、NPC 台词、行动选项和普通文本中的骰子表达式都只是文本，不会自动执行骰子或改写状态；只有协议中通过服务端校验的结构化更新才可产生状态变化。');
-      pushSection('turn.tool-candidates', agentProfile.mode === 'native'
-        ? '【Agent 步骤协议】每一步只做一件事：需要信息/判定时调用工具并等待真实结果；已有结果时继续叙事。只有同时存在风险、不确定性与后果才判定，顺序固定为 context.retrieve → rules.check → dice.roll → 状态候选。dice.roll 只写基础 1dN，修正必须原样引用已声明的属性/技能/runtime 数值，禁止猜值。最终一步不得再调用工具：输出 Markdown 正文与唯一状态标签，正文不要列行动选项。'
-        : '【Agent 兼容步骤协议】中间步骤可在唯一 <tavern_state_update> 的 toolCalls 中请求工具，然后等待真实结果；最终步骤必须删除 toolCalls，只输出 Markdown 正文与唯一状态标签。只有同时存在风险、不确定性与后果才按 context.retrieve → rules.check → dice.roll → 状态候选执行；dice.roll 只写基础 1dN，修正引用已声明数值。正文不要重复行动选项。');
-      const npcPrompt = buildWorldNpcPromptPart();
-      if (npcPrompt) pushSection('world.npcs', npcPrompt);
-      const failurePrompt = buildWorldFailurePromptPart();
-      if (failurePrompt) pushSection('rules.failure', failurePrompt);
-      const endingPrompt = buildWorldEndingPromptPart();
-      if (endingPrompt) pushSection('rules.ending', endingPrompt);
-      const reopenPrompt = buildWorldReopenPromptPart();
-      if (reopenPrompt) pushSection('world.reopen', reopenPrompt);
-      const runtime = world.runtime && typeof world.runtime === 'object' ? world.runtime : null;
-      if (runtime) {
-        const runtimeState = currentWorldSave.state?.runtime || {};
-        const unavailableActions = (Array.isArray(runtime.actions) ? runtime.actions : [])
-          .filter(action => !rpgRuntimeActionAvailabilityUsesInput(action))
-          .map(action => ({ action, error: rpgRuntimeActionAvailabilityError(action, runtimeState) }))
-          .filter(item => item.error)
-          // ponytail: prompt only lists 8 unavailable actions; the Agent guard checks every action at execution time.
-          .slice(0, 8);
-        if (unavailableActions.length) pushSection('world.runtime-unavailable-actions', `【当前不可用 Runtime 动作】${unavailableActions.map(({ action, error }) => `${action.label || action.id}（${action.id}）：${error}`).join('；')}。这些动作已耗尽或条件不足，不能调用 runtime.action.execute，也不得写入 updates；应据此继续叙事或选择其他可用行动。`);
-        const runtimeProjection = JSON.stringify({
-          schema: runtime,
-          state: runtimeState,
-        });
-        const runtimeLimit = Math.min(12000, Math.max(4000, Math.floor(worldContextBudget() / 2)));
-        pushSection('world.runtime-contract', `【世界卡 Runtime 契约】只可使用以下已声明的变量、集合和动作；不得修改 schema 或凭空创建字段。Agent 调用 state.patch 工具时，updates 不得包含 runtime.action.execute；执行声明式动作只能调用同名工具，并使用当前 runtime.actions 已声明的 actionId。玩家行动没有对应 action 时，应使用当前协议已声明的其他 Typed Patch（如 runtime.variable.* 或 runtime.collection.*），不能编造 actionId。状态变化放入唯一标签的 updates，动作有 check 时须先完成同 actionId 判定。\n${runtimeProjection.slice(0, runtimeLimit)}`);
-      } else {
-        pushSection('world.runtime-contract', '【世界卡 Runtime 契约】当前世界卡未声明自定义 runtime；不要猜测或提交 runtime 更新。');
-      }
-    }
-  }
-  if (worldModeActive()) {
-    const budgeted = budgetWorldPromptParts(sections);
-    sections.length = 0;
-    sections.push(...budgeted);
-  }
-  if (defaults?.rpg?.diceInstruction) pushSection('turn.dice-contract', defaults.rpg.diceInstruction, 'preset');
-  const stateInstruction = worldModeActive()
-    ? `⚠️ RPG 最终输出：Markdown 正文 + 末尾唯一 <tavern_state_update>JSON</tavern_state_update>。最终 JSON 仅含 protocol、version、baseRevision、updates、options、eventMemory；protocol="tavern.rpg.turn"，version=1，baseRevision 等于当前 revision。updates 只改已声明字段；options 仅在 JSON 中提供，不得写进正文。中间工具步骤可临时包含 toolCalls，收到工具结果后的最终输出必须删除 toolCalls。${RPG_RUNTIME_UPDATE_FORMAT_HINT}`
-    : ((defaults?.rpg?.stateInstruction) || '每次回复末尾输出唯一的 <tavern_state_update> JSON 状态更新块。');
-  pushSection('output.protocol', stateInstruction, 'preset');
-  if (defaults?.rpg?.eventMemoryInstruction) pushSection('output.event-memory', defaults.rpg.eventMemoryInstruction, 'preset');
-  return sections;
-}
-
-function buildRpgPromptPart() {
-  return buildRpgPromptSections().map(section => section.text).join('\n\n');
-}
 
 function expandPresetMacros(text, macroContext, variables) {
   let output = String(text || '').replace(/\{\{\/\/[\s\S]*?\}\}/g, '');
@@ -12264,7 +11265,6 @@ function regexHistoryContent(message) {
 
 function tavernPromptHistoryMessages(session = curSession()) {
   if (!session || !Array.isArray(session.messages)) return [];
-  if (tavernAutoMemoryConfig().enabled) return tavernTurnHistory(session);
   return session.messages
     .filter(message => message && (message.role === 'user' || message.role === 'assistant'))
     .map(message => ({
@@ -12296,177 +11296,6 @@ function splitLatestPlayerTurn(messages) {
   };
 }
 
-function buildPromptBlocks() {
-  const char = currentChar();
-  const promptChar = worldModeActive() ? null : char;
-  const { preset: rawPreset } = resolvePromptPreset();
-  const preset = normalizePromptPreset('', rawPreset);
-  const presetSettings = preset.modelParameters && typeof preset.modelParameters === 'object' ? preset.modelParameters : {};
-  const wiResult = buildWorldInfo({ withOutlets: true });
-  // 提示词正则只作用于本次请求副本；世界书/历史原文与会话存档保持不变。
-  const wi = wiResult.entries.map(entry => applyRegexStage(entry, 'world_info', { includePromptOnly: true }));
-  const formatWorldInfoEntries = entries => (Array.isArray(entries) ? entries : [])
-    .map(entry => applyRegexStage(entry, 'world_info', { includePromptOnly: true }));
-  const wiPositions = wiResult.positions || { before: wi, after: [], exampleTop: [], exampleBottom: [], anTop: [], anBottom: [], atDepth: [] };
-  const charParts = worldModeActive()
-    ? { description: '', personality: '', scenario: '', rawDescription: '', rawPersonality: '', rawScenario: '' }
-    : buildCharacterPromptParts(promptChar, presetSettings);
-  const userPart = worldModeActive() ? '' : buildUserPromptPart();
-  const rpgSections = buildRpgPromptSections();
-  const macroMessages = (worldModeActive() ? worldTimelineMessages() : curMessages())
-    // 骰点等 meta 是本轮附加记录，不应覆盖 {{lastMessage}} 或增加 {{messageCount}}。
-    .filter(message => message && !message.meta && (message.role === 'user' || message.role === 'assistant'));
-  const lastMacroMessage = macroMessages.at(-1)?.content || '';
-  const lastMacroUserMessage = [...macroMessages].reverse().find(message => message.role === 'user' && !message.meta)?.content || '';
-  const lastMacroCharMessage = [...macroMessages].reverse().find(message => message.role === 'assistant')?.content || '';
-  const runtime = {
-    worldInfoBefore: formatWorldInfoPrompt(formatWorldInfoEntries(wiPositions.before), presetSettings),
-    worldInfoAfter: formatWorldInfoPrompt(formatWorldInfoEntries(wiPositions.after), presetSettings),
-    personaDescription: userPart,
-    charDescription: charParts.description,
-    charPersonality: charParts.personality,
-    scenario: charParts.scenario,
-    tavernMemory: buildMemoryPromptPart(),
-    tavernRpg: rpgSections.map(section => section.text).join('\n\n'),
-    tavernRpgSections: rpgSections,
-    outlets: wiResult.outlets,
-  };
-  const macroContext = {
-    user: currentUserPreset()?.name || '玩家',
-    char: worldModeActive() ? (currentWorldCard()?.title || '世界') : (promptChar?.name || '角色'),
-    persona: currentUserPreset()?.persona || '',
-    description: charParts.rawDescription,
-    personality: charParts.rawPersonality,
-    scenario: charParts.rawScenario,
-    mesExamples: promptChar?.mesExample || promptChar?.mes_example || '',
-    mesExamplesRaw: promptChar?.mesExample || promptChar?.mes_example || '',
-    lastMessage: lastMacroMessage,
-    lastUserMessage: lastMacroUserMessage,
-    lastCharMessage: lastMacroCharMessage,
-    messageCount: String(macroMessages.length),
-    outlets: wiResult.outlets,
-    group: '',
-    charIfNotGroup: worldModeActive() ? (currentWorldCard()?.title || '世界') : (promptChar?.name || '角色'),
-  };
-  const variables = {};
-  const promptMap = new Map(preset.prompts.map(p => [p.identifier, p]));
-  const systemParts = [];
-  const beforeHistory = [];
-  const afterHistory = [];
-  const relativeBefore = [];
-  const relativeAfter = [];
-  const injections = [];
-  const postParts = [];
-  let includeHistory = false;
-  let reachedHistory = false;
-
-  for (const item of preset.promptOrder) {
-    if (item.enabled === false) continue;
-    const prompt = promptMap.get(item.identifier);
-    if (!prompt) continue;
-    if (prompt.identifier === 'chatHistory') {
-      includeHistory = true;
-      reachedHistory = true;
-      const newChatPrompt = expandPresetMacros(presetSettings.new_chat_prompt || '', macroContext, variables);
-      if (newChatPrompt) {
-        systemParts.push(newChatPrompt);
-        relativeBefore.push({ role: 'system', content: newChatPrompt });
-      }
-      continue;
-    }
-    if (prompt.identifier === 'dialogueExamples' && prompt.marker) {
-      const exampleMessages = buildDialogueExampleMessages(
-        promptChar?.mesExample || promptChar?.mes_example || '',
-        formatWorldInfoEntries(wiPositions.exampleTop),
-        formatWorldInfoEntries(wiPositions.exampleBottom),
-        presetSettings,
-        macroContext,
-      );
-      for (const message of exampleMessages) {
-        const content = expandPresetMacros(message.content, macroContext, variables);
-        if (!content) continue;
-        if (message.role === 'system') systemParts.push(content);
-        else (reachedHistory ? afterHistory : beforeHistory).push({ role: message.role, content });
-        (reachedHistory ? relativeAfter : relativeBefore).push({ role: message.role, content, _example: true });
-      }
-      continue;
-    }
-    let content = prompt.marker ? runtime[prompt.identifier] ?? prompt.content : prompt.content;
-    if (prompt.identifier === 'main') {
-      const base = prompt.content || (mode === 'rpg' ? RPG_TASK_FALLBACK : '');
-      content = mode === 'tavern' ? resolveCharacterPromptOverride(promptChar?.systemPrompt, base) : base;
-    }
-    if (prompt.identifier === 'jailbreak') {
-      content = mode === 'tavern'
-        ? resolveCharacterPromptOverride(promptChar?.postHistory, prompt.content)
-        : prompt.content;
-    }
-    content = expandPresetMacros(content, macroContext, variables);
-    if (!content) continue;
-    if (prompt.position === 'in_chat' && !prompt.marker) {
-      injections.push({ role: prompt.role, content, depth: prompt.depth, order: prompt.order });
-      if (prompt.role === 'system') systemParts.push(content);
-    } else if (prompt.role === 'system' || prompt.marker) {
-      systemParts.push(content);
-      (reachedHistory ? relativeAfter : relativeBefore).push({ role: 'system', content });
-    } else {
-      (reachedHistory ? afterHistory : beforeHistory).push({ role: prompt.role, content });
-      (reachedHistory ? relativeAfter : relativeBefore).push({ role: prompt.role, content });
-    }
-  }
-
-  for (const entry of Array.isArray(wiPositions.atDepth) ? wiPositions.atDepth : []) {
-    const content = expandPresetMacros(applyRegexStage(entry.content, 'world_info', { includePromptOnly: true }), macroContext, variables);
-    if (!content) continue;
-    injections.push({ role: entry.role, content, depth: entry.depth, order: entry.order });
-    if (entry.role === 'system') systemParts.push(content);
-  }
-
-  const recentContext = worldModeActive() ? buildWorldRecentContext() : null;
-  const historySource = recentContext ? recentContext.messages : tavernPromptHistoryMessages();
-  const splitTurn = splitLatestPlayerTurn(historySource);
-  let previousHistory = splitTurn.history;
-  const currentTurn = splitTurn.current;
-  if (!recentContext) {
-    // 先过滤对话消息、再限制历史，并为本轮输入保留一个固定槽位；meta 骰点不再挤掉玩家输入。
-    const historyLimit = Math.max(1, Math.floor(Number(settings.history) || 20));
-    const previousLimit = Math.max(0, historyLimit - currentTurn.length);
-    previousHistory = previousLimit ? previousHistory.slice(-previousLimit) : [];
-  }
-  previousHistory = previousHistory.map(message => ({ ...message, _history: true }));
-  // “聊天历史”只控制已完成的旧上下文；本轮玩家输入是当前请求参数，始终保留。
-  const exampleHistory = [];
-  if (mode === 'rpg' && defaults?.rpg?.exampleTurn) {
-    const ex = defaults.rpg.exampleTurn;
-    if (ex.user && ex.assistant) exampleHistory.push({ role: 'user', content: ex.user }, { role: 'assistant', content: ex.assistant });
-  }
-  let history = [...exampleHistory, ...(includeHistory ? previousHistory : [])];
-  history = mergeHistoryInjections(history, injections);
-  const orderedChat = mergeHistoryInjections([...exampleHistory, ...(includeHistory ? previousHistory : []), ...currentTurn], injections);
-  const optionPrompt = buildTavernReplyOptionsPrompt(preset);
-  if (optionPrompt) postParts.push(expandPresetMacros(optionPrompt, macroContext, variables));
-  // 兼容调试投影仍把本轮玩家输入保留为最后一条 user；真实请求使用下方 orderedPromptMessages。
-  const promptHistory = [...beforeHistory, ...history, ...afterHistory, ...currentTurn].map((message, index, list) => ({
-    role: message.role,
-    content: applyRegexStage(message.content, 'prompt_history', { role: message.role, depth: Math.max(0, list.filter(item => item.role !== 'system').length - list.slice(0, index + 1).filter(item => item.role !== 'system').length) }),
-  }));
-  const orderedPromptMessages = [...relativeBefore, ...orderedChat, ...relativeAfter].map((message, index, list) => ({
-    role: message.role,
-    content: applyRegexStage(message.content, message.role === 'system' ? 'system_prompt' : 'prompt_history', { role: message.role, depth: Math.max(0, list.filter(item => item.role !== 'system').length - list.slice(0, index + 1).filter(item => item.role !== 'system').length) }),
-    ...(message._example ? { _example: true } : {}),
-    ...(message._history ? { _history: true } : {}),
-  }));
-  return {
-    system: applyRegexStage(systemParts.join('\n\n'), 'system_prompt'),
-    wi,
-    history: promptHistory,
-    promptMessages: orderedPromptMessages,
-    post: applyRegexStage(postParts.filter(Boolean).join('\n\n'), 'system_prompt'),
-    assistantPrefill: expandPresetMacros(presetSettings.assistant_prefill || '', macroContext, variables),
-    recentContext,
-    rpgSections,
-  };
-}
 /* ─────────── API ─────────── */
 const PROMPT_CACHE_RUNTIME_LIMIT = 12;
 const promptCacheRuntime = new Map();
@@ -12750,7 +11579,7 @@ function buildPayload({ test = false } = {}) {
   }
   if (post && post.trim()) body.messages.push({ role: 'system', content: post });
   // 合成 char 历史只存在于请求副本，不写入会话或摘要；与已有 prefill 合成一个尾消息。
-  const assistantTail = [buildTavernReplyOptionsAssistantMessage(activePromptPreset), assistantPrefill]
+  const assistantTail = [assistantPrefill]
     .filter(value => value && value.trim()).join('\n\n');
   if (assistantTail) body.messages.push({ role: 'assistant', content: assistantTail });
   body.messages = body.messages.filter(message => String(message.content ?? '').trim());
@@ -12807,95 +11636,8 @@ function summarizeTavernTurnText(turns) {
   }).join('\n\n');
 }
 
-async function requestTavernMemorySummary(turns, config) {
-  if (!settings.baseUrl) throw new Error('未配置 API，自动记忆将在下一轮重试');
-  const payload = {
-    baseUrl: settings.baseUrl,
-    apiKey: settings.apiKey,
-    body: {
-      model: settings.model || 'default',
-      messages: [
-        {
-          role: 'system',
-          content: `你是 RP 对话记忆压缩器。将输入的完整对话压缩成约 ${config.summaryChars} 个中文字符的事实摘要。保留人物关系、关键事件、地点、承诺、未完成目标和重要状态；不要补写未发生的内容。只输出摘要正文，不要标题、解释、JSON、Markdown 代码块或 tavern_options 标签。`,
-        },
-        { role: 'user', content: summarizeTavernTurnText(turns) },
-      ],
-      temperature: Math.min(0.4, Number(settings.temperature) || 0.4),
-      max_tokens: Math.max(96, Math.min(256, Math.ceil(config.summaryChars * 2.5))),
-      top_p: settings.topP,
-      frequency_penalty: settings.frequencyPenalty,
-      presence_penalty: settings.presencePenalty,
-      stream: false,
-    },
-  };
-  const data = await callAPI(payload);
-  const content = data?.choices?.[0]?.message?.content;
-  if (!content || data?.choices?.[0]?.finish_reason === 'length') throw new Error('摘要输出被截断或为空');
-  const text = String(content)
-    .replace(/^```[\s\S]*?\n|```$/g, '')
-    .replace(/^摘要[:：]\s*/i, '')
-    .replace(/<tavern_options>[\s\S]*?<\/tavern_options>/gi, '')
-    .trim();
-  if (!text) throw new Error('摘要输出为空');
-  return Array.from(text).slice(0, config.summaryChars).join('');
-}
 
-async function maybeRollTavernMemory(session = curSession(), { force = false } = {}) {
-  if (mode !== 'tavern' || !session || session !== curSession()) return;
-  const config = tavernAutoMemoryConfig();
-  if ((!force && !config.enabled) || tavernMemoryPending.has(session.id)) {
-    renderTavernAutoMemoryStatus();
-    return;
-  }
-  const changed = ensureTavernMessageIds(session);
-  ensureTavernSessionMemory(session);
-  if (changed) saveSessions(session);
-  const turns = getTavernUnsummarizedTurns(session);
-  if (!turns.length) {
-    if (force) tavernMemoryStatus.set(session.id, '暂无可总结的完整对话');
-    renderTavernAutoMemoryStatus();
-    return;
-  }
-  if (!force && turns.length < config.windowTurns) {
-    renderTavernAutoMemoryStatus();
-    return;
-  }
-  const sourceTurns = turns.slice(0, Math.min(config.summarizeTurns, turns.length));
-  const sourceMessageIds = sourceTurns.flatMap(turn => turn.messages.map(message => message.id));
-  const requestSessionId = session.id;
-  tavernMemoryPending.add(requestSessionId);
-  tavernMemoryStatus.set(requestSessionId, '正在生成摘要…');
-  renderTavernAutoMemoryStatus();
-  try {
-    const text = await requestTavernMemorySummary(sourceTurns, config);
-    const target = sessions.find(item => item.id === requestSessionId && item.kind === 'tavern');
-    if (!target) return;
-    const memory = ensureTavernSessionMemory(target);
-    memory.summaries.push({ id: uid(), text, sourceMessageIds, createdAt: Date.now() });
-    tavernMemoryStatus.delete(requestSessionId);
-    saveSessions(target);
-  } catch (error) {
-    tavernMemoryStatus.set(requestSessionId, `总结失败，将重试：${error.message}`);
-    console.warn('[Tavern] 自动记忆总结失败:', error.message);
-  } finally {
-    tavernMemoryPending.delete(requestSessionId);
-    renderTavernAutoMemoryStatus();
-    if (curSession()?.id === requestSessionId) renderMessages();
-  }
-}
 
-async function manualRollTavernMemory() {
-  const button = $('mem-auto-run');
-  if (button?.disabled) return;
-  const label = button?.textContent || '立即总结';
-  if (button) { button.disabled = true; button.textContent = '总结中…'; }
-  try {
-    await maybeRollTavernMemory(curSession(), { force: true });
-  } finally {
-    if (button) { button.disabled = false; button.textContent = label; }
-  }
-}
 
 function mergeNativeToolCall(toolCalls, delta) {
   if (!delta || typeof delta !== 'object') return;
@@ -14530,10 +13272,13 @@ function setApiStatus(text, isErr = false) {
   el.classList.toggle('ok', !isErr && !!settings.baseUrl);
 }
 
+// §7-3：弹窗关闭后把焦点还给触发元素——键盘用户不能丢焦点
+let settingsReturnFocus = null;
 function openSettings() {
   closeNavDrawer();
   fillSettingsForm();
   renderProfileSelect();
+  settingsReturnFocus = document.activeElement;
   $('settings-modal').classList.remove('hidden');
 }
 
@@ -14542,6 +13287,9 @@ function closeSettings() {
   $('test-result').textContent = '';
   $('test-result').className = '';
   updateApiStatusFromSettings();
+  const back = (settingsReturnFocus && settingsReturnFocus !== document.body && document.contains(settingsReturnFocus)) ? settingsReturnFocus : document.querySelector('.js-settings');
+  settingsReturnFocus = null;
+  if (back && typeof back.focus === 'function') back.focus();
 }
 
 function updateApiStatusFromSettings() {
@@ -15236,7 +13984,6 @@ function saveEdit(m) {
   if (worldModeActive()) queueWorldSave(currentWorldSave);
   else {
     const session = curSession();
-    invalidateTavernAutoMemory(session, m.id);
     saveSessions(session);
   }
   renderMessages();
@@ -15261,7 +14008,6 @@ function deleteMessage(m) {
   const i = s.messages.indexOf(m);
   if (i < 0) return;
   if (!confirm('删除这条消息？')) return;
-  invalidateTavernAutoMemory(s, m.id);
   s.messages.splice(i, 1);
   saveSessions(s);
   renderMessages();
@@ -15288,7 +14034,6 @@ async function regenAssistant(m) {
   if (!s || sending) return;
   const i = s.messages.indexOf(m);
   if (i < 0 || s.messages[i].role !== 'assistant') return;
-  invalidateTavernAutoMemory(s, s.messages.slice(i).map(message => message.id));
   s.messages = s.messages.slice(0, i);
   saveSessions(s);
   renderMessages();
@@ -15329,9 +14074,7 @@ function renderMessages() {
     messageRenderWindow = { key: conversationKey, start: 0, preserveScroll: false };
   }
   syncConversationResetButton();
-  initTavernCardFrameBridge();
   renderDebugTerminal();
-  renderTavernAutoMemoryStatus();
   if (mode !== 'rpg') clearWorldExtension();
   applyWorldUiSlots();
   chat.innerHTML = '';
@@ -15425,7 +14168,7 @@ function renderMessages() {
           el.className = 'msg assistant';
           el.innerHTML = renderEditBubble(m);
         } else {
-          const { html: h, md } = renderBubble(seg.type === 'dialogue' ? seg.text.slice(1, -1) : seg.text, { allowCardScripts: true });
+          const { html: h, md } = renderBubble(seg.type === 'dialogue' ? seg.text.slice(1, -1) : seg.text);
           html = h;
           if (seg.type === 'narration') {
             el.className = `msg narration${bubbleDialogue ? '' : ' tavern-prose'}`;
@@ -15904,6 +14647,7 @@ function buildMapJson() {
     gridStats: { landPx: land, oceanPx: ocean, total: map.size * map.size, regions: map.regions.length },
   };
 }
+let mapJsonReturnFocus = null;
 function showMapJson() {
   const data = buildMapJson();
   if (!data) return;
@@ -15911,7 +14655,17 @@ function showMapJson() {
   const pre = $('map-json-content');
   if (pre) pre.textContent = lastMapJson;
   const mj = $('map-json-modal');
-  if (mj) mj.classList.remove('hidden');
+  if (mj) {
+    mapJsonReturnFocus = document.activeElement;
+    mj.classList.remove('hidden');
+  }
+}
+function closeMapJsonModal() {
+  const mj = $('map-json-modal');
+  if (mj) mj.classList.add('hidden');
+  const back = (mapJsonReturnFocus && mapJsonReturnFocus !== document.body && document.contains(mapJsonReturnFocus)) ? mapJsonReturnFocus : null;
+  mapJsonReturnFocus = null;
+  if (back && typeof back.focus === 'function') back.focus();
 }
 function copyMapJson() {
   const data = buildMapJson();
@@ -16261,7 +15015,6 @@ async function requestReply() {
     const extra = {
       outputRegexApplied: true,
       ...(typeof processed.rawContent === 'string' ? { rawContent: processed.rawContent } : {}),
-      ...(mode === 'tavern' ? { cardOutputRegexApplied: true } : {}),
     };
     if (cot) extra.cot = cot;
     if (processed.options && processed.options.length) extra.options = processed.options;
@@ -16306,7 +15059,6 @@ async function requestReply() {
       // 否则正文会同时渲染“预览 + 历史”，快捷选项也会一直被“整理中”占位遮住。
       clearResponsePreview();
       pushMessage('assistant', clean, extra);
-      void maybeRollTavernMemory(curSession());
     }
     // 文生图（测试）：回复完成后自动生图（异步，不阻塞对话）
     const ig = settings.imageGen;
@@ -16498,7 +15250,7 @@ function syncModeNavigation(view = 'chat') {
 }
 
 // 手机端管理页采用“列表 → 详情”钻取；桌面端继续保留双栏编辑器。
-const MOBILE_MANAGER_IDS = ['char-mgr', 'prompt-mgr', 'regex-mgr', 'lore-mgr', 'memory-mgr', 'world-mgr'];
+const MOBILE_MANAGER_IDS = ['prompt-mgr', 'regex-mgr', 'lore-mgr', 'memory-mgr', 'world-mgr'];
 function isMobileViewport() { return window.matchMedia('(max-width: 960px)').matches; }
 function syncMobileManagerBackLabel(managerId) {
   const manager = $(managerId);
@@ -16615,7 +15367,7 @@ function switchView(name) {
   closeNavDrawer(); // 手机抽屉：切换视图后自动收起
   renderDebugTerminal();
   syncModeNavigation(name);
-  ['char-mgr', 'prompt-mgr', 'regex-mgr', 'lore-mgr', 'memory-mgr', 'world-mgr'].forEach(id => { const el = $(id); if (el) el.classList.add('hidden'); });
+  ['prompt-mgr', 'regex-mgr', 'lore-mgr', 'memory-mgr', 'world-mgr'].forEach(id => { const el = $(id); if (el) el.classList.add('hidden'); });
   if (name === 'worlds') { openWorldLibrary(false); return; }
   if (name === 'chat') {
     if (mode === 'rpg') {
@@ -16623,15 +15375,6 @@ function switchView(name) {
       else if (currentWorldSaveId) openWorldLibrary(true);
       else openWorldLibrary(false);
     }
-    return;
-  }
-  if (name === 'chars') {
-    if (mode === 'rpg') { openWorldLibrary(false); return; }
-    renderBindSelects();
-    $('char-mgr').classList.remove('hidden');
-    renderCharList();
-    if (!cmEditingId && !cmCreating && characters.length) selectCharForEdit(currentCharId || characters[0].id);
-    setMobileManagerPanel('char-mgr', 'list', { focus: false });
     return;
   }
   if (name === 'prompts') {
@@ -16666,7 +15409,6 @@ function switchView(name) {
     $('memory-mgr').classList.remove('hidden');
     ensureUserData();
     fillUserForm();
-    fillTavernAutoMemoryForm();
     renderMemList();
     setMobileManagerPanel('memory-mgr', 'list', { focus: false });
     return;
@@ -16693,46 +15435,18 @@ function applyLayout() {
   document.body.dataset.layout = 'classic';
 }
 
-/* 模式：酒馆 / RPG（body[data-mode] 控制布局与渲染分支） */
-function applyMode(name) {
+/* 应用外壳：单模式（RPG）。body[data-mode] 仍是布局与渲染分支的开关。 */
+function applyMode() {
   if (worldTurnPending) discardWorldTurnPending();
   setRpgMobileDrawer('');
   closeNavDrawer();
-  mode = (name === 'rpg') ? 'rpg' : 'tavern';
   document.body.dataset.mode = mode;
-  localStorage.setItem(LS_MODE, mode);
-  document.querySelectorAll('.js-mode-switch').forEach(btn => {
-    btn.querySelector('.icon').textContent = mode === 'rpg' ? '⚔' : '🍺';
-    btn.querySelector('.mode-switch-label').textContent = mode === 'rpg' ? '模式：RPG' : '模式：酒馆';
-  });
   syncModeNavigation('chat');
-  if (mode === 'tavern') activateSessionScope();
-  // 酒馆使用角色会话；RPG 只使用 WorldCard → WorldSave，不创建/激活普通角色会话。
+  // RPG 只使用 WorldCard → WorldSave，不创建/激活普通角色会话。
   renderSessions();
   renderMessages();
-  if (mode === 'rpg') {
-    ['char-mgr', 'prompt-mgr', 'regex-mgr', 'lore-mgr', 'memory-mgr'].forEach(id => $(id)?.classList.add('hidden'));
-    openWorldLibrary(true);
-  }
-  else { exitWorldImmersiveMode(); closeWorldLibrary(); renderCharacter(); }
-}
-
-function switchMode() {
-  const next = mode === 'rpg' ? 'tavern' : 'rpg';
-  // 每种模式记住自己的预设；首次进入时使用对应示例。
-  const defaultPreset = next === 'rpg' ? 'RPG 叙事引擎（示例）' : 'RP 基础（示例）';
-  prefs.currentPresetByMode = { ...(prefs.currentPresetByMode || {}) };
-  const hasSavedPreset = Object.prototype.hasOwnProperty.call(prefs.currentPresetByMode, next);
-  const savedPreset = prefs.currentPresetByMode[next];
-  if (!hasSavedPreset || (savedPreset && !promptPresets[savedPreset])) prefs.currentPresetByMode[next] = promptPresets[defaultPreset] ? defaultPreset : '';
-  prefs.currentPreset = prefs.currentPresetByMode[next] || '';
-  saveJSON(LS_PREFS, prefs);
-  applyMode(next);
-  renderSessions();
-  renderMessages();
-  renderQuickActions(); // 快捷行动预设随模式切换
-  renderPGList(); // 提示词页「当前预设」高亮/下拉刷新
-  renderBindSelects(); // 角色绑定预设下拉刷新
+  ['prompt-mgr', 'regex-mgr', 'lore-mgr', 'memory-mgr'].forEach(id => $(id)?.classList.add('hidden'));
+  openWorldLibrary(true);
 }
 
 /* ─────────── 手机导航抽屉 ─────────── */
@@ -16750,7 +15464,7 @@ function setNavDrawerOpen(open) {
 function openNavDrawer() { setNavDrawerOpen(true); }
 function closeNavDrawer() { setNavDrawerOpen(false); }
 
-/* ─────────── AI 生成（角色卡 / 世界书条目） ─────────── */
+/* ─────────── AI 生成（世界书条目） ─────────── */
 /* 调用对话 API 生成，返回解析后的对象 */
 async function aiGenerate(instruction, desc) {
   if (!settings.baseUrl) throw new Error('请先配置 API（设置 → 连接）');
@@ -16799,68 +15513,7 @@ function parseLLMJson(text) {
   return JSON.parse(t);
 }
 
-/* 第一步 → 第二步：一句话生成由 JSON 定义的基本信息表 */
-async function aiGenChar() {
-  const desc = $('cm-ai-desc').value.trim();
-  if (!desc) { alert('先描述你想要的角色，例如：傲娇的猫娘旅店老板娘'); return; }
-  const gen = genSettings || {};
-  if (!gen.charBasicPrompt || !charFieldDefs().length) { alert('未配置角色基本信息字段或生成指令'); return; }
-  const btn = $('btn-ai-char');
-  btn.disabled = true; btn.textContent = '填写中…';
-  $('cm-ai-status').textContent = 'AI 正在填写基本信息…';
-  try {
-    const schema = charFieldDefs().map(({ key, label }) => ({ key, label }));
-    const instruction = gen.charBasicPrompt + '\n字段定义：' + JSON.stringify(schema);
-    const obj = await aiGenerate(instruction, desc);
-    const fields = obj && obj.fields && typeof obj.fields === 'object' ? obj.fields : obj;
-    renderCharProfileFields(characters.find(c => c.id === cmEditingId) || null, fields);
-    syncProfileFieldsToForm();
-    setCharWizardStep(2);
-    $('cm-ai-status').textContent = '基本信息已填写，可直接修改或添加自定义条目。';
-  } catch (err) {
-    console.error('[Tavern] AI 生成角色卡失败:', err.message);
-    alert('❌ ' + err.message);
-    $('cm-ai-status').textContent = '基本信息生成失败，请检查 API 设置后重试。';
-  } finally {
-    btn.disabled = false; btn.textContent = 'AI 填写基本信息';
-  }
-}
 
-/* 第二步 → 第三步：基于用户确认的信息生成完整 JSON 角色卡 */
-async function aiGenFullChar() {
-  const gen = genSettings || {};
-  if (!gen.charFullPrompt) { alert('未配置完整角色卡生成指令'); return; }
-  const profileFields = collectCharProfileFields();
-  if (!profileFields.length) { alert('请先填写至少一项基本信息'); return; }
-  const btn = $('btn-ai-char-full');
-  btn.disabled = true; btn.textContent = '生成中…';
-  $('cm-ai-status').textContent = 'AI 正在完善完整角色卡…';
-  try {
-    const obj = await aiGenerate(gen.charFullPrompt, JSON.stringify({ summary: $('cm-ai-desc').value.trim(), profileFields }));
-    const confirmed = Object.fromEntries(profileFields.map(field => [field.key, field.value]));
-    const bindings = {
-      name: 'cm-name', race: 'cm-race', role: 'cm-role', persona: 'cm-persona',
-      description: 'cm-persona', personality: 'cm-personality',
-      scenario: 'cm-scenario', firstMes: 'cm-first-mes', systemPrompt: 'cm-system',
-      mesExample: 'cm-mes-example', postHistory: 'cm-post', creatorNotes: 'cm-creator-notes',
-      creator: 'cm-creator', characterVersion: 'cm-character-version', tags: 'cm-tags',
-    };
-    for (const [key, id] of Object.entries(bindings)) {
-      const value = Object.prototype.hasOwnProperty.call(confirmed, key) ? confirmed[key] : obj[key];
-      if (typeof value === 'string') $(id).value = value;
-    }
-    if (Array.isArray(obj.alternateGreetings)) $('cm-alt-greetings').value = obj.alternateGreetings.join('\n\n');
-    if (cmCreating) renderCharList();
-    setCharWizardStep(3);
-    $('cm-ai-status').textContent = '完整角色卡已生成，基本信息条目会随角色一起保存。';
-  } catch (err) {
-    console.error('[Tavern] AI 完整角色卡生成失败:', err.message);
-    alert('❌ ' + err.message);
-    $('cm-ai-status').textContent = '完整角色卡生成失败，已保留当前基本信息。';
-  } finally {
-    btn.disabled = false; btn.textContent = 'AI 完善并生成完整角色卡';
-  }
-}
 
 /* 生成世界书条目 → 填入条目编辑器（用户确认后保存） */
 async function aiGenWI() {
@@ -17026,16 +15679,21 @@ function toggleMapView() {
   }
 }
 
+let mapReturnFocus = null;
 function openMapModal() {
   const modal = $('map-modal');
   if (!modal) return;
   mmShowOriginal = false; // 每次打开默认显示美化图（如有）
+  mapReturnFocus = document.activeElement;
   modal.classList.remove('hidden');
   renderMapModal();
 }
 function closeMapModal() {
   const modal = $('map-modal');
   if (modal) modal.classList.add('hidden');
+  const back = (mapReturnFocus && mapReturnFocus !== document.body && document.contains(mapReturnFocus)) ? mapReturnFocus : null;
+  mapReturnFocus = null;
+  if (back && typeof back.focus === 'function') back.focus();
 }
 
 /* 点击命中（地图窗口内 canvas / 美化图共用）：DOM 坐标 → 网格坐标 → mapHit，信息显示在窗口底部 */
@@ -17399,11 +16057,11 @@ function bindEvents() {
   if (btnRef) btnRef.addEventListener('click', showMapRef);
   // 地图数据 JSON 查看
   const mjModal = $('map-json-modal');
-  if (mjModal) mjModal.addEventListener('click', (e) => { if (e.target === mjModal) mjModal.classList.add('hidden'); });
+  if (mjModal) mjModal.addEventListener('click', (e) => { if (e.target === mjModal) closeMapJsonModal(); });
   const mjCopy = $('mm-json-copy');
   if (mjCopy) mjCopy.addEventListener('click', copyMapJson);
   const mjClose = $('mm-json-close');
-  if (mjClose) mjClose.addEventListener('click', () => { if (mjModal) mjModal.classList.add('hidden'); });
+  if (mjClose) mjClose.addEventListener('click', closeMapJsonModal);
   // 信息条内「查看原图」按钮（事件委托，innerHTML 重建后仍有效）
   const mmInfoEl = $('mm-info');
   if (mmInfoEl) mmInfoEl.addEventListener('click', (e) => {
@@ -17461,18 +16119,8 @@ function bindEvents() {
   $('um-del').addEventListener('click', deleteUserPreset);
   $('mem-add').addEventListener('click', addMemory);
   $('mem-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') addMemory(); });
-  $('mem-auto-enabled')?.addEventListener('change', readTavernAutoMemoryForm);
-  ['mem-auto-window', 'mem-auto-summarize', 'mem-auto-chars'].forEach(id =>
-    $(id)?.addEventListener('change', readTavernAutoMemoryForm));
-  $('mem-auto-run')?.addEventListener('click', manualRollTavernMemory);
-  $('mem-auto-clear')?.addEventListener('click', clearTavernAutoMemory);
   // AI 生成
-  $('btn-ai-char').addEventListener('click', aiGenChar);
-  $('btn-ai-char-full').addEventListener('click', aiGenFullChar);
   $('cm-profile-add').addEventListener('click', addCharProfileField);
-  $('cw-back-1').addEventListener('click', () => setCharWizardStep(1));
-  $('cw-back-2').addEventListener('click', () => setCharWizardStep(2));
-  $('cm-ai-desc').addEventListener('keydown', e => { if (e.key === 'Enter') aiGenChar(); });
   $('btn-ai-wi').addEventListener('click', aiGenWI);
   // 会话
   $('btn-session').addEventListener('click', e => {
@@ -17490,23 +16138,6 @@ function bindEvents() {
     if (!$('chat-header-menu').contains(e.target)) closeChatHeaderMenu();
   });
   $('session-menu-new').addEventListener('click', () => { newSession(); $('session-menu').classList.add('hidden'); });
-  // 角色管理
-  $('cm-new').addEventListener('click', newCharEditor);
-  $('cm-name').addEventListener('input', () => { if (cmCreating) renderCharList(); });
-  $('cm-save').addEventListener('click', () => { saveCharFromEditor(); renderCharList(); });
-  $('cm-use').addEventListener('click', useCharInEditor);
-  $('cm-del').addEventListener('click', () => {
-    if (cmCreating) {
-      if (!confirm('取消新建角色？未保存内容将丢失。')) return;
-      cmCreating = false;
-      if (currentCharId) selectCharForEdit(currentCharId);
-      else renderCharList();
-      return;
-    }
-    if (cmEditingId) deleteChar(cmEditingId);
-  });
-  $('cm-export').addEventListener('click', exportCurrentChar);
-  $('cm-import').addEventListener('click', () => charFileInput.click());
   // 世界书
   $('wi-new').addEventListener('click', newWIEditor);
   $('wi-save').addEventListener('click', saveWI);
@@ -17632,8 +16263,6 @@ function bindEvents() {
   $('devtools-close')?.addEventListener('click', closeDevtools);
   $('devtools-panel')?.addEventListener('cancel', e => { e.preventDefault(); closeDevtools(); });
   $('devtools-panel')?.addEventListener('click', e => { if (e.target === e.currentTarget) closeDevtools(); });
-  // 模式切换：刷新快捷行动与 RPG 面板
-  document.querySelectorAll('.js-mode-switch').forEach(button => button.addEventListener('click', switchMode));
   renderQuickActions();
   // 世界库：当前存档接管 RPG 主链；旧 RPG 回合仍保留兼容出口
   $('world-refresh').addEventListener('click', async () => {
@@ -17860,6 +16489,22 @@ function bindEvents() {
   $('rpg-mobile-scrim')?.addEventListener('click', () => setRpgMobileDrawer(''));
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
+    // §7-3：弹窗层优先——它们在最上层，必须能用键盘关闭，并由各自的 close 函数把焦点还给触发元素
+    if (!$('settings-modal').classList.contains('hidden')) {
+      e.preventDefault();
+      closeSettings();
+      return;
+    }
+    if (!$('map-json-modal').classList.contains('hidden')) {
+      e.preventDefault();
+      closeMapJsonModal();
+      return;
+    }
+    if (!$('map-modal').classList.contains('hidden')) {
+      e.preventDefault();
+      closeMapModal();
+      return;
+    }
     if ($('chat-header-menu').open) {
       e.preventDefault();
       closeChatHeaderMenu(true);
@@ -18138,19 +16783,10 @@ async function init() {
   }
 
   renderProviderOptions();
-
-  ensureChars();
   ensureLorebooks();
   ensureCharacterBookLorebooks();
   renderBindSelects();
   ensureEntryIds();
-  // 清理旧版遗留的纯占位角色
-  if (characters.length && characters.every(c => !c.name || c.name === '？？？')) {
-    characters = [];
-    currentCharId = null;
-    localStorage.removeItem(LS_CURRENT_CHAR);
-    saveChars();
-  }
   let presetsMigrated = ensurePromptPresetsV3();
   if (migrateBuiltInTavernPreset(defaults)) presetsMigrated = true;
   if (migrateLegacyFormatPreferences()) presetsMigrated = true;
@@ -18170,14 +16806,64 @@ async function init() {
   applyTypography(); // 启动即恢复用户排版（覆盖 :root 默认变量）
   ensureSessions();
   applyTheme();
-  applyMode(mode);
+  applyMode();
   bindEvents();
   renderMessages();
   renderCharacter();
   renderSessions();
-  renderCharList();
   renderDevtools();
   updateApiStatusFromSettings();
   await syncWorldDraftRoute();
 }
+function renderSessions() {
+  const nameEl = $('session-name');
+  if (worldModeActive()) {
+    if (nameEl) nameEl.textContent = currentWorldSave.name || '世界存档';
+    const player = currentWorldSave.player?.snapshot || {};
+    const hdrName = $('hdr-char-name');
+    const hdrRace = $('hdr-char-race');
+    if (hdrName) hdrName.textContent = player.name || currentWorldCard()?.title || '世界存档';
+    if (hdrRace) hdrRace.textContent = `${[player.race, player.role].filter(Boolean).join(' · ') || '玩家快照'} · 世界存档`;
+    const ml = $('session-menu-list');
+    if (ml) ml.innerHTML = '<div class="sess-empty">当前显示世界存档，不读取旧 RPG 会话</div>';
+    const saveMark = $('rpg-world-save');
+    if (saveMark) { saveMark.hidden = false; saveMark.textContent = `世界 · ${currentWorldSave.name || currentWorldSave.id}`; }
+    return;
+  }
+  if (mode === 'rpg') {
+    if (nameEl) nameEl.textContent = '选择世界存档';
+    const hdrName = $('hdr-char-name');
+    const hdrRace = $('hdr-char-race');
+    if (hdrName) hdrName.textContent = '选择世界存档';
+    if (hdrRace) hdrRace.textContent = 'RPG 只使用世界存档中的玩家角色';
+    const saveMark = $('rpg-world-save');
+    if (saveMark) saveMark.hidden = true;
+    const ml = $('session-menu-list');
+    if (ml) ml.innerHTML = '<div class="sess-empty">请先从世界库创建或打开世界存档</div>';
+    return;
+  }
+  const s = curSession();
+  if (nameEl) nameEl.textContent = s ? s.name : '—';
+  const saveMark = $('rpg-world-save');
+  if (saveMark) saveMark.hidden = true;
+  // 头部下拉（只列当前模式 kind 的会话）
+  const ml = $('session-menu-list');
+  if (ml) {
+    ml.innerHTML = '';
+    for (const ses of sessions.filter(sessionMatches)) {
+      const el = document.createElement('div');
+      el.className = 'sess-item' + (ses.id === currentSessionId ? ' active' : '');
+      el.innerHTML = `<span>${esc(ses.name)}</span><span class="sess-btns"><span class="sess-x" data-act="rename" title="重命名">✎</span><span class="sess-x" data-act="del" title="删除">✕</span></span>`;
+      el.addEventListener('click', (ev) => {
+        const act = ev.target.dataset && ev.target.dataset.act;
+        if (act === 'del') { deleteSession(ses.id); return; }
+        if (act === 'rename') { renameSession(ses.id); return; }
+        switchSession(ses.id);
+        $('session-menu').classList.add('hidden');
+      });
+      ml.appendChild(el);
+    }
+  }
+}
+
 init();

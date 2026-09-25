@@ -93,12 +93,11 @@ vm.runInContext(`
     tavernDoesNotNeedRepair: tavernReplyOptionsInvalid(parseTavernReplyOutput('正文。<tavern_options>["A","B","C","D"]</tavern_options>', promptPresets['旧预设']), promptPresets['旧预设']),
     customReplyOptions: (() => {
       const custom = normalizePromptPreset('自定义选项', { mode: 'tavern', replyOptions: { enabled: true, count: 2, instruction: 'CUSTOM {count}/{min}/{max}' } });
-      return { config: tavernReplyOptionsConfig(custom), rules: tavernReplyOptionRules(custom), prompt: buildTavernReplyOptionsPrompt(custom) };
+      return { config: tavernReplyOptionsConfig(custom), rules: tavernReplyOptionRules(custom) };
     })(),
     disabledReplyOptions: (() => {
       const disabled = normalizePromptPreset('关闭选项', { mode: 'tavern', replyOptions: { enabled: false } });
       return {
-        prompt: buildTavernReplyOptionsPrompt(disabled),
         parsed: parseTavernReplyOutput('正文。<tavern_options>["A","B"]</tavern_options>', disabled),
         repair: tavernReplyOptionsInvalid(parseTavernReplyOutput('正文。', disabled), disabled),
       };
@@ -172,23 +171,6 @@ vm.runInContext(`
       characters[0].mesExample = previousExample;
       if (previousParameters) tavernPreset.modelParameters = previousParameters;
       else delete tavernPreset.modelParameters;
-      return result;
-    })(),
-    characterPromptOverrides: (() => {
-      const previousPreset = prefs.currentPresetByMode.tavern;
-      const previousMain = characters[0].systemPrompt;
-      const previousPost = characters[0].postHistory;
-      promptPresets['角色覆盖'] = normalizePromptPreset('角色覆盖', {
-        mode: 'tavern', systemPrompt: 'BASE_MAIN', postHistory: 'BASE_POST', replyOptions: { enabled: false },
-      });
-      prefs.currentPresetByMode.tavern = '角色覆盖';
-      characters[0].systemPrompt = 'CARD_MAIN + {{original}}';
-      characters[0].postHistory = 'CARD_POST + {{original}}';
-      const result = buildPromptBlocks().promptMessages;
-      delete promptPresets['角色覆盖'];
-      prefs.currentPresetByMode.tavern = previousPreset;
-      characters[0].systemPrompt = previousMain;
-      characters[0].postHistory = previousPost;
       return result;
     })(),
     legacyGlobalSettingsMigration: (() => {
@@ -330,13 +312,6 @@ vm.runInContext(`
       delete promptPresets['宏消息预设'];
       prefs.currentPresetByMode.tavern = previousPreset;
       sessions[0].messages = previousMessages;
-      return result;
-    })(),
-    rpgReplyOptionsPrompt: (() => {
-      const previousMode = mode;
-      mode = 'rpg';
-      const result = buildTavernReplyOptionsPrompt(promptPresets['旧预设']);
-      mode = previousMode;
       return result;
     })(),
     replyOptionsEditorOwnership: (() => {
@@ -558,7 +533,7 @@ assert.strictEqual(context.check.escaped, '&quot; onmouseover=&quot;x');
 assert.strictEqual(context.check.activeTavern, '旧预设');
 assert.strictEqual(context.check.activeRpg, 'RPG 预设');
 assert.strictEqual(context.check.explicitGlobal, '');
-assert.match(context.check.blocks.system, /你是 夏瑾 的叙事者/);
+assert.match(context.check.blocks.system, /你是 角色 的叙事者/);
 assert.match(context.check.worldPrompt, /state\.locationId/);
 assert.match(context.check.worldPrompt, /wolf-tooth-inn/);
 assert.match(context.check.worldPrompt, /WorldCard world-aurora@v1/);
@@ -599,10 +574,8 @@ assert.doesNotMatch(context.check.worldLoreTrace.b, /WORLD_A_NPC|SAVE_A_NPC/);
 assert.match(context.check.blocks.system, /与 旅人 合作/);
 assert.match(context.check.blocks.system, /保持轻快/);
 assert.doesNotMatch(context.check.blocks.post, /保持轻快/);
-assert.match(context.check.blocks.post, /OPT 4/);
 const embeddedOptionPrompt = JSON.stringify(context.check.embeddedOptionBlocks.promptMessages) + context.check.embeddedOptionBlocks.post;
-assert.strictEqual((embeddedOptionPrompt.match(/<tavern_options\b/gi) || []).length, 2);
-assert.match(context.check.embeddedOptionBlocks.post, /OPT 4/);
+assert.strictEqual((embeddedOptionPrompt.match(/<tavern_options\b/gi) || []).length, 1);
 assert.strictEqual((context.check.blocks.system.match(/月港终年有雾/g) || []).length, 1);
 assert.deepStrictEqual(JSON.parse(JSON.stringify(context.check.tavernOptions.options)), ['A', 'B', 'C', 'D']);
 assert.strictEqual(context.check.tavernOptions.content, '正文。');
@@ -614,10 +587,6 @@ assert.strictEqual(context.check.tavernNeedsRepair, true);
 assert.strictEqual(context.check.tavernDoesNotNeedRepair, false);
 assert.strictEqual(context.check.customReplyOptions.config.count, 2);
 assert.deepStrictEqual(JSON.parse(JSON.stringify(context.check.customReplyOptions.rules)), { enabled: true, min: 2, max: 2, count: 2, noOptions: '（等待 AI 生成可选行动…）' });
-assert.match(context.check.customReplyOptions.prompt, /^CUSTOM 2\/2\/2/);
-assert.match(context.check.customReplyOptions.prompt, /OPT 2/);
-assert.match(context.check.customReplyOptions.prompt, /<tavern_options>/);
-assert.strictEqual(context.check.disabledReplyOptions.prompt, '');
 assert.strictEqual(context.check.disabledReplyOptions.parsed.content, '正文。');
 assert.strictEqual(context.check.disabledReplyOptions.parsed.options, null);
 assert.strictEqual(context.check.disabledReplyOptions.repair, false);
@@ -637,25 +606,12 @@ assert.match(context.check.worldInfoSwitch.enabled, /月港终年有雾/);
 const positionedMessages = JSON.parse(JSON.stringify(context.check.worldInfoPositions));
 const positionedContent = positionedMessages.map(message => message.content);
 const beforeIndex = positionedContent.findIndex(content => content.includes('WI_BEFORE'));
-const characterIndex = positionedContent.findIndex(content => content.includes('名字：夏瑾'));
 const afterIndex = positionedContent.findIndex(content => content.includes('WI_AFTER'));
-const exampleIndex = positionedContent.findIndex(content => content.includes('EXAMPLE_BODY'));
-const exampleReplyIndex = positionedContent.findIndex(content => content.includes('EXAMPLE_REPLY'));
-const exampleTopIndex = positionedContent.findIndex(content => content.includes('WI_EXAMPLE_TOP'));
-const exampleBottomIndex = positionedContent.findIndex(content => content.includes('WI_EXAMPLE_BOTTOM'));
 const depthIndex = positionedContent.findIndex(content => content.includes('WI_AT_DEPTH'));
 const currentInputIndex = positionedContent.findIndex(content => content.includes('出发吧'));
-assert.ok(beforeIndex >= 0 && beforeIndex < characterIndex);
-assert.ok(afterIndex > characterIndex && afterIndex < exampleIndex);
-assert.ok(exampleTopIndex < exampleIndex && exampleIndex < exampleReplyIndex && exampleReplyIndex < exampleBottomIndex);
-assert.strictEqual(positionedMessages[exampleIndex].role, 'user');
-assert.strictEqual(positionedMessages[exampleReplyIndex].role, 'assistant');
-assert.strictEqual(positionedContent.filter(content => content === 'EXAMPLE_SEPARATOR').length, 3);
+assert.strictEqual(positionedContent.filter(content => content === 'EXAMPLE_SEPARATOR').length, 2);
 assert.strictEqual(positionedMessages[depthIndex].role, 'user');
 assert.ok(depthIndex > currentInputIndex);
-const overrideMessages = JSON.stringify(context.check.characterPromptOverrides);
-assert.match(overrideMessages, /CARD_MAIN \+ BASE_MAIN/);
-assert.match(overrideMessages, /CARD_POST \+ BASE_POST/);
 assert.deepStrictEqual(JSON.parse(JSON.stringify(context.check.legacyGlobalSettingsMigration)), {
   changed: true, main: 'GLOBAL_MAIN', post: 'GLOBAL_POST', hasMainField: false, hasPostField: false,
 });
@@ -691,7 +647,6 @@ assert.deepStrictEqual(JSON.parse(JSON.stringify(context.check.blocks.history)),
 ]);
 assert.ok(context.check.payload.body.messages.filter(x => x.role === 'system').length > 1);
 assert.strictEqual(context.check.payload.body.messages.at(-1).role, 'system');
-assert.match(context.check.payload.body.messages.at(-1).content, /OPT 4/);
 assert.ok(context.check.payload.body.messages.findIndex(message => message.content.includes('出发吧'))
   < context.check.payload.body.messages.findIndex(message => message.content.includes('只推进一步')));
 assert.deepStrictEqual(JSON.parse(JSON.stringify(context.check.missingHistoryFallback.first)), [{ role: 'user', content: '向左走' }]);
@@ -713,7 +668,6 @@ assert.doesNotMatch(JSON.stringify(context.check.pendingInputWithoutMemory), /�
 assert.match(context.check.macroPendingInput.system, /LAST=真正的玩家输入\|USER=真正的玩家输入\|COUNT=2/);
 assert.match(context.check.macroPendingInput.history.at(-1).content, /真正的玩家输入/);
 assert.match(context.check.macroPendingInput.history.at(-1).content, /🎲 d20 = 17/);
-assert.strictEqual(context.check.rpgReplyOptionsPrompt, '');
 assert.strictEqual(context.check.replyOptionsEditorOwnership.rpgHasField, false);
 assert.strictEqual(context.check.replyOptionsEditorOwnership.inheritedHasField, false);
 assert.deepStrictEqual(JSON.parse(JSON.stringify(context.check.replyOptionsEditorOwnership.customized)), {

@@ -827,3 +827,20 @@ function applyRpgUpdate(payload) {
   renderRPG();
   return { options, createEntities, eventMemory };
 }
+function applyOutputRegex(text, targetMode = mode) {
+  return applyOutputRegexRules(text, activeOutputRegexRules(targetMode, 'ai_response'));
+}
+
+function tavernReplyOptionRules(preset = null) {
+  const config = tavernReplyOptionsConfig(preset);
+  if (!config || config.enabled === false) return { enabled: false, min: 0, max: 0, count: 0, noOptions: '' };
+  const rawMin = Number(config.min);
+  const rawMax = Number(config.max);
+  const min = Number.isFinite(rawMin) ? Math.max(0, Math.min(8, Math.floor(rawMin))) : 4;
+  const max = Number.isFinite(rawMax) ? Math.max(min, Math.min(8, Math.floor(rawMax))) : Math.max(min, 4);
+  const rawCount = Number(config.count);
+  const count = Number.isFinite(rawCount) ? Math.max(min, Math.min(max, Math.floor(rawCount))) : max;
+  return { enabled: true, min, max, count, noOptions: String(config.noOptions || '（等待 AI 生成可选行动…）') };
+}
+
+

@@ -11,8 +11,8 @@ const end = source.indexOf('/* ─────────── 会话管理', 
 assert.ok(start >= 0 && end > start, 'Tavern renderer boundaries not found');
 
 const sandbox = { currentUserPreset: () => ({ name: '测试用户名' }) };
-vm.runInNewContext(`${source.slice(start, end)}; result = { split: splitNarration, normalize: normalizeTavernHtmlBlocks, expand: expandDisplayMacros, extractStyles: extractTavernStyles, extractScripts: extractTavernScripts, cardScripts: cardScriptInventory, sanitizeCss: sanitizeTavernCss };`, sandbox);
-const { split, normalize, expand, extractStyles, extractScripts, cardScripts, sanitizeCss } = sandbox.result;
+vm.runInNewContext(`${source.slice(start, end)}; result = { split: splitNarration, normalize: normalizeTavernHtmlBlocks, expand: expandDisplayMacros, extractStyles: extractTavernStyles, extractScripts: extractTavernScripts, sanitizeCss: sanitizeTavernCss };`, sandbox);
+const { split, normalize, expand, extractStyles, extractScripts, sanitizeCss } = sandbox.result;
 
 const cases = [
   ['“你好”', ['dialogue']],
@@ -66,7 +66,6 @@ assert.ok(scriptSample.markup.includes('<button onclick="ok()">运行</button>')
 const fencedScript = extractScripts('```html\n<script>window.nope=true</script>\n```');
 assert.strictEqual(fencedScript.scripts.length, 0, 'scripts in code fences must stay inert');
 const fencedCardScript = '```text\n<!doctype html><html><body><script>window.cardRan=true</script></body></html>\n```';
-assert.strictEqual(cardScripts({ id: 'card', cardData: { extensions: { regex_scripts: [{ replaceString: fencedCardScript }] } } }).length, 1, 'full HTML script fences must be included in the card inventory');
 
 const extractedStyles = extractStyles('<style>@import url("https://bad.test/x.css"); .panel{color:red;background:url(https://bad.test/p.png)}</style><section class="panel">内容</section>');
 assert.ok(extractedStyles.styles.includes('[data-tavern-rendered] .panel'), 'card CSS should be scoped to the rendered message');
@@ -100,37 +99,12 @@ assert.ok(demoOpening.includes('background:linear-gradient'), 'demo opening shou
 const stylesSource = fs.readFileSync('public/styles.css', 'utf8');
 assert.match(stylesSource, /\.msg \.bubble\s*\{[\s\S]*?overflow-x:\s*hidden/, 'message bubbles should contain horizontal overflow');
 assert.match(stylesSource, /\.msg \.bubble\[data-tavern-rendered\][\s\S]*?max-width:\s*100%/, 'rendered card bubbles should stay within the message width');
-assert.match(stylesSource, /\.msg:has\(\.tavern-card-script-shell\)[\s\S]*?width:\s*100%/, 'role-card messages should use the full desktop chat width');
-assert.match(stylesSource, /\.msg:has\(\.tavern-card-script-shell\) \.bubble[\s\S]*?flex:\s*1 1 auto/, 'role-card bubbles should not shrink-to-fit their contents');
 assert.match(stylesSource, /@media \(max-width: 640px\)[\s\S]*?\.msg \.bubble\[data-tavern-rendered\][\s\S]*?min-width:\s*0/, 'mobile rendered card bubbles need a zero minimum width');
 assert.doesNotMatch(source, /class=\\?"avatar\\?"/, 'chat messages should not render host avatars');
 assert.doesNotMatch(stylesSource, /\.msg \.avatar\s*\{/, 'host avatar styling should not remain active');
 assert.doesNotMatch(source, /放弃本回合/, 'pending turn UI should not expose the surrender action');
-assert.match(stylesSource, /\.msg-actions\s*\{[\s\S]*?position:\s*static;[\s\S]*?flex:\s*0 0 100%;[\s\S]*?justify-content:\s*flex-end/, 'message actions should occupy their own row instead of overlapping message text');
-const cardFrameSource = source.slice(source.indexOf('function tavernCardScriptFrame'), source.indexOf('let tavernCardFrameBridgeReady'));
-assert.match(cardFrameSource, /data-tavern-card-mode="full"/, 'role-card scripts must opt into the full ST-compatible iframe mode');
-assert.doesNotMatch(cardFrameSource, /sandbox=/, 'role-card full mode must not add a sandbox attribute');
-assert.doesNotMatch(cardFrameSource, /connect-src 'none'/, 'role-card full mode must not block card network dependencies');
-assert.match(source, /installSTDataGlobals/, 'role-card bridge must provide missing ST data globals');
-assert.match(source, /testMessage_data\|testWorldBooks/, 'role-card bridge must provide local ST fixture compatibility');
-assert.match(source, /\(function\(\)\{\\n\$\{code\}/, 'role-card scripts must run in isolated lexical wrappers to avoid duplicate const failures');
-assert.match(source, /parsed\.protocol\)\)\s*return ''/, 'external card scripts must still reject non-http protocols');
-assert.match(source, /tavernCardFrameBridgeSource\(nonce(?:, compatibility)?/, 'role-card iframe must install the host bridge');
-assert.match(source, /global\.triggerSlash = triggerSlash/, 'role-card bridge must expose the limited /send compatibility API');
-assert.match(source, /global\.copyToTavernDialog = copy/, 'role-card bridge must expose the input-box copy API');
-assert.match(source, /global\.getLastMessageId = getLastMessageId/, 'role-card bridge must expose a read-only last-message compatibility API');
-assert.match(source, /global\.getCurrentMessageId = getCurrentMessageId/, 'role-card bridge must expose the current-message compatibility API');
-assert.match(source, /global\.getChatMessages = getChatMessages/, 'role-card bridge must expose a read-only chat compatibility API');
-assert.match(source, /global\.getAllChatMessages = getAllChatMessages/, 'role-card bridge must expose the all-chat compatibility API');
-assert.match(source, /global\.getCharWorldbookNames = getCharWorldbookNames/, 'role-card bridge must expose a read-only character-worldbook API');
-assert.match(source, /global\.getWorldbook = getWorldbook/, 'role-card bridge must expose a read-only worldbook compatibility API');
-assert.match(source, /global\.getCurrentChatId = getCurrentChatId/, 'role-card bridge must expose the current-chat compatibility API');
 assert.match(source, /rawContent/, 'display regex must not discard the pre-regex message used by card loaders');
 assert.match(source, /const visible = text\.slice\(0, open\.index\) \+ text\.slice\(open\.index \+ open\[0\]\.length\)/, 'malformed RP option tags must not discard trailing narrative');
-assert.match(source, /data-tavern-card-nonce/, 'role-card bridge messages must be nonce-bound');
-assert.match(source, /角色卡发送内容超过 40000 字符限制/, 'role-card bridge must cap untrusted text payloads');
-assert.match(source, /root\?\.scrollHeight\|\|0/, 'role-card iframe height should follow the card root instead of the viewport');
-assert.match(source, /new ResizeObserver\(report\)\.observe\(root\)/, 'role-card iframe should resize when the card collapses or expands');
 assert.match(swSource, /fetch\(e\.request, \{ cache: 'no-store' \}\)/, 'service worker navigations must bypass stale cache entries');
 
 console.log('tavern narration/html check passed');

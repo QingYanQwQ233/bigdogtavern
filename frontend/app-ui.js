@@ -766,10 +766,13 @@ function setApiStatus(text, isErr = false) {
   el.classList.toggle('ok', !isErr && !!settings.baseUrl);
 }
 
+// §7-3：弹窗关闭后把焦点还给触发元素——键盘用户不能丢焦点
+let settingsReturnFocus = null;
 function openSettings() {
   closeNavDrawer();
   fillSettingsForm();
   renderProfileSelect();
+  settingsReturnFocus = document.activeElement;
   $('settings-modal').classList.remove('hidden');
 }
 
@@ -778,6 +781,9 @@ function closeSettings() {
   $('test-result').textContent = '';
   $('test-result').className = '';
   updateApiStatusFromSettings();
+  const back = (settingsReturnFocus && settingsReturnFocus !== document.body && document.contains(settingsReturnFocus)) ? settingsReturnFocus : document.querySelector('.js-settings');
+  settingsReturnFocus = null;
+  if (back && typeof back.focus === 'function') back.focus();
 }
 
 function updateApiStatusFromSettings() {
@@ -1472,7 +1478,6 @@ function saveEdit(m) {
   if (worldModeActive()) queueWorldSave(currentWorldSave);
   else {
     const session = curSession();
-    invalidateTavernAutoMemory(session, m.id);
     saveSessions(session);
   }
   renderMessages();
@@ -1497,7 +1502,6 @@ function deleteMessage(m) {
   const i = s.messages.indexOf(m);
   if (i < 0) return;
   if (!confirm('删除这条消息？')) return;
-  invalidateTavernAutoMemory(s, m.id);
   s.messages.splice(i, 1);
   saveSessions(s);
   renderMessages();
@@ -1524,7 +1528,6 @@ async function regenAssistant(m) {
   if (!s || sending) return;
   const i = s.messages.indexOf(m);
   if (i < 0 || s.messages[i].role !== 'assistant') return;
-  invalidateTavernAutoMemory(s, s.messages.slice(i).map(message => message.id));
   s.messages = s.messages.slice(0, i);
   saveSessions(s);
   renderMessages();
@@ -1565,9 +1568,7 @@ function renderMessages() {
     messageRenderWindow = { key: conversationKey, start: 0, preserveScroll: false };
   }
   syncConversationResetButton();
-  initTavernCardFrameBridge();
   renderDebugTerminal();
-  renderTavernAutoMemoryStatus();
   if (mode !== 'rpg') clearWorldExtension();
   applyWorldUiSlots();
   chat.innerHTML = '';
@@ -1661,7 +1662,7 @@ function renderMessages() {
           el.className = 'msg assistant';
           el.innerHTML = renderEditBubble(m);
         } else {
-          const { html: h, md } = renderBubble(seg.type === 'dialogue' ? seg.text.slice(1, -1) : seg.text, { allowCardScripts: true });
+          const { html: h, md } = renderBubble(seg.type === 'dialogue' ? seg.text.slice(1, -1) : seg.text);
           html = h;
           if (seg.type === 'narration') {
             el.className = `msg narration${bubbleDialogue ? '' : ' tavern-prose'}`;
@@ -2140,6 +2141,7 @@ function buildMapJson() {
     gridStats: { landPx: land, oceanPx: ocean, total: map.size * map.size, regions: map.regions.length },
   };
 }
+let mapJsonReturnFocus = null;
 function showMapJson() {
   const data = buildMapJson();
   if (!data) return;
@@ -2147,7 +2149,17 @@ function showMapJson() {
   const pre = $('map-json-content');
   if (pre) pre.textContent = lastMapJson;
   const mj = $('map-json-modal');
-  if (mj) mj.classList.remove('hidden');
+  if (mj) {
+    mapJsonReturnFocus = document.activeElement;
+    mj.classList.remove('hidden');
+  }
+}
+function closeMapJsonModal() {
+  const mj = $('map-json-modal');
+  if (mj) mj.classList.add('hidden');
+  const back = (mapJsonReturnFocus && mapJsonReturnFocus !== document.body && document.contains(mapJsonReturnFocus)) ? mapJsonReturnFocus : null;
+  mapJsonReturnFocus = null;
+  if (back && typeof back.focus === 'function') back.focus();
 }
 function copyMapJson() {
   const data = buildMapJson();
@@ -2497,7 +2509,6 @@ async function requestReply() {
     const extra = {
       outputRegexApplied: true,
       ...(typeof processed.rawContent === 'string' ? { rawContent: processed.rawContent } : {}),
-      ...(mode === 'tavern' ? { cardOutputRegexApplied: true } : {}),
     };
     if (cot) extra.cot = cot;
     if (processed.options && processed.options.length) extra.options = processed.options;
@@ -2542,7 +2553,6 @@ async function requestReply() {
       // 否则正文会同时渲染“预览 + 历史”，快捷选项也会一直被“整理中”占位遮住。
       clearResponsePreview();
       pushMessage('assistant', clean, extra);
-      void maybeRollTavernMemory(curSession());
     }
     // 文生图（测试）：回复完成后自动生图（异步，不阻塞对话）
     const ig = settings.imageGen;
@@ -2734,7 +2744,7 @@ function syncModeNavigation(view = 'chat') {
 }
 
 // 手机端管理页采用“列表 → 详情”钻取；桌面端继续保留双栏编辑器。
-const MOBILE_MANAGER_IDS = ['char-mgr', 'prompt-mgr', 'regex-mgr', 'lore-mgr', 'memory-mgr', 'world-mgr'];
+const MOBILE_MANAGER_IDS = ['prompt-mgr', 'regex-mgr', 'lore-mgr', 'memory-mgr', 'world-mgr'];
 function isMobileViewport() { return window.matchMedia('(max-width: 960px)').matches; }
 function syncMobileManagerBackLabel(managerId) {
   const manager = $(managerId);
@@ -2851,7 +2861,7 @@ function switchView(name) {
   closeNavDrawer(); // 手机抽屉：切换视图后自动收起
   renderDebugTerminal();
   syncModeNavigation(name);
-  ['char-mgr', 'prompt-mgr', 'regex-mgr', 'lore-mgr', 'memory-mgr', 'world-mgr'].forEach(id => { const el = $(id); if (el) el.classList.add('hidden'); });
+  ['prompt-mgr', 'regex-mgr', 'lore-mgr', 'memory-mgr', 'world-mgr'].forEach(id => { const el = $(id); if (el) el.classList.add('hidden'); });
   if (name === 'worlds') { openWorldLibrary(false); return; }
   if (name === 'chat') {
     if (mode === 'rpg') {
@@ -2859,15 +2869,6 @@ function switchView(name) {
       else if (currentWorldSaveId) openWorldLibrary(true);
       else openWorldLibrary(false);
     }
-    return;
-  }
-  if (name === 'chars') {
-    if (mode === 'rpg') { openWorldLibrary(false); return; }
-    renderBindSelects();
-    $('char-mgr').classList.remove('hidden');
-    renderCharList();
-    if (!cmEditingId && !cmCreating && characters.length) selectCharForEdit(currentCharId || characters[0].id);
-    setMobileManagerPanel('char-mgr', 'list', { focus: false });
     return;
   }
   if (name === 'prompts') {
@@ -2902,7 +2903,6 @@ function switchView(name) {
     $('memory-mgr').classList.remove('hidden');
     ensureUserData();
     fillUserForm();
-    fillTavernAutoMemoryForm();
     renderMemList();
     setMobileManagerPanel('memory-mgr', 'list', { focus: false });
     return;
@@ -2929,46 +2929,18 @@ function applyLayout() {
   document.body.dataset.layout = 'classic';
 }
 
-/* 模式：酒馆 / RPG（body[data-mode] 控制布局与渲染分支） */
-function applyMode(name) {
+/* 应用外壳：单模式（RPG）。body[data-mode] 仍是布局与渲染分支的开关。 */
+function applyMode() {
   if (worldTurnPending) discardWorldTurnPending();
   setRpgMobileDrawer('');
   closeNavDrawer();
-  mode = (name === 'rpg') ? 'rpg' : 'tavern';
   document.body.dataset.mode = mode;
-  localStorage.setItem(LS_MODE, mode);
-  document.querySelectorAll('.js-mode-switch').forEach(btn => {
-    btn.querySelector('.icon').textContent = mode === 'rpg' ? '⚔' : '🍺';
-    btn.querySelector('.mode-switch-label').textContent = mode === 'rpg' ? '模式：RPG' : '模式：酒馆';
-  });
   syncModeNavigation('chat');
-  if (mode === 'tavern') activateSessionScope();
-  // 酒馆使用角色会话；RPG 只使用 WorldCard → WorldSave，不创建/激活普通角色会话。
+  // RPG 只使用 WorldCard → WorldSave，不创建/激活普通角色会话。
   renderSessions();
   renderMessages();
-  if (mode === 'rpg') {
-    ['char-mgr', 'prompt-mgr', 'regex-mgr', 'lore-mgr', 'memory-mgr'].forEach(id => $(id)?.classList.add('hidden'));
-    openWorldLibrary(true);
-  }
-  else { exitWorldImmersiveMode(); closeWorldLibrary(); renderCharacter(); }
-}
-
-function switchMode() {
-  const next = mode === 'rpg' ? 'tavern' : 'rpg';
-  // 每种模式记住自己的预设；首次进入时使用对应示例。
-  const defaultPreset = next === 'rpg' ? 'RPG 叙事引擎（示例）' : 'RP 基础（示例）';
-  prefs.currentPresetByMode = { ...(prefs.currentPresetByMode || {}) };
-  const hasSavedPreset = Object.prototype.hasOwnProperty.call(prefs.currentPresetByMode, next);
-  const savedPreset = prefs.currentPresetByMode[next];
-  if (!hasSavedPreset || (savedPreset && !promptPresets[savedPreset])) prefs.currentPresetByMode[next] = promptPresets[defaultPreset] ? defaultPreset : '';
-  prefs.currentPreset = prefs.currentPresetByMode[next] || '';
-  saveJSON(LS_PREFS, prefs);
-  applyMode(next);
-  renderSessions();
-  renderMessages();
-  renderQuickActions(); // 快捷行动预设随模式切换
-  renderPGList(); // 提示词页「当前预设」高亮/下拉刷新
-  renderBindSelects(); // 角色绑定预设下拉刷新
+  ['prompt-mgr', 'regex-mgr', 'lore-mgr', 'memory-mgr'].forEach(id => $(id)?.classList.add('hidden'));
+  openWorldLibrary(true);
 }
 
 /* ─────────── 手机导航抽屉 ─────────── */
@@ -2986,7 +2958,7 @@ function setNavDrawerOpen(open) {
 function openNavDrawer() { setNavDrawerOpen(true); }
 function closeNavDrawer() { setNavDrawerOpen(false); }
 
-/* ─────────── AI 生成（角色卡 / 世界书条目） ─────────── */
+/* ─────────── AI 生成（世界书条目） ─────────── */
 /* 调用对话 API 生成，返回解析后的对象 */
 async function aiGenerate(instruction, desc) {
   if (!settings.baseUrl) throw new Error('请先配置 API（设置 → 连接）');
@@ -3035,68 +3007,7 @@ function parseLLMJson(text) {
   return JSON.parse(t);
 }
 
-/* 第一步 → 第二步：一句话生成由 JSON 定义的基本信息表 */
-async function aiGenChar() {
-  const desc = $('cm-ai-desc').value.trim();
-  if (!desc) { alert('先描述你想要的角色，例如：傲娇的猫娘旅店老板娘'); return; }
-  const gen = genSettings || {};
-  if (!gen.charBasicPrompt || !charFieldDefs().length) { alert('未配置角色基本信息字段或生成指令'); return; }
-  const btn = $('btn-ai-char');
-  btn.disabled = true; btn.textContent = '填写中…';
-  $('cm-ai-status').textContent = 'AI 正在填写基本信息…';
-  try {
-    const schema = charFieldDefs().map(({ key, label }) => ({ key, label }));
-    const instruction = gen.charBasicPrompt + '\n字段定义：' + JSON.stringify(schema);
-    const obj = await aiGenerate(instruction, desc);
-    const fields = obj && obj.fields && typeof obj.fields === 'object' ? obj.fields : obj;
-    renderCharProfileFields(characters.find(c => c.id === cmEditingId) || null, fields);
-    syncProfileFieldsToForm();
-    setCharWizardStep(2);
-    $('cm-ai-status').textContent = '基本信息已填写，可直接修改或添加自定义条目。';
-  } catch (err) {
-    console.error('[Tavern] AI 生成角色卡失败:', err.message);
-    alert('❌ ' + err.message);
-    $('cm-ai-status').textContent = '基本信息生成失败，请检查 API 设置后重试。';
-  } finally {
-    btn.disabled = false; btn.textContent = 'AI 填写基本信息';
-  }
-}
 
-/* 第二步 → 第三步：基于用户确认的信息生成完整 JSON 角色卡 */
-async function aiGenFullChar() {
-  const gen = genSettings || {};
-  if (!gen.charFullPrompt) { alert('未配置完整角色卡生成指令'); return; }
-  const profileFields = collectCharProfileFields();
-  if (!profileFields.length) { alert('请先填写至少一项基本信息'); return; }
-  const btn = $('btn-ai-char-full');
-  btn.disabled = true; btn.textContent = '生成中…';
-  $('cm-ai-status').textContent = 'AI 正在完善完整角色卡…';
-  try {
-    const obj = await aiGenerate(gen.charFullPrompt, JSON.stringify({ summary: $('cm-ai-desc').value.trim(), profileFields }));
-    const confirmed = Object.fromEntries(profileFields.map(field => [field.key, field.value]));
-    const bindings = {
-      name: 'cm-name', race: 'cm-race', role: 'cm-role', persona: 'cm-persona',
-      description: 'cm-persona', personality: 'cm-personality',
-      scenario: 'cm-scenario', firstMes: 'cm-first-mes', systemPrompt: 'cm-system',
-      mesExample: 'cm-mes-example', postHistory: 'cm-post', creatorNotes: 'cm-creator-notes',
-      creator: 'cm-creator', characterVersion: 'cm-character-version', tags: 'cm-tags',
-    };
-    for (const [key, id] of Object.entries(bindings)) {
-      const value = Object.prototype.hasOwnProperty.call(confirmed, key) ? confirmed[key] : obj[key];
-      if (typeof value === 'string') $(id).value = value;
-    }
-    if (Array.isArray(obj.alternateGreetings)) $('cm-alt-greetings').value = obj.alternateGreetings.join('\n\n');
-    if (cmCreating) renderCharList();
-    setCharWizardStep(3);
-    $('cm-ai-status').textContent = '完整角色卡已生成，基本信息条目会随角色一起保存。';
-  } catch (err) {
-    console.error('[Tavern] AI 完整角色卡生成失败:', err.message);
-    alert('❌ ' + err.message);
-    $('cm-ai-status').textContent = '完整角色卡生成失败，已保留当前基本信息。';
-  } finally {
-    btn.disabled = false; btn.textContent = 'AI 完善并生成完整角色卡';
-  }
-}
 
 /* 生成世界书条目 → 填入条目编辑器（用户确认后保存） */
 async function aiGenWI() {
@@ -3262,16 +3173,21 @@ function toggleMapView() {
   }
 }
 
+let mapReturnFocus = null;
 function openMapModal() {
   const modal = $('map-modal');
   if (!modal) return;
   mmShowOriginal = false; // 每次打开默认显示美化图（如有）
+  mapReturnFocus = document.activeElement;
   modal.classList.remove('hidden');
   renderMapModal();
 }
 function closeMapModal() {
   const modal = $('map-modal');
   if (modal) modal.classList.add('hidden');
+  const back = (mapReturnFocus && mapReturnFocus !== document.body && document.contains(mapReturnFocus)) ? mapReturnFocus : null;
+  mapReturnFocus = null;
+  if (back && typeof back.focus === 'function') back.focus();
 }
 
 /* 点击命中（地图窗口内 canvas / 美化图共用）：DOM 坐标 → 网格坐标 → mapHit，信息显示在窗口底部 */
@@ -3635,11 +3551,11 @@ function bindEvents() {
   if (btnRef) btnRef.addEventListener('click', showMapRef);
   // 地图数据 JSON 查看
   const mjModal = $('map-json-modal');
-  if (mjModal) mjModal.addEventListener('click', (e) => { if (e.target === mjModal) mjModal.classList.add('hidden'); });
+  if (mjModal) mjModal.addEventListener('click', (e) => { if (e.target === mjModal) closeMapJsonModal(); });
   const mjCopy = $('mm-json-copy');
   if (mjCopy) mjCopy.addEventListener('click', copyMapJson);
   const mjClose = $('mm-json-close');
-  if (mjClose) mjClose.addEventListener('click', () => { if (mjModal) mjModal.classList.add('hidden'); });
+  if (mjClose) mjClose.addEventListener('click', closeMapJsonModal);
   // 信息条内「查看原图」按钮（事件委托，innerHTML 重建后仍有效）
   const mmInfoEl = $('mm-info');
   if (mmInfoEl) mmInfoEl.addEventListener('click', (e) => {
@@ -3697,18 +3613,8 @@ function bindEvents() {
   $('um-del').addEventListener('click', deleteUserPreset);
   $('mem-add').addEventListener('click', addMemory);
   $('mem-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') addMemory(); });
-  $('mem-auto-enabled')?.addEventListener('change', readTavernAutoMemoryForm);
-  ['mem-auto-window', 'mem-auto-summarize', 'mem-auto-chars'].forEach(id =>
-    $(id)?.addEventListener('change', readTavernAutoMemoryForm));
-  $('mem-auto-run')?.addEventListener('click', manualRollTavernMemory);
-  $('mem-auto-clear')?.addEventListener('click', clearTavernAutoMemory);
   // AI 生成
-  $('btn-ai-char').addEventListener('click', aiGenChar);
-  $('btn-ai-char-full').addEventListener('click', aiGenFullChar);
   $('cm-profile-add').addEventListener('click', addCharProfileField);
-  $('cw-back-1').addEventListener('click', () => setCharWizardStep(1));
-  $('cw-back-2').addEventListener('click', () => setCharWizardStep(2));
-  $('cm-ai-desc').addEventListener('keydown', e => { if (e.key === 'Enter') aiGenChar(); });
   $('btn-ai-wi').addEventListener('click', aiGenWI);
   // 会话
   $('btn-session').addEventListener('click', e => {
@@ -3726,23 +3632,6 @@ function bindEvents() {
     if (!$('chat-header-menu').contains(e.target)) closeChatHeaderMenu();
   });
   $('session-menu-new').addEventListener('click', () => { newSession(); $('session-menu').classList.add('hidden'); });
-  // 角色管理
-  $('cm-new').addEventListener('click', newCharEditor);
-  $('cm-name').addEventListener('input', () => { if (cmCreating) renderCharList(); });
-  $('cm-save').addEventListener('click', () => { saveCharFromEditor(); renderCharList(); });
-  $('cm-use').addEventListener('click', useCharInEditor);
-  $('cm-del').addEventListener('click', () => {
-    if (cmCreating) {
-      if (!confirm('取消新建角色？未保存内容将丢失。')) return;
-      cmCreating = false;
-      if (currentCharId) selectCharForEdit(currentCharId);
-      else renderCharList();
-      return;
-    }
-    if (cmEditingId) deleteChar(cmEditingId);
-  });
-  $('cm-export').addEventListener('click', exportCurrentChar);
-  $('cm-import').addEventListener('click', () => charFileInput.click());
   // 世界书
   $('wi-new').addEventListener('click', newWIEditor);
   $('wi-save').addEventListener('click', saveWI);
@@ -3868,8 +3757,6 @@ function bindEvents() {
   $('devtools-close')?.addEventListener('click', closeDevtools);
   $('devtools-panel')?.addEventListener('cancel', e => { e.preventDefault(); closeDevtools(); });
   $('devtools-panel')?.addEventListener('click', e => { if (e.target === e.currentTarget) closeDevtools(); });
-  // 模式切换：刷新快捷行动与 RPG 面板
-  document.querySelectorAll('.js-mode-switch').forEach(button => button.addEventListener('click', switchMode));
   renderQuickActions();
   // 世界库：当前存档接管 RPG 主链；旧 RPG 回合仍保留兼容出口
   $('world-refresh').addEventListener('click', async () => {
@@ -4096,6 +3983,22 @@ function bindEvents() {
   $('rpg-mobile-scrim')?.addEventListener('click', () => setRpgMobileDrawer(''));
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
+    // §7-3：弹窗层优先——它们在最上层，必须能用键盘关闭，并由各自的 close 函数把焦点还给触发元素
+    if (!$('settings-modal').classList.contains('hidden')) {
+      e.preventDefault();
+      closeSettings();
+      return;
+    }
+    if (!$('map-json-modal').classList.contains('hidden')) {
+      e.preventDefault();
+      closeMapJsonModal();
+      return;
+    }
+    if (!$('map-modal').classList.contains('hidden')) {
+      e.preventDefault();
+      closeMapModal();
+      return;
+    }
     if ($('chat-header-menu').open) {
       e.preventDefault();
       closeChatHeaderMenu(true);
@@ -4374,19 +4277,10 @@ async function init() {
   }
 
   renderProviderOptions();
-
-  ensureChars();
   ensureLorebooks();
   ensureCharacterBookLorebooks();
   renderBindSelects();
   ensureEntryIds();
-  // 清理旧版遗留的纯占位角色
-  if (characters.length && characters.every(c => !c.name || c.name === '？？？')) {
-    characters = [];
-    currentCharId = null;
-    localStorage.removeItem(LS_CURRENT_CHAR);
-    saveChars();
-  }
   let presetsMigrated = ensurePromptPresetsV3();
   if (migrateBuiltInTavernPreset(defaults)) presetsMigrated = true;
   if (migrateLegacyFormatPreferences()) presetsMigrated = true;
@@ -4406,14 +4300,64 @@ async function init() {
   applyTypography(); // 启动即恢复用户排版（覆盖 :root 默认变量）
   ensureSessions();
   applyTheme();
-  applyMode(mode);
+  applyMode();
   bindEvents();
   renderMessages();
   renderCharacter();
   renderSessions();
-  renderCharList();
   renderDevtools();
   updateApiStatusFromSettings();
   await syncWorldDraftRoute();
 }
+function renderSessions() {
+  const nameEl = $('session-name');
+  if (worldModeActive()) {
+    if (nameEl) nameEl.textContent = currentWorldSave.name || '世界存档';
+    const player = currentWorldSave.player?.snapshot || {};
+    const hdrName = $('hdr-char-name');
+    const hdrRace = $('hdr-char-race');
+    if (hdrName) hdrName.textContent = player.name || currentWorldCard()?.title || '世界存档';
+    if (hdrRace) hdrRace.textContent = `${[player.race, player.role].filter(Boolean).join(' · ') || '玩家快照'} · 世界存档`;
+    const ml = $('session-menu-list');
+    if (ml) ml.innerHTML = '<div class="sess-empty">当前显示世界存档，不读取旧 RPG 会话</div>';
+    const saveMark = $('rpg-world-save');
+    if (saveMark) { saveMark.hidden = false; saveMark.textContent = `世界 · ${currentWorldSave.name || currentWorldSave.id}`; }
+    return;
+  }
+  if (mode === 'rpg') {
+    if (nameEl) nameEl.textContent = '选择世界存档';
+    const hdrName = $('hdr-char-name');
+    const hdrRace = $('hdr-char-race');
+    if (hdrName) hdrName.textContent = '选择世界存档';
+    if (hdrRace) hdrRace.textContent = 'RPG 只使用世界存档中的玩家角色';
+    const saveMark = $('rpg-world-save');
+    if (saveMark) saveMark.hidden = true;
+    const ml = $('session-menu-list');
+    if (ml) ml.innerHTML = '<div class="sess-empty">请先从世界库创建或打开世界存档</div>';
+    return;
+  }
+  const s = curSession();
+  if (nameEl) nameEl.textContent = s ? s.name : '—';
+  const saveMark = $('rpg-world-save');
+  if (saveMark) saveMark.hidden = true;
+  // 头部下拉（只列当前模式 kind 的会话）
+  const ml = $('session-menu-list');
+  if (ml) {
+    ml.innerHTML = '';
+    for (const ses of sessions.filter(sessionMatches)) {
+      const el = document.createElement('div');
+      el.className = 'sess-item' + (ses.id === currentSessionId ? ' active' : '');
+      el.innerHTML = `<span>${esc(ses.name)}</span><span class="sess-btns"><span class="sess-x" data-act="rename" title="重命名">✎</span><span class="sess-x" data-act="del" title="删除">✕</span></span>`;
+      el.addEventListener('click', (ev) => {
+        const act = ev.target.dataset && ev.target.dataset.act;
+        if (act === 'del') { deleteSession(ses.id); return; }
+        if (act === 'rename') { renameSession(ses.id); return; }
+        switchSession(ses.id);
+        $('session-menu').classList.add('hidden');
+      });
+      ml.appendChild(el);
+    }
+  }
+}
+
 init();

@@ -56,7 +56,7 @@ RPG 流程为：
 - RP 与 RPG 共用连接设置、模型列表、流式输出、停止生成、全屏输入、排版和界面主题。
 - 「设置 → 界面」可选择本机聊天背景，支持开关、遮罩、铺满 / 完整显示和对齐位置；图片与参数在桌面 / Android 本机持久保存，普通聊天区共用。
 - AI 调试终端保留当前页面的请求历史、完整 INPUT/OUTPUT、正则前原文、结构化标签、Prompt 分区、Agent trace 和 RPG 记忆诊断。
-- PWA 离线资源、Android 内嵌 NanoHTTPD 服务和 Android System WebView/Chromium 83 起的兼容补丁。
+- PWA 离线资源、Android 内嵌 Node 运行时（直接运行同一份 `server.js`）和 Android System WebView/Chromium 111+ 的内核能力判定与兼容降级层。
 - 手机端左右工具抽屉、消息窗口位置保持、轻量回合状态增减动画和响应式布局。
 
 酒馆请求会先把消息拆成“已完成的旧上下文”和“尚未收到 AI 回复的当前玩家回合”。`chatHistory` 开关与历史条数只裁剪旧上下文；自动摘要只覆盖完整的用户/AI 回合；骰点等 `meta` 记录附在当前玩家内容之后。当前玩家内容在 Chat History 边界只注入一次，因此关闭历史、极小历史窗口、摘要滚动或请求失败后连续输入都不会静默丢失；预设明确放在历史之后的 Relative / In-Chat 条目仍按 Prompt Order 跟随。该结构不参与 RPG 的 WorldSave 回合提交。
@@ -82,6 +82,7 @@ frontend/（编辑源）
   tavern-rp.js     RP 会话、角色、世界书、预设、记忆、正则
   rpg-world.js     WorldCard/WorldSave、建角、开局、世界 UI
   ai-protocol.js   输出标签、Typed Patch、RPG 协议和兼容解析
+  ai-prompt.js     提示词组装、World Info 激活与分节（RP / RPG 共用）
   ai-runtime.js    请求、流式响应、Agent 工具和回合提交
   app-render.js    Markdown、消息、选项和消息窗口渲染
   app-ui.js        设置表单、侧栏、主题、终端和事件绑定
@@ -89,7 +90,7 @@ frontend/（编辑源）
 
 `node scripts/build_frontend.js` 按固定顺序把 `frontend/*.js` 拼接为 `public/app.js`。修改前端时只改 `frontend/`，提交前必须运行生成/校验命令；APK、PWA 和浏览器都使用生成后的 `public/app.js`。
 
-Android 目录是离线壳：`MainActivity.kt` 启动 WebView，`TavernServer.kt` 在本机 127.0.0.1:3000 提供前端和核心 API。GitHub Actions 会复制前端与 `_defaults.json`，不会把本地 `public/data/*.json`、API Key 或存档打进 APK。
+Android 目录是离线壳：内嵌 Node 运行时执行与桌面端同一份 `server.js`，在本机 127.0.0.1:3000 提供前端和核心 API；`MainActivity.kt` 只负责 WebView 与原生导出桥（见 [android-node-runtime.md](android-node-runtime.md)）。构建时由 `scripts/sync_android_assets.sh` 复制 `server.js` 与公开前端，不会把本地 `public/data/*.json`、API Key 或存档打进 APK。
 
 ## 4. 数据所有权与生命周期
 
@@ -232,7 +233,7 @@ node scripts/check_webview83_compat.js
 - 默认服务无鉴权和 SSRF 防护，只适合本机/可信局域网开发；不要直接暴露公网。
 - API Key 只保存于本地运行时数据；不要提交 `public/data/*.json`、`data/saves`、图片或调试记录。
 - 世界卡扩展使用隔离 sandbox Bridge；经用户确认的角色卡完整兼容 iframe 具有同源 DOM、localStorage、外部脚本/网络能力，只导入信任卡片。
-- Android 端覆盖核心世界卡、存档、开局和 Agent 入口，但完整 Runtime/结局/重开仍需真机回归；最低目标为 WebView/Chromium 83。
+- Android 端覆盖核心世界卡、存档、开局和 Agent 入口，但完整 Runtime/结局/重开仍需真机回归；最低目标为 WebView/Chromium 111。
 - 地图生成代码仍保留，但当前地图 UI 与运行时随机生成关闭；新存档只读取世界卡明确提供的地图数据。
 - RPG 记忆目前是结构化事件记忆和摘要，不包含向量检索、自动聚类或完整人工编辑器。
 - 不要把旧的 events/factions/inventory/growth 等硬编码投影重新接回新回合；需要新玩法时在 WorldCard Runtime schema 中声明。
@@ -246,4 +247,5 @@ node scripts/check_webview83_compat.js
 - [世界卡架构](world-card-architecture.md)：WorldCard / WorldSave 设计与隔离原则。
 - [世界测试实验台](world-test-lab.md)：开发者实验台和验收路径。
 - [Android APK](android-apk.md)：GitHub Actions、离线壳和手机端限制。
-- [下一 Harness 交接提示词](handoff-next-harness.md)：交给下一位自动化 Harness 的可复制工作说明。
+- [AGENTS.md](../AGENTS.md)：开发规范唯一来源，AI 编码工具会自动加载。
+- [下一 Harness 交接快照](handoff-next-harness.md)：每次交接的状态、接手重点与验收清单（规范内容不在此处复制）。

@@ -1,0 +1,59 @@
+{
+  "skill_name": "screen-flow-diagram",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "Create an interactive screen flow diagram for a mobile food delivery app: Home Feed (list of restaurants) → Restaurant Detail (menu items) → Cart (order summary) → Checkout Form (address + payment) → Order Confirmation. Show the wireframe mockups for each screen with appropriate content (cards for the feed, hero image for detail, form fields for checkout). Include back navigation on each screen.",
+      "expected_output": "A standalone HTML file with D3.js rendering 5 mobile screen mockups as wireframes connected by green action pills. Each screen should show type-appropriate wireframe content. Back navigation arrows should be present. Screens should have rounded corners, drop shadows, and green connector lines.",
+      "files": [],
+      "assertions": [
+        {"type": "file_exists", "name": "HTML file exists", "pattern": "*.html"},
+        {"type": "contains", "name": "Uses D3.js from CDN", "text": "d3@7"},
+        {"type": "contains", "name": "All 5 screens present", "text": "Home Feed", "also_contains": ["Restaurant Detail", "Cart", "Checkout", "Confirmation"]},
+        {"type": "contains", "name": "SDS interactive-primary color", "text": "#013D5B"},
+        {"type": "contains", "name": "Mobile screen proportions", "text": "280"},
+        {"type": "contains", "name": "Wireframe content elements", "text": "rect"},
+        {"type": "contains", "name": "Action labels on connectors", "text": "pill"},
+        {"type": "contains", "name": "SVG rendering", "text": "<svg"},
+        {"type": "contains", "name": "Back navigation", "text": "back"},
+        {"type": "contains", "name": "Warm canvas background", "text": "#FAF8F5"}
+      ]
+    },
+    {
+      "id": 1,
+      "prompt": "Build a screen flow for a login/signup experience: Landing Page → Login Form → Dashboard (on success) OR Landing Page → Sign Up Form → Email Verification → Dashboard. Show both paths branching from the landing page. Include an error path from Login Form to 'Invalid Credentials' error screen that loops back.",
+      "expected_output": "A standalone HTML file showing branching screen flows with two paths from the landing page. Login and signup forms should show form-type wireframe content. The error screen should be visually distinct (red accent). Dashboard should show dashboard-type content. Green connectors with action labels.",
+      "files": [],
+      "assertions": [
+        {"type": "file_exists", "name": "HTML file exists", "pattern": "*.html"},
+        {"type": "contains", "name": "Uses D3.js from CDN", "text": "d3@7"},
+        {"type": "contains", "name": "Landing page screen", "text": "Landing"},
+        {"type": "contains", "name": "Login form screen", "text": "Login"},
+        {"type": "contains", "name": "Sign up form screen", "text": "Sign Up"},
+        {"type": "contains", "name": "Dashboard screen", "text": "Dashboard"},
+        {"type": "contains", "name": "Error state screen", "text": "Invalid"},
+        {"type": "contains", "name": "Email verification screen", "text": "Verification"},
+        {"type": "contains", "name": "SDS interactive-primary connectors", "text": "#013D5B"},
+        {"type": "contains", "name": "Warm canvas background", "text": "#FAF8F5"}
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Create a screen flow for a desktop web application's settings flow: Settings Overview (list of categories) → Profile Settings (form) → Notification Preferences (toggles) → Security Settings (form with password fields). Also show a modal dialog for 'Delete Account' that appears from Security Settings. Use desktop screen proportions.",
+      "expected_output": "A standalone HTML file using desktop-proportioned screen mockups (wider than tall) with settings-type wireframe content (toggle rows, form fields). The delete account modal should appear as a smaller overlaid screen. All connected by green action pills with appropriate labels.",
+      "files": [],
+      "assertions": [
+        {"type": "file_exists", "name": "HTML file exists", "pattern": "*.html"},
+        {"type": "contains", "name": "Uses D3.js from CDN", "text": "d3@7"},
+        {"type": "contains", "name": "Settings overview screen", "text": "Settings Overview"},
+        {"type": "contains", "name": "Profile settings screen", "text": "Profile"},
+        {"type": "contains", "name": "Notification prefs screen", "text": "Notification"},
+        {"type": "contains", "name": "Security settings screen", "text": "Security"},
+        {"type": "contains", "name": "Delete account modal", "text": "Delete Account"},
+        {"type": "contains", "name": "Desktop proportions used", "text": "desktop"},
+        {"type": "contains", "name": "SDS interactive-primary color", "text": "#013D5B"},
+        {"type": "contains", "name": "SVG rendering", "text": "<svg"}
+      ]
+    }
+  ]
+}

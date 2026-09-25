@@ -1953,7 +1953,7 @@ function renderWorldDraftLorebookOptions(selectedIds = []) {
   const missing = [...selected].filter(id => !known.has(id)).map(id => [id, { name: '缺失引用' }]);
   const options = [...available, ...missing];
   if (!options.length) {
-    host.innerHTML = '<p class="world-draft-lorebook-empty">当前没有可选择的世界书，请先在酒馆模式的“世界书”页创建。</p>';
+    host.innerHTML = '<p class="world-draft-lorebook-empty">当前没有可选择的世界书，请先在“世界书”页创建。</p>';
     return;
   }
   host.innerHTML = options.map(([id, book]) => {
@@ -3129,10 +3129,10 @@ function renderRpgMigrationReport(data) {
   root.innerHTML = `<div class="world-import-facts"><span><b>${esc(report.source?.turns || 0)}</b>回合</span><span><b>${esc(report.state?.inventory || 0)}</b>背包</span><span><b>${esc(report.state?.quests || 0)}</b>任务</span><span><b>${report.state?.hasMap ? '有' : '无'}</b>地图</span></div>${errors ? `<section class="world-import-errors"><h3>无法迁移</h3><ul>${errors}</ul></section>` : '<p class="world-import-ready">✓ 校验通过；原会话不会被修改。</p>'}${warnings ? `<section class="world-import-warnings"><h3>迁移提示</h3><ul>${warnings}</ul></section>` : ''}`;
 }
 function legacyRpgSessions() {
-  return (Array.isArray(sessions) ? sessions : []).filter(s => s && s.kind === 'rpg' && (!currentCharId || s.charId === currentCharId));
+  return (Array.isArray(sessions) ? sessions : []).filter(s => s && s.kind === 'rpg');
 }
 function migrationCharacterSnapshot() {
-  const char = currentChar() || {};
+  const char = {};
   const copy = { name: char.name, race: char.race, role: char.role, persona: char.persona, profileFields: Array.isArray(char.profileFields) ? char.profileFields : [] };
   return Object.fromEntries(Object.entries(copy).filter(([, value]) => value !== undefined));
 }
@@ -3212,10 +3212,9 @@ async function commitWorldPackageImport() {
     currentWorldSaveId = null;
     localStorage.setItem(LS_CURRENT_WORLD, currentWorldId);
     localStorage.removeItem(LS_CURRENT_WORLD_SAVE);
-    const [nextCharacters, nextLorebooks, nextPresets] = await Promise.all([
-      loadServerData('characters'), loadServerData('lorebooks'), loadServerData('presets'),
+    const [nextLorebooks, nextPresets] = await Promise.all([
+      loadServerData('lorebooks'), loadServerData('presets'),
     ]);
-    if (Array.isArray(nextCharacters)) characters = nextCharacters;
     if (nextLorebooks && typeof nextLorebooks === 'object') lorebooks = nextLorebooks;
     if (nextPresets && typeof nextPresets === 'object') promptPresets = nextPresets;
     $('world-import-dialog').close('committed');
@@ -3709,11 +3708,8 @@ function closeWorldLibrary() {
 
 /* 开场白兜底链：char.firstMes → preset.firstMes → settings.firstMes（新会话 / 清空聊天共用） */
 function getGreeting() {
-  const char = currentChar();
   const preset = resolvePromptPreset().preset;
-  return (char && char.firstMes && char.firstMes.trim())
-    || (char && Array.isArray(char.alternateGreetings) && char.alternateGreetings.find(g => String(g || '').trim()))
-    || (preset && preset.firstMes && preset.firstMes.trim())
+  return (preset && preset.firstMes && preset.firstMes.trim())
     || settings.firstMes || '';
 }
 function worldCardHasSetupSurface(world = currentWorldCard()) {
@@ -5183,7 +5179,7 @@ function worldExtensionSrcdoc(extension, nonce, themeTokens = {}) {
   const theme = Object.entries(themeTokens && typeof themeTokens === 'object' ? themeTokens : {})
     .map(([key, value]) => `--${key}:${value}`).join(';');
   const css = `${theme ? `:root{${theme}}` : ''}${rawCss}`;
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"><style>*{-webkit-tap-highlight-color:transparent}html,body{width:100%;height:100%;margin:0;min-height:100%;overflow:hidden;background:transparent;color:#f2f2f7;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;scrollbar-width:thin;scrollbar-color:rgba(119,230,213,.7) transparent}*{scrollbar-width:thin;scrollbar-color:rgba(119,230,213,.7) transparent}*::-webkit-scrollbar{width:8px;height:8px}*::-webkit-scrollbar-track{background:rgba(255,255,255,.04);border-radius:8px}*::-webkit-scrollbar-thumb{background:linear-gradient(180deg,rgba(119,230,213,.85),rgba(93,139,202,.85));border:2px solid transparent;background-clip:padding-box;border-radius:8px}*::-webkit-scrollbar-thumb:hover{background:linear-gradient(180deg,#77e6d5,#6a9de5);border:1px solid transparent;background-clip:padding-box;border-radius:8px}#tavern-extension-root{width:100%;height:100%;min-height:100%;box-sizing:border-box}#tavern-extension-root>:first-child{box-sizing:border-box;min-height:100%}button,input,textarea,select{font:inherit}button{cursor:pointer}[data-tavern-messages]{display:flex;flex-direction:column;gap:10px;min-height:0;overflow:auto;overscroll-behavior:contain}[data-tavern-messages] .tavern-message{white-space:pre-wrap;overflow-wrap:anywhere}[data-tavern-messages] .tavern-message-user{align-self:flex-end}[data-tavern-messages] .tavern-message-assistant{align-self:flex-start}[data-tavern-narrative]{overflow-wrap:anywhere}[data-tavern-narrative][hidden]{display:none!important}[data-tavern-rendered] p{margin:.45em 0;line-height:1.7}[data-tavern-rendered] p:first-child{margin-top:0}[data-tavern-rendered] p:last-child{margin-bottom:0}[data-tavern-rendered] ul,[data-tavern-rendered] ol{padding-left:1.35em}[data-tavern-rendered] blockquote{margin:.7em 0;padding:.2em .8em;border-left:3px solid rgba(119,230,213,.7);background:rgba(119,230,213,.08)}[data-tavern-rendered] pre{max-width:100%;overflow:auto;padding:.7em;border-radius:8px;background:rgba(0,0,0,.28)}[data-tavern-rendered] code{overflow-wrap:anywhere}[data-tavern-options]{display:flex;flex-wrap:wrap;gap:10px}[data-tavern-options] .tavern-option{min-height:44px;padding:10px 14px;border-radius:10px}[data-tavern-input]{display:flex;gap:10px}[data-tavern-input] input,[data-tavern-input] textarea{min-width:0;flex:1;box-sizing:border-box}${css}</style></head><body><main id="tavern-extension-root">${html}</main><script>${webview83CompatSource()}</script><script>${extensionBridgeSource(nonce)}\n${js}</script></body></html>`;
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"><style>*{-webkit-tap-highlight-color:transparent}html,body{width:100%;height:100%;margin:0;min-height:100%;overflow:hidden;background:transparent;color:#f2f2f7;font:14px -apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;scrollbar-width:thin;scrollbar-color:rgba(119,230,213,.7) transparent}*{scrollbar-width:thin;scrollbar-color:rgba(119,230,213,.7) transparent}*::-webkit-scrollbar{width:8px;height:8px}*::-webkit-scrollbar-track{background:rgba(255,255,255,.04);border-radius:8px}*::-webkit-scrollbar-thumb{background:linear-gradient(180deg,rgba(119,230,213,.85),rgba(93,139,202,.85));border:2px solid transparent;background-clip:padding-box;border-radius:8px}*::-webkit-scrollbar-thumb:hover{background:linear-gradient(180deg,#77e6d5,#6a9de5);border:1px solid transparent;background-clip:padding-box;border-radius:8px}#tavern-extension-root{width:100%;height:100%;min-height:100%;box-sizing:border-box}#tavern-extension-root>:first-child{box-sizing:border-box;min-height:100%}button,input,textarea,select{font:inherit}button{cursor:pointer}[data-tavern-messages]{display:flex;flex-direction:column;gap:10px;min-height:0;overflow:auto;overscroll-behavior:contain}[data-tavern-messages] .tavern-message{white-space:pre-wrap;overflow-wrap:anywhere}[data-tavern-messages] .tavern-message-user{align-self:flex-end}[data-tavern-messages] .tavern-message-assistant{align-self:flex-start}[data-tavern-narrative]{overflow-wrap:anywhere}[data-tavern-narrative][hidden]{display:none!important}[data-tavern-rendered] p{margin:.45em 0;line-height:1.7}[data-tavern-rendered] p:first-child{margin-top:0}[data-tavern-rendered] p:last-child{margin-bottom:0}[data-tavern-rendered] ul,[data-tavern-rendered] ol{padding-left:1.35em}[data-tavern-rendered] blockquote{margin:.7em 0;padding:.2em .8em;border-left:3px solid rgba(119,230,213,.7);background:rgba(119,230,213,.08)}[data-tavern-rendered] pre{max-width:100%;overflow:auto;padding:.7em;border-radius:8px;background:rgba(0,0,0,.28)}[data-tavern-rendered] code{overflow-wrap:anywhere}[data-tavern-options]{display:flex;flex-wrap:wrap;gap:10px}[data-tavern-options] .tavern-option{min-height:44px;padding:10px 14px;border-radius:10px}[data-tavern-input]{display:flex;gap:10px}[data-tavern-input] input,[data-tavern-input] textarea{min-width:0;flex:1;box-sizing:border-box}${css}</style></head><body><main id="tavern-extension-root">${html}</main><script>${webCompatSource()}</script><script>${extensionBridgeSource(nonce)}\n${js}</script></body></html>`;
 }
 
 function postWorldExtensionContext() {
@@ -5468,6 +5464,43 @@ function renderWorldExtension(surface = 'play') {
   }, Math.max(200, Math.min(5000, Number(extension.timeoutMs) || 1200)));
 }
 
+// 状态条只认运行时声明，不预置任何玩法字段。
+// 有可用 min/max 区间的资源 → 渲染成 meter（这是通用「资源条」形态，至于是生命还是理智由声明决定）
+// 其余维度（属性 / 技能 / 无区间资源 / 派生值） → 渲染成 chip，由 renderRPG 后半段统一处理
+function statusMeters() {
+  if (!worldModeActive()) return [];
+  const schema = currentWorldCard()?.playerCreation || {};
+  return (Array.isArray(schema.resources) ? schema.resources : []).filter(definition =>
+    definition && definition.id
+    && Number.isFinite(Number(definition.max))
+    && Number(definition.max) > Number(definition.min ?? 0)
+  );
+}
+
+function renderStatusMeters() {
+  const statusBar = $('rpg-status');
+  if (!statusBar) return;
+  statusBar.querySelectorAll(':scope > .rpg-stat').forEach(element => element.remove());
+  const meters = statusMeters();
+  if (!meters.length) return;
+  const player = currentWorldSave?.state?.player;
+  const anchor = $('rpg-dynamic-stats');
+  for (const definition of meters) {
+    const min = Number.isFinite(Number(definition.min)) ? Number(definition.min) : 0;
+    const max = Number(definition.max);
+    const raw = player?.resources?.[definition.id];
+    const value = raw === undefined || raw === null || raw === '' ? (definition.initial ?? definition.default ?? min) : raw;
+    const numeric = Number(value);
+    const pct = Number.isFinite(numeric) ? Math.max(0, Math.min(100, (numeric - min) / (max - min) * 100)) : 0;
+    const row = document.createElement('div');
+    row.className = 'rpg-stat';
+    row.innerHTML = '<span>' + esc(definition.label || definition.id) + '</span>'
+      + '<div class="rpg-bar"><i style="width:' + pct.toFixed(2) + '%"></i></div>'
+      + '<b>' + esc(Number.isFinite(numeric) ? numeric + '/' + max : '—') + '</b>';
+    statusBar.insertBefore(row, anchor);
+  }
+}
+
 function renderRPG() {
   applyWorldUiSlots();
   const rs = curRpgState();
@@ -5475,30 +5508,18 @@ function renderRPG() {
   const worldRuntime = worldModeActive();
   const legacyWorldRight = $('rpg-legacy-world-right');
   if (legacyWorldRight) legacyWorldRight.hidden = worldRuntime;
-  const statusBar = $('rpg-status');
-  if (statusBar) statusBar.hidden = worldRuntime;
-  statusBar?.querySelectorAll(':scope > .rpg-stat').forEach(element => { element.hidden = worldRuntime; });
   const sendButton = $('btn-send');
   if (sendButton && !sending) sendButton.disabled = worldSavePlanning();
   const setT = (id, v) => { const el = $(id); if (el) el.textContent = v; };
-  const setW = (id, pct) => { const el = $(id); if (el) el.style.width = pct; };
-  setT('rpg-level', rs.level);
-  setT('rpg-gold', rs.gold);
-  setT('rpg-gold2', rs.gold);
   setT('rpg-loc', rs.location || '—');
-  setT('rpg-hp-text', `${rs.hp}/${rs.maxHp}`);
-  setT('rpg-mp-text', `${rs.mp}/${rs.maxMp}`);
-  setT('rpg-exp-text', `${rs.exp}/${rs.expNext}`);
-  setW('rpg-hp-bar', rs.maxHp ? Math.max(0, Math.min(100, rs.hp / rs.maxHp * 100)) + '%' : '0%');
-  setW('rpg-mp-bar', rs.maxMp ? Math.max(0, Math.min(100, rs.mp / rs.maxMp * 100)) + '%' : '0%');
-  setW('rpg-exp-bar', rs.expNext ? Math.max(0, Math.min(100, rs.exp / rs.expNext * 100)) + '%' : '0%');
-  setT('rpg-buffs', rs.buffs && rs.buffs.length ? rs.buffs.join('、') : '—');
+  renderStatusMeters();
   const dynamicStats = $('rpg-dynamic-stats');
   if (dynamicStats) {
     const schema = worldModeActive() ? currentWorldCard()?.playerCreation : null;
     const playerState = worldModeActive() ? currentWorldSave.state?.player : null;
+    const meterIds = new Set(statusMeters().map(definition => definition.id));
     const definitions = [...(Array.isArray(schema?.attributes) ? schema.attributes : []), ...(Array.isArray(schema?.skills) ? schema.skills : []), ...(Array.isArray(schema?.resources) ? schema.resources : [])]
-      .filter(definition => definition && !['hp', 'mp', 'gold'].includes(definition.id));
+      .filter(definition => definition && definition.id && !meterIds.has(definition.id));
     dynamicStats.innerHTML = definitions.map(definition => {
       const bucket = schema?.attributes?.some(item => item.id === definition.id) ? playerState?.attributes
         : schema?.skills?.some(item => item.id === definition.id) ? playerState?.skills : playerState?.resources;
@@ -5698,7 +5719,7 @@ function renderRPG() {
   const cs = $('rpg-char-summary');
   const c = mode === 'rpg'
     ? (worldModeActive() ? (currentWorldSave.player?.snapshot || null) : null)
-    : currentChar();
+        : null;
   if (cs) {
     cs.innerHTML = c
       ? `<div class="rpg-item"><span class="rpg-item-name">${esc(c.name || '未命名冒险者')}</span><div class="rpg-item-sub">${esc([c.race, c.role].filter(Boolean).join(' · ') || '种族/身份待定')}</div></div>`

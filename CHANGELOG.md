@@ -1,5 +1,121 @@
 # 更新日志
 
+## 2026-09-25 · ST（酒馆）模式全面移除，应用固定为 RPG 单模式
+
+背景：RPG 不导入普通角色卡，「酒馆模式」与「RPG 模式」两条链路实际不可互通；保留双模式只会让后续维护同时背两套分支。本批把 ST 产品面从代码里清掉，并为「不得复活」建立守卫。
+
+**产品面移除**
+- 移除模式开关（`a4ee4cf`）：应用固定为 RPG，界面文本「酒馆」清零。
+- 移除角色卡的 prompt 覆盖链（`a73a960`）、自动写卡与 AI 角色工坊（`07e1714`）、回复选项协议的指令构造器（`215cf17`）、ST 自动滚动记忆（`ca2267f`）。
+- 切断角色卡脚本帧入口并删除兼容桥本体（`11c29cf`、`208f187`，净减 1276 行）。
+- 角色库整体拆除：UI 面板 / 导航 / 编辑器入口（`8caa2bd`、`a147d7b`）与编辑器函数族（`b2be15b`、`994e221`）。
+- 世界书**保留**并接入 RPG 导航（`cac4c67`）—— 它是被 RPG 读取的机制，不属于 ST 产品面。
+
+**数据与协议解耦**
+- 会话不再按角色隔离：`sessionMatches` 只按 kind 匹配，`charId` 停止写入（`4e326ea`、`4cb979d`）。
+- 共享路径上的角色卡依赖解耦（`43c638a`、`c1e20ec`）：`promptChar = null`、`buildWorldInfo` 的 `char.loreId` 支路、`getGreeting` 的 char 兜底链。
+- **保留（被 RPG / 世界包复用，不得删）**：`characterBookForChar`、`normalizeCharProfileFields`、卡片序列化工具族、`saveChars` / `ensureChars`。
+
+**防回退**
+- 新增 `scripts/check_st_removed.js`：已移除项不得复活的断言 + 被复用机制必须留存的反向断言。
+
+**未处理（已登记）**
+- 世界包（server 侧 `characters` 字段）涉及已导出文件兼容，属独立工作项。
+- 存档与协议层的 `hp / mp / exp / gold` 同上，见 `docs/design/DESIGN_CONSTITUTION.md §11.1`。
+
+## 2026-09-25 · 杀掉 RPG 状态条的写死玩法数值（UI 层）
+
+RPG 模式要的是「高度自定义的玩法框架」，不是某一套具体玩法。此前 `#rpg-status` 里并列着写死的 HP / MP / EXP / 金币 / 状态 五行。
+
+- **`public/index.html`**：删除 5 行写死标记（`rpg-hp-bar` / `rpg-hp-text` / `rpg-mp-*` / `rpg-exp-*` / `rpg-gold2` / `rpg-buffs`）
+- **`public/styles.css`**：删除按玩法字段配色的 3 条渐变规则与 `.rpg-buffs`；解除 `body[data-mode="rpg"] #rpg-dynamic-stats { display: none }`（通用层此前一直渲染但被藏住）；资源条改用 `var(--accent)`
+- **`frontend/rpg-world.js`**：新增 `statusMeters()` / `renderStatusMeters()` —— 有 `min`/`max` 区间的资源渲染成通用 meter，其余维度仍走 `#rpg-dynamic-stats` chip；**删除按名字硬排除的过滤** `!['hp','mp','gold'].includes(id)`
+- **`scripts/check_frontend_state_guards.js`**：旧断言「世界存档态不能保留空的旧状态栏占位」守的是写死行的 workaround，写死行删掉后它失去意义。换成 4 条新断言：不许再写死玩法数值行 / 资源条不得按玩法字段配色 / meter 必须取自运行时声明 / `renderRPG` 必须先渲染声明驱动部分
+
+**效果**：没有声明的世界卡 → 状态条为空，**不再显示一排 0**；有 `resources` 声明的世界卡 → 按 `min`/`max` 自动出 meter，叫什么名字、是生命还是理智，全由卡决定。
+
+**未完成（已登记）**：状态层（`defaultRpgState` / `worldRpgState`）与协议层（`ai-protocol.js` / `ai-prompt.js`）里仍有 `hp / mp / exp / gold`。这一层是 AI 输出协议 + 存档格式，删除会改变世界卡契约并影响已有存档，需要 ADR + 兼容窗口。完整清单见 `docs/design/DESIGN_CONSTITUTION.md §11.1`。
+
+## 2026-09-25 · 追加两个流程图 skill + RPG 玩法中立性立为硬约束
+
+### 追加 `screen-flow-diagram` / `interactive-flow-diagram`（来源 A，MIT）
+
+- 经用户确认「可以学习一下」后，由「排除」改为「安装」。评估表里的排除理由同时更正 —— 「违反离线约束」不成立（离线约束管的是**随应用分发**的资源；这些是开发侧产物，不进 `public/`、不进 APK）。
+- CDN 依赖的处理：**第三方内容保持原样不改**；离线场景下由使用者在**生成产物时**把那一行换成本地 D3。这属于使用方式，不属于修改 skill。
+- 效果：已装第三方技能 11 → 13；Operit 全局目录 31 → 33。
+
+### RPG 玩法中立性立为硬约束（`docs/design/DESIGN_CONSTITUTION.md §11.1`）
+
+- **RPG 模式是「高度自定义的玩法框架」，不是某一套具体玩法。** UI 不得写死任何玩法数值或功能（HP / MP / EXP / 金币 / 等级 / 背包 / 增益 / 技能…… 一个都不预置）；界面上每个数值都必须由运行时声明驱动；**新增玩法维度时改数据声明，而不是 `public/index.html`**。
+- **登记当前已知偏差（未修复）**：`#rpg-status` 里 HP / MP 仍是**无 `hidden` 的常驻写死条**，更新逻辑在 `frontend/rpg-world.js` 直接读 `rs.hp` / `rs.maxHp` / `rs.mp` / `rs.maxMp`。同容器内的 `#rpg-dynamic-stats` 已是 definition 驱动的通用层 —— **方向是对的，写死层是遗留**。已登记，不静默处理。
+- 同步落点：`AGENTS.md §5` 新增第 7 条；`skills/ui-design-system/SKILL.md` 新增第 8 条约束；`references/components.md` 新增「玩法中立性」一节。
+
+## 2026-09-25 · 安装 UI/UX 设计技能体系 + 建立设计总纲
+
+- **仓库成为技能唯一来源**：新建 `skills/`，收录 11 个第三方 MIT 技能（原样收录、零内容修改、各自带 LICENSE）+ 自写的统一入口 `ui-design-system`（`SKILL.md` 只做路由 + 10 个主题参考文件）。候选评估表与「不装的理由」记在 `skills/EVALUATION.md`。
+- **同步与防漂移**：新增 `scripts/sync_skills.js`（默认不覆盖同名冲突，带 `--check` / `--force`）与 `scripts/check_skills_sync.js`（随 `run_checks` 跑，逐文件哈希比对仓库与 Operit 全局 skill 目录；目标不存在时优雅跳过）。全局目录技能数从 19 → 31。
+- **设计总纲**：新建 `docs/design/DESIGN_CONSTITUTION.md`（14 节）。`docs/ui-beauty-declaration.md` 降级为「宿主契约」子文档，两边建立双向引用；三层文档之间只允许引用不允许复制。
+- **修掉一处腐坏引用**：`AGENTS.md §7` 的验证门仍指向已删除的 `check_webview83_compat.js`，改为 `check_webview_floor.js`。
+- **`AGENTS.md`**：新增设计类改动的文档同步分工，以及「改 `skills/` 必须同步」的硬要求。
+
+## 2026-09-25 · §7 无障碍约束变成可检查项（并修掉两个实测缺陷）
+
+- **§7 之前是纯文案**：7 条约束没有任何检查覆盖。现在每条都标注了验证方式（`[静态]` / `[运行时]` / `[未强制]`+原因），并附「当前已知偏差」的实测数据。没有标注的条款等于没有约束——这正是它此前失效的原因。
+- 新增 **`scripts/check_ui_accessibility.js`**（静态，随 `run_checks` 跑）：全局 `:focus-visible` 焦点环存在；**每一处 `outline: none` 必须有配对的焦点指示**；`prefers-reduced-motion` 块真正关掉过渡；移动端 16px 输入字号覆盖存在；关键控件 44px；**每个弹窗都被 Escape 分支覆盖**且 close 函数归还焦点；扩展 iframe 消息区只有一个滚动容器。
+- 新增 **`scripts/audit_ui_accessibility.js`**（运行时测量，浏览器控制台/Playwright 调用）：逐元素量 44px 命中区与 16px 输入字号，实测 Escape 关闭与焦点归还。静态证明不了的事（选择器匹配不到、规则被覆盖、祖先容器决定实际尺寸）只能测量。
+- **修掉实测抓到的两个真缺陷**：
+  - §7-3：`#settings-modal` 与两个地图弹窗**都不在 Escape 分支链里**，键盘用户无法关闭；`closeSettings()` 也从不归还焦点（只加 `hidden`）。已为三个弹窗补 Escape 分支 + 焦点归还（`openXxx` 记录触发元素，`closeXxx` 还回去；`document.body` 不作为归还目标）。新静态断言「弹窗识别数 = Escape 覆盖数」正是为了守住这个。
+  - §7-2：设置弹窗内 **14 个输入框/下拉在移动端是 13px**，会触发 WebView 聚焦自动缩放。已在移动端媒体查询内统一到 16px（顺带把表单输入高度从 33px 提到 37px）。
+- 对比度：确认 6 处 `outline: none` 全部配了 `:focus` 的 box-shadow 替代指示（按钮走 `:focus-visible` + outline，输入框走 `:focus` + box-shadow，是刻意的双轨模式），未改动。
+- **验证**：静态检查 96/96；运行时审计实测 `closedAfterEsc: true`、`focusReturnedToTrigger: true`、输入字号偏差 14 → 1（剩下的是复选框，不触发文字缩放）。
+
+## 2026-09-25 · 剩余尺度债务清理：圆角 / 动效 / 字号
+
+- **圆角**（153 声明 / 22 种取值 → 9 种）：42 个 token 对齐。奇数档 `9/7/11/5/3px` 归位；`99px` 与 `999px` 两套胶囊写法统一为 `999px`（**注意：`99px` 就近对齐会落到 `20px` 把小圆角化，必须用阈值规则**）；`--radius` token 保留不动。
+- **动效**（109 token / 17 种时长 → 11 种）：全部统一为 `ms` 单位并对齐刻度。`0.15s`/`.16s`/`160ms` 这类同义写法归一；`140/160/180/220/240/420ms` 六个「近义」时长归位；`60s`→`60000ms`、`1.4s`→`1400ms`。确认过没有任何 JS 依赖具体时长字符串。
+- **字号**（214 声明 / 23 种 → 12 种）：67 个 token 对齐。5 个半像素值（`11.5px`×28、`10.5px`×18、`12.5px`×13、`13.5px`×3、`9.5px`×1）归位到整数字号——**居中时统一取较小者**（与间距迁移同一规则）。`var(--chat-font-size)` / `calc()` / `em` 保留。
+- `check_spacing_scale.js` 升级为 **`check_design_scales.js`**：一次守卫四类尺度，并新增「动效必须使用 ms」的单位断言。
+- **验证**：浏览器几何回归（Playwright，390×844，3 个 UI 状态共 356 个可见元素）对「仅间距迁移」状态做前后对比：**结构差异 0**，酒馆/抽屉两态**无任何元素位移超过 8px**，设置弹窗最大 23.1px（列表内累积）。字号缩小 0.5px 未引发重排。三道负向测试（圆角 9px / 时长用 s / 字号 11.5px）均触发失败；全量 93/93。
+
+## 2026-09-25 · 间距债务一次还清：全量对齐 2px 基尺度
+
+- **基线测量**：`styles.css` 的间距声明用了 24 个不同的 px 值（几乎是从 1 到 16 的每个整数 + 若干散值）。其中 71% 落在 2px 网格上，**22.5%（177 处）偏离网格 1px**（3/5/7/9/11/13/15）——这才是节奏散乱的来源。
+- **一次迁移**：694 条间距声明中的 **215 个 px token** 对齐到尺度 `2 4 6 8 10 12 14 16 20 24 28 32 40 48 56 64 72`（16 以下 2px 步进，16–40 为 4px 步进，40 以上 8px 步进）。保留 `0` 与 `1px` 作为非节奏值（贴边 / 发丝线 / 亚像素分隔，共 14 处）。
+- 迁移是**值级等距改写**：最大位移 2px（唯一例外 `52→48` 为 4px），控件尺寸与 DOM 结构不变。`calc()` 内的数字与注释内的数字不参与迁移。
+- 新增 `scripts/check_spacing_scale.js`：断言 `styles.css` 的每个间距值都落在尺度上（允许 0/1px）。1px 级偏移不会报错，但会累积成节奏散乱——与内核下限、CSS 变量同属静默退化，必须靠检查兜住。
+- `check_typography.js` 的 `padding: 22px var(--chat-side-pad)` 断言同步为 `20px`。
+- **验证**：真机无关的浏览器几何回归——用 Playwright 在 390×844 视口对 3 个 UI 状态（酒馆默认 / 抽屉展开 / 设置弹窗，共 356 个可见元素）做迁移前后 `getBoundingClientRect` 对比：**结构差异 0**，全部位移均为列表内 1–2px 的累积（最大 23px），无单元素自身位移超过 2px。负向测过（引入 5px 触发失败）；全量 93/93（连续三次）。
+
+## 2026-09-25 · 修复未定义 CSS 变量 + 新增变量守卫
+
+- **审计范围**：`styles.css` 有 43 个变量被以「无 fallback」形式引用。其中 6 个依赖 JS 运行时注入（`--chat-background-*`、`--ok-rgb`、`--ui-panel-opacity`，正常），其余应来自 CSS 定义；有 2 个两头都没有。
+- 修复 `--font-mono`（未定义、12 处引用）：所有代码 / JSON 编辑面失去等宽字体——世界卡扩展编辑器、玩家 JSON、运行时高级 JSON、数组 JSON 预览、UI 自定义变量框等。补上系统本地等宽栈（末尾 generic 兜底；离线应用不允许外链字体）。
+- 修复 `--border`（未定义、1 处引用）：`.message-window-control` 的 `border: 1px solid var(--border)` 整条声明失效——不仅没有边框，hover 只写 `border-color` 也无从渲染，交互反馈同时消失。改为 `--line`（同文件有 53 处以该 token 写边框）。
+- 补上 `--warning`（未定义但有一处内联回退）：值取原回退 `#d8a64a`，视觉不变；随后删除该内联回退，使这处引用纳入守卫覆盖。
+- 新增 `scripts/check_css_vars.js`：断言「styles.css 无 fallback 引用的变量，必须能从 CSS 定义或 JS/HTML 运行时注入得到值」。无 fallback 且未定义的引用会让**整条 CSS 声明被静默丢弃**——与「内核版本过低」属同一类静默失败，此前没有任何检查覆盖。
+- `README.md` 的检查计数改为指向命令而非写死数字（该数字一轮内即过期，是文档腐坏源）。
+- 验证：负向测过（引入 `var(--font-mono-x)` 触发失败）；全量 91/91。
+
+## 2026-09-25 · 校准 Android WebView 内核下限（83 → 111）
+
+- **发现声明与代码脱钩**：`index.html` 声明 Chromium 83，但 `styles.css` 已在使用 Chromium 111 才有的 `color-mix()`（9 处），以及 `:has()`(105)、`:is()`(88)、`inset`(87)、`aspect-ratio`(88)、`:focus-visible`(86)、flex `gap`(84)，共 274 处。83~110 的设备上这些规则被静默丢弃（布局塌陷、选中态反馈消失、背景丢失），而旧门槛是「低于 83 才提示」，这些用户看不到任何警告。
+- 下限校准为 **Chromium 111**（等于代码的实际要求），未改动任何 CSS。`README.md`、`docs/android-apk.md`、`docs/project-overview.md`、`AGENTS.md` 与 `styles.css` 注释同步更新。
+- 新增 **`scripts/check_webview_floor.js`**（替代 `check_webview83_compat.js`）：静态扫描前端产物，断言「声明的下限 ≥ 代码实际用到的最高特性」，并校验 `index.html` 与 `app.js` 里的两份兼容降级层逐字同步。旧检查只守 bootstrap 能否在 83 上解析，对样式兼容性零覆盖——这是脱钩长期未被发现的根因。
+- 告警判定从 UA 版本号改为 **`CSS.supports` 能力检测**：版本号可被改写、降级或缺失，能力不会说谎；文案仍显示检测到的版本与平台。低于下限时提示可关闭，不阻断使用。
+- 移除已过时的约束：`:is()` 使用禁令（88 < 111）、导航抽屉/遮罩/弹窗的物理四边定位强制要求、逻辑赋值语法禁令（85 < 111）。保留 44px 触控命中区、16px 输入字号、`pointer-events` 命中区等无障碍断言。
+- 兼容降级层（`Array.prototype.at` / `Object.hasOwn` / `Element.replaceChildren`）**保留**：它是低于下限时用户关闭提示后继续使用的 JS 降级路径，不是死代码。`webview83CompatBootstrap` / `webview83CompatSource` 更名为 `webCompatBootstrap` / `webCompatSource`，去掉会随版本变动腐坏的数字。
+- 新增负向测试验证守卫有效性：把下限调低到 90 触发「声明与代码脱钩」失败；只改一份降级层触发「两拷贝漂移」失败。
+
+## 2026-09-19 · Android 后端单源化（内嵌 Node 运行 server.js）
+
+- Android 端不再用 Kotlin 重写第二份后端：App 内嵌 Node.js 运行时（nodejs-mobile）直接执行与桌面端同一份 `server.js`，删除 1495 行的 `TavernServer.kt` 与 nanohttpd 依赖；PC 端改完 `server.js` 重新打包即生效，不再需要同步第二份实现。
+- 新增 `android/native/node_bridge.cpp`（JNI 胶水，只负责启动 Node 与转发 stdout/stderr）、`NodeRuntime.kt`、`NodeBootstrap.kt`（解包 assets → 启动 Node → 轮询端口就绪 → 迁移旧版数据），`MainActivity.kt` 收敛为 WebView 与原生导出桥。
+- 首次启动把旧版 `filesDir/data`、`filesDir/images` 迁移到新布局 `filesDir/nodejs/public/{data,images}`，仅在目标不存在时执行一次，旧目录保留以便回退；WebView localStorage（角色、会话、设置）跨升级自动保留。
+- 新增 `scripts/fetch_android_node.sh`、`scripts/sync_android_assets.sh`、`scripts/build_android_apk.sh`；`libnode.so` 等二进制不入库，构建时现取，GitHub Actions 增加 NDK 安装步骤。
+- 两条架构守卫：`check_android_api.js` 禁止恢复第二份后端实现、校验 JNI 符号与包名一致、确认 `server.js` 打进 APK；`check_android_protocol.js` 守卫 `server.js` 零 npm 依赖与 Node 18 API 边界。
+- 移动端移除 WebView 默认点击高亮（`-webkit-tap-highlight-color`），宿主样式与两个隔离卡片 iframe 统一置为透明，交互反馈交给各控件自身的 `:hover` / `:active`。
+- 体积与 ABI：APK 由 1.4 MB 增至约 19 MB（`libnode.so` 压缩后约 17 MB），仅分发 `arm64-v8a`，32 位设备与模拟器无法安装。
+
 ## 2026-09-06 · 修复预设正则解除绑定
 
 - 修复提示词设置页中 ST 导入或预设内置正则只能显示为标签、无法卸下的问题；现在所有预设正则都可取消携带。

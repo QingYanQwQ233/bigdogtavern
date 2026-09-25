@@ -281,7 +281,7 @@ function buildPayload({ test = false } = {}) {
   }
   if (post && post.trim()) body.messages.push({ role: 'system', content: post });
   // 合成 char 历史只存在于请求副本，不写入会话或摘要；与已有 prefill 合成一个尾消息。
-  const assistantTail = [buildTavernReplyOptionsAssistantMessage(activePromptPreset), assistantPrefill]
+  const assistantTail = [assistantPrefill]
     .filter(value => value && value.trim()).join('\n\n');
   if (assistantTail) body.messages.push({ role: 'assistant', content: assistantTail });
   body.messages = body.messages.filter(message => String(message.content ?? '').trim());
@@ -338,95 +338,8 @@ function summarizeTavernTurnText(turns) {
   }).join('\n\n');
 }
 
-async function requestTavernMemorySummary(turns, config) {
-  if (!settings.baseUrl) throw new Error('未配置 API，自动记忆将在下一轮重试');
-  const payload = {
-    baseUrl: settings.baseUrl,
-    apiKey: settings.apiKey,
-    body: {
-      model: settings.model || 'default',
-      messages: [
-        {
-          role: 'system',
-          content: `你是 RP 对话记忆压缩器。将输入的完整对话压缩成约 ${config.summaryChars} 个中文字符的事实摘要。保留人物关系、关键事件、地点、承诺、未完成目标和重要状态；不要补写未发生的内容。只输出摘要正文，不要标题、解释、JSON、Markdown 代码块或 tavern_options 标签。`,
-        },
-        { role: 'user', content: summarizeTavernTurnText(turns) },
-      ],
-      temperature: Math.min(0.4, Number(settings.temperature) || 0.4),
-      max_tokens: Math.max(96, Math.min(256, Math.ceil(config.summaryChars * 2.5))),
-      top_p: settings.topP,
-      frequency_penalty: settings.frequencyPenalty,
-      presence_penalty: settings.presencePenalty,
-      stream: false,
-    },
-  };
-  const data = await callAPI(payload);
-  const content = data?.choices?.[0]?.message?.content;
-  if (!content || data?.choices?.[0]?.finish_reason === 'length') throw new Error('摘要输出被截断或为空');
-  const text = String(content)
-    .replace(/^```[\s\S]*?\n|```$/g, '')
-    .replace(/^摘要[:：]\s*/i, '')
-    .replace(/<tavern_options>[\s\S]*?<\/tavern_options>/gi, '')
-    .trim();
-  if (!text) throw new Error('摘要输出为空');
-  return Array.from(text).slice(0, config.summaryChars).join('');
-}
 
-async function maybeRollTavernMemory(session = curSession(), { force = false } = {}) {
-  if (mode !== 'tavern' || !session || session !== curSession()) return;
-  const config = tavernAutoMemoryConfig();
-  if ((!force && !config.enabled) || tavernMemoryPending.has(session.id)) {
-    renderTavernAutoMemoryStatus();
-    return;
-  }
-  const changed = ensureTavernMessageIds(session);
-  ensureTavernSessionMemory(session);
-  if (changed) saveSessions(session);
-  const turns = getTavernUnsummarizedTurns(session);
-  if (!turns.length) {
-    if (force) tavernMemoryStatus.set(session.id, '暂无可总结的完整对话');
-    renderTavernAutoMemoryStatus();
-    return;
-  }
-  if (!force && turns.length < config.windowTurns) {
-    renderTavernAutoMemoryStatus();
-    return;
-  }
-  const sourceTurns = turns.slice(0, Math.min(config.summarizeTurns, turns.length));
-  const sourceMessageIds = sourceTurns.flatMap(turn => turn.messages.map(message => message.id));
-  const requestSessionId = session.id;
-  tavernMemoryPending.add(requestSessionId);
-  tavernMemoryStatus.set(requestSessionId, '正在生成摘要…');
-  renderTavernAutoMemoryStatus();
-  try {
-    const text = await requestTavernMemorySummary(sourceTurns, config);
-    const target = sessions.find(item => item.id === requestSessionId && item.kind === 'tavern');
-    if (!target) return;
-    const memory = ensureTavernSessionMemory(target);
-    memory.summaries.push({ id: uid(), text, sourceMessageIds, createdAt: Date.now() });
-    tavernMemoryStatus.delete(requestSessionId);
-    saveSessions(target);
-  } catch (error) {
-    tavernMemoryStatus.set(requestSessionId, `总结失败，将重试：${error.message}`);
-    console.warn('[Tavern] 自动记忆总结失败:', error.message);
-  } finally {
-    tavernMemoryPending.delete(requestSessionId);
-    renderTavernAutoMemoryStatus();
-    if (curSession()?.id === requestSessionId) renderMessages();
-  }
-}
 
-async function manualRollTavernMemory() {
-  const button = $('mem-auto-run');
-  if (button?.disabled) return;
-  const label = button?.textContent || '立即总结';
-  if (button) { button.disabled = true; button.textContent = '总结中…'; }
-  try {
-    await maybeRollTavernMemory(curSession(), { force: true });
-  } finally {
-    if (button) { button.disabled = false; button.textContent = label; }
-  }
-}
 
 function mergeNativeToolCall(toolCalls, delta) {
   if (!delta || typeof delta !== 'object') return;

@@ -2,7 +2,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const vm = require('vm');
-const context = vm.createContext({ console: { debug() {}, warn() {}, error() {} }, localStorage: { getItem: () => null }, window: {}, document: {}, AbortController });
+const context = vm.createContext({ console: { debug() {}, warn() {}, error() {} }, localStorage: { getItem: () => null, setItem() {} }, window: {}, document: {}, AbortController });
 const source = fs.readFileSync('public/app.js', 'utf8').replace(/\ninit\(\);\s*$/, '');
 assert.doesNotMatch(source, /(?:async function|await) repairTavernReplyOptions/);
 vm.runInContext(source, context);
@@ -23,7 +23,7 @@ globalThis.after = JSON.stringify(sessions[0].messages);
 `, context);
 const messages = context.payload.body.messages;
 assert.strictEqual(messages.at(-1).role, 'assistant');
-assert.match(messages.at(-1).content, /恰好 3 个/);
+assert.doesNotMatch(messages.at(-1).content, /恰好 3 个/, '回复选项协议指令已随 ST 移除，不得再进入请求');
 assert.ok(messages.at(-1).content.endsWith('CUSTOM_PREFILL'));
 assert.strictEqual(messages.filter(m => m.role === 'assistant').length, 1);
 assert.strictEqual(context.before, context.after);
@@ -35,14 +35,12 @@ globalThis.custom = buildPayload();
 globalThis.normalized = normalizePromptPreset('P', promptPresets.P);
 promptPresets.P.replyOptions.enabled = false;
 globalThis.disabled = buildPayload();
-mode = 'rpg'; globalThis.rpgCue = buildTavernReplyOptionsAssistantMessage(promptPresets.P); mode = 'tavern';
 promptPresets.P.replyOptions.enabled = true;
 `, context);
-assert.strictEqual(context.custom.body.messages.at(-1).content, '我会遵守 3/3/3\n\nCUSTOM_PREFILL');
+assert.strictEqual(context.custom.body.messages.at(-1).content, 'CUSTOM_PREFILL');
 assert.strictEqual(context.normalized.replyOptions.assistantMessage, '我会遵守 {count}/{min}/{max}');
 assert.strictEqual(context.disabled.body.messages.at(-1).content, 'CUSTOM_PREFILL');
 assert.doesNotMatch(JSON.stringify(context.disabled.body.messages), /tavern_options/);
-assert.strictEqual(context.rpgCue, '');
 // Exercise the real requestReply lifecycle with a fake upstream (no paid requests).
 vm.runInContext(`
 document.getElementById = () => ({disabled:false, focus(){}});
