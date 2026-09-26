@@ -1333,6 +1333,7 @@ textarea#input:focus {
 }
 .btn.gold {
   background: linear-gradient(160deg, var(--accent), var(--accent-2));
+  background-clip: padding-box; /* 实色不铺透明边框区：与幽灵按钮描边内沿对齐，收敛「无框显大」感知 */
   color: var(--on-accent);
   font-weight: 700;
   box-shadow: 0 2px 10px var(--glow);
@@ -1929,6 +1930,7 @@ body[data-theme="vibrancy"] .nav-item.active::before,
 body[data-theme="vibrancy"] .crest-glow { display: none; }
 body[data-theme="vibrancy"] .btn.gold {
   background: var(--accent);
+  background-clip: padding-box; /* 与默认主题一致：实色内缩，消除无框显大 */
   color: #fff;
   box-shadow: none;
 }
