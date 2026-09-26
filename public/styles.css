@@ -3436,3 +3436,10 @@ body.world-authoring-active .world-draft-actions {
   .world-draft-runtime-panel .ghost-btn { min-height: 44px; }
   .world-draft-runtime-advanced > summary { min-height: 44px; padding-block: 12px; }
 }
+/* ——顶栏与底边统一底色：放在文件末尾以覆盖历史分散的背景规则（此前改了但被覆盖） —— */
+body[data-mode="rpg"] .chat-header,
+body[data-mode="rpg"] .rpg-status,
+body[data-mode="rpg"] .rpg-mobile-toolbar,
+body[data-mode="rpg"] .composer {
+  background: var(--bg-0);
+}
