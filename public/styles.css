@@ -319,10 +319,11 @@ body[data-mode="rpg"] #rpg-status { display: flex; grid-area: status; }
 /* RPG 状态条 */
 .rpg-status {
   align-items: center;
-  gap: 16px;
-  padding: 8px 16px;
+  gap: 10px;
+  padding: 5px 12px;
   border-top: 1px solid var(--line);
-  background: linear-gradient(180deg, var(--panel), var(--bg-0));
+  /* 与顶栏统一：淡白渐变叠在页面底色上；紧凑化：减小 padding/gap */
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent);
   flex-wrap: wrap;
 }
 .rpg-stat { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
@@ -1150,9 +1151,9 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   background: linear-gradient(0deg, rgba(var(--bg-0-rgb), 0.55), transparent);
 }
 /* 快捷行动/选项：单行横滚（不再多行堆叠挤压叙事区），滚动条隐藏 */
-.quick-actions { display: flex; gap: 8px; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; margin-bottom: 10px; }
+.quick-actions { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2px; margin-bottom: 6px; }
 .quick-actions::-webkit-scrollbar { display: none; }
-.quick-actions .chip { flex-shrink: 0; white-space: nowrap; }
+.quick-actions .chip { flex-shrink: 0; white-space: nowrap; padding: 3px 11px; }
 /* 块级提示（动作未结算警告 / 回合错误 / 等待提示）：独占整行，此时恢复换行 */
 .quick-actions:has(.world-action-notice),
 .quick-actions:has(.world-turn-error),
@@ -1192,7 +1193,7 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   transform: translateY(-1px);
 }
 
-.composer-row { display: flex; gap: 12px; align-items: stretch; }
+.composer-row { display: flex; gap: 8px; align-items: stretch; }
 textarea#input {
   flex: 1;
   min-width: 0;
@@ -1712,8 +1713,9 @@ body[data-mode="rpg"] .rpg-status {
   border-top: 1px solid var(--line);
 }
 body[data-mode="rpg"] .composer {
-  padding: 10px 16px max(12px, env(safe-area-inset-bottom));
-  background: rgba(var(--panel-rgb), .96);
+  padding: 6px 12px max(10px, env(safe-area-inset-bottom));
+  /* 与顶栏统一：淡白渐变替代实底 panel；紧凑化：减小上下 padding */
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent);
   border-top: 1px solid var(--line);
 }
 .rpg-mobile-toolbar,
