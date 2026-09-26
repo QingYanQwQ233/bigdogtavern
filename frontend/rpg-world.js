@@ -3129,7 +3129,9 @@ async function generateWorldOpening(save) {
 
 【文风】第二人称（“你”），画面感强、节奏有起伏、代入感强；避免流水账、条目式罗列、说明文腔调与空洞抒情。世界背景要“融进故事里”自然带出，不要整段铺陈设定。只呈现玩家角色此刻能够感知或合理推断的信息，不要提前揭露尚未公开的真相。
 
-【必须遵守】严格依据世界卡、玩家快照、起始地点、在场 NPC 与规则生成。正文末尾必须输出唯一的 <tavern_state_update> JSON 更新块，protocol=tavern.rpg.turn、version=1、baseRevision=${save.revision}、updates=[]，并提供恰好 4 个具体行动选项（彼此不同、具体可执行）。` });
+【输出纪律】正文直接从故事写起——不要输出标题、章节名或任何 Markdown 标题（如「# 矿坑之路」），不要写“第一段”“开场”之类的元说明，也不要复述任务要求。行动选项是给玩家阅读的纯文本：必须用自然语言描述动作，不得出现 actionId、字段名、括号注释等任何内部标识（错误示例：搜查货车（search-wreck）；正确示例：搜查货车与死马，确认箭羽方向）。
+
+【必须遵守】严格依据世界卡、玩家快照、起始地点、在场 NPC 与规则生成。正文末尾必须输出唯一的 <tavern_state_update> JSON 更新块，protocol=tavern.rpg.turn、version=1、baseRevision=${save.revision}、updates=[]，并提供恰好 4 个具体行动选项（彼此不同、具体可执行、纯自然语言）。` });
     beginDebugRequest(save, payload, { label: '开场候选', kind: 'opening-plan', commandId: traceCommandId });
     let reply;
     if (payload.body.stream) reply = (await callAPIStream(payload)).content;
