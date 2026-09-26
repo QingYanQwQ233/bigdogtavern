@@ -320,7 +320,7 @@ body[data-mode="rpg"] #rpg-status { display: flex; grid-area: status; }
 .rpg-status {
   align-items: center;
   gap: 10px;
-  padding: 5px 12px;
+  padding: 4px 12px;
   border-top: 1px solid var(--line);
   /* 与顶栏统一：淡白渐变叠在页面底色上；紧凑化：减小 padding/gap */
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent);
@@ -1153,7 +1153,7 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
 /* 快捷行动/选项：单行横滚（不再多行堆叠挤压叙事区），滚动条隐藏 */
 .quick-actions { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2px; margin-bottom: 6px; }
 .quick-actions::-webkit-scrollbar { display: none; }
-.quick-actions .chip { flex-shrink: 0; white-space: nowrap; padding: 3px 11px; }
+.quick-actions .chip { flex-shrink: 0; white-space: nowrap; padding: 4px 12px; }
 /* 块级提示（动作未结算警告 / 回合错误 / 等待提示）：独占整行，此时恢复换行 */
 .quick-actions:has(.world-action-notice),
 .quick-actions:has(.world-turn-error),
