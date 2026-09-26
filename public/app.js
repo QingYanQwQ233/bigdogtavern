@@ -2903,6 +2903,7 @@ function enhanceWorldPresetSelect(select) {
   wrap.appendChild(select);
   select.classList.add('world-preset-native');
   select.tabIndex = -1;
+  select.setAttribute('aria-hidden', 'true');
   const trigger = document.createElement('button');
   trigger.type = 'button';
   trigger.className = 'ghost-btn small world-preset-trigger';
