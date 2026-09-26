@@ -5169,8 +5169,10 @@ async function handleWorldSaveUpgrade(req, res, saveId) {
       const targetNpcIds = worldNpcIds(resolved.targetWorld);
       const targetLocationIds = worldLocationIds(resolved.targetWorld);
       const npcStates = cloneJson(current.npcStates || {});
-      const factionStates = materializeFactionStates(resolved.targetWorld, current.state?.factionStates);
-      const addedFactionStateIds = Object.keys(factionStates).filter(id => !Object.hasOwn(current.state?.factionStates || {}, id));
+      // 无派系定义时不物化空对象 {}（会与回合提交的“不能省略”校验打架，毒化无派系卡存档）；有定义时照常物化。
+      const materializedFactionStates = materializeFactionStates(resolved.targetWorld, current.state?.factionStates);
+      const factionStates = worldFactionDefinitions(resolved.targetWorld).length || Object.keys(materializedFactionStates).length ? materializedFactionStates : undefined;
+      const addedFactionStateIds = Object.keys(factionStates || {}).filter(id => !Object.hasOwn(current.state?.factionStates || {}, id));
       const addedNpcStateIds = [];
       for (const npcId of targetNpcIds) {
         if (Object.hasOwn(npcStates, npcId)) continue;
@@ -5200,7 +5202,7 @@ async function handleWorldSaveUpgrade(req, res, saveId) {
         ...current,
         worldVersion: payload.targetVersion,
         npcStates,
-        state: { ...current.state, factionStates, ...(targetRuntime ? { runtime: targetRuntime } : {}), ...(targetConflictState !== undefined ? { conflicts: cloneJson(targetConflictState) } : {}), ...(targetGrowthCandidates !== undefined ? { growthCandidates: cloneJson(targetGrowthCandidates) } : {}), ...(targetGrowthApplications !== undefined ? { growthApplications: cloneJson(targetGrowthApplications) } : {}), ...(targetExperiences !== undefined ? { experiences: cloneJson(targetExperiences) } : {}) },
+        state: { ...current.state, ...(factionStates !== undefined ? { factionStates } : {}), ...(targetRuntime ? { runtime: targetRuntime } : {}), ...(targetConflictState !== undefined ? { conflicts: cloneJson(targetConflictState) } : {}), ...(targetGrowthCandidates !== undefined ? { growthCandidates: cloneJson(targetGrowthCandidates) } : {}), ...(targetGrowthApplications !== undefined ? { growthApplications: cloneJson(targetGrowthApplications) } : {}), ...(targetExperiences !== undefined ? { experiences: cloneJson(targetExperiences) } : {}) },
         migrationHistory: [...history, migration],
         eventLedger: appendEventLedger(current, { kind: 'world-version-upgrade', commandId: payload.commandId, sourceRevision: revision, locationId: current.state?.locationId ?? null, time: current.state?.time ?? null, migrationId: payload.commandId }),
         revision,
@@ -6173,10 +6175,13 @@ async function handleWorldSavePut(req, res, saveId) {
       }
       const activeHooksInvalid = validateActiveHookList(payload.state.activeHooks);
       if (activeHooksInvalid) return send(res, 400, JSON.stringify({ error: activeHooksInvalid }), 'application/json');
-      if (current.state?.factionStates && payload.state.factionStates === undefined) return send(res, 400, JSON.stringify({ error: 'state.factionStates 不能省略' }), 'application/json');
-      const factionStatePayload = payload.state.factionStates === undefined && worldFactionDefinitions(world).length
-        ? materializeFactionStates(world, current.state?.factionStates)
-        : payload.state.factionStates;
+      // 「不能省略」按非空语义：空对象（无数据）不拦；无派系定义时不做物化，避免历史残留 {} 锁死保存。
+      const currentFactionStates = current.state?.factionStates;
+      const currentFactionStatesNonEmpty = !!currentFactionStates && typeof currentFactionStates === 'object' && !Array.isArray(currentFactionStates) && Object.keys(currentFactionStates).length > 0;
+      if (currentFactionStatesNonEmpty && payload.state.factionStates === undefined) return send(res, 400, JSON.stringify({ error: 'state.factionStates 不能省略' }), 'application/json');
+      const factionStatePayload = payload.state.factionStates !== undefined ? payload.state.factionStates
+        : worldFactionDefinitions(world).length ? materializeFactionStates(world, current.state?.factionStates)
+        : undefined;
       const factionStateInvalid = validateFactionStates(world, factionStatePayload, current.state?.factionStates);
       if (factionStateInvalid) return send(res, 400, JSON.stringify({ error: factionStateInvalid }), 'application/json');
       if (current.state?.player && payload.state.player === undefined) return send(res, 400, JSON.stringify({ error: 'state.player 不能省略' }), 'application/json');
@@ -7209,10 +7214,13 @@ async function handleWorldTurnPost(req, res, saveId, forcedAgentPhase = null) {
       }
       const activeHooksInvalid = validateActiveHookList(payload.state.activeHooks);
       if (activeHooksInvalid) return send(res, 400, JSON.stringify({ error: activeHooksInvalid }), 'application/json');
-      if (current.state?.factionStates && payload.state.factionStates === undefined) return send(res, 400, JSON.stringify({ error: 'state.factionStates 不能省略' }), 'application/json');
-      const factionStatePayload = payload.state.factionStates === undefined && worldFactionDefinitions(world).length
-        ? materializeFactionStates(world, current.state?.factionStates)
-        : payload.state.factionStates;
+      // 「不能省略」按非空语义：空对象（无数据）不拦；无派系定义时不做物化，避免历史残留 {} 锁死提交。
+      const currentFactionStates = current.state?.factionStates;
+      const currentFactionStatesNonEmpty = !!currentFactionStates && typeof currentFactionStates === 'object' && !Array.isArray(currentFactionStates) && Object.keys(currentFactionStates).length > 0;
+      if (currentFactionStatesNonEmpty && payload.state.factionStates === undefined) return send(res, 400, JSON.stringify({ error: 'state.factionStates 不能省略' }), 'application/json');
+      const factionStatePayload = payload.state.factionStates !== undefined ? payload.state.factionStates
+        : worldFactionDefinitions(world).length ? materializeFactionStates(world, current.state?.factionStates)
+        : undefined;
       const factionStateInvalid = validateFactionStates(world, factionStatePayload, current.state?.factionStates);
       if (factionStateInvalid) return send(res, 400, JSON.stringify({ error: factionStateInvalid }), 'application/json');
       if (current.state?.player && payload.state.player === undefined) return send(res, 400, JSON.stringify({ error: 'state.player 不能省略' }), 'application/json');
