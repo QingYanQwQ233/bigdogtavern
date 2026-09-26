@@ -556,7 +556,7 @@ function normalizeRpgPatch(patch, options = patch?.options) {
     ...(options === undefined ? {} : { options: normalizeRpgOptions(options) }),
     updates: patch.updates.map(update => {
       // 宽容：模型偶尔把地点切换写成状态字段路径（state.locationId）：与 location.set 等价，先归一化再走白名单。
-      if (!['state.locationId', 'player.location.set', 'player.location'].includes(update?.type)) return update;
+      if (!['state.locationId', 'state.location.set', 'player.location.set', 'player.location'].includes(update?.type)) return update;
       const raw = update.locationId ?? update.location ?? update.id ?? update.value;
       return raw === undefined || raw === null ? update : { ...update, type: 'location.set' };
     }).filter(update => {
