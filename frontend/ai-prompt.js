@@ -603,7 +603,9 @@ function buildRpgPromptSections() {
       unshiftSection('world.card', '【当前世界卡】\n' + [
         `世界：${world.title || world.id}（v${world.version || 1}）`,
         world.summary || '',
-        '位置协议：state.locationId 与 NPC locationId 只能使用已登记的稳定 locationId；地点名称只用于叙事，不得写入状态。',
+        world.locations?.length
+          ? '位置协议：state.locationId 与 NPC locationId 只能使用已登记的稳定 locationId；地点名称只用于叙事，不得写入状态。'
+          : '位置协议：本世界卡未登记任何地点——不要输出任何地点状态更新（如 location.set、state.locationId、player.location 等）；地点变化一律只在正文里叙事，不写入状态。',
         world.locations?.length ? '已登记地点：' + world.locations.map(x => `${x.name || x.id}（id: ${x.id}；${x.type || '地点'}）`).join('、') : '',
         currentWorldSave.opening ? '开局：' + currentWorldSave.opening : '',
       ].filter(Boolean).join('\n'));
