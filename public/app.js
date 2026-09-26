@@ -3919,9 +3919,11 @@ function renderWorldDetail() {
   $('world-tags').innerHTML = (Array.isArray(world.tags) && world.tags.length ? world.tags : ['未分类'])
     .map(tag => `<span class="world-tag">${esc(tag)}</span>`).join('');
   renderWorldLorebookSummary(world);
-  renderWorldPlayerPresetSelects(world, world.defaultPresetId || '');
+  const cachedFullWorld = worldCardVersions.get(worldCardKey(world.id, world.version));
+  const presetSource = (cachedFullWorld && cachedFullWorld.playerCreation) ? cachedFullWorld : world;
+  renderWorldPlayerPresetSelects(presetSource, presetSource.playerCreation?.defaultPresetId || world.defaultPresetId || '');
   const worldVersionCached = worldCardVersions.has(worldCardKey(world.id, world.version));
-  if (!worldVersionCached && (!Array.isArray(world.lorebookIds) || !world.playerCreation)) loadWorldCardVersion(world.id, world.version).then(fullWorld => {
+  if (!worldVersionCached) loadWorldCardVersion(world.id, world.version).then(fullWorld => {
     if (currentWorldId !== world.id) return;
     renderWorldLorebookSummary(fullWorld);
     renderWorldPlayerPresetSelects(fullWorld, fullWorld.playerCreation?.defaultPresetId || '');

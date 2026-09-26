@@ -2614,7 +2614,8 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
 }
 #rpg-ending-select option { background: var(--bg-0); color: var(--text); }
 .world-save-preset small { color: var(--muted); font-size: 10px; }
-.world-player-ai { display: grid; gap: 8px; margin: 0 20px 12px; padding: 10px; border: 1px solid rgba(var(--accent-rgb), 0.32); border-radius: 10px; background: rgba(var(--accent-rgb), 0.05); }
+.world-draft-body.world-player-scroll { display: grid; gap: 0; align-content: start; }
+.world-player-ai { display: grid; gap: 8px; margin: 0 0 14px; padding: 12px; border: 1px solid rgba(var(--accent-rgb), 0.32); border-radius: 10px; background: rgba(var(--accent-rgb), 0.05); }
 .world-player-ai-head, .world-player-ai-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .world-player-ai-head strong { color: var(--accent); font: 14px var(--font-display); }
 .world-player-ai-head p { margin: 2px 0 0; color: var(--muted); font-size: 10px; }
