@@ -2533,6 +2533,24 @@ async function requestReply() {
       // 才把骰子记录写入待提交回合；这里不再对 toolCalls 事后补掷。
       const toolRolls = agentToolRolls;
       if (toolRolls.length) worldTurnPending.actionIntent.dice = [...(worldTurnPending.actionIntent.dice || []), ...toolRolls];
+      // 动作声明了判定、但本回合没有以该动作为目标的真实掷骰：标记一次显式警告（提交成功后展示，防“口头判定”黑箱）。
+      {
+        const intentActionId = worldTurnPending.actionIntent && worldTurnPending.actionIntent.actionId;
+        if (intentActionId) {
+          const cardActions = (typeof currentWorldCard === 'function' ? currentWorldCard() : null)?.runtime?.actions || [];
+          const intentAction = cardActions.find(action => action && action.id === intentActionId);
+          const actionNeedsCheck = !!(intentAction && intentAction.check);
+          const actionCheckVerified = toolTrace.some(item => {
+            if (item?.name !== 'dice.roll' || !Array.isArray(item.result?.rolls) || !item.result?.resolution) return false;
+            const ruleId = String(item.result.resolution.ruleId || '');
+            return ruleId === intentActionId || ruleId === `dynamic:${intentActionId}`;
+          });
+          if (actionNeedsCheck && !actionCheckVerified) worldTurnPending.checkMissingWarning = true;
+          else delete worldTurnPending.checkMissingWarning;
+        } else {
+          delete worldTurnPending.checkMissingWarning;
+        }
+      }
       // 世界回合的 assistant 正文先留在临时槽；只有服务端原子提交成功后才进入正式历史。
       // 预览继续显示，避免“正文先出现、提交阶段又消失”。
       worldTurnPending.assistantMessage = { id: uid(), role: 'assistant', content: clean, ts: Date.now(), ...extra };

@@ -886,6 +886,8 @@ async function submitWorldTurn(pending) {
   currentWorldSave = data;
   currentWorldSaveId = data.id;
   postWorldExtensionEvent('turn.commit', { commandId: pending.commandId, revision: data.revision });
+  const checkMissingWarning = pending.checkMissingWarning === true;
+  delete pending.checkMissingWarning;
   clearResponsePreview();
   worldTurnPending = null;
   worldTurnError = null;
@@ -893,6 +895,11 @@ async function submitWorldTurn(pending) {
   renderRPG();
   renderSessions();
   renderMessages();
+  // 动作声明了判定但本回合没有任何以该动作为目标的真实掷骰：服务端不会结算其效果，这里给出显式提示，避免“AI 口头判定”变成黑箱。
+  if (checkMissingWarning) {
+    const status = $('world-open-status');
+    if (status) status.textContent = '⚠️ 本回合动作未结算：该动作需要判定，但本回合没有真实掷骰（可直接重试）。';
+  }
 }
 async function flushWorldSaveWrites() {
   while (worldSavePending) {
@@ -6045,7 +6052,7 @@ function renderRPG() {
     if (!el) return;
     const values = Array.isArray(list) ? list : [];
     el.innerHTML = values.length
-      ? values.map(item => `<article class="rpg-item${item.status && item.status !== 'active' ? ' done' : ''}"><div class="rpg-item-name">${esc(item.title || item.id)}${item.status && item.status !== 'active' ? ` <small>${esc(item.status)}</small>` : ''}</div><div class="rpg-item-sub">${esc(item.desc || '（暂无描述）')}</div></article>`).join('')
+      ? values.map(item => `<article class="rpg-item${item.status && item.status !== 'active' ? ' done' : ''}"><div class="rpg-item-name">${esc(item.title || item.id)}${item.status && item.status !== 'active' ? ` <small>${esc(item.status)}</small>` : ''}</div><div class="rpg-item-sub">${esc(item.desc || item.description || '（暂无描述）')}</div></article>`).join('')
       : `<p class="hint">${empty}</p>`;
   };
   renderObjectives('rpg-goals', worldModeActive() ? currentWorldSave.state?.goals : rs.goals, '暂无目标。');
@@ -7625,7 +7632,7 @@ function buildRpgPromptSections() {
         const intentAction = (Array.isArray(world.runtime?.actions) ? world.runtime.actions : []).find(action => action?.id === intent.actionId);
         const intentAvailability = intentAction && !rpgRuntimeActionAvailabilityUsesInput(intentAction)
           ? rpgRuntimeActionAvailabilityError(intentAction, currentWorldSave?.state?.runtime || {}) : '';
-        pushSection('turn.action-intent', `【玩家明确动作意图】本回合 actionId=${intent.actionId}${intentAction ? `（${intentAction.label || intentAction.id}）` : '（未声明，不能执行）'}。actionId 是玩家通过卡内按钮或自由输入精确匹配明确提交的动作，不得只当作叙事描述：动作已声明且可用时必须调用一次 runtime.action.execute；需要判定时先完成该 actionId 的 rules.check → dice.roll，只有达到目标才执行。绝不把该动作的效果手写成 item.delta、runtime.collection.patch 或其他等价 updates；卡内动作的状态效果只能由声明的 runtime.action.execute 结算。${intentAvailability ? `当前不可用：${intentAvailability}。不要调用、不要手写等价 updates，只在正文说明资源或条件不足。` : '若工具返回 accepted=candidate，最终提交必须保留该动作候选。'}`);
+        pushSection('turn.action-intent', `【玩家明确动作意图】本回合 actionId=${intent.actionId}${intentAction ? `（${intentAction.label || intentAction.id}）` : '（未声明，不能执行）'}。actionId 是玩家通过卡内按钮或自由输入精确匹配明确提交的动作，不得只当作叙事描述：动作已声明且可用时必须调用一次 runtime.action.execute；需要判定时先完成该 actionId 的 rules.check → dice.roll，只有达到目标才执行。判定逐回合独立：同一动作即使此前回合判定过（无论成败），本回合重新提交时也必须重新完成 rules.check → dice.roll 全流程，禁止复用历史骰面或只在正文中口述判定结果。绝不把该动作的效果手写成 item.delta、runtime.collection.patch 或其他等价 updates；卡内动作的状态效果只能由声明的 runtime.action.execute 结算。${intentAvailability ? `当前不可用：${intentAvailability}。不要调用、不要手写等价 updates，只在正文说明资源或条件不足。` : '若工具返回 accepted=candidate，最终提交必须保留该动作候选。'}`);
       }
       pushSection('turn.side-effects', '【副作用边界】Markdown 叙事、NPC 台词、行动选项和普通文本中的骰子表达式都只是文本，不会自动执行骰子或改写状态；只有协议中通过服务端校验的结构化更新才可产生状态变化。');
       pushSection('turn.tool-candidates', agentProfile.mode === 'native'
@@ -15097,6 +15104,24 @@ async function requestReply() {
       // 才把骰子记录写入待提交回合；这里不再对 toolCalls 事后补掷。
       const toolRolls = agentToolRolls;
       if (toolRolls.length) worldTurnPending.actionIntent.dice = [...(worldTurnPending.actionIntent.dice || []), ...toolRolls];
+      // 动作声明了判定、但本回合没有以该动作为目标的真实掷骰：标记一次显式警告（提交成功后展示，防“口头判定”黑箱）。
+      {
+        const intentActionId = worldTurnPending.actionIntent && worldTurnPending.actionIntent.actionId;
+        if (intentActionId) {
+          const cardActions = (typeof currentWorldCard === 'function' ? currentWorldCard() : null)?.runtime?.actions || [];
+          const intentAction = cardActions.find(action => action && action.id === intentActionId);
+          const actionNeedsCheck = !!(intentAction && intentAction.check);
+          const actionCheckVerified = toolTrace.some(item => {
+            if (item?.name !== 'dice.roll' || !Array.isArray(item.result?.rolls) || !item.result?.resolution) return false;
+            const ruleId = String(item.result.resolution.ruleId || '');
+            return ruleId === intentActionId || ruleId === `dynamic:${intentActionId}`;
+          });
+          if (actionNeedsCheck && !actionCheckVerified) worldTurnPending.checkMissingWarning = true;
+          else delete worldTurnPending.checkMissingWarning;
+        } else {
+          delete worldTurnPending.checkMissingWarning;
+        }
+      }
       // 世界回合的 assistant 正文先留在临时槽；只有服务端原子提交成功后才进入正式历史。
       // 预览继续显示，避免“正文先出现、提交阶段又消失”。
       worldTurnPending.assistantMessage = { id: uid(), role: 'assistant', content: clean, ts: Date.now(), ...extra };

@@ -537,6 +537,8 @@ async function submitWorldTurn(pending) {
   currentWorldSave = data;
   currentWorldSaveId = data.id;
   postWorldExtensionEvent('turn.commit', { commandId: pending.commandId, revision: data.revision });
+  const checkMissingWarning = pending.checkMissingWarning === true;
+  delete pending.checkMissingWarning;
   clearResponsePreview();
   worldTurnPending = null;
   worldTurnError = null;
@@ -544,6 +546,11 @@ async function submitWorldTurn(pending) {
   renderRPG();
   renderSessions();
   renderMessages();
+  // 动作声明了判定但本回合没有任何以该动作为目标的真实掷骰：服务端不会结算其效果，这里给出显式提示，避免“AI 口头判定”变成黑箱。
+  if (checkMissingWarning) {
+    const status = $('world-open-status');
+    if (status) status.textContent = '⚠️ 本回合动作未结算：该动作需要判定，但本回合没有真实掷骰（可直接重试）。';
+  }
 }
 async function flushWorldSaveWrites() {
   while (worldSavePending) {
@@ -5696,7 +5703,7 @@ function renderRPG() {
     if (!el) return;
     const values = Array.isArray(list) ? list : [];
     el.innerHTML = values.length
-      ? values.map(item => `<article class="rpg-item${item.status && item.status !== 'active' ? ' done' : ''}"><div class="rpg-item-name">${esc(item.title || item.id)}${item.status && item.status !== 'active' ? ` <small>${esc(item.status)}</small>` : ''}</div><div class="rpg-item-sub">${esc(item.desc || '（暂无描述）')}</div></article>`).join('')
+      ? values.map(item => `<article class="rpg-item${item.status && item.status !== 'active' ? ' done' : ''}"><div class="rpg-item-name">${esc(item.title || item.id)}${item.status && item.status !== 'active' ? ` <small>${esc(item.status)}</small>` : ''}</div><div class="rpg-item-sub">${esc(item.desc || item.description || '（暂无描述）')}</div></article>`).join('')
       : `<p class="hint">${empty}</p>`;
   };
   renderObjectives('rpg-goals', worldModeActive() ? currentWorldSave.state?.goals : rs.goals, '暂无目标。');
