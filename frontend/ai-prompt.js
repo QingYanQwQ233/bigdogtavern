@@ -397,6 +397,38 @@ function buildWorldNpcPromptPart() {
   return '【当前作用域 NPC】\n只允许引用以下 NPC；未列出的世界 NPC 不在本回合上下文中。静态资料仅代表公开信息；不得臆测未注入的秘密。NPC 只能使用公共资料、本存档已知事实和已解锁秘密，不得读取其他存档或其他 NPC 的知识。\n' + sections.join('\n\n');
 }
 
+// 把玩家快照翻译成可读文本：属性/技能/特质用世界卡里的中文标签，同时保留 id 以便状态更新引用。
+// 只注入原始 id 时，模型不知道「steady-hand」「might」是什么意思，会写不出角色身份与本事。
+function buildPlayerSnapshotLines(player, world) {
+  if (!player || typeof player !== 'object') return '';
+  const defs = world?.playerCreation || {};
+  const labelOf = (list, id) => (Array.isArray(list) ? list.find(item => item?.id === id)?.label : '') || id;
+  const lines = [];
+  const fieldDefs = Array.isArray(defs.fields) ? defs.fields : [];
+  const fields = player.fields && typeof player.fields === 'object' ? player.fields : {};
+  for (const [key, value] of Object.entries(fields)) {
+    if (value == null || !String(value).trim()) continue;
+    lines.push(`${labelOf(fieldDefs, key)}：${value}`);
+  }
+  const mapLine = (title, map, list) => {
+    const entries = Object.entries(map && typeof map === 'object' ? map : {}).filter(([, value]) => value != null);
+    if (!entries.length) return;
+    lines.push(`${title}：${entries.map(([id, value]) => `${labelOf(list, id)}(${id})=${value}`).join('、')}`);
+  };
+  mapLine('属性', player.attributes, defs.attributes);
+  mapLine('技能', player.skills, defs.skills);
+  mapLine('资源', player.resources, defs.resources);
+  if (Array.isArray(player.traits) && player.traits.length) lines.push(`特质：${player.traits.map(id => `${labelOf(defs.traits, id)}(${id})`).join('、')}`);
+  if (Array.isArray(player.choices) && player.choices.length) lines.push(`天赋：${player.choices.map(id => `${labelOf(defs.choices, id)}(${id})`).join('、')}`);
+  if (player.relations && Object.keys(player.relations).length) lines.push(`起始关系：${JSON.stringify(player.relations)}`);
+  if (player.initialInventory && Object.keys(player.initialInventory).length) lines.push(`初始装备：${JSON.stringify(player.initialInventory)}`);
+  const handled = new Set(['fields', 'attributes', 'skills', 'resources', 'traits', 'choices', 'relations', 'initialInventory', 'profileFields']);
+  for (const [key, value] of Object.entries(player)) {
+    if (handled.has(key) || value == null || (typeof value === 'string' && !value.trim())) continue;
+    lines.push(`${key}：${typeof value === 'object' ? JSON.stringify(value) : value}`);
+  }
+  return lines.join('\n');
+}
 function buildWorldFactLayerPromptPart() {
   if (!worldModeActive()) return '';
   const world = currentWorldCard();
@@ -610,7 +642,7 @@ function buildRpgPromptSections() {
         currentWorldSave.opening ? '开局：' + currentWorldSave.opening : '',
       ].filter(Boolean).join('\n'));
       const player = currentWorldSave.player?.snapshot;
-      if (player) unshiftSection('save.player-snapshot', '【世界存档中的玩家快照】\n' + Object.entries(player).filter(([k, v]) => k !== 'profileFields' && v != null && String(v).trim()).map(([k, v]) => `${k}：${typeof v === 'object' ? JSON.stringify(v) : v}`).join('\n'));
+      if (player) unshiftSection('save.player-snapshot', '【世界存档中的玩家快照】\n' + buildPlayerSnapshotLines(player, world));
       const dynamicPlayer = currentWorldSave.state?.player;
       if (dynamicPlayer) unshiftSection('save.player-state', '【当前玩家动态状态】\n' + ['attributes', 'skills', 'resources', 'traits', 'relations', 'identity', 'effects'].filter(key => dynamicPlayer[key] !== undefined).map(key => `${key}：${JSON.stringify(dynamicPlayer[key])}`).join('\n'));
       const derivedValues = evaluateWorldDerivedValues(world.playerCreation, dynamicPlayer);

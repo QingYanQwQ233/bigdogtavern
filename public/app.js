@@ -3471,7 +3471,7 @@ async function generateWorldOpening(save) {
 1. 世界是什么样：时代与技术水平、魔法与信仰在这个世界里的位置（是日常、是禁忌、还是遥不可及的传说）、世界是安稳还是动荡。
 2. 社会与势力格局：有哪些国家、种族、行会或部族在说话，秩序靠什么维持，谁惹得起、谁惹不起。
 3. 地理与位置：这里是哪、为什么重要、与更大的世界是什么关系。
-4. 玩家角色：你是谁、从哪里来、靠什么谋生、为什么会被卷进这件事的中心。
+4. 玩家身份（**重中之重**）：必须用直白的话交代“你是谁”——姓名、职业或身份（例如“你是一名靠悬赏吃饭的护卫”）、出身与来历、靠什么谋生、有什么本事。要结合下方【玩家档案】里的属性、技能与特质，把能力写成身份的一部分（例如特质“稳手”就写成“在刀口上练出来的稳”），不要含糊其辞，也不要让玩家读完全文还不知道自己是谁。
 5. 当前大势：更大的图景里正在发生什么（战乱、阴谋、灾难或机遇），眼前这件事在其中意味着什么。
 
 【第三步：落到场景】给出具体地点、时间，以及可视、可听、可闻、可触的感官细节，写出情绪基调，让玩家“站”在那里。
@@ -3479,6 +3479,9 @@ async function generateWorldOpening(save) {
 【第四步：收尾留钩】结尾停在玩家必须做出选择的临界点，留下悬念；不要替玩家做决定。
 
 【文风】第二人称（“你”），画面感强、节奏有起伏、代入感强；避免流水账、条目式罗列、说明文腔调与空洞抒情。世界背景要“融进故事里”自然带出，不要整段铺陈设定。只呈现玩家角色此刻能够感知或合理推断的信息，不要提前揭露尚未公开的真相。
+
+【玩家档案（本局角色，写开场时必须用上）】
+${buildPlayerSnapshotLines(save.player?.snapshot, world) || '（本存档没有独立角色档案，请按世界卡 premise 给出的默认身份来写）'}
 
 【输出纪律】正文直接从故事写起——不要输出标题、章节名或任何 Markdown 标题（如「# 矿坑之路」），不要写“第一段”“开场”之类的元说明，也不要复述任务要求。行动选项是给玩家阅读的纯文本：必须用自然语言描述动作，不得出现 actionId、字段名、括号注释等任何内部标识（错误示例：搜查货车（search-wreck）；正确示例：搜查货车与死马，确认箭羽方向）。
 
@@ -7511,6 +7514,38 @@ function buildWorldNpcPromptPart() {
   return '【当前作用域 NPC】\n只允许引用以下 NPC；未列出的世界 NPC 不在本回合上下文中。静态资料仅代表公开信息；不得臆测未注入的秘密。NPC 只能使用公共资料、本存档已知事实和已解锁秘密，不得读取其他存档或其他 NPC 的知识。\n' + sections.join('\n\n');
 }
 
+// 把玩家快照翻译成可读文本：属性/技能/特质用世界卡里的中文标签，同时保留 id 以便状态更新引用。
+// 只注入原始 id 时，模型不知道「steady-hand」「might」是什么意思，会写不出角色身份与本事。
+function buildPlayerSnapshotLines(player, world) {
+  if (!player || typeof player !== 'object') return '';
+  const defs = world?.playerCreation || {};
+  const labelOf = (list, id) => (Array.isArray(list) ? list.find(item => item?.id === id)?.label : '') || id;
+  const lines = [];
+  const fieldDefs = Array.isArray(defs.fields) ? defs.fields : [];
+  const fields = player.fields && typeof player.fields === 'object' ? player.fields : {};
+  for (const [key, value] of Object.entries(fields)) {
+    if (value == null || !String(value).trim()) continue;
+    lines.push(`${labelOf(fieldDefs, key)}：${value}`);
+  }
+  const mapLine = (title, map, list) => {
+    const entries = Object.entries(map && typeof map === 'object' ? map : {}).filter(([, value]) => value != null);
+    if (!entries.length) return;
+    lines.push(`${title}：${entries.map(([id, value]) => `${labelOf(list, id)}(${id})=${value}`).join('、')}`);
+  };
+  mapLine('属性', player.attributes, defs.attributes);
+  mapLine('技能', player.skills, defs.skills);
+  mapLine('资源', player.resources, defs.resources);
+  if (Array.isArray(player.traits) && player.traits.length) lines.push(`特质：${player.traits.map(id => `${labelOf(defs.traits, id)}(${id})`).join('、')}`);
+  if (Array.isArray(player.choices) && player.choices.length) lines.push(`天赋：${player.choices.map(id => `${labelOf(defs.choices, id)}(${id})`).join('、')}`);
+  if (player.relations && Object.keys(player.relations).length) lines.push(`起始关系：${JSON.stringify(player.relations)}`);
+  if (player.initialInventory && Object.keys(player.initialInventory).length) lines.push(`初始装备：${JSON.stringify(player.initialInventory)}`);
+  const handled = new Set(['fields', 'attributes', 'skills', 'resources', 'traits', 'choices', 'relations', 'initialInventory', 'profileFields']);
+  for (const [key, value] of Object.entries(player)) {
+    if (handled.has(key) || value == null || (typeof value === 'string' && !value.trim())) continue;
+    lines.push(`${key}：${typeof value === 'object' ? JSON.stringify(value) : value}`);
+  }
+  return lines.join('\n');
+}
 function buildWorldFactLayerPromptPart() {
   if (!worldModeActive()) return '';
   const world = currentWorldCard();
@@ -7724,7 +7759,7 @@ function buildRpgPromptSections() {
         currentWorldSave.opening ? '开局：' + currentWorldSave.opening : '',
       ].filter(Boolean).join('\n'));
       const player = currentWorldSave.player?.snapshot;
-      if (player) unshiftSection('save.player-snapshot', '【世界存档中的玩家快照】\n' + Object.entries(player).filter(([k, v]) => k !== 'profileFields' && v != null && String(v).trim()).map(([k, v]) => `${k}：${typeof v === 'object' ? JSON.stringify(v) : v}`).join('\n'));
+      if (player) unshiftSection('save.player-snapshot', '【世界存档中的玩家快照】\n' + buildPlayerSnapshotLines(player, world));
       const dynamicPlayer = currentWorldSave.state?.player;
       if (dynamicPlayer) unshiftSection('save.player-state', '【当前玩家动态状态】\n' + ['attributes', 'skills', 'resources', 'traits', 'relations', 'identity', 'effects'].filter(key => dynamicPlayer[key] !== undefined).map(key => `${key}：${JSON.stringify(dynamicPlayer[key])}`).join('\n'));
       const derivedValues = evaluateWorldDerivedValues(world.playerCreation, dynamicPlayer);
