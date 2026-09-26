@@ -2157,6 +2157,13 @@ body:not(.world-custom-layout):not(.world-setup-extension-mode) #chat-workspace.
 .cm-item:hover { background: rgba(var(--accent-rgb), 0.07); }
 .cm-item.active { background: rgba(var(--accent-rgb), 0.12); border-color: var(--line); color: var(--text); }
 .cm-item .cm-name { min-width: 0; overflow-wrap: anywhere; }
+/* 世界书列表：名称与「N 条目」之间留距并弱化 */
+.cm-item .cm-name small {
+  margin-left: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 400;
+}
 .cm-inuse-mark { margin-left: 6px; padding: 1px 4px; border: 1px solid rgba(var(--accent-rgb), 0.45); border-radius: 999px; color: var(--accent); font-size: 10px; white-space: nowrap; }
 .cm-item.cm-draft { border-style: dashed; cursor: default; }
 .cm-draft-mark { margin-left: 6px; padding: 1px 4px; border-radius: 999px; background: rgba(var(--accent-rgb), 0.12); color: var(--accent); font-size: 10px; white-space: nowrap; }
@@ -2570,6 +2577,22 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
   box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.07);
 }
 .world-save-preset select option { background-color: var(--bg-0); color: var(--text); }
+/* 世界线「结束方式」下拉：与 .field select 同款暗色皮肤 */
+#rpg-ending-select {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgba(var(--bg-0-rgb), 0.6);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  color-scheme: dark;
+}
+#rpg-ending-select:focus {
+  border-color: rgba(var(--accent-rgb), 0.55);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.07);
+}
+#rpg-ending-select option { background: var(--bg-0); color: var(--text); }
 .world-save-preset small { color: var(--muted); font-size: 10px; }
 .world-player-ai { display: grid; gap: 8px; margin: 0 20px 12px; padding: 10px; border: 1px solid rgba(var(--accent-rgb), 0.32); border-radius: 10px; background: rgba(var(--accent-rgb), 0.05); }
 .world-player-ai-head, .world-player-ai-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
