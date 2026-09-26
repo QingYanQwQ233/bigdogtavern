@@ -1,0 +1,930 @@
+{
+  "spec": "tavern_world_package",
+  "specVersion": 2,
+  "exportedAt": "2026-09-26T06:56:14.717Z",
+  "manifest": {
+    "packageId": "world-mui10p9r-3e2921c2b97b",
+    "worldVersion": 3,
+    "worldSchemaVersion": 1,
+    "appContractVersion": 1,
+    "capabilities": {
+      "ui": {
+        "schemaVersion": 1,
+        "layout": "host",
+        "slots": [],
+        "regions": [],
+        "theme": false,
+        "sidebar": true,
+        "shell": {
+          "navigation": "show",
+          "topbar": "show",
+          "fullscreen": true,
+          "escape": "fullscreen"
+        },
+        "extension": false,
+        "extensionSurfaces": [
+          "play"
+        ],
+        "entryGate": false
+      },
+      "runtime": true,
+      "agent": true,
+      "regexes": 0,
+      "references": {
+        "lorebooks": 0,
+        "preset": false
+      }
+    },
+    "title": "矿坑之路：地精伏击",
+    "author": null,
+    "license": null,
+    "source": {
+      "format": "native",
+      "rawAssetRef": null
+    },
+    "contentHash": "sha256:b341536ab24c69f17f28d7f987859b78560bf173d0476fc266580e6e2eb76ec7",
+    "hashScope": "canonical-json(content,assets)",
+    "references": {
+      "lorebooks": 1,
+      "presets": 0,
+      "assets": 0
+    },
+    "privacy": {
+      "excludes": [
+        "settings",
+        "user",
+        "worldSaves"
+      ],
+      "redactedPaths": []
+    },
+    "executableContent": {
+      "html": false,
+      "scripts": false,
+      "regexTriggers": 0,
+      "executedDuringExport": false
+    },
+    "warnings": []
+  },
+  "content": {
+    "world": {
+      "id": "world-mui10p9r-3e2921c2b97b",
+      "version": 3,
+      "title": "矿坑之路：地精伏击",
+      "summary": "D&D 失落矿坑第一章切片复刻：护送货车 → 地精伏击 → 追迹小径 → 抵达洞口。用于验证「判定 / 闸门 / 剧情推进」最小闭环。",
+      "tags": [
+        "D&D",
+        "地城",
+        "复刻",
+        "切片"
+      ],
+      "lorebookIds": [],
+      "locations": [
+        {
+          "id": "ambush-site",
+          "name": "伏击现场",
+          "type": "road",
+          "summary": "北大道弯道：死马、货车与消失的人。",
+          "tags": [
+            "起点",
+            "调查"
+          ]
+        },
+        {
+          "id": "goblin-trail",
+          "name": "嚼齿小径",
+          "type": "forest-path",
+          "summary": "密林深处的野路，藏着两道陷阱。",
+          "tags": [
+            "追踪",
+            "危险"
+          ]
+        },
+        {
+          "id": "cave-mouth",
+          "name": "溪谷洞口",
+          "type": "cave-entrance",
+          "summary": "灌木遮掩的洞穴入口，深处有流水声。",
+          "tags": [
+            "钩子",
+            "入口"
+          ]
+        }
+      ],
+      "npcs": [
+        {
+          "id": "goblin-scout",
+          "name": "地精斥候",
+          "role": "伏击者",
+          "description": "藏身在林间的瘦小身影，弓弦拉满。",
+          "persona": "谨慎、贪婪、欺软怕硬。",
+          "locationId": "ambush-site",
+          "publicFacts": [
+            "属于嚼齿部落"
+          ],
+          "publicGoals": [
+            "劫掠落单的商队"
+          ],
+          "secrets": [
+            {
+              "id": "scout-orders",
+              "content": "他们接到的命令是：专门等一辆矮人的货车。"
+            }
+          ]
+        },
+        {
+          "id": "goblin-prisoner",
+          "name": "地精俘虏",
+          "role": "被制服的伏击者",
+          "description": "手脚被捆住，牙齿磨得尖利，眼神躲闪。",
+          "persona": "惜命、狡猾，被吓住就会开口。",
+          "locationId": "ambush-site",
+          "publicFacts": [
+            "参与了伏击"
+          ],
+          "publicGoals": [
+            "换一条命"
+          ],
+          "secrets": [
+            {
+              "id": "prisoner-knows",
+              "content": "部落巢穴在溪谷尽头；头目克拉格——一只熊地精——收了「黑蜘蛛」的钱，专门等这辆货车；矮人和他的护卫被活着送进了洞里。"
+            }
+          ]
+        },
+        {
+          "id": "gundren",
+          "name": "贡德伦·寻脉",
+          "role": "雇主 · 矮人勘矿者（失踪）",
+          "description": "胡子沾着岩灰的矮人，谈矿脉时眼睛发亮。",
+          "persona": "固执、慷慨、对路线守口如瓶。",
+          "publicFacts": [
+            "雇了车队送补给",
+            "先行前往凡戴尔"
+          ],
+          "publicGoals": [
+            "赶到镇上登记矿脉发现"
+          ],
+          "secrets": [
+            {
+              "id": "gundren-map",
+              "content": "他随身带着矿脉入口的地图。抓他的人，冲的就是这张图。"
+            }
+          ]
+        },
+        {
+          "id": "sildar",
+          "name": "西尔达·寒泉",
+          "role": "护卫 · 老兵（失踪）",
+          "description": "披着旧罩袍的战士，剑柄磨得发亮。",
+          "persona": "寡言、可靠，习惯走队伍最后。",
+          "publicFacts": [
+            "与贡德伦同行"
+          ],
+          "publicGoals": [
+            "把雇主安全送到凡戴尔"
+          ],
+          "secrets": [
+            {
+              "id": "sildar-captive",
+              "content": "他护卫雇主时被一并掳走，如今被关在巢穴深处。"
+            }
+          ]
+        }
+      ],
+      "source": {
+        "format": "native",
+        "rawAssetRef": null
+      },
+      "agent": {
+        "protocol": "tavern.rpg.agent",
+        "version": 1,
+        "mode": "native",
+        "maxSteps": 4,
+        "tools": {
+          "rules.check": {
+            "enabled": true,
+            "execution": "client-readonly",
+            "description": "只按当前世界卡和玩家数据复核判定。"
+          },
+          "dice.roll": {
+            "enabled": true,
+            "execution": "client",
+            "description": "只在规则复核后掷真实骰面。"
+          },
+          "runtime.action.execute": {
+            "enabled": true,
+            "execution": "server",
+            "description": "执行已经声明的 Runtime 动作。"
+          },
+          "state.patch": {
+            "enabled": true,
+            "execution": "server",
+            "description": "提交有界的状态更新。"
+          },
+          "memory.record": {
+            "enabled": true,
+            "execution": "server",
+            "description": "记录玩家已经历的稳定事实。"
+          }
+        }
+      },
+      "runtime": {
+        "version": 1,
+        "variables": [
+          {
+            "id": "story",
+            "label": "主线进度",
+            "scope": "save",
+            "type": "enum",
+            "options": [
+              "ambush",
+              "trail",
+              "cave",
+              "epilogue"
+            ],
+            "initial": "ambush",
+            "visible": true
+          },
+          {
+            "id": "alarm",
+            "label": "部落警戒",
+            "scope": "save",
+            "type": "number",
+            "initial": 0,
+            "min": 0,
+            "max": 3,
+            "visible": true
+          }
+        ],
+        "collections": [
+          {
+            "id": "intel",
+            "label": "已知情报",
+            "scope": "save",
+            "entrySchema": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "text",
+                "status"
+              ],
+              "additionalProperties": false
+            },
+            "initial": []
+          },
+          {
+            "id": "supplies",
+            "label": "随队物资",
+            "scope": "save",
+            "entrySchema": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "label",
+                "count"
+              ],
+              "additionalProperties": false
+            },
+            "initial": [
+              {
+                "id": "rations",
+                "label": "干粮",
+                "count": 2
+              },
+              {
+                "id": "torch",
+                "label": "火把",
+                "count": 1
+              }
+            ]
+          }
+        ],
+        "actions": [
+          {
+            "id": "search-wreck",
+            "label": "搜查货车与死马",
+            "category": "skill",
+            "description": "检查死马、车辙与林间痕迹。",
+            "check": {
+              "sides": 20,
+              "target": 11,
+              "modifiers": [
+                {
+                  "source": "player",
+                  "bucket": "skills",
+                  "id": "investigate"
+                }
+              ]
+            },
+            "effects": [
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "arrow-kill",
+                  "title": "箭伤",
+                  "text": "挽马死于箭伤，箭羽来自东侧林间——伏击者没有追车，只带走了人。",
+                  "status": "new"
+                }
+              }
+            ]
+          },
+          {
+            "id": "track-trail",
+            "label": "循迹追踪",
+            "category": "skill",
+            "description": "林间有一条被人踩出的小路。",
+            "check": {
+              "sides": 20,
+              "target": 10,
+              "modifiers": [
+                {
+                  "source": "player",
+                  "bucket": "skills",
+                  "id": "survival"
+                }
+              ]
+            },
+            "effects": [
+              {
+                "type": "variable.set",
+                "variableId": "story",
+                "value": "trail"
+              },
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "trail-count",
+                  "title": "足迹",
+                  "text": "约十来个地精走过这条小径，还有两个被拖走的大个子。",
+                  "status": "new"
+                }
+              }
+            ]
+          },
+          {
+            "id": "disarm-snare",
+            "label": "排查路边索套",
+            "category": "skill",
+            "description": "路旁的树梢不太对劲。",
+            "check": {
+              "sides": 20,
+              "target": 12,
+              "modifiers": [
+                {
+                  "source": "player",
+                  "bucket": "attributes",
+                  "id": "insight"
+                }
+              ]
+            },
+            "effects": [
+              {
+                "type": "variable.delta",
+                "variableId": "alarm",
+                "delta": 1
+              },
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "snare",
+                  "title": "索套",
+                  "text": "有人在树梢上挂了绳套——他们不想让人追得太顺。",
+                  "status": "new"
+                }
+              }
+            ]
+          },
+          {
+            "id": "bypass-pit",
+            "label": "探路避开落穴",
+            "category": "skill",
+            "description": "前面的路面泛着新土的颜色。",
+            "check": {
+              "sides": 20,
+              "target": 15,
+              "modifiers": [
+                {
+                  "source": "player",
+                  "bucket": "skills",
+                  "id": "survival"
+                }
+              ]
+            },
+            "effects": [
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "pit",
+                  "title": "落穴",
+                  "text": "路面被伪装过，底下是一人深的坑。小径尽头应该不远了。",
+                  "status": "new"
+                }
+              }
+            ]
+          },
+          {
+            "id": "interrogate-prisoner",
+            "label": "审讯俘虏",
+            "category": "story",
+            "description": "若有俘虏在手，从他嘴里撬出情报。",
+            "effects": [
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "prisoner-intel",
+                  "title": "俘虏的口供",
+                  "text": "巢穴在溪谷尽头；头目克拉格收了一个「黑蜘蛛」的钱，专门等这辆货车。",
+                  "status": "new"
+                }
+              },
+              {
+                "type": "variable.set",
+                "variableId": "story",
+                "value": "trail"
+              }
+            ]
+          },
+          {
+            "id": "enter-cave",
+            "label": "沿小径进洞",
+            "category": "story",
+            "description": "洞口就在灌木后面——要不要进去？",
+            "availability": [
+              {
+                "type": "variable.compare",
+                "variableId": "story",
+                "operator": "==",
+                "value": "trail"
+              }
+            ],
+            "effects": [
+              {
+                "type": "variable.set",
+                "variableId": "story",
+                "value": "cave"
+              },
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "cave-smell",
+                  "title": "洞口的味道",
+                  "text": "洞口飘出烟熏味和狼的气味。里面很安静——安静得不像没有人。",
+                  "status": "new"
+                }
+              }
+            ]
+          },
+          {
+            "id": "leave-site",
+            "label": "记录现场，继续赶路",
+            "category": "story",
+            "description": "追不追，是你说了算。",
+            "availability": [
+              {
+                "type": "variable.compare",
+                "variableId": "story",
+                "operator": "==",
+                "value": "ambush"
+              }
+            ],
+            "effects": [
+              {
+                "type": "variable.set",
+                "variableId": "story",
+                "value": "epilogue"
+              },
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "report-line",
+                  "title": "报案计划",
+                  "text": "你决定先赶路，到镇上再说。这条路的账，迟早要算。",
+                  "status": "new"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "setting": {
+        "premise": "你受雇护送一车补给，沿北大道南行再折向东，前往边境小镇凡戴尔。雇主——一位矮人勘矿者——已经先行出发，约定在镇上会合；半日前，连他的护卫也失去了消息。",
+        "history": "这条商路连接北方大城与边境小镇。近月来劫掠频发，商队开始结伴而行，但仍有人失踪，镇上的悬赏榜越贴越厚。",
+        "geography": "北大道两侧是密林；一处岔路通向丘陵深处的小径，小径长约五英里，尽头是一处被灌木遮掩的溪谷洞口。",
+        "culture": "边境人的规矩：路遇死马先看蹄铁，追杀劫匪先看脚印。「嚼齿部落」的地精把牙磨得锋利，以此为凶名。",
+        "currentSituation": "货车停在一处弯道：两匹挽马中箭倒地，货未动，人不见了。林子里出奇地安静。"
+      },
+      "rules": {
+        "hard": [
+          "玩家可以无视当前目标，任何行动都必须留下可追踪的世界后果。",
+          "需要判定时由客户端掷骰；AI 只能提出判定并叙述结果，不能伪造骰面。",
+          "世界真实信息、玩家已知信息和 NPC 私密信息分开处理。",
+          "地点、NPC 使用本卡稳定 ID；新增实体必须有明确来源。"
+        ],
+        "soft": [
+          "跟随「主线进度」推进场景：伏击现场 → 追迹小径 → 洞口；不跳节点。",
+          "失败不回档：可以负伤、丢失物品、打草惊蛇，或换一条路继续。",
+          "优先让调查与追击产生新问题，而不是一口给出全部真相。"
+        ],
+        "checks": [
+          {
+            "id": "search-wreck",
+            "label": "搜查伏击现场",
+            "description": "检查死马、车辙与林间痕迹。",
+            "roll": "1d20",
+            "target": 11,
+            "modifier": {
+              "bucket": "skills",
+              "id": "investigate",
+              "factor": 1
+            }
+          },
+          {
+            "id": "track-trail",
+            "label": "循迹追踪",
+            "description": "读懂林间被人踩出的小路。",
+            "roll": "1d20",
+            "target": 10,
+            "modifier": {
+              "bucket": "skills",
+              "id": "survival",
+              "factor": 1
+            }
+          },
+          {
+            "id": "read-goblins",
+            "label": "识读地精痕迹",
+            "description": "判断敌人数量与习性。",
+            "roll": "1d20",
+            "target": 12,
+            "modifier": {
+              "bucket": "attributes",
+              "id": "insight",
+              "factor": 1
+            }
+          }
+        ]
+      },
+      "playerCreation": {
+        "mode": "custom",
+        "title": "集结你的护送者",
+        "fields": [
+          {
+            "id": "name",
+            "label": "名字",
+            "type": "text",
+            "required": true,
+            "maxLength": 80,
+            "default": "旅人"
+          }
+        ],
+        "description": "选择一份职业背景快速开局，或自由分配属性点。",
+        "pointBudget": {
+          "label": "属性点",
+          "total": 16,
+          "min": 1,
+          "mode": "pool",
+          "cost": "above-min"
+        },
+        "defaultPresetId": "fighter",
+        "attributes": [
+          {
+            "id": "might",
+            "label": "力量",
+            "min": 0,
+            "max": 8,
+            "default": 3
+          },
+          {
+            "id": "agility",
+            "label": "敏捷",
+            "min": 0,
+            "max": 8,
+            "default": 3
+          },
+          {
+            "id": "insight",
+            "label": "洞察",
+            "min": 0,
+            "max": 8,
+            "default": 3
+          },
+          {
+            "id": "will",
+            "label": "意志",
+            "min": 0,
+            "max": 8,
+            "default": 3
+          }
+        ],
+        "skills": [
+          {
+            "id": "investigate",
+            "label": "调查",
+            "min": 0,
+            "max": 6,
+            "default": 1
+          },
+          {
+            "id": "survival",
+            "label": "野外",
+            "min": 0,
+            "max": 6,
+            "default": 1
+          },
+          {
+            "id": "persuade",
+            "label": "交涉",
+            "min": 0,
+            "max": 6,
+            "default": 1
+          }
+        ],
+        "resources": [
+          {
+            "id": "hp",
+            "label": "生命",
+            "min": 0,
+            "max": 20,
+            "default": 10
+          }
+        ],
+        "traits": [
+          {
+            "id": "road-worn",
+            "label": "老练旅人",
+            "description": "长年在商路上奔波。"
+          },
+          {
+            "id": "steady-hand",
+            "label": "稳手",
+            "description": "在压力下也能保持冷静。"
+          }
+        ],
+        "buildPresets": [
+          {
+            "id": "fighter",
+            "label": "战士",
+            "description": "正面应对威胁。",
+            "values": {
+              "attributes": {
+                "might": 6,
+                "agility": 4,
+                "insight": 3,
+                "will": 3
+              },
+              "skills": {
+                "investigate": 1,
+                "survival": 1,
+                "persuade": 1
+              },
+              "traits": [
+                "steady-hand"
+              ]
+            }
+          },
+          {
+            "id": "rogue",
+            "label": "游荡者",
+            "description": "潜行、侦察、动手快。",
+            "values": {
+              "attributes": {
+                "might": 3,
+                "agility": 6,
+                "insight": 4,
+                "will": 3
+              },
+              "skills": {
+                "investigate": 3,
+                "survival": 1,
+                "persuade": 2
+              },
+              "traits": [
+                "road-worn"
+              ]
+            }
+          },
+          {
+            "id": "ranger",
+            "label": "游侠",
+            "description": "野外追踪的专家。",
+            "values": {
+              "attributes": {
+                "might": 4,
+                "agility": 4,
+                "insight": 4,
+                "will": 4
+              },
+              "skills": {
+                "investigate": 1,
+                "survival": 4,
+                "persuade": 1
+              },
+              "traits": [
+                "road-worn",
+                "steady-hand"
+              ]
+            }
+          }
+        ]
+      },
+      "turnContract": {
+        "options": {
+          "min": 2,
+          "max": 4
+        },
+        "actionIntent": true
+      },
+      "failure": {
+        "defaultMode": "continue",
+        "onZeroHp": "injured",
+        "modes": [
+          {
+            "id": "injured",
+            "label": "负伤",
+            "description": "保留世界线，恢复少量生命并附加负伤状态。",
+            "hpRatio": 0.25,
+            "effect": "负伤"
+          },
+          {
+            "id": "continue",
+            "label": "带着代价继续",
+            "description": "失败改变局面，但不替玩家结束故事。"
+          }
+        ]
+      },
+      "ending": {
+        "enabled": true,
+        "allowPlayerEnd": true,
+        "requireConfirm": true,
+        "defaultEndingId": "player-choice",
+        "endings": [
+          {
+            "id": "player-choice",
+            "kind": "player-choice",
+            "label": "玩家主动结束",
+            "description": "保留当前存档并结束本次旅程。",
+            "terminal": true
+          }
+        ]
+      },
+      "time": {
+        "unit": "时",
+        "start": 9,
+        "turnAdvance": 1
+      },
+      "npcIds": [
+        "goblin-scout",
+        "goblin-prisoner",
+        "gundren",
+        "sildar"
+      ],
+      "publication": {
+        "source": "draft",
+        "commandId": "slice-pub2-mui16qf9",
+        "baseVersion": 2,
+        "draftUpdatedAt": 1790405465117,
+        "publishedAt": 1790405465179
+      },
+      "ui": {
+        "schemaVersion": 1,
+        "shell": {
+          "navigation": "show",
+          "topbar": "show",
+          "fullscreen": true,
+          "escape": "fullscreen"
+        },
+        "sidebar": {
+          "panels": [
+            {
+              "id": "supplies",
+              "title": "随队物资",
+              "icon": "◇",
+              "side": "left",
+              "source": "runtime.collections.supplies",
+              "layout": "cards",
+              "fields": [
+                "label",
+                "count"
+              ],
+              "emptyText": "没有可用物品"
+            },
+            {
+              "id": "intel",
+              "title": "已知情报",
+              "icon": "⌕",
+              "side": "right",
+              "source": "runtime.collections.intel",
+              "layout": "cards",
+              "fields": [
+                "title",
+                "text",
+                "status"
+              ],
+              "emptyText": "还没有情报"
+            },
+            {
+              "id": "act-search",
+              "title": "现场行动 · 搜查",
+              "icon": "⌖",
+              "side": "right",
+              "source": "runtime.actions.search-wreck",
+              "layout": "actions"
+            },
+            {
+              "id": "act-track",
+              "title": "现场行动 · 追迹",
+              "icon": "⌖",
+              "side": "right",
+              "source": "runtime.actions.track-trail",
+              "layout": "actions"
+            },
+            {
+              "id": "act-snare",
+              "title": "现场行动 · 排套",
+              "icon": "⌖",
+              "side": "right",
+              "source": "runtime.actions.disarm-snare",
+              "layout": "actions"
+            },
+            {
+              "id": "act-pit",
+              "title": "现场行动 · 探路",
+              "icon": "⌖",
+              "side": "right",
+              "source": "runtime.actions.bypass-pit",
+              "layout": "actions"
+            },
+            {
+              "id": "act-interrogate",
+              "title": "现场行动 · 审俘",
+              "icon": "⌖",
+              "side": "right",
+              "source": "runtime.actions.interrogate-prisoner",
+              "layout": "actions"
+            },
+            {
+              "id": "act-cave",
+              "title": "沿小径进洞",
+              "icon": "⇥",
+              "side": "right",
+              "source": "runtime.actions.enter-cave",
+              "layout": "actions"
+            },
+            {
+              "id": "act-leave",
+              "title": "继续赶路",
+              "icon": "⇢",
+              "side": "right",
+              "source": "runtime.actions.leave-site",
+              "layout": "actions"
+            }
+          ]
+        }
+      },
+      "schemaVersion": 1,
+      "rpgPresetName": "",
+      "regexes": []
+    },
+    "lorebooks": {
+      "default": {
+        "name": "默认世界书",
+        "entries": []
+      }
+    },
+    "presets": {}
+  },
+  "assets": []
+}
