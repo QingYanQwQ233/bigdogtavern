@@ -2597,6 +2597,18 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
   box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.07);
 }
 .world-save-preset select option { background-color: var(--bg-0); color: var(--text); }
+/* 预设自定义下拉：替代原生 select，规避部分 Android WebView 在 dialog 内无法弹出原生选择器的问题 */
+.world-preset-picker { position: relative; display: inline-block; width: min(240px, 100%); }
+.world-save-preset .world-preset-picker { width: 100%; }
+.world-preset-native { position: absolute; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; pointer-events: none; }
+.world-preset-trigger { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 36px; padding: 6px 10px; text-align: left; }
+.world-preset-trigger .world-preset-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.world-preset-caret { flex: 0 0 auto; color: var(--muted); font-size: 10px; transition: transform 150ms; }
+.world-preset-picker.is-open .world-preset-caret { transform: rotate(180deg); }
+.world-preset-menu { position: absolute; z-index: 60; top: calc(100% + 4px); left: 0; right: 0; margin: 0; padding: 4px; list-style: none; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); max-height: 240px; overflow: auto; }
+.world-preset-menu li { padding: 8px 10px; border-radius: 6px; color: var(--text); font-size: 12px; cursor: pointer; }
+.world-preset-menu li:hover { background: rgba(var(--accent-rgb), 0.10); }
+.world-preset-menu li[aria-selected="true"] { background: rgba(var(--accent-rgb), 0.14); color: var(--accent); }
 /* 世界线「结束方式」下拉：与 .field select 同款暗色皮肤 */
 #rpg-ending-select {
   padding: 8px 10px;

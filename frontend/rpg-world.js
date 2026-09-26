@@ -2516,7 +2516,84 @@ function worldPlayerPresetList(world) { return Array.isArray(world?.playerCreati
 function renderWorldPlayerPresetSelects(world, selected = '') {
   const presets = worldPlayerPresetList(world);
   const html = `<option value="">自定义配置</option>${presets.map(preset => `<option value="${esc(preset.id)}">${esc(preset.label || preset.id)}${preset.description ? ` · ${esc(preset.description)}` : ''}</option>`).join('')}`;
-  ['world-save-preset', 'world-player-preset'].forEach(id => { const select = $(id); if (!select) return; select.innerHTML = html; select.value = selected || ''; });
+  ['world-save-preset', 'world-player-preset'].forEach(id => {
+    const select = $(id);
+    if (!select) return;
+    select.innerHTML = html;
+    select.value = selected || '';
+    enhanceWorldPresetSelect(select);
+  });
+}
+// 原生 <select> 在部分 Android WebView 的 <dialog> 内无法弹出选择器；改用 JS 控制的自定义下拉。
+function closeAllWorldPresetMenus(except) {
+  document.querySelectorAll('.world-preset-picker.is-open').forEach(picker => {
+    if (picker === except) return;
+    picker.classList.remove('is-open');
+    const menu = picker.querySelector('.world-preset-menu');
+    const trigger = picker.querySelector('.world-preset-trigger');
+    if (menu) menu.hidden = true;
+    if (trigger) trigger.setAttribute('aria-expanded', 'false');
+  });
+}
+function enhanceWorldPresetSelect(select) {
+  if (!select) return;
+  const syncOption = () => {
+    const picker = select.closest('.world-preset-picker');
+    if (!picker) return;
+    const valueEl = picker.querySelector('.world-preset-value');
+    if (valueEl) valueEl.textContent = select.options[select.selectedIndex]?.textContent || '自定义配置';
+    picker.querySelectorAll('.world-preset-menu li').forEach(li => li.setAttribute('aria-selected', String(li.dataset.value === select.value)));
+  };
+  if (select.dataset.presetEnhanced === '1') { syncOption(); return; }
+  select.dataset.presetEnhanced = '1';
+  const wrap = document.createElement('div');
+  wrap.className = 'world-preset-picker';
+  select.parentNode.insertBefore(wrap, select);
+  wrap.appendChild(select);
+  select.classList.add('world-preset-native');
+  select.tabIndex = -1;
+  const trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'ghost-btn small world-preset-trigger';
+  trigger.setAttribute('aria-haspopup', 'listbox');
+  trigger.setAttribute('aria-expanded', 'false');
+  trigger.innerHTML = '<span class="world-preset-value"></span><span class="world-preset-caret" aria-hidden="true">▾</span>';
+  const menu = document.createElement('ul');
+  menu.className = 'world-preset-menu';
+  menu.setAttribute('role', 'listbox');
+  menu.hidden = true;
+  wrap.appendChild(trigger);
+  wrap.appendChild(menu);
+  const renderMenu = () => {
+    menu.innerHTML = [...select.options].map(option => `<li role="option" data-value="${esc(option.value)}" aria-selected="${option.value === select.value}">${esc(option.textContent)}</li>`).join('');
+  };
+  trigger.addEventListener('click', event => {
+    event.stopPropagation();
+    const willOpen = !wrap.classList.contains('is-open');
+    closeAllWorldPresetMenus(wrap);
+    wrap.classList.toggle('is-open', willOpen);
+    menu.hidden = !willOpen;
+    trigger.setAttribute('aria-expanded', String(willOpen));
+    if (willOpen) renderMenu();
+  });
+  menu.addEventListener('click', event => {
+    const item = event.target.closest('li[data-value]');
+    if (!item) return;
+    select.value = item.dataset.value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    wrap.classList.remove('is-open');
+    menu.hidden = true;
+    trigger.setAttribute('aria-expanded', 'false');
+    syncOption();
+  });
+  select.addEventListener('change', syncOption);
+  if (!enhanceWorldPresetSelect.bound) {
+    enhanceWorldPresetSelect.bound = true;
+    document.addEventListener('click', () => closeAllWorldPresetMenus());
+    document.addEventListener('keydown', event => { if (event.key === 'Escape') closeAllWorldPresetMenus(); });
+  }
+  renderMenu();
+  syncOption();
 }
 function worldPlayerWithPreset(world, presetId, player = {}) {
   const preset = worldPlayerPresetList(world).find(item => item.id === presetId);
