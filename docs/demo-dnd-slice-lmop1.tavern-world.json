@@ -1,10 +1,10 @@
 {
   "spec": "tavern_world_package",
   "specVersion": 2,
-  "exportedAt": "2026-09-26T10:06:38.241Z",
+  "exportedAt": "2026-09-26T10:07:45.757Z",
   "manifest": {
     "packageId": "world-mui10p9r-3e2921c2b97b",
-    "worldVersion": 6,
+    "worldVersion": 7,
     "worldSchemaVersion": 1,
     "appContractVersion": 1,
     "capabilities": {
@@ -42,7 +42,7 @@
       "format": "native",
       "rawAssetRef": null
     },
-    "contentHash": "sha256:c569c7817fd56944d49f966381f8197c1846167da9c353d1863c39075f457b8b",
+    "contentHash": "sha256:8726547d6eb4b114d1d676c10c0a630ecff92bbe1b24f9d33b3bae02076d22d0",
     "hashScope": "canonical-json(content,assets)",
     "references": {
       "lorebooks": 1,
@@ -68,7 +68,7 @@
   "content": {
     "world": {
       "id": "world-mui10p9r-3e2921c2b97b",
-      "version": 6,
+      "version": 7,
       "title": "矿坑之路：失落矿坑 · 第一章",
       "summary": "D&D 失落矿坑第一章完整复刻：地精伏击 → 追迹小径 → 洞穴八间（岗哨/狼舍/陡道/天桥/地精窝/双池/首领洞）→ 营救西尔达 → 直面克拉格。世界卡声明驱动的完整地城冒险。",
       "tags": [
@@ -107,6 +107,76 @@
           "tags": [
             "钩子",
             "入口"
+          ]
+        },
+        {
+          "id": "goblin-blind",
+          "name": "灌木岗哨",
+          "type": "cave-room",
+          "summary": "洞口东侧，两丛灌木后蹲着值守的地精。",
+          "tags": [
+            "洞内",
+            "前哨"
+          ]
+        },
+        {
+          "id": "kennel",
+          "name": "狼舍",
+          "type": "cave-room",
+          "summary": "三只被拴住的狼，低吼着盯住来人。",
+          "tags": [
+            "洞内",
+            "兽栏"
+          ]
+        },
+        {
+          "id": "steep-passage",
+          "name": "陡峭石道",
+          "type": "cave-room",
+          "summary": "湿滑的石阶向上，一侧是深水。",
+          "tags": [
+            "洞内",
+            "险路"
+          ]
+        },
+        {
+          "id": "overpass",
+          "name": "石桥天桥",
+          "type": "cave-room",
+          "summary": "横跨水道的石桥，桥头有地精放哨；桥下水坝可开闸。",
+          "tags": [
+            "洞内",
+            "机关"
+          ]
+        },
+        {
+          "id": "goblin-den",
+          "name": "地精窝",
+          "type": "cave-room",
+          "summary": "堆着毛皮与骨头的空场，角落里锁着一个穿旧罩袍的男人。",
+          "tags": [
+            "洞内",
+            "囚室"
+          ]
+        },
+        {
+          "id": "twin-pools",
+          "name": "双池水坝",
+          "type": "cave-room",
+          "summary": "两汪深水被石块垒成的堰坝截住，水声轰鸣。",
+          "tags": [
+            "洞内",
+            "机关"
+          ]
+        },
+        {
+          "id": "klarg-cave",
+          "name": "克拉格的巢穴",
+          "type": "cave-room",
+          "summary": "火塘、铺满兽皮的高台，一只熊地精的窝。",
+          "tags": [
+            "洞内",
+            "首领"
           ]
         }
       ],
@@ -188,6 +258,60 @@
               "id": "sildar-captive",
               "content": "他护卫雇主时被一并掳走，如今被关在巢穴深处。"
             }
+          ]
+        },
+        {
+          "id": "klarg",
+          "name": "克拉格",
+          "role": "熊地精首领",
+          "description": "比普通地精高出一个头，皮毛灰黑，戴着铁项圈。",
+          "persona": "贪婪、暴躁，对「黑蜘蛛」的命令唯命是从。",
+          "locationId": "klarg-cave",
+          "publicFacts": [
+            "部落的头目"
+          ],
+          "publicGoals": [
+            "守住货、等赏钱"
+          ],
+          "secrets": [
+            {
+              "id": "klarg-orders",
+              "content": "「黑蜘蛛」出钱让他抓矮人，并把人和随身的图送去克拉格城堡。"
+            }
+          ]
+        },
+        {
+          "id": "yeemik",
+          "name": "耶米克",
+          "role": "地精副手",
+          "description": "瘦高、油滑，说话时总往克拉格的方向瞟。",
+          "persona": "阴险、怕死，想取而代之。",
+          "locationId": "goblin-den",
+          "publicFacts": [
+            "克拉格的手下"
+          ],
+          "publicGoals": [
+            "取代克拉格"
+          ],
+          "secrets": [
+            {
+              "id": "yeemik-plot",
+              "content": "他愿意出卖克拉格——只要价钱合适。"
+            }
+          ]
+        },
+        {
+          "id": "wolf-pack",
+          "name": "狼群",
+          "role": "兽栏里的三只狼",
+          "description": "瘦骨嶙峋，被铁链拴在石壁的环上。",
+          "persona": "凶、怕饿，喂过食就不咬。",
+          "locationId": "kennel",
+          "publicFacts": [
+            "被地精拴着"
+          ],
+          "publicGoals": [
+            "撕碎靠近的东西"
           ]
         }
       ],
@@ -1172,14 +1296,17 @@
         "goblin-scout",
         "goblin-prisoner",
         "gundren",
-        "sildar"
+        "sildar",
+        "klarg",
+        "yeemik",
+        "wolf-pack"
       ],
       "publication": {
         "source": "draft",
-        "commandId": "slice-v6-mui85jjz",
-        "baseVersion": 5,
-        "draftUpdatedAt": 1790417166777,
-        "publishedAt": 1790417166969
+        "commandId": "slice-v7-mui87hhi",
+        "baseVersion": 6,
+        "draftUpdatedAt": 1790417257423,
+        "publishedAt": 1790417257603
       },
       "ui": {
         "schemaVersion": 1,
