@@ -47,6 +47,10 @@ android {
         }
     }
 
+    // 需要 BuildConfig.APPLICATION_ID 派生内嵌 Node 端口（AGP8 默认不生成 BuildConfig）
+    buildFeatures {
+        buildConfig = true
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

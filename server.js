@@ -18,7 +18,15 @@ const crypto = require('crypto');
 const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
 
-const PORT = process.env.PORT || 3000;
+// 端口优先级：命令行 --port > 环境变量 PORT > 默认 3000。
+// Android 端按应用包名派生端口，避免同设备安装多个分支（不同包名）时抢占同一端口导致后启动者黑屏。
+const ARG_PORT = (() => {
+  const index = process.argv.indexOf('--port');
+  if (index < 0) return 0;
+  const value = Number(process.argv[index + 1]);
+  return Number.isInteger(value) && value > 0 && value < 65536 ? value : 0;
+})();
+const PORT = ARG_PORT || Number(process.env.PORT) || 3000;
 const proxyTimeoutValue = Number(process.env.TAVERN_PROXY_TIMEOUT_MS);
 const PROXY_TIMEOUT_MS = Number.isFinite(proxyTimeoutValue) && proxyTimeoutValue > 0
   ? Math.min(proxyTimeoutValue, 10 * 60 * 1000)
