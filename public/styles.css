@@ -1188,6 +1188,7 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
 textarea#input {
   flex: 1;
   min-width: 0;
+  scrollbar-width: none;
   height: 44px;
   min-height: 44px;
   max-height: 44px;
@@ -1207,6 +1208,7 @@ textarea#input:focus {
   border-color: rgba(var(--accent-rgb), 0.55);
   box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.08);
 }
+textarea#input::-webkit-scrollbar { display: none; }
 
 .composer-tool {
   flex: 0 0 44px;
