@@ -1,10 +1,10 @@
 {
   "spec": "tavern_world_package",
   "specVersion": 2,
-  "exportedAt": "2026-09-26T07:11:25.640Z",
+  "exportedAt": "2026-09-26T10:06:38.241Z",
   "manifest": {
     "packageId": "world-mui10p9r-3e2921c2b97b",
-    "worldVersion": 5,
+    "worldVersion": 6,
     "worldSchemaVersion": 1,
     "appContractVersion": 1,
     "capabilities": {
@@ -35,14 +35,14 @@
         "preset": false
       }
     },
-    "title": "矿坑之路：地精伏击",
+    "title": "矿坑之路：失落矿坑 · 第一章",
     "author": null,
     "license": null,
     "source": {
       "format": "native",
       "rawAssetRef": null
     },
-    "contentHash": "sha256:cefdbbc645ef6f8abfdbb3010616b4f1395c1b62d402fe959f3b50871e1cd336",
+    "contentHash": "sha256:c569c7817fd56944d49f966381f8197c1846167da9c353d1863c39075f457b8b",
     "hashScope": "canonical-json(content,assets)",
     "references": {
       "lorebooks": 1,
@@ -68,14 +68,14 @@
   "content": {
     "world": {
       "id": "world-mui10p9r-3e2921c2b97b",
-      "version": 5,
-      "title": "矿坑之路：地精伏击",
-      "summary": "D&D 失落矿坑第一章切片复刻：护送货车 → 地精伏击 → 追迹小径 → 抵达洞口。用于验证「判定 / 闸门 / 剧情推进」最小闭环。",
+      "version": 6,
+      "title": "矿坑之路：失落矿坑 · 第一章",
+      "summary": "D&D 失落矿坑第一章完整复刻：地精伏击 → 追迹小径 → 洞穴八间（岗哨/狼舍/陡道/天桥/地精窝/双池/首领洞）→ 营救西尔达 → 直面克拉格。世界卡声明驱动的完整地城冒险。",
       "tags": [
         "D&D",
         "地城",
         "复刻",
-        "切片"
+        "完整版"
       ],
       "lorebookIds": [],
       "locations": [
@@ -240,6 +240,9 @@
               "ambush",
               "trail",
               "cave",
+              "inside",
+              "rescue",
+              "klarg",
               "epilogue"
             ],
             "initial": "ambush",
@@ -263,6 +266,18 @@
             "options": [
               "none",
               "goblin"
+            ],
+            "initial": "none",
+            "visible": true
+          },
+          {
+            "id": "sildar",
+            "label": "西尔达",
+            "scope": "save",
+            "type": "enum",
+            "options": [
+              "none",
+              "free"
             ],
             "initial": "none",
             "visible": true
@@ -335,6 +350,35 @@
                 "count": 1
               }
             ]
+          },
+          {
+            "id": "loot",
+            "label": "战利品",
+            "scope": "save",
+            "entrySchema": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "text"
+              ],
+              "additionalProperties": true
+            },
+            "initial": []
           }
         ],
         "actions": [
@@ -587,6 +631,257 @@
                   "title": "制服了斥候",
                   "text": "你把他捆了起来——现在他嘴里能撬出东西了。",
                   "status": "new"
+                }
+              }
+            ]
+          },
+          {
+            "id": "scout-blind",
+            "label": "摸掉洞口岗哨",
+            "category": "skill",
+            "description": "绕过灌木，先解决放哨的地精。",
+            "check": {
+              "sides": 20,
+              "target": 12,
+              "modifiers": [
+                {
+                  "source": "player",
+                  "bucket": "attributes",
+                  "id": "agility"
+                }
+              ]
+            },
+            "availability": [
+              {
+                "type": "variable.compare",
+                "variableId": "story",
+                "operator": "==",
+                "value": "cave"
+              }
+            ],
+            "effects": [
+              {
+                "type": "variable.set",
+                "variableId": "story",
+                "value": "inside"
+              },
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "blind-cleared",
+                  "title": "岗哨已清",
+                  "text": "两个放哨的地精被悄无声息地放倒，洞口不再有人示警。",
+                  "status": "new"
+                }
+              }
+            ]
+          },
+          {
+            "id": "calm-wolves",
+            "label": "安抚狼群",
+            "category": "skill",
+            "description": "试着让拴住的狼安静下来（喂食更容易）。",
+            "check": {
+              "sides": 20,
+              "target": 15,
+              "modifiers": [
+                {
+                  "source": "player",
+                  "bucket": "skills",
+                  "id": "survival"
+                }
+              ]
+            },
+            "availability": [
+              {
+                "type": "variable.compare",
+                "variableId": "story",
+                "operator": "==",
+                "value": "inside"
+              }
+            ],
+            "effects": [
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "wolves-calm",
+                  "title": "狼群安静了",
+                  "text": "三只狼伏回地上，呜咽着没再出声。",
+                  "status": "new"
+                }
+              }
+            ]
+          },
+          {
+            "id": "climb-fissure",
+            "label": "攀上裂隙",
+            "category": "skill",
+            "description": "沿东墙的窄缝爬上高处的通道。",
+            "check": {
+              "sides": 20,
+              "target": 10,
+              "modifiers": [
+                {
+                  "source": "player",
+                  "bucket": "attributes",
+                  "id": "might"
+                }
+              ]
+            },
+            "availability": [
+              {
+                "type": "variable.compare",
+                "variableId": "story",
+                "operator": "==",
+                "value": "inside"
+              }
+            ],
+            "effects": [
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "fissure-climbed",
+                  "title": "高处的通道",
+                  "text": "你从裂隙爬上去，居高临下看见了桥和放哨的地精。",
+                  "status": "new"
+                }
+              }
+            ]
+          },
+          {
+            "id": "open-floodgate",
+            "label": "扳动水闸",
+            "category": "story",
+            "description": "桥下的木闸一扳，整条水道会倒灌。",
+            "availability": [
+              {
+                "type": "variable.compare",
+                "variableId": "story",
+                "operator": "==",
+                "value": "inside"
+              }
+            ],
+            "effects": [
+              {
+                "type": "variable.delta",
+                "variableId": "alarm",
+                "delta": 1
+              },
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "flood-released",
+                  "title": "水闸已开",
+                  "text": "水声在洞里炸开——地精的嚎叫和浪头一起撞了出来。",
+                  "status": "new"
+                }
+              }
+            ]
+          },
+          {
+            "id": "free-sildar",
+            "label": "解救西尔达",
+            "category": "story",
+            "description": "撬开锁链，把那个老兵放出来。",
+            "availability": [
+              {
+                "type": "variable.compare",
+                "variableId": "story",
+                "operator": "==",
+                "value": "inside"
+              }
+            ],
+            "effects": [
+              {
+                "type": "variable.set",
+                "variableId": "sildar",
+                "value": "free"
+              },
+              {
+                "type": "variable.set",
+                "variableId": "story",
+                "value": "rescue"
+              },
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "sildar-freed",
+                  "title": "西尔达获救",
+                  "text": "老兵活动着被捆麻的手腕：贡德伦被押去了克拉格城堡，动手的是「黑蜘蛛」。",
+                  "status": "new"
+                }
+              }
+            ]
+          },
+          {
+            "id": "confront-klarg",
+            "label": "直面克拉格",
+            "category": "skill",
+            "description": "冲上高台，和熊地精做个了断。",
+            "check": {
+              "sides": 20,
+              "target": 14,
+              "modifiers": [
+                {
+                  "source": "player",
+                  "bucket": "attributes",
+                  "id": "might"
+                }
+              ]
+            },
+            "availability": [
+              {
+                "type": "variable.compare",
+                "variableId": "story",
+                "operator": "==",
+                "value": "rescue"
+              }
+            ],
+            "effects": [
+              {
+                "type": "variable.set",
+                "variableId": "story",
+                "value": "klarg"
+              },
+              {
+                "type": "collection.add",
+                "collectionId": "loot",
+                "value": {
+                  "id": "klarg-chest",
+                  "title": "克拉格的赃物",
+                  "text": "一只塞满银币、玛瑙和信件残页的铁箱。",
+                  "count": 1
+                }
+              }
+            ]
+          },
+          {
+            "id": "loot-cave",
+            "label": "搜刮巢穴",
+            "category": "item",
+            "description": "把能带走的东西都收进背囊。",
+            "availability": [
+              {
+                "type": "variable.compare",
+                "variableId": "story",
+                "operator": "==",
+                "value": "klarg"
+              }
+            ],
+            "effects": [
+              {
+                "type": "collection.add",
+                "collectionId": "loot",
+                "value": {
+                  "id": "supplies-crates",
+                  "title": "缴获的补给",
+                  "text": "被劫的货物还堆在角落，油纸包着的口粮、火漆封的皮袋。",
+                  "count": 1
                 }
               }
             ]
@@ -851,6 +1146,20 @@
             "label": "玩家主动结束",
             "description": "保留当前存档并结束本次旅程。",
             "terminal": true
+          },
+          {
+            "id": "chapter-won",
+            "kind": "card-defined",
+            "label": "第一章完成 · 矿坑之路",
+            "description": "你救出了西尔达、打垮了克拉格，黑蜘蛛的名字第一次浮出水面——下一步，是克拉格城堡。",
+            "terminal": true
+          },
+          {
+            "id": "defeated",
+            "kind": "card-defined",
+            "label": "落入敌手",
+            "description": "你没能从洞穴里走出来。故事在这里停下，但世界线仍在。",
+            "terminal": true
           }
         ]
       },
@@ -867,10 +1176,10 @@
       ],
       "publication": {
         "source": "draft",
-        "commandId": "slice-v5-mui1v51m",
-        "baseVersion": 4,
-        "draftUpdatedAt": 1790406603816,
-        "publishedAt": 1790406603871
+        "commandId": "slice-v6-mui85jjz",
+        "baseVersion": 5,
+        "draftUpdatedAt": 1790417166777,
+        "publishedAt": 1790417166969
       },
       "ui": {
         "schemaVersion": 1,
@@ -1003,6 +1312,46 @@
               "layout": "actions"
             },
             {
+              "id": "act-scout",
+              "title": "洞内行动 · 摸哨",
+              "icon": "⌖",
+              "side": "right",
+              "source": "runtime.actions.scout-blind",
+              "layout": "actions"
+            },
+            {
+              "id": "act-wolves",
+              "title": "洞内行动 · 驯狼",
+              "icon": "⌖",
+              "side": "right",
+              "source": "runtime.actions.calm-wolves",
+              "layout": "actions"
+            },
+            {
+              "id": "act-climb",
+              "title": "洞内行动 · 攀爬",
+              "icon": "⌖",
+              "side": "right",
+              "source": "runtime.actions.climb-fissure",
+              "layout": "actions"
+            },
+            {
+              "id": "act-flood",
+              "title": "洞内行动 · 水闸",
+              "icon": "⌖",
+              "side": "right",
+              "source": "runtime.actions.open-floodgate",
+              "layout": "actions"
+            },
+            {
+              "id": "act-sildar",
+              "title": "解救西尔达",
+              "icon": "⇧",
+              "side": "right",
+              "source": "runtime.actions.free-sildar",
+              "layout": "actions"
+            },
+            {
               "id": "act-cave",
               "title": "沿小径进洞",
               "icon": "⇥",
@@ -1017,6 +1366,51 @@
               "side": "right",
               "source": "runtime.actions.leave-site",
               "layout": "actions"
+            },
+            {
+              "id": "act-klarg",
+              "title": "直面克拉格",
+              "icon": "⚔",
+              "side": "right",
+              "source": "runtime.actions.confront-klarg",
+              "layout": "actions"
+            },
+            {
+              "id": "act-loot",
+              "title": "搜刮巢穴",
+              "icon": "◇",
+              "side": "right",
+              "source": "runtime.actions.loot-cave",
+              "layout": "actions"
+            },
+            {
+              "id": "loot-panel",
+              "title": "战利品",
+              "icon": "◇",
+              "side": "left",
+              "source": "runtime.collections.loot",
+              "layout": "cards",
+              "fields": [
+                "title",
+                "text",
+                "count"
+              ],
+              "emptyText": "还没有收获"
+            },
+            {
+              "id": "var-sildar",
+              "title": "西尔达",
+              "icon": "⇧",
+              "side": "right",
+              "source": "runtime.variables.sildar",
+              "layout": "cards",
+              "fields": [
+                {
+                  "key": "$value",
+                  "label": "状态"
+                }
+              ],
+              "valueLabel": "西尔达"
             }
           ]
         }
