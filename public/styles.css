@@ -2651,6 +2651,11 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
 }
 .world-draft-actions { display: flex; justify-content: flex-start; align-items: center; gap: 8px; padding: 12px 20px 16px; border-top: 1px solid var(--line); }
 .world-draft-publish { padding: 8px 14px; font-size: 12px; letter-spacing: 2px; text-indent: 2px; }
+/* 表单操作行：同排按钮统一 md 档尺寸（角色×尺寸正交，几何一致） */
+.world-draft-actions .ghost-btn {
+  padding: 8px 16px;
+  font-size: 13px;
+}
 .world-draft-action-spacer { flex: 1; }
 .world-upgrade-dialog { width: min(720px, calc(100vw - 32px)); }
 .world-upgrade-body { min-height: 280px; }
