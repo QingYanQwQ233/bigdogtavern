@@ -6771,6 +6771,9 @@ function validateAgentNarrationPayload(payload) {
 
 function runtimeStateEnsure(state, world) {
   if (!state.runtime && world?.runtime) state.runtime = materializeWorldRuntimeState(world.runtime);
+  // 与当前卡定义同步：卡升级后新增/变更的变量与集合需要并入旧 state（保留有效旧值、重建 schema 快照）。
+  // 覆盖两类情况：升级迁移遗漏，以及 reset 回到旧基线快照后 schema 过期。
+  if (state.runtime && world?.runtime) state.runtime = migrateWorldRuntimeState(state.runtime, world.runtime);
   return state.runtime;
 }
 
@@ -7181,6 +7184,8 @@ async function handleWorldTurnPost(req, res, saveId, forcedAgentPhase = null) {
       }
       if (payload.patch !== undefined) {
         if (payload.patch.baseRevision !== current.revision) return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
+        // 先把 current.state 的 runtime 与当前世界卡定义同步（reset / 升级后 schema 可能过期），否则新增变量的 patch 会被校验拒绝。
+        if (world?.runtime) runtimeStateEnsure(current.state, world);
         payload.patch = ensureRuntimeActionIntentUpdate(world, current.state, payload.patch, payload.actionIntent, agentCheckResolutions.resolutions || []);
         const patched = applyRpgPatch(world, current.state, payload.patch, { checkResolutions: agentCheckResolutions.resolutions || [] });
         if (patched.error) return send(res, 400, JSON.stringify({ error: patched.error }), 'application/json');
