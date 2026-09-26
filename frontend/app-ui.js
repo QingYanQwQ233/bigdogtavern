@@ -2617,6 +2617,7 @@ async function requestReply() {
     if (activeRequestController === requestController) activeRequestController = null;
     syncSendButton();
     $('btn-send').disabled = mode === 'rpg' && worldSavePlanning();
+    renderQuickActions();
     const input = $('input');
     if (input) input.focus();
   }
