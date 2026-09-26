@@ -761,6 +761,9 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   resize: vertical;
 }
 .edit-actions { display: flex; gap: 8px; margin-top: 8px; }
+/* 消息编辑操作行：保存 / 取消 同档几何（角色×尺寸正交） */
+.edit-actions .btn.small,
+.edit-actions .ghost-btn { padding: 6px 14px; font-size: 13px; }
 
 .mini-crest { width: 22px; height: 22px; fill: var(--accent); filter: drop-shadow(0 0 5px var(--glow)); }
 
