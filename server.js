@@ -2478,6 +2478,19 @@ function validateEventMemoryCandidates(value, world = null) {
   return null;
 }
 
+// 世界卡未登记的地点 ID 出现在事件记忆里时，修剪为 null，避免单条记忆的越权引用拒绝整个回合。
+function sanitizeEventMemoryLocations(world, eventMemory) {
+  if (!Array.isArray(eventMemory)) return eventMemory;
+  const allowed = worldLocationIds(world);
+  return eventMemory.map(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+    const id = item.locationId;
+    if (id === undefined || id === null) return item;
+    if (!isSafeId(id) || !allowed.has(id)) return { ...item, locationId: null };
+    return item;
+  });
+}
+
 function validateEventMemory(value, world = null, current = null) {
   if (value === undefined || value === null) return null;
   if (!Array.isArray(value) || value.length > EVENT_MEMORY_MAX) return `eventMemory 最多 ${EVENT_MEMORY_MAX} 项`;
@@ -7034,7 +7047,8 @@ function applyRpgPatch(world, currentState, patch, options = {}) {
       if (!existing) list.push(next);
       state[update.kind] = list;
     } else if (type.startsWith('runtime.')) {
-      error = applyRuntimeUpdate(state, world, update, options);
+      // 世界卡未声明 runtime 时，丢弃该操作而非拒绝整个回合：未声明的运行态操作无处安放，不应连带其他更新一起失败。
+      if (world?.runtime) error = applyRuntimeUpdate(state, world, update, options);
     }
     if (error) return { error };
   }
@@ -7176,6 +7190,7 @@ async function handleWorldTurnPost(req, res, saveId, forcedAgentPhase = null) {
       if (contractInvalid) return send(res, 400, JSON.stringify({ error: contractInvalid }), 'application/json');
       const runtimeStateInvalid = validateRuntimeState(payload.state?.runtime);
       if (runtimeStateInvalid) return send(res, 400, JSON.stringify({ error: runtimeStateInvalid }), 'application/json');
+      payload.eventMemory = sanitizeEventMemoryLocations(world, payload.eventMemory);
       const eventMemoryInvalid = validateEventMemoryCandidates(payload.eventMemory, world);
       if (eventMemoryInvalid) return send(res, 400, JSON.stringify({ error: eventMemoryInvalid }), 'application/json');
       const invalidLocation = validateWorldLocationIds(world, payload.state, payload.npcStates, payload.createEntities);
