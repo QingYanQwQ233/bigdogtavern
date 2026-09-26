@@ -6684,11 +6684,17 @@ function normalizeRpgPatch(patch, options = patch?.options) {
     ...(options === undefined ? {} : { options: normalizeRpgOptions(options) }),
     updates: patch.updates.map(update => {
       // 宽容：模型偶尔把地点切换写成状态字段路径（state.locationId）：与 location.set 等价，先归一化再走白名单。
-      if (update?.type !== 'state.locationId') return update;
+      if (!['state.locationId', 'player.location.set', 'player.location'].includes(update?.type)) return update;
       const raw = update.locationId ?? update.location ?? update.id ?? update.value;
       return raw === undefined || raw === null ? update : { ...update, type: 'location.set' };
     }).filter(update => {
       if (worldModeActive() && RPG_WORLD_DISABLED_UPDATE_TYPES.has(update?.type)) return false;
+      // 卡未声明 runtime 时，runtime.* 操作（含裸别名）无处安放：丢弃，不拒整个回合。
+      const rawUpdateType = String(update?.type || '');
+      if (worldModeActive() && !currentWorldCard()?.runtime && (rawUpdateType.startsWith('runtime.') || RPG_RUNTIME_UPDATE_ALIASES.has(rawUpdateType))) {
+        console.warn('[Tavern] 丢弃未声明 runtime 的操作:', update?.type);
+        return false;
+      }
       // 模型可能发明协议外的操作（如 npc.relation.set / memory.local.add）：丢弃并告警，不让单条漂移毁掉整个回合。
       if (!RPG_PATCH_UPDATE_KEYS[update?.type] && !RPG_RUNTIME_UPDATE_ALIASES.has(update?.type)) {
         console.warn('[Tavern] 丢弃不受支持的更新操作:', update?.type);

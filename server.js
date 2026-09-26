@@ -6450,7 +6450,7 @@ function normalizeRpgPatch(patch) {
     ...patch,
     updates: patch.updates.map(update => {
       // 与前端一致：模型把地点切换写成状态字段路径（state.locationId）时，先归一为 location.set。
-      if (update?.type !== 'state.locationId') return update;
+      if (!['state.locationId', 'player.location.set', 'player.location'].includes(update?.type)) return update;
       const raw = update.locationId ?? update.location ?? update.id ?? update.value;
       return raw === undefined || raw === null ? update : { ...update, type: 'location.set' };
     }).filter(update => !RPG_WORLD_DISABLED_UPDATE_TYPES.has(update?.type)).map(update => {
@@ -7022,8 +7022,9 @@ function applyRpgPatch(world, currentState, patch, options = {}) {
       } else if (!error) error = `patch.inventory.delta 不能减少不存在的物品 ${update.itemId}`;
       if (!error) state.inventory = inventory;
     } else if (type === 'location.set') {
-      if (!worldLocationIds(world).has(update.locationId)) error = `patch.location.set 引用了未登记地点 ${update.locationId}`;
-      else state.locationId = update.locationId;
+      // 未登记地点：丢弃该操作而非拒绝整个回合（与 runtime/记忆条目同等容错）。
+      if (worldLocationIds(world).has(update.locationId)) state.locationId = update.locationId;
+      else console.warn('[rpg] 丢弃未登记地点操作:', update.locationId);
     } else if (type === 'effect.add' || type === 'effect.remove') {
       if (!state.player || typeof state.player !== 'object') state.player = {};
       const effects = Array.isArray(state.player.effects) ? state.player.effects : [];
@@ -7185,6 +7186,13 @@ async function handleWorldTurnPost(req, res, saveId, forcedAgentPhase = null) {
       }
       const runtimeBindingError = runtimeBindingInvalid(world, current.state, payload.state);
       if (runtimeBindingError) return send(res, 400, JSON.stringify({ error: runtimeBindingError }), 'application/json');
+      // 卡未声明 runtime 时，runtime.* 操作无处安放：提交前剪枝（含裸别名），避免校验阶段拒绝整个回合。
+      if (!world?.runtime && Array.isArray(payload.patch?.updates)) {
+        payload.patch = { ...payload.patch, updates: payload.patch.updates.filter(u => {
+          const t = String(u?.type || '');
+          return !t.startsWith('runtime.') && !RPG_RUNTIME_UPDATE_ALIASES.has(t);
+        }) };
+      }
       const optionRules = worldTurnOptionRules(world);
       const contractInvalid = validateWorldTurn(payload, optionRules, { skipNarrative: agentPhase === 'execute' });
       if (contractInvalid) return send(res, 400, JSON.stringify({ error: contractInvalid }), 'application/json');
