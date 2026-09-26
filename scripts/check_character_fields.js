@@ -30,7 +30,7 @@ vm.runInContext(`
   settings = { systemPrompt: '', postHistory: '', history: 20 };
   mode = 'tavern';
   characters = [{
-    id: 'c', name: '霜铃', race: '狐族', role: '学者', persona: '', scenario: '',
+    id: 'c', name: '霜铃', race: '人类', role: '学者', persona: '', scenario: '',
     profileFields: [{ key: 'weakness', label: '弱点', value: '怕水' }],
   }];
   currentCharId = 'c'; currentSessionId = 's';
@@ -56,7 +56,7 @@ vm.runInContext(`
       first_mes: '欢迎。', mes_example: '<START>\\n{{user}}: 你好\\n{{char}}: 请坐。',
       alternate_greetings: ['备用开场'], tags: ['v3', 'roundtrip'], creator: 'tester',
       character_version: '2.1', creator_notes: '保留备注',
-      extensions: { tavern: { race: '狐族', role: '向导', profileFields: [{ key: 'age', label: '年龄', value: '21' }], customFlag: true } },
+      extensions: { tavern: { race: '人类', role: '向导', profileFields: [{ key: 'age', label: '年龄', value: '21' }], customFlag: true } },
       character_book: { name: '角色专属书', scan_depth: 1, entries: [
         { keys: ['潮汐'], secondary_keys: ['港口'], content: '专属设定', constant: true },
         { keys: ['秘密[0-9]+'], content: '正则设定', use_regex: true, insertion_order: 10, constant: false },

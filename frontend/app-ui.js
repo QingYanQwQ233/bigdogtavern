@@ -1933,7 +1933,7 @@ async function imageToDataUri(src) {
 }
 
 async function buildImageBody(ig, prompt, refImage) {
-  // 约束后缀：无论提示词来源（LLM/剧情/手动）都自动附加，兽人禁人脸
+  // 约束后缀：无论提示词来源（LLM/剧情/手动）都自动附加
   const fullPrompt = (prompt || '') + (ig.promptSuffix || '');
   const body = { prompt: fullPrompt };
   if (ig.kind === 'sd') {

@@ -323,7 +323,7 @@ RP 消息显示会优先识别缩进的 HTML 布局与 HTML 代码块，再交�
 
 对齐依据为 SillyTavern 官方的 [Prompt Manager](https://docs.sillytavern.app/usage/prompts/prompt-manager/)、[Prompts](https://docs.sillytavern.app/usage/prompts/)、[World Info](https://docs.sillytavern.app/usage/core-concepts/worldinfo/) 与 [Character Design](https://docs.sillytavern.app/usage/core-concepts/characterdesign/) 文档；字段往返以官方 [Default Chat Completion preset](https://raw.githubusercontent.com/SillyTavern/SillyTavern/refs/heads/release/default/content/presets/openai/Default.json) 为基准。
 
-内置酒馆基础预设启用玩家主权、角色稳定、连续性、白描与抗重复模块；内置 RPG 基础预设启用玩家主权、世界连续性、判定、Markdown 叙事和福瑞种族表现模块。RPG 状态协议要求每回合输出恰好 4 个行动选项。
+内置酒馆基础预设启用玩家主权、角色稳定、连续性、白描与抗重复模块；内置 RPG 基础预设启用玩家主权、世界连续性、判定和 Markdown 叙事模块。RPG 状态协议要求每回合输出恰好 4 个行动选项。
 
 提示词页可导入/导出 SillyTavern Chat Completion 的 `prompts + prompt_order + extensions.regex_scripts`。`system_prompt` 代表固定/钉住的可编辑提示词，`marker` 才代表运行时内容；导入时不会再把 Main Prompt、NSFW 或 Post-History 错当成空 Marker。项目专属的 `mode`、`firstMes` 与 `replyOptions` 在 `tavern_meta` 中往返保留；普通 ST 会忽略该扩展字段。导入同时接受数组、对象映射和字符串 `character_id`，运行时优先采用 `character_id: 100001`，其他 Profile 和未进入当前顺序的 prompts 仍保留并可无损导出。
 
@@ -350,7 +350,7 @@ DeepSeek V4 默认开启 thinking，但 thinking 模式不接受强制 `tool_cho
 - 世界书页支持导入 / 导出常见 SillyTavern World Info JSON（`entries` 对象/数组，以及 `key`、`keysecondary`、`comment`、`disable`、`order` 等字段）；同时保留并读取 `extensions` 下的 `depth`、`position`、`role`、`scan_depth`、`case_sensitive`、`probability`、`group/group_weight`、`sticky/cooldown/delay`、递归和匹配来源字段。当前运行时实现选择性、概率、分组、递归、Sticky/Cooldown/Delay、常驻、整词 / 大小写、按书扫描设置和 `{{outlet::名称}}` 提示词宏；Before / After、Example Top / Bottom 与 At Depth 会进入对应原生位置，Outlet 由宏取用。项目尚无 Author's Note 槽位，因此 A/N Top / Bottom 保留字段但不注入；向量检索和 Quick Reply Automation 仍只保留字段，不执行。
 - 导入带 `character_book` 的 V1/V2/V3 JSON 或 PNG 角色卡时，内嵌角色书会按内容指纹自动注册为独立世界书并显示“角色卡”来源标记；启动时也会迁移已经存在的旧角色卡。角色卡仍保留原始内嵌副本。角色编辑器和世界卡草稿可分别选择绑定，选择自动注册副本时不会重复注入。
 - 世界卡详情页会直接展示“使用世界书”绑定结果；点击“选择世界书”进入草稿选择器，世界书列表中的“设为使用”仅控制酒馆模式全局世界书，不会串入 RPG 世界卡。
-- 默认世界书已内置：大陆概览 + 种族总览（常驻）、人类 + 10 兽人种族外貌特征、旅店/龙谷等地点条目
+- 默认世界书为空白模板，内容由用户或世界卡自行填充
 
 ### 全局设置 settings（settings.json）
 ```js

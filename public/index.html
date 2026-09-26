@@ -550,7 +550,7 @@
           <button class="ghost-btn" id="wi-new">＋ 新条目</button>
         </div>
       </div>
-      <p class="hint" style="margin-top:10px">示例：触发词「酒馆」→ 内容「酒馆名叫“断牙之角”，老板是一只独眼的老狼。」</p>
+      <p class="hint" style="margin-top:10px">示例：触发词「酒馆」→ 内容「酒馆名叫“青石灯笼”，老板是个话不多的老人。」</p>
     </div>
   </div>
 
@@ -1002,8 +1002,8 @@
           </div>
           <div class="field row2">
             <div class="field">
-              <label for="ig-prompt-suffix">提示词约束后缀 <span class="hint-inline">自动追加到提示词（兽人禁人脸）</span></label>
-              <input id="ig-prompt-suffix" placeholder=", furry, anthro with complete animal head, NO human face" />
+              <label for="ig-prompt-suffix">提示词约束后缀 <span class="hint-inline">自动追加到提示词</span></label>
+              <input id="ig-prompt-suffix" placeholder=", highly detailed, soft lighting" />
             </div>
             <div class="field">
               <label for="ig-negative-suffix">负面词后缀 <span class="hint-inline">追加到负面提示词</span></label>
@@ -1267,7 +1267,7 @@
         <div class="field row2">
           <div class="field">
             <label for="world-draft-tags">标签 <span class="hint-inline">逗号分隔</span></label>
-            <input id="world-draft-tags" name="worldDraftTags" maxlength="1000" placeholder="日式西幻, 福瑞, 开放世界" />
+            <input id="world-draft-tags" name="worldDraftTags" maxlength="1000" placeholder="日式西幻, 冒险, 开放世界" />
           </div>
           <div class="field">
             <span id="world-draft-lorebooks-label" class="field-label">绑定世界书 <span class="hint-inline">可多选；列表来自当前世界书库</span></span>
@@ -1556,7 +1556,7 @@
       </header>
       <section class="world-player-ai" aria-labelledby="world-player-ai-title">
         <div class="world-player-ai-head"><div><strong id="world-player-ai-title">AI 建角向导</strong><p>一句话 → AI 填表 → 你微调 → AI 完成结构化玩家状态</p></div><select id="world-player-preset" aria-label="选择建角预设"><option value="">自定义配置</option></select></div>
-        <label class="field"><span>第一步：描述你想扮演的角色</span><textarea id="world-player-ai-brief" rows="2" maxlength="1200" placeholder="例如：来自北境、擅长追踪但背负债务的狐人旅人"></textarea></label>
+        <label class="field"><span>第一步：描述你想扮演的角色</span><textarea id="world-player-ai-brief" rows="2" maxlength="1200" placeholder="例如：来自北境、擅长追踪但背负债务的旅人"></textarea></label>
         <div class="world-player-ai-actions"><button class="ghost-btn small" id="world-player-ai-basic" type="button">① AI 填写基本信息</button><button class="ghost-btn small" id="world-player-ai-full" type="button">③ AI 完善结构</button></div>
       </section>
       <div id="world-player-fields" class="world-draft-body world-player-fields"></div>

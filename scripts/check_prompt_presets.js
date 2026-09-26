@@ -55,7 +55,7 @@ vm.runInContext(`
   userData = { currentPreset: 'default', presets: { default: { name: '旅人', persona: '谨慎' } }, memories: [{ content: '记得旧约', enabled: true }] };
   lorebooks = { default: { entries: [{ id: 'lore', content: '月港终年有雾。', constant: true, enabled: true, order: 1 }] } };
   prefs.activeLoreId = 'default';
-  characters = [{ id: 'c', name: '夏瑾', race: '狐族', role: '向导', persona: '敏锐', scenario: '月港', presetName: '' }];
+  characters = [{ id: 'c', name: '夏瑾', race: '人类', role: '向导', persona: '敏锐', scenario: '月港', presetName: '' }];
   currentCharId = 'c'; mode = 'tavern'; currentSessionId = 's';
   sessions = [{ id: 's', charId: 'c', kind: 'tavern', messages: [{ role: 'user', content: '出发吧' }] }];
   promptPresets = {
