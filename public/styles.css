@@ -1149,9 +1149,14 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   padding: 12px 20px 16px;
   background: linear-gradient(0deg, rgba(var(--bg-0-rgb), 0.55), transparent);
 }
-.quick-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
-/* 回合级提示（动作未结算警告等）：独占整行，避免在移动端 nowrap 横滚布局里被压成竖排。 */
-.quick-actions:has(.world-action-notice) { flex-wrap: wrap; }
+/* 快捷行动/选项：单行横滚（不再多行堆叠挤压叙事区），滚动条隐藏 */
+.quick-actions { display: flex; gap: 8px; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; margin-bottom: 10px; }
+.quick-actions::-webkit-scrollbar { display: none; }
+.quick-actions .chip { flex-shrink: 0; white-space: nowrap; }
+/* 块级提示（动作未结算警告 / 回合错误 / 等待提示）：独占整行，此时恢复换行 */
+.quick-actions:has(.world-action-notice),
+.quick-actions:has(.world-turn-error),
+.quick-actions:has(.quick-hint) { flex-wrap: wrap; }
 .quick-actions .world-action-notice { flex: 0 0 100%; width: 100%; white-space: normal; }
 .quick-actions:empty { display: none; }
 .world-turn-error {
