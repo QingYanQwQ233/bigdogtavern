@@ -153,7 +153,8 @@ function compactRpgWorld(world) {
 function compactRpgState(state, world) {
   if (!state || typeof state !== 'object' || Array.isArray(state)) return state;
   const next = cloneJson(state);
-  for (const key of ['inventory', 'equipment', 'currencies', 'quests', 'goals', 'leads', 'activeHooks', 'worldEvents', 'factionStates', 'conflicts', 'growthCandidates', 'growthApplications', 'experiences', 'map']) delete next[key];
+  // activeHooks（开局钩子）不在清理列表：由开局计划写入、需跨回合持久并展示。
+  for (const key of ['inventory', 'equipment', 'currencies', 'quests', 'goals', 'leads', 'worldEvents', 'factionStates', 'conflicts', 'growthCandidates', 'growthApplications', 'experiences', 'map']) delete next[key];
   if (next.stats && typeof next.stats === 'object') delete next.stats.gold;
   // 资源按世界卡声明保留：只有世界卡未声明 gold 时，才清掉遗留的 resources.gold。
   const declaredResourceIds = new Set((playerCreationSchema(world)?.resources || []).map(item => item && item.id).filter(Boolean));
@@ -1583,7 +1584,7 @@ function validateWorldUi(value) {
       for (const field of panel.fields) {
         const key = typeof field === 'string' ? field : field?.key;
         const label = typeof field === 'string' ? field : field?.label;
-        if (typeof key !== 'string' || (key !== '$key' && !/^[A-Za-z0-9_.-]{1,64}$/.test(key)) || (label !== undefined && (typeof label !== 'string' || label.length > 80))) return `ui.sidebar.panels.${id}.fields 无效`;
+        if (typeof key !== 'string' || (key !== '$key' && key !== '$value' && !/^[A-Za-z0-9_.-]{1,64}$/.test(key)) || (label !== undefined && (typeof label !== 'string' || label.length > 80))) return `ui.sidebar.panels.${id}.fields 无效`;
       }
     }
     ids.add(id);
