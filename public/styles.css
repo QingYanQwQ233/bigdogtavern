@@ -1757,14 +1757,15 @@ body[data-mode="rpg"] .composer {
   body[data-mode="rpg"] .rpg-mobile-toolbar {
     display: flex;
     grid-area: tools;
-    gap: 8px;
-    padding: 8px 12px;
-    background: var(--panel);
+    gap: 6px;
+    padding: 4px 12px;
+    /* 与顶栏/状态条统一：同款淡白渐变（原实色 panel 与上下不一致） */
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent);
     border-top: 1px solid var(--line);
   }
   body[data-mode="rpg"] .rpg-mobile-toolbar .ghost-btn {
     flex: 1;
-    min-height: 44px;
+    min-height: 40px;
   }
   body[data-mode="rpg"] #rpg-left,
   body[data-mode="rpg"] #rpg-right {
