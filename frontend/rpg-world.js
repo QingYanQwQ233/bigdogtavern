@@ -3110,7 +3110,18 @@ async function generateWorldOpening(save) {
   try {
     const payload = buildPayload();
     const traceCommandId = 'opening-candidate-' + uid();
-    payload.body.messages.push({ role: 'user', content: `【开局规划任务】这是一个新建世界存档。请严格依据以下当前存档开局规划生成候选：${JSON.stringify(save.setup?.plan || {})}。根据世界卡、玩家快照、起始地点、在场 NPC 与规则，生成可直接展示给玩家的开场叙事；不要替玩家决定未声明的核心意图，结尾停在玩家可以回应的局面。末尾输出唯一的 <tavern_state_update> JSON 更新块，protocol=tavern.rpg.turn、version=1、baseRevision=${save.revision}、updates=[]，并提供恰好 4 个具体行动选项。` });
+    payload.body.messages.push({ role: 'user', content: `【开局规划任务】这是一个新建世界存档。请严格依据以下当前存档开局规划生成候选：${JSON.stringify(save.setup?.plan || {})}。
+
+【写作目标】这是一段“开场”，要像网文小说的开篇一样，在第一时间抓住玩家，而不是简短交代。请写出完整的一段开场叙事（通常不少于 600 字，宜在 700–1200 字之间，可依情节需要更长），必须包含以下层次：
+1. 世界介绍：用叙事而非说明的方式，自然带出时代、地域、势力、规则或氛围特色，让玩家对这个世界的质感有第一印象。
+2. 角色介绍：交代玩家角色是谁、此刻的身份与处境、为什么出现在这里；用动作、外貌与细节呈现，不要罗列设定条目。
+3. 场景介绍：明确所在的具体地点、时间与环境，写出可视、可听、可闻、可触的感官细节，让玩家“站”在那里。
+4. 氛围渲染：写出情绪基调——紧张、苍凉、喧嚣或不安，让玩家感觉有事即将发生。
+5. 引入与钩子：自然引出即将到来的事件、冲突或人物，收尾停在玩家必须做出选择的临界点，留下悬念。
+
+【文风】第二人称（“你”），画面感强、节奏有起伏、代入感强；避免流水账、条目式罗列、说明文腔调与空洞抒情。只呈现玩家角色此刻能够感知或合理推断的信息，不要替玩家决定未声明的核心意图，也不要提前揭露尚未公开的真相。结尾停在玩家可以回应的局面。
+
+【必须遵守】严格依据世界卡、玩家快照、起始地点、在场 NPC 与规则生成。正文末尾必须输出唯一的 <tavern_state_update> JSON 更新块，protocol=tavern.rpg.turn、version=1、baseRevision=${save.revision}、updates=[]，并提供恰好 4 个具体行动选项（彼此不同、具体可执行）。` });
     beginDebugRequest(save, payload, { label: '开场候选', kind: 'opening-plan', commandId: traceCommandId });
     let reply;
     if (payload.body.stream) reply = (await callAPIStream(payload)).content;
