@@ -1,10 +1,10 @@
 {
   "spec": "tavern_world_package",
   "specVersion": 2,
-  "exportedAt": "2026-09-26T06:56:14.717Z",
+  "exportedAt": "2026-09-26T07:11:25.640Z",
   "manifest": {
     "packageId": "world-mui10p9r-3e2921c2b97b",
-    "worldVersion": 3,
+    "worldVersion": 5,
     "worldSchemaVersion": 1,
     "appContractVersion": 1,
     "capabilities": {
@@ -42,7 +42,7 @@
       "format": "native",
       "rawAssetRef": null
     },
-    "contentHash": "sha256:b341536ab24c69f17f28d7f987859b78560bf173d0476fc266580e6e2eb76ec7",
+    "contentHash": "sha256:cefdbbc645ef6f8abfdbb3010616b4f1395c1b62d402fe959f3b50871e1cd336",
     "hashScope": "canonical-json(content,assets)",
     "references": {
       "lorebooks": 1,
@@ -68,7 +68,7 @@
   "content": {
     "world": {
       "id": "world-mui10p9r-3e2921c2b97b",
-      "version": 3,
+      "version": 5,
       "title": "矿坑之路：地精伏击",
       "summary": "D&D 失落矿坑第一章切片复刻：护送货车 → 地精伏击 → 追迹小径 → 抵达洞口。用于验证「判定 / 闸门 / 剧情推进」最小闭环。",
       "tags": [
@@ -253,6 +253,18 @@
             "initial": 0,
             "min": 0,
             "max": 3,
+            "visible": true
+          },
+          {
+            "id": "captive",
+            "label": "俘虏",
+            "scope": "save",
+            "type": "enum",
+            "options": [
+              "none",
+              "goblin"
+            ],
+            "initial": "none",
             "visible": true
           }
         ],
@@ -473,6 +485,14 @@
                 "variableId": "story",
                 "value": "trail"
               }
+            ],
+            "availability": [
+              {
+                "type": "variable.compare",
+                "variableId": "captive",
+                "operator": "==",
+                "value": "goblin"
+              }
             ]
           },
           {
@@ -532,6 +552,40 @@
                   "id": "report-line",
                   "title": "报案计划",
                   "text": "你决定先赶路，到镇上再说。这条路的账，迟早要算。",
+                  "status": "new"
+                }
+              }
+            ]
+          },
+          {
+            "id": "subdue-scout",
+            "label": "制服斥候",
+            "category": "skill",
+            "description": "尝试放倒并捆住近期遭遇的地精（有俘虏才有口供）。",
+            "check": {
+              "sides": 20,
+              "target": 13,
+              "modifiers": [
+                {
+                  "source": "player",
+                  "bucket": "attributes",
+                  "id": "agility"
+                }
+              ]
+            },
+            "effects": [
+              {
+                "type": "variable.set",
+                "variableId": "captive",
+                "value": "goblin"
+              },
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "scout-captured",
+                  "title": "制服了斥候",
+                  "text": "你把他捆了起来——现在他嘴里能撬出东西了。",
                   "status": "new"
                 }
               }
@@ -813,10 +867,10 @@
       ],
       "publication": {
         "source": "draft",
-        "commandId": "slice-pub2-mui16qf9",
-        "baseVersion": 2,
-        "draftUpdatedAt": 1790405465117,
-        "publishedAt": 1790405465179
+        "commandId": "slice-v5-mui1v51m",
+        "baseVersion": 4,
+        "draftUpdatedAt": 1790406603816,
+        "publishedAt": 1790406603871
       },
       "ui": {
         "schemaVersion": 1,
@@ -828,6 +882,51 @@
         },
         "sidebar": {
           "panels": [
+            {
+              "id": "var-story",
+              "title": "主线进度",
+              "icon": "⌖",
+              "side": "right",
+              "source": "runtime.variables.story",
+              "layout": "cards",
+              "fields": [
+                {
+                  "key": "$value",
+                  "label": "当前值"
+                }
+              ],
+              "valueLabel": "主线进度"
+            },
+            {
+              "id": "var-alarm",
+              "title": "部落警戒",
+              "icon": "⚠",
+              "side": "right",
+              "source": "runtime.variables.alarm",
+              "layout": "cards",
+              "fields": [
+                {
+                  "key": "$value",
+                  "label": "当前值"
+                }
+              ],
+              "valueLabel": "部落警戒"
+            },
+            {
+              "id": "var-captive",
+              "title": "俘虏",
+              "icon": "⛓",
+              "side": "right",
+              "source": "runtime.variables.captive",
+              "layout": "cards",
+              "fields": [
+                {
+                  "key": "$value",
+                  "label": "当前值"
+                }
+              ],
+              "valueLabel": "俘虏"
+            },
             {
               "id": "supplies",
               "title": "随队物资",
@@ -885,6 +984,14 @@
               "icon": "⌖",
               "side": "right",
               "source": "runtime.actions.bypass-pit",
+              "layout": "actions"
+            },
+            {
+              "id": "act-subdue",
+              "title": "现场行动 · 制服",
+              "icon": "⌖",
+              "side": "right",
+              "source": "runtime.actions.subdue-scout",
               "layout": "actions"
             },
             {
