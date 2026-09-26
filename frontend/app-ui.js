@@ -3379,8 +3379,8 @@ function renderQuickActions() {
   if (!qa) return;
   qa.innerHTML = '';
   if (worldActionNotice) {
-    const notice = document.createElement('span');
-    notice.className = 'quick-hint';
+    const notice = document.createElement('div');
+    notice.className = 'quick-hint world-action-notice';
     notice.setAttribute('role', 'status');
     notice.textContent = worldActionNotice;
     qa.appendChild(notice);

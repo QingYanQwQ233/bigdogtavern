@@ -1150,6 +1150,9 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   background: linear-gradient(0deg, rgba(var(--bg-0-rgb), 0.55), transparent);
 }
 .quick-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+/* 回合级提示（动作未结算警告等）：独占整行，避免在移动端 nowrap 横滚布局里被压成竖排。 */
+.quick-actions:has(.world-action-notice) { flex-wrap: wrap; }
+.quick-actions .world-action-notice { flex: 0 0 100%; width: 100%; white-space: normal; }
 .quick-actions:empty { display: none; }
 .world-turn-error {
   width: 100%;
