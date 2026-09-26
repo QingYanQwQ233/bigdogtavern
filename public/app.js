@@ -16203,6 +16203,7 @@ function bindEvents() {
   $('session-menu-new').addEventListener('click', () => { newSession(); $('session-menu').classList.add('hidden'); });
   // 世界书
   $('wi-new').addEventListener('click', newWIEditor);
+  $('wi-new-list')?.addEventListener('click', newWIEditor);
   $('wi-save').addEventListener('click', saveWI);
   $('wi-del').addEventListener('click', deleteWI);
   // 注入测试
