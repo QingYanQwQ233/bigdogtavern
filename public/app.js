@@ -7800,7 +7800,12 @@ function buildRpgPromptSections() {
           state: runtimeState,
         });
         const runtimeLimit = Math.min(12000, Math.max(4000, Math.floor(worldContextBudget() / 2)));
-        pushSection('world.runtime-contract', `【世界卡 Runtime 契约】只可使用以下已声明的变量、集合和动作；不得修改 schema 或凭空创建字段。Agent 调用 state.patch 工具时，updates 不得包含 runtime.action.execute；执行声明式动作只能调用同名工具，并使用当前 runtime.actions 已声明的 actionId。玩家行动没有对应 action 时，应使用当前协议已声明的其他 Typed Patch（如 runtime.variable.* 或 runtime.collection.*），不能编造 actionId。状态变化放入唯一标签的 updates，动作有 check 时须先完成同 actionId 判定。\n${runtimeProjection.slice(0, runtimeLimit)}`);
+        const idManifest = [
+          `可用变量 ID：${(Array.isArray(runtime.variables) ? runtime.variables.map(item => item.id) : []).join('、') || '无'}`,
+          `可用集合 ID：${(Array.isArray(runtime.collections) ? runtime.collections.map(item => item.id) : []).join('、') || '无'}`,
+          `可用动作 ID：${(Array.isArray(runtime.actions) ? runtime.actions.map(item => item.id) : []).join('、') || '无'}`,
+        ].join('\n');
+        pushSection('world.runtime-contract', `【世界卡 Runtime 契约】只可使用以下已声明的变量、集合和动作；不得修改 schema 或凭空创建字段。**禁止发明 ID**：任何未在下表列出的变量/集合/动作 ID（例如自己拼接出来的状态名）都属于非法更新，会导致整回合被服务端拒绝、玩家白玩一次，必须严格避免。需要表达未声明的状态时，只能用已声明字段或集合条目表达，或只写进叙事正文，绝不新建 ID。Agent 调用 state.patch 工具时，updates 不得包含 runtime.action.execute；执行声明式动作只能调用同名工具，并使用已声明的 actionId。玩家行动没有对应 action 时，应使用已声明的其他 Typed Patch（如 runtime.variable.* 或 runtime.collection.*）。状态变化放入唯一标签的 updates，动作有 check 时须先完成同 actionId 判定。\n${idManifest}\n${runtimeProjection.slice(0, runtimeLimit)}`);
       } else {
         pushSection('world.runtime-contract', '【世界卡 Runtime 契约】当前世界卡未声明自定义 runtime；不要猜测或提交 runtime 更新。');
       }
