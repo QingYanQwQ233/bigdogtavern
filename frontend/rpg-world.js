@@ -462,6 +462,7 @@ async function resumeWorldAgentNarration() {
   finally { worldTurnPreparing = false; }
 }
 async function submitWorldTurn(pending) {
+  worldActionNotice = '';
   const endpoint = '/api/world-saves/' + encodeURIComponent(pending.saveId);
   const headers = { 'Content-Type': 'application/json; charset=utf-8' };
   const request = async (url, body, label) => {
@@ -546,10 +547,10 @@ async function submitWorldTurn(pending) {
   renderRPG();
   renderSessions();
   renderMessages();
-  // 动作声明了判定但本回合没有任何以该动作为目标的真实掷骰：服务端不会结算其效果，这里给出显式提示，避免“AI 口头判定”变成黑箱。
+  // 动作声明了判定但本回合没有任何以该动作为目标的真实掷骰：服务端不会结算其效果，这里给出显式提示（显示在玩家行动区），避免“AI 口头判定”变成黑箱。
   if (checkMissingWarning) {
-    const status = $('world-open-status');
-    if (status) status.textContent = '⚠️ 本回合动作未结算：该动作需要判定，但本回合没有真实掷骰（可直接重试）。';
+    worldActionNotice = '⚠️ 本回合动作未结算：该动作需要判定，但本回合没有真实掷骰（可直接重试）。';
+    renderQuickActions();
   }
 }
 async function flushWorldSaveWrites() {

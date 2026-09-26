@@ -3378,6 +3378,13 @@ function renderQuickActions() {
   const qa = $('quick-actions');
   if (!qa) return;
   qa.innerHTML = '';
+  if (worldActionNotice) {
+    const notice = document.createElement('span');
+    notice.className = 'quick-hint';
+    notice.setAttribute('role', 'status');
+    notice.textContent = worldActionNotice;
+    qa.appendChild(notice);
+  }
   if (worldTurnErrorActive()) {
     const box = document.createElement('div');
     box.className = 'world-turn-error';
