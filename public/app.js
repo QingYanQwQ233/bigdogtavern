@@ -15608,7 +15608,9 @@ function switchView(name) {
     if (mode === 'rpg') {
       if (worldModeActive()) enterWorldWorkspace();
       else if (currentWorldSaveId) openWorldLibrary(true);
-      else openWorldLibrary(false);
+      // 无存档时留在工作台：显示引导与「选择世界存档」入口，而不是强行弹回世界库。
+      // 否则「返回工作台」会立刻被弹回世界库，形成死循环——新手会因此被困在世界库里，连设置都进不去。
+      else closeWorldLibrary();
     }
     return;
   }
