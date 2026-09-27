@@ -1,4 +1,10 @@
 # 更新日志
+## 2026-09-27 · 内置数据换成 D&D 第一章；世界库可一键恢复内置
+- 内置世界卡从四张题材示例卡替换为「矿坑之路：失落矿坑 · 第一章」（v8），内置世界书清空；`public/data/_defaults.json` 仍是唯一模板来源与打包基准。
+- 世界库新增「↺ 恢复内置世界卡」（`POST /api/worlds/reset-builtin`）：把 `worlds.json` 与 `lorebooks.json` 重置为默认模板并清空删除标记，回执列出被移除的世界卡与因此变成孤儿的存档。
+- Android 资源同步统一走 `scripts/sync_android_assets.sh`。此前手写复制把 `_defaults.json` 放到无人读取的 `assets/data/`，被解包的 `assets/nodejs/public/data/_defaults.json` 因此长期停留在旧版本，内置世界卡换版后实机仍显示旧卡。
+- 内嵌 Node 监听端口按包名派生，`com.tavern.app` 与 `com.tavern.rpg` 可并存（原先硬编码 3000，后启动的客户端会因端口被占用而黑屏）。
+- 修复 RPG 无存档时点击「返回工作台」被立刻弹回世界库、导致进不去设置的死循环。
 ## 2026-09-26 · 项目内容清理（furry 相关全部移除）
 - 移除极光大陆种子卡、默认世界书条目、相关示例、草稿文档与构建脚本；文案与测试 fixtures 中性化。
 ## 2026-09-25 · 缺选项手动补全
