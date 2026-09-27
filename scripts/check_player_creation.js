@@ -11,7 +11,8 @@ const path = require('path');
 const root = path.resolve(__dirname, '..');
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tavern-player-'));
 const defaults = JSON.parse(fs.readFileSync(path.join(root, 'public', 'data', '_defaults.json'), 'utf8'));
-const sourceWorld = defaults.worlds.find(world => world.id === 'world-test-lab');
+// 测试夹具独立于产品内置数据：产品内置只保留 D&D 卡，旧 schema 的测试卡放在 scripts/fixtures。
+const sourceWorld = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'world-test-lab.json'), 'utf8'));
 const testWorld = JSON.parse(JSON.stringify(sourceWorld));
 testWorld.id = 'world-player-creation-test';
 testWorld.ui = {

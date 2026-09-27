@@ -8,8 +8,10 @@ const path = require('path');
 const root = path.resolve(__dirname, '..');
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tavern-world-delete-'));
 const defaults = JSON.parse(fs.readFileSync(path.join(root, 'public', 'data', '_defaults.json'), 'utf8'));
-fs.writeFileSync(path.join(tempDir, '_defaults.json'), JSON.stringify(defaults, null, 2));
-fs.writeFileSync(path.join(tempDir, 'worlds.json'), JSON.stringify(defaults.worlds, null, 2));
+// 测试夹具独立于产品内置数据（产品内置只有 D&D 卡）。
+const fixtureWorld = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'world-test-lab.json'), 'utf8'));
+fs.writeFileSync(path.join(tempDir, '_defaults.json'), JSON.stringify({ ...defaults, worlds: [fixtureWorld] }, null, 2));
+fs.writeFileSync(path.join(tempDir, 'worlds.json'), JSON.stringify([fixtureWorld], null, 2));
 process.env.TAVERN_DATA_DIR = tempDir;
 
 const { server, startServer } = require(path.join(root, 'server.js'));
