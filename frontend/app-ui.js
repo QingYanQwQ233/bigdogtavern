@@ -3817,6 +3817,7 @@ function bindEvents() {
   $('world-draft-choice-dialog').addEventListener('cancel', e => { e.preventDefault(); closeWorldDraftChoice(); });
   $('world-draft-choice-dialog').addEventListener('click', e => { if (e.target === e.currentTarget) closeWorldDraftChoice(); });
   $('world-import').addEventListener('click', openWorldPackageImport);
+  $('world-reset-builtin').addEventListener('click', event => resetBuiltinWorlds(event.currentTarget));
   $('world-import-file').addEventListener('change', e => previewWorldPackageImport(e.target.files?.[0]));
   $('world-import-form').addEventListener('submit', async e => { e.preventDefault(); await commitWorldPackageImport(); });
   $('world-import-close').addEventListener('click', closeWorldPackageImport);

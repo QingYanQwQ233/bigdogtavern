@@ -4199,6 +4199,58 @@ async function handleWorldDelete(req, res, worldId) {
   });
 }
 
+/* 统计引用了「不在内置清单里」的世界卡的存档——恢复内置数据后它们会变成孤儿。 */
+async function listOrphanWorldSaves(builtinIds) {
+  const orphans = [];
+  let files = [];
+  try { files = await fs.promises.readdir(SAVES_DIR); } catch { return orphans; }
+  for (const file of files) {
+    if (!file.endsWith('.json')) continue;
+    try {
+      const save = JSON.parse(await fs.promises.readFile(path.join(SAVES_DIR, file), 'utf-8'));
+      const worldId = typeof save?.worldId === 'string' ? save.worldId : '';
+      if (worldId && !builtinIds.has(worldId)) {
+        orphans.push({
+          id: typeof save.id === 'string' ? save.id : file.replace(/\.json$/, ''),
+          worldId,
+          name: typeof save.name === 'string' ? save.name : '',
+        });
+      }
+    } catch { /* 单个存档损坏不影响整体统计 */ }
+  }
+  return orphans;
+}
+
+/* 恢复内置数据：把 worlds.json / lorebooks.json 重置为 _defaults.json 的内容，并清空「已删除世界卡」记录。
+ * 场景：内置卡换版后，老安装的数据目录仍持有旧库；分发出去的客户端需要一键回到出厂内置状态。
+ * 不触碰 settings / presets / characters，也不删除任何存档文件。 */
+async function handleWorldsResetBuiltin(req, res) {
+  return withWorldsLock(async () => {
+    try {
+      const defaults = loadDefaults();
+      const builtinWorlds = Array.isArray(defaults.worlds) ? defaults.worlds : [];
+      const builtinIds = new Set(builtinWorlds.map(world => world?.id).filter(Boolean));
+      const before = await loadWorlds();
+      const removedWorlds = [...new Set(before.filter(Boolean).map(world => world.id))]
+        .filter(id => !builtinIds.has(id));
+      await writeJsonAtomic(path.join(DATA_DIR, 'worlds.json'), builtinWorlds);
+      await writeJsonAtomic(WORLD_DELETED_PATH, []);
+      await writeJsonAtomic(path.join(DATA_DIR, 'lorebooks.json'), defaults.lorebooks || {});
+      const orphanSaves = await listOrphanWorldSaves(builtinIds);
+      send(res, 200, JSON.stringify({
+        ok: true,
+        worlds: builtinWorlds.length,
+        lorebooks: Object.keys(defaults.lorebooks || {}).length,
+        removedWorlds,
+        orphanSaves,
+      }), 'application/json; charset=utf-8');
+    } catch (err) {
+      console.error('[worlds] 恢复内置失败:', err.message);
+      send(res, 500, JSON.stringify({ error: '恢复内置世界卡失败: ' + err.message }), 'application/json');
+    }
+  });
+}
+
 async function handleWorldDraftsGet(req, res, worldId = '', single = false) {
   if (worldId && !isSafeId(worldId)) return send(res, 400, JSON.stringify({ error: '无效的 worldId' }), 'application/json');
   try {
@@ -7718,6 +7770,7 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && url.pathname === '/api/models') return handleModels(req, res);
   if (req.method === 'POST' && url.pathname === '/api/dice') return handleDiceRoll(req, res);
   if (req.method === 'GET' && url.pathname === '/api/worlds') return handleWorldsGet(req, res);
+  if (req.method === 'POST' && url.pathname === '/api/worlds/reset-builtin') return handleWorldsResetBuiltin(req, res);
   if (req.method === 'POST' && url.pathname === '/api/world-imports') return handleWorldPackageImportPreview(req, res);
   const worldImportMatch = url.pathname.match(/^\/api\/world-imports\/([^/]+)\/?$/);
   if (worldImportMatch && (req.method === 'GET' || req.method === 'POST')) {

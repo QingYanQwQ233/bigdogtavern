@@ -3504,6 +3504,33 @@ function showWorldError(message) {
   const el = $('world-error');
   if (el) el.textContent = message || '';
 }
+/* 恢复内置世界卡：把本地世界库重置为随应用内置的版本（不触碰设置与存档）。 */
+async function resetBuiltinWorlds(button) {
+  if (!confirm('恢复内置世界卡？\n\n· 本地世界卡会重置为随应用内置的版本（自定义/导入的卡会被移除）\n· 「已删除世界卡」记录会被清空\n· 设置与存档不会被删除')) return;
+  const old = button?.textContent;
+  if (button) { button.disabled = true; button.textContent = '恢复中…'; }
+  try {
+    const res = await fetch('/api/worlds/reset-builtin', { method: 'POST' });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(worldApiError(data, '恢复内置世界卡失败（HTTP ' + res.status + '）'));
+    currentWorldId = null;
+    currentWorldSave = null;
+    currentWorldSaveId = null;
+    localStorage.removeItem(LS_CURRENT_WORLD);
+    localStorage.removeItem(LS_CURRENT_WORLD_SAVE);
+    await loadWorldLibraryData();
+    showWorldError('');
+    const orphan = Array.isArray(data?.orphanSaves) ? data.orphanSaves : [];
+    const lines = [`已恢复内置世界卡：${data?.worlds ?? 0} 张。`];
+    if (Array.isArray(data?.removedWorlds) && data.removedWorlds.length) lines.push(`移除了 ${data.removedWorlds.length} 张本地世界卡。`);
+    if (orphan.length) lines.push(`\n注意：${orphan.length} 份存档引用了已被移除的世界卡，需要删除后重新开始。`);
+    alert(lines.join('\n'));
+  } catch (err) {
+    showWorldError(err.message);
+  } finally {
+    if (button) { button.disabled = false; button.textContent = old; }
+  }
+}
 async function deleteWorldSave(saveId, button) {
   const saves = worldSavesByWorld.get(currentWorldId) || [];
   const save = saves.find(item => item.id === saveId);
