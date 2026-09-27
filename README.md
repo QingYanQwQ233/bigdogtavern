@@ -32,7 +32,7 @@ node server.js
 
 ## Android APK
 
-APK 不随 push 自动构建（避免浪费构建额度）；需要时在 GitHub 的 **Actions → Build Tavern APK → Run workflow** 选择目标分支手动触发。构建完成后，在对应运行页下载 `tavern-apk` artifact；当前产物是已签名的 Debug APK，不会自动发布为 GitHub Release。
+APK 不随 push 自动构建；需要时在 GitHub 的 **Actions → Build Tavern APK → Run workflow** 选择目标分支手动触发。构建完成后，在对应运行页下载 `tavern-apk` artifact；当前产物是已签名的 Debug APK，不会自动发布为 GitHub Release。
 
 本地构建需要 JDK 17、Android SDK 与 Gradle 8.7。资源同步只有一个入口——`scripts/sync_android_assets.sh`，不要手写复制命令：
 
