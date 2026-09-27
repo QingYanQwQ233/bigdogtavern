@@ -11,7 +11,8 @@ const path = require('path');
 const root = path.resolve(__dirname, '..');
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tavern-player-'));
 const defaults = JSON.parse(fs.readFileSync(path.join(root, 'public', 'data', '_defaults.json'), 'utf8'));
-const sourceWorld = defaults.worlds.find(world => world.id === 'world-aurora');
+// 测试夹具独立于产品内置数据：产品内置只保留 D&D 卡，旧 schema 的测试卡放在 scripts/fixtures。
+const sourceWorld = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'world-test-lab.json'), 'utf8'));
 const testWorld = JSON.parse(JSON.stringify(sourceWorld));
 testWorld.id = 'world-player-creation-test';
 testWorld.ui = {
@@ -44,8 +45,8 @@ async function main() {
     assert.strictEqual(world.response.status, 200, JSON.stringify(world.body));
     assert.strictEqual(world.body.playerCreation.mode, 'custom');
     assert.ok(world.body.playerCreation.fields.some(field => field.id === 'name'));
-    assert.ok(world.body.playerCreation.attributes.some(attribute => attribute.id === 'wits'));
-    assert.ok(world.body.playerCreation.skills.some(skill => skill.id === 'scouting'));
+    assert.ok(world.body.playerCreation.attributes.some(attribute => attribute.id === 'might'));
+    assert.ok(world.body.playerCreation.skills.some(skill => skill.id === 'survey'));
     assert.ok(Array.isArray(world.body.playerCreation.choices));
     assert.ok(Array.isArray(world.body.playerCreation.buildPresets));
     assert.strictEqual(world.body.playerCreation.initialInventory, undefined, 'legacy inventory schema must not leak into the public card');
@@ -54,10 +55,10 @@ async function main() {
     assert.ok(!('inventory' in (world.body.start?.initialState || {})), 'legacy start inventory must not leak');
 
     const player = {
-      fields: { name: '澪', race: '狐人', role: '旅人', background: '从北境来到断牙之角。' },
-      attributes: { might: 2, wits: 2, spirit: 2, fortune: 2 },
-      skills: { scouting: 2, empathy: 1 },
-      resources: { hp: 20, mp: 5, gold: 10 },
+      fields: { name: '澪', gender: '女', age: 21, origin: '白潮港', identity: '旅人', appearance: '', personality: '', customNotes: '' },
+      attributes: { might: 2, agility: 2, insight: 2, resolve: 2 },
+      skills: { survey: 2, negotiate: 1, survival: 1 },
+      resources: { hp: 20, focus: 8, shells: 60 },
       traits: [],
       choices: [],
       relations: {},

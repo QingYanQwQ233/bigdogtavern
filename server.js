@@ -18,7 +18,15 @@ const crypto = require('crypto');
 const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
 
-const PORT = process.env.PORT || 3000;
+// 端口优先级：命令行 --port > 环境变量 PORT > 默认 3000。
+// Android 端按应用包名派生端口，避免同设备安装多个分支（不同包名）时抢占同一端口导致后启动者黑屏。
+const ARG_PORT = (() => {
+  const index = process.argv.indexOf('--port');
+  if (index < 0) return 0;
+  const value = Number(process.argv[index + 1]);
+  return Number.isInteger(value) && value > 0 && value < 65536 ? value : 0;
+})();
+const PORT = ARG_PORT || Number(process.env.PORT) || 3000;
 const proxyTimeoutValue = Number(process.env.TAVERN_PROXY_TIMEOUT_MS);
 const PROXY_TIMEOUT_MS = Number.isFinite(proxyTimeoutValue) && proxyTimeoutValue > 0
   ? Math.min(proxyTimeoutValue, 10 * 60 * 1000)
@@ -153,7 +161,8 @@ function compactRpgWorld(world) {
 function compactRpgState(state, world) {
   if (!state || typeof state !== 'object' || Array.isArray(state)) return state;
   const next = cloneJson(state);
-  for (const key of ['inventory', 'equipment', 'currencies', 'quests', 'goals', 'leads', 'activeHooks', 'worldEvents', 'factionStates', 'conflicts', 'growthCandidates', 'growthApplications', 'experiences', 'map']) delete next[key];
+  // activeHooks（开局钩子）不在清理列表：由开局计划写入、需跨回合持久并展示。
+  for (const key of ['inventory', 'equipment', 'currencies', 'quests', 'goals', 'leads', 'worldEvents', 'factionStates', 'conflicts', 'growthCandidates', 'growthApplications', 'experiences', 'map']) delete next[key];
   if (next.stats && typeof next.stats === 'object') delete next.stats.gold;
   // 资源按世界卡声明保留：只有世界卡未声明 gold 时，才清掉遗留的 resources.gold。
   const declaredResourceIds = new Set((playerCreationSchema(world)?.resources || []).map(item => item && item.id).filter(Boolean));
@@ -1583,7 +1592,7 @@ function validateWorldUi(value) {
       for (const field of panel.fields) {
         const key = typeof field === 'string' ? field : field?.key;
         const label = typeof field === 'string' ? field : field?.label;
-        if (typeof key !== 'string' || (key !== '$key' && !/^[A-Za-z0-9_.-]{1,64}$/.test(key)) || (label !== undefined && (typeof label !== 'string' || label.length > 80))) return `ui.sidebar.panels.${id}.fields 无效`;
+        if (typeof key !== 'string' || (key !== '$key' && key !== '$value' && !/^[A-Za-z0-9_.-]{1,64}$/.test(key)) || (label !== undefined && (typeof label !== 'string' || label.length > 80))) return `ui.sidebar.panels.${id}.fields 无效`;
       }
     }
     ids.add(id);
@@ -2476,6 +2485,19 @@ function validateEventMemoryCandidates(value, world = null) {
     if (item.visibility !== undefined && !['public', 'local', 'hidden'].includes(item.visibility)) return `eventMemory[${index}].visibility 无效`;
   }
   return null;
+}
+
+// 世界卡未登记的地点 ID 出现在事件记忆里时，修剪为 null，避免单条记忆的越权引用拒绝整个回合。
+function sanitizeEventMemoryLocations(world, eventMemory) {
+  if (!Array.isArray(eventMemory)) return eventMemory;
+  const allowed = worldLocationIds(world);
+  return eventMemory.map(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+    const id = item.locationId;
+    if (id === undefined || id === null) return item;
+    if (!isSafeId(id) || !allowed.has(id)) return { ...item, locationId: null };
+    return item;
+  });
 }
 
 function validateEventMemory(value, world = null, current = null) {
@@ -4177,6 +4199,58 @@ async function handleWorldDelete(req, res, worldId) {
   });
 }
 
+/* 统计引用了「不在内置清单里」的世界卡的存档——恢复内置数据后它们会变成孤儿。 */
+async function listOrphanWorldSaves(builtinIds) {
+  const orphans = [];
+  let files = [];
+  try { files = await fs.promises.readdir(SAVES_DIR); } catch { return orphans; }
+  for (const file of files) {
+    if (!file.endsWith('.json')) continue;
+    try {
+      const save = JSON.parse(await fs.promises.readFile(path.join(SAVES_DIR, file), 'utf-8'));
+      const worldId = typeof save?.worldId === 'string' ? save.worldId : '';
+      if (worldId && !builtinIds.has(worldId)) {
+        orphans.push({
+          id: typeof save.id === 'string' ? save.id : file.replace(/\.json$/, ''),
+          worldId,
+          name: typeof save.name === 'string' ? save.name : '',
+        });
+      }
+    } catch { /* 单个存档损坏不影响整体统计 */ }
+  }
+  return orphans;
+}
+
+/* 恢复内置数据：把 worlds.json / lorebooks.json 重置为 _defaults.json 的内容，并清空「已删除世界卡」记录。
+ * 场景：内置卡换版后，老安装的数据目录仍持有旧库；分发出去的客户端需要一键回到出厂内置状态。
+ * 不触碰 settings / presets / characters，也不删除任何存档文件。 */
+async function handleWorldsResetBuiltin(req, res) {
+  return withWorldsLock(async () => {
+    try {
+      const defaults = loadDefaults();
+      const builtinWorlds = Array.isArray(defaults.worlds) ? defaults.worlds : [];
+      const builtinIds = new Set(builtinWorlds.map(world => world?.id).filter(Boolean));
+      const before = await loadWorlds();
+      const removedWorlds = [...new Set(before.filter(Boolean).map(world => world.id))]
+        .filter(id => !builtinIds.has(id));
+      await writeJsonAtomic(path.join(DATA_DIR, 'worlds.json'), builtinWorlds);
+      await writeJsonAtomic(WORLD_DELETED_PATH, []);
+      await writeJsonAtomic(path.join(DATA_DIR, 'lorebooks.json'), defaults.lorebooks || {});
+      const orphanSaves = await listOrphanWorldSaves(builtinIds);
+      send(res, 200, JSON.stringify({
+        ok: true,
+        worlds: builtinWorlds.length,
+        lorebooks: Object.keys(defaults.lorebooks || {}).length,
+        removedWorlds,
+        orphanSaves,
+      }), 'application/json; charset=utf-8');
+    } catch (err) {
+      console.error('[worlds] 恢复内置失败:', err.message);
+      send(res, 500, JSON.stringify({ error: '恢复内置世界卡失败: ' + err.message }), 'application/json');
+    }
+  });
+}
+
 async function handleWorldDraftsGet(req, res, worldId = '', single = false) {
   if (worldId && !isSafeId(worldId)) return send(res, 400, JSON.stringify({ error: '无效的 worldId' }), 'application/json');
   try {
@@ -5156,8 +5230,10 @@ async function handleWorldSaveUpgrade(req, res, saveId) {
       const targetNpcIds = worldNpcIds(resolved.targetWorld);
       const targetLocationIds = worldLocationIds(resolved.targetWorld);
       const npcStates = cloneJson(current.npcStates || {});
-      const factionStates = materializeFactionStates(resolved.targetWorld, current.state?.factionStates);
-      const addedFactionStateIds = Object.keys(factionStates).filter(id => !Object.hasOwn(current.state?.factionStates || {}, id));
+      // 无派系定义时不物化空对象 {}（会与回合提交的“不能省略”校验打架，毒化无派系卡存档）；有定义时照常物化。
+      const materializedFactionStates = materializeFactionStates(resolved.targetWorld, current.state?.factionStates);
+      const factionStates = worldFactionDefinitions(resolved.targetWorld).length || Object.keys(materializedFactionStates).length ? materializedFactionStates : undefined;
+      const addedFactionStateIds = Object.keys(factionStates || {}).filter(id => !Object.hasOwn(current.state?.factionStates || {}, id));
       const addedNpcStateIds = [];
       for (const npcId of targetNpcIds) {
         if (Object.hasOwn(npcStates, npcId)) continue;
@@ -5187,7 +5263,7 @@ async function handleWorldSaveUpgrade(req, res, saveId) {
         ...current,
         worldVersion: payload.targetVersion,
         npcStates,
-        state: { ...current.state, factionStates, ...(targetRuntime ? { runtime: targetRuntime } : {}), ...(targetConflictState !== undefined ? { conflicts: cloneJson(targetConflictState) } : {}), ...(targetGrowthCandidates !== undefined ? { growthCandidates: cloneJson(targetGrowthCandidates) } : {}), ...(targetGrowthApplications !== undefined ? { growthApplications: cloneJson(targetGrowthApplications) } : {}), ...(targetExperiences !== undefined ? { experiences: cloneJson(targetExperiences) } : {}) },
+        state: { ...current.state, ...(factionStates !== undefined ? { factionStates } : {}), ...(targetRuntime ? { runtime: targetRuntime } : {}), ...(targetConflictState !== undefined ? { conflicts: cloneJson(targetConflictState) } : {}), ...(targetGrowthCandidates !== undefined ? { growthCandidates: cloneJson(targetGrowthCandidates) } : {}), ...(targetGrowthApplications !== undefined ? { growthApplications: cloneJson(targetGrowthApplications) } : {}), ...(targetExperiences !== undefined ? { experiences: cloneJson(targetExperiences) } : {}) },
         migrationHistory: [...history, migration],
         eventLedger: appendEventLedger(current, { kind: 'world-version-upgrade', commandId: payload.commandId, sourceRevision: revision, locationId: current.state?.locationId ?? null, time: current.state?.time ?? null, migrationId: payload.commandId }),
         revision,
@@ -6160,10 +6236,13 @@ async function handleWorldSavePut(req, res, saveId) {
       }
       const activeHooksInvalid = validateActiveHookList(payload.state.activeHooks);
       if (activeHooksInvalid) return send(res, 400, JSON.stringify({ error: activeHooksInvalid }), 'application/json');
-      if (current.state?.factionStates && payload.state.factionStates === undefined) return send(res, 400, JSON.stringify({ error: 'state.factionStates 不能省略' }), 'application/json');
-      const factionStatePayload = payload.state.factionStates === undefined && worldFactionDefinitions(world).length
-        ? materializeFactionStates(world, current.state?.factionStates)
-        : payload.state.factionStates;
+      // 「不能省略」按非空语义：空对象（无数据）不拦；无派系定义时不做物化，避免历史残留 {} 锁死保存。
+      const currentFactionStates = current.state?.factionStates;
+      const currentFactionStatesNonEmpty = !!currentFactionStates && typeof currentFactionStates === 'object' && !Array.isArray(currentFactionStates) && Object.keys(currentFactionStates).length > 0;
+      if (currentFactionStatesNonEmpty && payload.state.factionStates === undefined) return send(res, 400, JSON.stringify({ error: 'state.factionStates 不能省略' }), 'application/json');
+      const factionStatePayload = payload.state.factionStates !== undefined ? payload.state.factionStates
+        : worldFactionDefinitions(world).length ? materializeFactionStates(world, current.state?.factionStates)
+        : undefined;
       const factionStateInvalid = validateFactionStates(world, factionStatePayload, current.state?.factionStates);
       if (factionStateInvalid) return send(res, 400, JSON.stringify({ error: factionStateInvalid }), 'application/json');
       if (current.state?.player && payload.state.player === undefined) return send(res, 400, JSON.stringify({ error: 'state.player 不能省略' }), 'application/json');
@@ -6437,7 +6516,7 @@ function normalizeRpgPatch(patch) {
     ...patch,
     updates: patch.updates.map(update => {
       // 与前端一致：模型把地点切换写成状态字段路径（state.locationId）时，先归一为 location.set。
-      if (update?.type !== 'state.locationId') return update;
+      if (!['state.locationId', 'state.location.set', 'player.location.set', 'player.location'].includes(update?.type)) return update;
       const raw = update.locationId ?? update.location ?? update.id ?? update.value;
       return raw === undefined || raw === null ? update : { ...update, type: 'location.set' };
     }).filter(update => !RPG_WORLD_DISABLED_UPDATE_TYPES.has(update?.type)).map(update => {
@@ -6752,6 +6831,9 @@ function validateAgentNarrationPayload(payload) {
 
 function runtimeStateEnsure(state, world) {
   if (!state.runtime && world?.runtime) state.runtime = materializeWorldRuntimeState(world.runtime);
+  // 与当前卡定义同步：卡升级后新增/变更的变量与集合需要并入旧 state（保留有效旧值、重建 schema 快照）。
+  // 覆盖两类情况：升级迁移遗漏，以及 reset 回到旧基线快照后 schema 过期。
+  if (state.runtime && world?.runtime) state.runtime = migrateWorldRuntimeState(state.runtime, world.runtime);
   return state.runtime;
 }
 
@@ -7009,8 +7091,9 @@ function applyRpgPatch(world, currentState, patch, options = {}) {
       } else if (!error) error = `patch.inventory.delta 不能减少不存在的物品 ${update.itemId}`;
       if (!error) state.inventory = inventory;
     } else if (type === 'location.set') {
-      if (!worldLocationIds(world).has(update.locationId)) error = `patch.location.set 引用了未登记地点 ${update.locationId}`;
-      else state.locationId = update.locationId;
+      // 未登记地点：丢弃该操作而非拒绝整个回合（与 runtime/记忆条目同等容错）。
+      if (worldLocationIds(world).has(update.locationId)) state.locationId = update.locationId;
+      else console.warn('[rpg] 丢弃未登记地点操作:', update.locationId);
     } else if (type === 'effect.add' || type === 'effect.remove') {
       if (!state.player || typeof state.player !== 'object') state.player = {};
       const effects = Array.isArray(state.player.effects) ? state.player.effects : [];
@@ -7034,7 +7117,8 @@ function applyRpgPatch(world, currentState, patch, options = {}) {
       if (!existing) list.push(next);
       state[update.kind] = list;
     } else if (type.startsWith('runtime.')) {
-      error = applyRuntimeUpdate(state, world, update, options);
+      // 世界卡未声明 runtime 时，丢弃该操作而非拒绝整个回合：未声明的运行态操作无处安放，不应连带其他更新一起失败。
+      if (world?.runtime) error = applyRuntimeUpdate(state, world, update, options);
     }
     if (error) return { error };
   }
@@ -7160,6 +7244,8 @@ async function handleWorldTurnPost(req, res, saveId, forcedAgentPhase = null) {
       }
       if (payload.patch !== undefined) {
         if (payload.patch.baseRevision !== current.revision) return send(res, 409, JSON.stringify({ error: '存档版本冲突，请重新读取', revision: current.revision }), 'application/json');
+        // 先把 current.state 的 runtime 与当前世界卡定义同步（reset / 升级后 schema 可能过期），否则新增变量的 patch 会被校验拒绝。
+        if (world?.runtime) runtimeStateEnsure(current.state, world);
         payload.patch = ensureRuntimeActionIntentUpdate(world, current.state, payload.patch, payload.actionIntent, agentCheckResolutions.resolutions || []);
         const patched = applyRpgPatch(world, current.state, payload.patch, { checkResolutions: agentCheckResolutions.resolutions || [] });
         if (patched.error) return send(res, 400, JSON.stringify({ error: patched.error }), 'application/json');
@@ -7171,11 +7257,19 @@ async function handleWorldTurnPost(req, res, saveId, forcedAgentPhase = null) {
       }
       const runtimeBindingError = runtimeBindingInvalid(world, current.state, payload.state);
       if (runtimeBindingError) return send(res, 400, JSON.stringify({ error: runtimeBindingError }), 'application/json');
+      // 卡未声明 runtime 时，runtime.* 操作无处安放：提交前剪枝（含裸别名），避免校验阶段拒绝整个回合。
+      if (!world?.runtime && Array.isArray(payload.patch?.updates)) {
+        payload.patch = { ...payload.patch, updates: payload.patch.updates.filter(u => {
+          const t = String(u?.type || '');
+          return !t.startsWith('runtime.') && !RPG_RUNTIME_UPDATE_ALIASES.has(t);
+        }) };
+      }
       const optionRules = worldTurnOptionRules(world);
       const contractInvalid = validateWorldTurn(payload, optionRules, { skipNarrative: agentPhase === 'execute' });
       if (contractInvalid) return send(res, 400, JSON.stringify({ error: contractInvalid }), 'application/json');
       const runtimeStateInvalid = validateRuntimeState(payload.state?.runtime);
       if (runtimeStateInvalid) return send(res, 400, JSON.stringify({ error: runtimeStateInvalid }), 'application/json');
+      payload.eventMemory = sanitizeEventMemoryLocations(world, payload.eventMemory);
       const eventMemoryInvalid = validateEventMemoryCandidates(payload.eventMemory, world);
       if (eventMemoryInvalid) return send(res, 400, JSON.stringify({ error: eventMemoryInvalid }), 'application/json');
       const invalidLocation = validateWorldLocationIds(world, payload.state, payload.npcStates, payload.createEntities);
@@ -7186,10 +7280,13 @@ async function handleWorldTurnPost(req, res, saveId, forcedAgentPhase = null) {
       }
       const activeHooksInvalid = validateActiveHookList(payload.state.activeHooks);
       if (activeHooksInvalid) return send(res, 400, JSON.stringify({ error: activeHooksInvalid }), 'application/json');
-      if (current.state?.factionStates && payload.state.factionStates === undefined) return send(res, 400, JSON.stringify({ error: 'state.factionStates 不能省略' }), 'application/json');
-      const factionStatePayload = payload.state.factionStates === undefined && worldFactionDefinitions(world).length
-        ? materializeFactionStates(world, current.state?.factionStates)
-        : payload.state.factionStates;
+      // 「不能省略」按非空语义：空对象（无数据）不拦；无派系定义时不做物化，避免历史残留 {} 锁死提交。
+      const currentFactionStates = current.state?.factionStates;
+      const currentFactionStatesNonEmpty = !!currentFactionStates && typeof currentFactionStates === 'object' && !Array.isArray(currentFactionStates) && Object.keys(currentFactionStates).length > 0;
+      if (currentFactionStatesNonEmpty && payload.state.factionStates === undefined) return send(res, 400, JSON.stringify({ error: 'state.factionStates 不能省略' }), 'application/json');
+      const factionStatePayload = payload.state.factionStates !== undefined ? payload.state.factionStates
+        : worldFactionDefinitions(world).length ? materializeFactionStates(world, current.state?.factionStates)
+        : undefined;
       const factionStateInvalid = validateFactionStates(world, factionStatePayload, current.state?.factionStates);
       if (factionStateInvalid) return send(res, 400, JSON.stringify({ error: factionStateInvalid }), 'application/json');
       if (current.state?.player && payload.state.player === undefined) return send(res, 400, JSON.stringify({ error: 'state.player 不能省略' }), 'application/json');
@@ -7673,6 +7770,7 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && url.pathname === '/api/models') return handleModels(req, res);
   if (req.method === 'POST' && url.pathname === '/api/dice') return handleDiceRoll(req, res);
   if (req.method === 'GET' && url.pathname === '/api/worlds') return handleWorldsGet(req, res);
+  if (req.method === 'POST' && url.pathname === '/api/worlds/reset-builtin') return handleWorldsResetBuiltin(req, res);
   if (req.method === 'POST' && url.pathname === '/api/world-imports') return handleWorldPackageImportPreview(req, res);
   const worldImportMatch = url.pathname.match(/^\/api\/world-imports\/([^/]+)\/?$/);
   if (worldImportMatch && (req.method === 'GET' || req.method === 'POST')) {

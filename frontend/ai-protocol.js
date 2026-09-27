@@ -309,6 +309,16 @@ function canonicalizeRpgRepairOutput(value, revision = currentWorldSave?.revisio
   return `${RPG_UPDATE_OPEN}${JSON.stringify(payload)}${RPG_UPDATE_CLOSE}`;
 }
 
+/* 从修复器规范化输出（<tavern_state_update>…</tavern_state_update>）中取回控制数据，供手动补全选项等场景使用。 */
+function extractRpgRepairPayload(output) {
+  const text = String(output || '').trim();
+  const open = text.indexOf(RPG_UPDATE_OPEN);
+  const close = text.lastIndexOf(RPG_UPDATE_CLOSE);
+  if (open < 0 || close <= open) return null;
+  try { return JSON.parse(text.slice(open + RPG_UPDATE_OPEN.length, close)); }
+  catch { return null; }
+}
+
 function parseRpgUpdatePayload(rawUpdate) {
   const raw = String(rawUpdate || '').trim();
   if (!raw) return { payload: null, errorCode: 'update.empty', errorMessage: '状态更新区为空', repairable: true };
@@ -546,11 +556,17 @@ function normalizeRpgPatch(patch, options = patch?.options) {
     ...(options === undefined ? {} : { options: normalizeRpgOptions(options) }),
     updates: patch.updates.map(update => {
       // 宽容：模型偶尔把地点切换写成状态字段路径（state.locationId）：与 location.set 等价，先归一化再走白名单。
-      if (update?.type !== 'state.locationId') return update;
+      if (!['state.locationId', 'state.location.set', 'player.location.set', 'player.location'].includes(update?.type)) return update;
       const raw = update.locationId ?? update.location ?? update.id ?? update.value;
       return raw === undefined || raw === null ? update : { ...update, type: 'location.set' };
     }).filter(update => {
       if (worldModeActive() && RPG_WORLD_DISABLED_UPDATE_TYPES.has(update?.type)) return false;
+      // 卡未声明 runtime 时，runtime.* 操作（含裸别名）无处安放：丢弃，不拒整个回合。
+      const rawUpdateType = String(update?.type || '');
+      if (worldModeActive() && !currentWorldCard()?.runtime && (rawUpdateType.startsWith('runtime.') || RPG_RUNTIME_UPDATE_ALIASES.has(rawUpdateType))) {
+        console.warn('[Tavern] 丢弃未声明 runtime 的操作:', update?.type);
+        return false;
+      }
       // 模型可能发明协议外的操作（如 npc.relation.set / memory.local.add）：丢弃并告警，不让单条漂移毁掉整个回合。
       if (!RPG_PATCH_UPDATE_KEYS[update?.type] && !RPG_RUNTIME_UPDATE_ALIASES.has(update?.type)) {
         console.warn('[Tavern] 丢弃不受支持的更新操作:', update?.type);

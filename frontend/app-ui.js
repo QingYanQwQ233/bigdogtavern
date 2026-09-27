@@ -1933,7 +1933,7 @@ async function imageToDataUri(src) {
 }
 
 async function buildImageBody(ig, prompt, refImage) {
-  // 约束后缀：无论提示词来源（LLM/剧情/手动）都自动附加，兽人禁人脸
+  // 约束后缀：无论提示词来源（LLM/剧情/手动）都自动附加
   const fullPrompt = (prompt || '') + (ig.promptSuffix || '');
   const body = { prompt: fullPrompt };
   if (ig.kind === 'sd') {
@@ -2533,6 +2533,24 @@ async function requestReply() {
       // 才把骰子记录写入待提交回合；这里不再对 toolCalls 事后补掷。
       const toolRolls = agentToolRolls;
       if (toolRolls.length) worldTurnPending.actionIntent.dice = [...(worldTurnPending.actionIntent.dice || []), ...toolRolls];
+      // 动作声明了判定、但本回合没有以该动作为目标的真实掷骰：标记一次显式警告（提交成功后展示，防“口头判定”黑箱）。
+      {
+        const intentActionId = worldTurnPending.actionIntent && worldTurnPending.actionIntent.actionId;
+        if (intentActionId) {
+          const cardActions = (typeof currentWorldCard === 'function' ? currentWorldCard() : null)?.runtime?.actions || [];
+          const intentAction = cardActions.find(action => action && action.id === intentActionId);
+          const actionNeedsCheck = !!(intentAction && intentAction.check);
+          const actionCheckVerified = toolTrace.some(item => {
+            if (item?.name !== 'dice.roll' || !Array.isArray(item.result?.rolls) || !item.result?.resolution) return false;
+            const ruleId = String(item.result.resolution.ruleId || '');
+            return ruleId === intentActionId || ruleId === `dynamic:${intentActionId}`;
+          });
+          if (actionNeedsCheck && !actionCheckVerified) worldTurnPending.checkMissingWarning = true;
+          else delete worldTurnPending.checkMissingWarning;
+        } else {
+          delete worldTurnPending.checkMissingWarning;
+        }
+      }
       // 世界回合的 assistant 正文先留在临时槽；只有服务端原子提交成功后才进入正式历史。
       // 预览继续显示，避免“正文先出现、提交阶段又消失”。
       worldTurnPending.assistantMessage = { id: uid(), role: 'assistant', content: clean, ts: Date.now(), ...extra };
@@ -2617,6 +2635,7 @@ async function requestReply() {
     if (activeRequestController === requestController) activeRequestController = null;
     syncSendButton();
     $('btn-send').disabled = mode === 'rpg' && worldSavePlanning();
+    renderQuickActions();
     const input = $('input');
     if (input) input.focus();
   }
@@ -2874,7 +2893,9 @@ function switchView(name) {
     if (mode === 'rpg') {
       if (worldModeActive()) enterWorldWorkspace();
       else if (currentWorldSaveId) openWorldLibrary(true);
-      else openWorldLibrary(false);
+      // 无存档时留在工作台：显示引导与「选择世界存档」入口，而不是强行弹回世界库。
+      // 否则「返回工作台」会立刻被弹回世界库，形成死循环——新手会因此被困在世界库里，连设置都进不去。
+      else closeWorldLibrary();
     }
     return;
   }
@@ -3359,6 +3380,13 @@ function renderQuickActions() {
   const qa = $('quick-actions');
   if (!qa) return;
   qa.innerHTML = '';
+  if (worldActionNotice) {
+    const notice = document.createElement('div');
+    notice.className = 'quick-hint world-action-notice';
+    notice.setAttribute('role', 'status');
+    notice.textContent = worldActionNotice;
+    qa.appendChild(notice);
+  }
   if (worldTurnErrorActive()) {
     const box = document.createElement('div');
     box.className = 'world-turn-error';
@@ -3449,6 +3477,15 @@ function renderQuickActions() {
       s.className = 'quick-hint';
       s.textContent = hint;
       qa.appendChild(s);
+      if (typeof worldOptionsCompletionAvailable === 'function' && worldOptionsCompletionAvailable()) {
+        const fix = document.createElement('button');
+        fix.type = 'button';
+        fix.className = 'chip';
+        fix.textContent = worldOptionsCompletionBusy ? '正在补全选项…' : '补全选项';
+        fix.disabled = !!worldOptionsCompletionBusy;
+        fix.addEventListener('click', () => { if (!fix.disabled) void completeLastTurnOptions(); });
+        qa.appendChild(fix);
+      }
     }
     return;
   }
@@ -3637,6 +3674,7 @@ function bindEvents() {
   $('session-menu-new').addEventListener('click', () => { newSession(); $('session-menu').classList.add('hidden'); });
   // 世界书
   $('wi-new').addEventListener('click', newWIEditor);
+  $('wi-new-list')?.addEventListener('click', newWIEditor);
   $('wi-save').addEventListener('click', saveWI);
   $('wi-del').addEventListener('click', deleteWI);
   // 注入测试
@@ -3779,6 +3817,7 @@ function bindEvents() {
   $('world-draft-choice-dialog').addEventListener('cancel', e => { e.preventDefault(); closeWorldDraftChoice(); });
   $('world-draft-choice-dialog').addEventListener('click', e => { if (e.target === e.currentTarget) closeWorldDraftChoice(); });
   $('world-import').addEventListener('click', openWorldPackageImport);
+  $('world-reset-builtin').addEventListener('click', event => resetBuiltinWorlds(event.currentTarget));
   $('world-import-file').addEventListener('change', e => previewWorldPackageImport(e.target.files?.[0]));
   $('world-import-form').addEventListener('submit', async e => { e.preventDefault(); await commitWorldPackageImport(); });
   $('world-import-close').addEventListener('click', closeWorldPackageImport);

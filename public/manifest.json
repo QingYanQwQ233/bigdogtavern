@@ -1,7 +1,7 @@
 {
   "name": "Tavern · AI RP",
   "short_name": "Tavern",
-  "description": "福瑞异世界 AI 角色扮演聊天",
+  "description": "AI 角色扮演聊天",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",

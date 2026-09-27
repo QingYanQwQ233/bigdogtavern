@@ -319,10 +319,11 @@ body[data-mode="rpg"] #rpg-status { display: flex; grid-area: status; }
 /* RPG 状态条 */
 .rpg-status {
   align-items: center;
-  gap: 16px;
-  padding: 8px 16px;
+  gap: 10px;
+  padding: 4px 12px;
   border-top: 1px solid var(--line);
-  background: linear-gradient(180deg, var(--panel), var(--bg-0));
+  /* 与顶栏统一：淡白渐变叠在页面底色上；紧凑化：减小 padding/gap */
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent);
   flex-wrap: wrap;
 }
 .rpg-stat { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
@@ -335,8 +336,9 @@ body[data-mode="rpg"] #rpg-status { display: flex; grid-area: status; }
 }
 .rpg-bar i { display: block; height: 100%; border-radius: 4px; background: var(--accent); transition: width 300ms ease; }
 .rpg-dynamic-stats { display: flex; flex-wrap: wrap; gap: 4px; }
-.rpg-dynamic-stat { padding: 2px 6px; border: 1px solid var(--line-soft); border-radius: 999px; color: var(--muted); font-size: 11px; }
-.rpg-dynamic-stat b { margin-left: 2px; color: var(--text); font-variant-numeric: tabular-nums; }
+/* 属性条胶囊：压暗配色以与底栏深色统一（原 --line-soft/--text 偏亮） */
+.rpg-dynamic-stat { padding: 2px 6px; border: 1px solid rgba(255, 255, 255, 0.045); border-radius: 999px; color: rgba(255, 255, 255, 0.52); font-size: 11px; }
+.rpg-dynamic-stat b { margin-left: 2px; color: rgba(255, 255, 255, 0.78); font-variant-numeric: tabular-nums; }
 .rpg-deadline { color: var(--muted); font-size: 10px; font-weight: 500; }
 
 .quick-hint {
@@ -761,6 +763,9 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   resize: vertical;
 }
 .edit-actions { display: flex; gap: 8px; margin-top: 8px; }
+/* 消息编辑操作行：保存 / 取消 同档几何（角色×尺寸正交） */
+.edit-actions .btn.small,
+.edit-actions .ghost-btn { padding: 6px 14px; font-size: 13px; }
 
 .mini-crest { width: 22px; height: 22px; fill: var(--accent); filter: drop-shadow(0 0 5px var(--glow)); }
 
@@ -1146,7 +1151,15 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   padding: 12px 20px 16px;
   background: linear-gradient(0deg, rgba(var(--bg-0-rgb), 0.55), transparent);
 }
-.quick-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+/* 快捷行动/选项：单行横滚（不再多行堆叠挤压叙事区），滚动条隐藏 */
+.quick-actions { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2px; margin-bottom: 6px; }
+.quick-actions::-webkit-scrollbar { display: none; }
+.quick-actions .chip { flex-shrink: 0; white-space: nowrap; padding: 4px 12px; }
+/* 块级提示（动作未结算警告 / 回合错误 / 等待提示）：独占整行，此时恢复换行 */
+.quick-actions:has(.world-action-notice),
+.quick-actions:has(.world-turn-error),
+.quick-actions:has(.quick-hint) { flex-wrap: wrap; }
+.quick-actions .world-action-notice { flex: 0 0 100%; width: 100%; white-space: normal; }
 .quick-actions:empty { display: none; }
 .world-turn-error {
   width: 100%;
@@ -1181,10 +1194,11 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   transform: translateY(-1px);
 }
 
-.composer-row { display: flex; gap: 12px; align-items: stretch; }
+.composer-row { display: flex; gap: 8px; align-items: stretch; }
 textarea#input {
   flex: 1;
   min-width: 0;
+  scrollbar-width: none;
   height: 44px;
   min-height: 44px;
   max-height: 44px;
@@ -1204,6 +1218,7 @@ textarea#input:focus {
   border-color: rgba(var(--accent-rgb), 0.55);
   box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.08);
 }
+textarea#input::-webkit-scrollbar { display: none; }
 
 .composer-tool {
   flex: 0 0 44px;
@@ -1333,6 +1348,8 @@ textarea#input:focus {
 }
 .btn.gold {
   background: linear-gradient(160deg, var(--accent), var(--accent-2));
+  background-clip: padding-box; /* 实色不铺透明边框区：与幽灵按钮描边内沿对齐，收敛「无框显大」感知 */
+  border-color: rgba(255, 255, 255, 0.16); /* 同款描边结构：外轮廓与幽灵按钮对齐（实色内缩 + 可见边框） */
   color: var(--on-accent);
   font-weight: 700;
   box-shadow: 0 2px 10px var(--glow);
@@ -1697,8 +1714,9 @@ body[data-mode="rpg"] .rpg-status {
   border-top: 1px solid var(--line);
 }
 body[data-mode="rpg"] .composer {
-  padding: 10px 16px max(12px, env(safe-area-inset-bottom));
-  background: rgba(var(--panel-rgb), .96);
+  padding: 6px 12px max(10px, env(safe-area-inset-bottom));
+  /* 与顶栏统一：淡白渐变替代实底 panel；紧凑化：减小上下 padding */
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent);
   border-top: 1px solid var(--line);
 }
 .rpg-mobile-toolbar,
@@ -1740,14 +1758,15 @@ body[data-mode="rpg"] .composer {
   body[data-mode="rpg"] .rpg-mobile-toolbar {
     display: flex;
     grid-area: tools;
-    gap: 8px;
-    padding: 8px 12px;
-    background: var(--panel);
+    gap: 6px;
+    padding: 4px 12px;
+    /* 与顶栏/状态条统一：同款淡白渐变（原实色 panel 与上下不一致） */
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent);
     border-top: 1px solid var(--line);
   }
   body[data-mode="rpg"] .rpg-mobile-toolbar .ghost-btn {
     flex: 1;
-    min-height: 44px;
+    min-height: 40px;
   }
   body[data-mode="rpg"] #rpg-left,
   body[data-mode="rpg"] #rpg-right {
@@ -1929,6 +1948,7 @@ body[data-theme="vibrancy"] .nav-item.active::before,
 body[data-theme="vibrancy"] .crest-glow { display: none; }
 body[data-theme="vibrancy"] .btn.gold {
   background: var(--accent);
+  background-clip: padding-box; /* 与默认主题一致：实色内缩，消除无框显大 */
   color: #fff;
   box-shadow: none;
 }
@@ -2157,6 +2177,13 @@ body:not(.world-custom-layout):not(.world-setup-extension-mode) #chat-workspace.
 .cm-item:hover { background: rgba(var(--accent-rgb), 0.07); }
 .cm-item.active { background: rgba(var(--accent-rgb), 0.12); border-color: var(--line); color: var(--text); }
 .cm-item .cm-name { min-width: 0; overflow-wrap: anywhere; }
+/* 世界书列表：名称与「N 条目」之间留距并弱化 */
+.cm-item .cm-name small {
+  margin-left: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 400;
+}
 .cm-inuse-mark { margin-left: 6px; padding: 1px 4px; border: 1px solid rgba(var(--accent-rgb), 0.45); border-radius: 999px; color: var(--accent); font-size: 10px; white-space: nowrap; }
 .cm-item.cm-draft { border-style: dashed; cursor: default; }
 .cm-draft-mark { margin-left: 6px; padding: 1px 4px; border-radius: 999px; background: rgba(var(--accent-rgb), 0.12); color: var(--accent); font-size: 10px; white-space: nowrap; }
@@ -2570,8 +2597,37 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
   box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.07);
 }
 .world-save-preset select option { background-color: var(--bg-0); color: var(--text); }
+/* 预设自定义下拉：替代原生 select，规避部分 Android WebView 在 dialog 内无法弹出原生选择器的问题 */
+.world-preset-picker { position: relative; display: inline-block; width: min(240px, 100%); }
+.world-save-preset .world-preset-picker { width: 100%; }
+.world-preset-native { position: absolute; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; pointer-events: none; }
+.world-preset-trigger { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 36px; padding: 6px 10px; text-align: left; }
+.world-preset-trigger .world-preset-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.world-preset-caret { flex: 0 0 auto; color: var(--muted); font-size: 10px; transition: transform 150ms; }
+.world-preset-picker.is-open .world-preset-caret { transform: rotate(180deg); }
+.world-preset-menu { position: absolute; z-index: 60; top: calc(100% + 4px); left: 0; right: 0; margin: 0; padding: 4px; list-style: none; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); max-height: 240px; overflow: auto; }
+.world-preset-menu li { padding: 8px 10px; border-radius: 6px; color: var(--text); font-size: 12px; cursor: pointer; }
+.world-preset-menu li:hover { background: rgba(var(--accent-rgb), 0.10); }
+.world-preset-menu li[aria-selected="true"] { background: rgba(var(--accent-rgb), 0.14); color: var(--accent); }
+/* 世界线「结束方式」下拉：与 .field select 同款暗色皮肤 */
+#rpg-ending-select {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgba(var(--bg-0-rgb), 0.6);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  color-scheme: dark;
+}
+#rpg-ending-select:focus {
+  border-color: rgba(var(--accent-rgb), 0.55);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.07);
+}
+#rpg-ending-select option { background: var(--bg-0); color: var(--text); }
 .world-save-preset small { color: var(--muted); font-size: 10px; }
-.world-player-ai { display: grid; gap: 8px; margin: 0 20px 12px; padding: 10px; border: 1px solid rgba(var(--accent-rgb), 0.32); border-radius: 10px; background: rgba(var(--accent-rgb), 0.05); }
+.world-draft-body.world-player-scroll { display: grid; gap: 0; align-content: start; }
+.world-player-ai { display: grid; gap: 8px; margin: 0 0 14px; padding: 12px; border: 1px solid rgba(var(--accent-rgb), 0.32); border-radius: 10px; background: rgba(var(--accent-rgb), 0.05); }
 .world-player-ai-head, .world-player-ai-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .world-player-ai-head strong { color: var(--accent); font: 14px var(--font-display); }
 .world-player-ai-head p { margin: 2px 0 0; color: var(--muted); font-size: 10px; }
@@ -2628,6 +2684,11 @@ textarea.world-draft-json-invalid { border-color: rgba(var(--danger-rgb), 0.72);
 }
 .world-draft-actions { display: flex; justify-content: flex-start; align-items: center; gap: 8px; padding: 12px 20px 16px; border-top: 1px solid var(--line); }
 .world-draft-publish { padding: 8px 14px; font-size: 12px; letter-spacing: 2px; text-indent: 2px; }
+/* 表单操作行：同排按钮统一 md 档尺寸（角色×尺寸正交，几何一致） */
+.world-draft-actions .ghost-btn {
+  padding: 8px 16px;
+  font-size: 13px;
+}
 .world-draft-action-spacer { flex: 1; }
 .world-upgrade-dialog { width: min(720px, calc(100vw - 32px)); }
 .world-upgrade-body { min-height: 280px; }
@@ -3387,4 +3448,11 @@ body.world-authoring-active .world-draft-actions {
   }
   .world-draft-runtime-panel .ghost-btn { min-height: 44px; }
   .world-draft-runtime-advanced > summary { min-height: 44px; padding-block: 12px; }
+}
+/* ——顶栏与底边统一底色：放在文件末尾以覆盖历史分散的背景规则（此前改了但被覆盖） —— */
+body[data-mode="rpg"] .chat-header,
+body[data-mode="rpg"] .rpg-status,
+body[data-mode="rpg"] .rpg-mobile-toolbar,
+body[data-mode="rpg"] .composer {
+  background: var(--bg-0);
 }

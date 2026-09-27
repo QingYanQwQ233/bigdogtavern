@@ -400,6 +400,60 @@ async function retryWorldTurn() {
   try { await requestReply(); }
   finally { worldTurnPreparing = false; }
 }
+/* 手动补全：最后一个已提交回合缺行动选项时，只请求控制数据（不动正文），补出后走与「编辑消息」相同的保存通道写回存档。 */
+let worldOptionsCompletionBusy = false;
+function worldLastCommittedAssistantTurn() {
+  const turns = Array.isArray(currentWorldSave?.turns) ? currentWorldSave.turns : [];
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const turn = turns[i];
+    if (turn && turn.role === 'assistant' && !isLegacyWorldDiceMessage(turn)) return turn;
+  }
+  return null;
+}
+function worldTurnNeedsOptions(turn) {
+  if (!turn) return false;
+  const count = Array.isArray(turn.options) ? turn.options.length : 0;
+  return count === 0 || count < worldOptionRules().min;
+}
+function worldOptionsCompletionAvailable() {
+  if (!worldModeActive()) return false;
+  if (worldOptionsCompletionBusy) return true;
+  if (sending || worldTurnPreparing || worldTurnPendingActive() || worldTurnErrorActive()) return false;
+  return worldTurnNeedsOptions(worldLastCommittedAssistantTurn());
+}
+async function completeLastTurnOptions() {
+  if (!worldOptionsCompletionAvailable() || worldOptionsCompletionBusy) return;
+  const turn = worldLastCommittedAssistantTurn();
+  if (!turn) return;
+  const rules = worldOptionRules();
+  const target = rules.min > 0 ? rules.min : Math.min(4, Math.max(1, rules.max));
+  if (!(target >= 1)) return;
+  worldOptionsCompletionBusy = true;
+  renderQuickActions();
+  try {
+    if (!settings.baseUrl) throw new Error('请先在设置中填写 Base URL');
+    const base = effectiveChatParameters();
+    const payload = { baseUrl: settings.baseUrl, apiKey: settings.apiKey, body: { model: base.model } };
+    const repaired = await repairRpgOutput(payload, String(turn.content || ''), { min: target, max: target }, activeConversationScope(), [], '本回合缺少行动选项，需要按契约补全');
+    const repairedPayload = extractRpgRepairPayload(repaired);
+    const options = normalizeRpgOptions(repairedPayload?.options, rules);
+    if (!options.length) throw new Error('模型未返回可用的行动选项');
+    const idx = (currentWorldSave.turns || []).indexOf(turn);
+    if (idx < 0) throw new Error('回合已变化，请重试');
+    currentWorldSave.turns[idx].options = options;
+    renderMessages();
+    await queueWorldSave(currentWorldSave);
+    const status = $('world-open-status');
+    if (status) status.textContent = `已补全行动选项（${options.length} 条）。`;
+  } catch (err) {
+    const status = $('world-open-status');
+    if (status) status.textContent = `⚠️ 补全选项失败：${err.message}`;
+  } finally {
+    worldOptionsCompletionBusy = false;
+    renderQuickActions();
+  }
+}
+
 async function resumeWorldAgentNarration() {
   if (!worldTurnPendingActive() || !worldTurnPending.agentExecution || sending || worldTurnPreparing) return;
   worldTurnPreparing = true;
@@ -408,6 +462,7 @@ async function resumeWorldAgentNarration() {
   finally { worldTurnPreparing = false; }
 }
 async function submitWorldTurn(pending) {
+  worldActionNotice = '';
   const endpoint = '/api/world-saves/' + encodeURIComponent(pending.saveId);
   const headers = { 'Content-Type': 'application/json; charset=utf-8' };
   const request = async (url, body, label) => {
@@ -483,6 +538,8 @@ async function submitWorldTurn(pending) {
   currentWorldSave = data;
   currentWorldSaveId = data.id;
   postWorldExtensionEvent('turn.commit', { commandId: pending.commandId, revision: data.revision });
+  const checkMissingWarning = pending.checkMissingWarning === true;
+  delete pending.checkMissingWarning;
   clearResponsePreview();
   worldTurnPending = null;
   worldTurnError = null;
@@ -490,6 +547,11 @@ async function submitWorldTurn(pending) {
   renderRPG();
   renderSessions();
   renderMessages();
+  // 动作声明了判定但本回合没有任何以该动作为目标的真实掷骰：服务端不会结算其效果，这里给出显式提示（显示在玩家行动区），避免“AI 口头判定”变成黑箱。
+  if (checkMissingWarning) {
+    worldActionNotice = '⚠️ 本回合动作未结算：该动作需要判定，但本回合没有真实掷骰（可直接重试）。';
+    renderQuickActions();
+  }
 }
 async function flushWorldSaveWrites() {
   while (worldSavePending) {
@@ -2454,7 +2516,85 @@ function worldPlayerPresetList(world) { return Array.isArray(world?.playerCreati
 function renderWorldPlayerPresetSelects(world, selected = '') {
   const presets = worldPlayerPresetList(world);
   const html = `<option value="">自定义配置</option>${presets.map(preset => `<option value="${esc(preset.id)}">${esc(preset.label || preset.id)}${preset.description ? ` · ${esc(preset.description)}` : ''}</option>`).join('')}`;
-  ['world-save-preset', 'world-player-preset'].forEach(id => { const select = $(id); if (!select) return; select.innerHTML = html; select.value = selected || ''; });
+  ['world-save-preset', 'world-player-preset'].forEach(id => {
+    const select = $(id);
+    if (!select) return;
+    select.innerHTML = html;
+    select.value = selected || '';
+    enhanceWorldPresetSelect(select);
+  });
+}
+// 原生 <select> 在部分 Android WebView 的 <dialog> 内无法弹出选择器；改用 JS 控制的自定义下拉。
+function closeAllWorldPresetMenus(except) {
+  document.querySelectorAll('.world-preset-picker.is-open').forEach(picker => {
+    if (picker === except) return;
+    picker.classList.remove('is-open');
+    const menu = picker.querySelector('.world-preset-menu');
+    const trigger = picker.querySelector('.world-preset-trigger');
+    if (menu) menu.hidden = true;
+    if (trigger) trigger.setAttribute('aria-expanded', 'false');
+  });
+}
+function enhanceWorldPresetSelect(select) {
+  if (!select) return;
+  const syncOption = () => {
+    const picker = select.closest('.world-preset-picker');
+    if (!picker) return;
+    const valueEl = picker.querySelector('.world-preset-value');
+    if (valueEl) valueEl.textContent = select.options[select.selectedIndex]?.textContent || '自定义配置';
+    picker.querySelectorAll('.world-preset-menu li').forEach(li => li.setAttribute('aria-selected', String(li.dataset.value === select.value)));
+  };
+  if (select.dataset.presetEnhanced === '1') { syncOption(); return; }
+  select.dataset.presetEnhanced = '1';
+  const wrap = document.createElement('div');
+  wrap.className = 'world-preset-picker';
+  select.parentNode.insertBefore(wrap, select);
+  wrap.appendChild(select);
+  select.classList.add('world-preset-native');
+  select.tabIndex = -1;
+  select.setAttribute('aria-hidden', 'true');
+  const trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'ghost-btn small world-preset-trigger';
+  trigger.setAttribute('aria-haspopup', 'listbox');
+  trigger.setAttribute('aria-expanded', 'false');
+  trigger.innerHTML = '<span class="world-preset-value"></span><span class="world-preset-caret" aria-hidden="true">▾</span>';
+  const menu = document.createElement('ul');
+  menu.className = 'world-preset-menu';
+  menu.setAttribute('role', 'listbox');
+  menu.hidden = true;
+  wrap.appendChild(trigger);
+  wrap.appendChild(menu);
+  const renderMenu = () => {
+    menu.innerHTML = [...select.options].map(option => `<li role="option" data-value="${esc(option.value)}" aria-selected="${option.value === select.value}">${esc(option.textContent)}</li>`).join('');
+  };
+  trigger.addEventListener('click', event => {
+    event.stopPropagation();
+    const willOpen = !wrap.classList.contains('is-open');
+    closeAllWorldPresetMenus(wrap);
+    wrap.classList.toggle('is-open', willOpen);
+    menu.hidden = !willOpen;
+    trigger.setAttribute('aria-expanded', String(willOpen));
+    if (willOpen) renderMenu();
+  });
+  menu.addEventListener('click', event => {
+    const item = event.target.closest('li[data-value]');
+    if (!item) return;
+    select.value = item.dataset.value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    wrap.classList.remove('is-open');
+    menu.hidden = true;
+    trigger.setAttribute('aria-expanded', 'false');
+    syncOption();
+  });
+  select.addEventListener('change', syncOption);
+  if (!enhanceWorldPresetSelect.bound) {
+    enhanceWorldPresetSelect.bound = true;
+    document.addEventListener('click', () => closeAllWorldPresetMenus());
+    document.addEventListener('keydown', event => { if (event.key === 'Escape') closeAllWorldPresetMenus(); });
+  }
+  renderMenu();
+  syncOption();
 }
 function worldPlayerWithPreset(world, presetId, player = {}) {
   const preset = worldPlayerPresetList(world).find(item => item.id === presetId);
@@ -2970,7 +3110,31 @@ async function generateWorldOpening(save) {
   try {
     const payload = buildPayload();
     const traceCommandId = 'opening-candidate-' + uid();
-    payload.body.messages.push({ role: 'user', content: `【开局规划任务】这是一个新建世界存档。请严格依据以下当前存档开局规划生成候选：${JSON.stringify(save.setup?.plan || {})}。根据世界卡、玩家快照、起始地点、在场 NPC 与规则，生成可直接展示给玩家的开场叙事；不要替玩家决定未声明的核心意图，结尾停在玩家可以回应的局面。末尾输出唯一的 <tavern_state_update> JSON 更新块，protocol=tavern.rpg.turn、version=1、baseRevision=${save.revision}、updates=[]，并提供恰好 4 个具体行动选项。` });
+    payload.body.messages.push({ role: 'user', content: `【开局规划任务】这是一个新建世界存档。请严格依据以下当前存档开局规划生成候选：${JSON.stringify(save.setup?.plan || {})}。
+
+【写作目标】这是一段“开场”，要像网文小说的开篇一样，在第一时间抓住玩家。请写出完整的一段开场叙事（通常不少于 800 字，宜在 1000–1500 字之间），必须做到：
+
+【第一步：先给钩子】不要从平淡的日常、天气或风景写起。开篇的头两三句就要抛出一个反常、危险或悬念（不该出现的尸首、凭空消失的人、被刻意抹掉的痕迹……），让玩家立刻想知道“这里发生了什么”。
+
+【第二步：交代世界】在推进情节的同时，用叙事而非说明文的方式，让玩家明白自己身处怎样的世界——这是“不知道世界背景”最容易被诟病的地方，必须写到：
+1. 世界是什么样：时代与技术水平、魔法与信仰在这个世界里的位置（是日常、是禁忌、还是遥不可及的传说）、世界是安稳还是动荡。
+2. 社会与势力格局：有哪些国家、种族、行会或部族在说话，秩序靠什么维持，谁惹得起、谁惹不起。
+3. 地理与位置：这里是哪、为什么重要、与更大的世界是什么关系。
+4. 玩家身份（**重中之重**）：必须用直白的话交代“你是谁”——姓名、职业或身份（例如“你是一名靠悬赏吃饭的护卫”）、出身与来历、靠什么谋生、有什么本事。要结合下方【玩家档案】里的属性、技能与特质，把能力写成身份的一部分（例如特质“稳手”就写成“在刀口上练出来的稳”），不要含糊其辞，也不要让玩家读完全文还不知道自己是谁。
+5. 当前大势：更大的图景里正在发生什么（战乱、阴谋、灾难或机遇），眼前这件事在其中意味着什么。
+
+【第三步：落到场景】给出具体地点、时间，以及可视、可听、可闻、可触的感官细节，写出情绪基调，让玩家“站”在那里。
+
+【第四步：收尾留钩】结尾停在玩家必须做出选择的临界点，留下悬念；不要替玩家做决定。
+
+【文风】第二人称（“你”），画面感强、节奏有起伏、代入感强；避免流水账、条目式罗列、说明文腔调与空洞抒情。世界背景要“融进故事里”自然带出，不要整段铺陈设定。只呈现玩家角色此刻能够感知或合理推断的信息，不要提前揭露尚未公开的真相。
+
+【玩家档案（本局角色，写开场时必须用上）】
+${buildPlayerSnapshotLines(save.player?.snapshot, world) || '（本存档没有独立角色档案，请按世界卡 premise 给出的默认身份来写）'}
+
+【输出纪律】正文直接从故事写起——不要输出标题、章节名或任何 Markdown 标题（如「# 矿坑之路」），不要写“第一段”“开场”之类的元说明，也不要复述任务要求。行动选项是给玩家阅读的纯文本：必须用自然语言描述动作，不得出现 actionId、字段名、括号注释等任何内部标识（错误示例：搜查货车（search-wreck）；正确示例：搜查货车与死马，确认箭羽方向）。
+
+【必须遵守】严格依据世界卡、玩家快照、起始地点、在场 NPC 与规则生成。正文末尾必须输出唯一的 <tavern_state_update> JSON 更新块，protocol=tavern.rpg.turn、version=1、baseRevision=${save.revision}、updates=[]，并提供恰好 4 个具体行动选项（彼此不同、具体可执行、纯自然语言）。` });
     beginDebugRequest(save, payload, { label: '开场候选', kind: 'opening-plan', commandId: traceCommandId });
     let reply;
     if (payload.body.stream) reply = (await callAPIStream(payload)).content;
@@ -3340,6 +3504,33 @@ function showWorldError(message) {
   const el = $('world-error');
   if (el) el.textContent = message || '';
 }
+/* 恢复内置世界卡：把本地世界库重置为随应用内置的版本（不触碰设置与存档）。 */
+async function resetBuiltinWorlds(button) {
+  if (!confirm('恢复内置世界卡？\n\n· 本地世界卡会重置为随应用内置的版本（自定义/导入的卡会被移除）\n· 「已删除世界卡」记录会被清空\n· 设置与存档不会被删除')) return;
+  const old = button?.textContent;
+  if (button) { button.disabled = true; button.textContent = '恢复中…'; }
+  try {
+    const res = await fetch('/api/worlds/reset-builtin', { method: 'POST' });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(worldApiError(data, '恢复内置世界卡失败（HTTP ' + res.status + '）'));
+    currentWorldId = null;
+    currentWorldSave = null;
+    currentWorldSaveId = null;
+    localStorage.removeItem(LS_CURRENT_WORLD);
+    localStorage.removeItem(LS_CURRENT_WORLD_SAVE);
+    await loadWorldLibraryData();
+    showWorldError('');
+    const orphan = Array.isArray(data?.orphanSaves) ? data.orphanSaves : [];
+    const lines = [`已恢复内置世界卡：${data?.worlds ?? 0} 张。`];
+    if (Array.isArray(data?.removedWorlds) && data.removedWorlds.length) lines.push(`移除了 ${data.removedWorlds.length} 张本地世界卡。`);
+    if (orphan.length) lines.push(`\n注意：${orphan.length} 份存档引用了已被移除的世界卡，需要删除后重新开始。`);
+    alert(lines.join('\n'));
+  } catch (err) {
+    showWorldError(err.message);
+  } finally {
+    if (button) { button.disabled = false; button.textContent = old; }
+  }
+}
 async function deleteWorldSave(saveId, button) {
   const saves = worldSavesByWorld.get(currentWorldId) || [];
   const save = saves.find(item => item.id === saveId);
@@ -3506,9 +3697,11 @@ function renderWorldDetail() {
   $('world-tags').innerHTML = (Array.isArray(world.tags) && world.tags.length ? world.tags : ['未分类'])
     .map(tag => `<span class="world-tag">${esc(tag)}</span>`).join('');
   renderWorldLorebookSummary(world);
-  renderWorldPlayerPresetSelects(world, world.defaultPresetId || '');
+  const cachedFullWorld = worldCardVersions.get(worldCardKey(world.id, world.version));
+  const presetSource = (cachedFullWorld && cachedFullWorld.playerCreation) ? cachedFullWorld : world;
+  renderWorldPlayerPresetSelects(presetSource, presetSource.playerCreation?.defaultPresetId || world.defaultPresetId || '');
   const worldVersionCached = worldCardVersions.has(worldCardKey(world.id, world.version));
-  if (!worldVersionCached && (!Array.isArray(world.lorebookIds) || !world.playerCreation)) loadWorldCardVersion(world.id, world.version).then(fullWorld => {
+  if (!worldVersionCached) loadWorldCardVersion(world.id, world.version).then(fullWorld => {
     if (currentWorldId !== world.id) return;
     renderWorldLorebookSummary(fullWorld);
     renderWorldPlayerPresetSelects(fullWorld, fullWorld.playerCreation?.defaultPresetId || '');
@@ -5642,7 +5835,7 @@ function renderRPG() {
     if (!el) return;
     const values = Array.isArray(list) ? list : [];
     el.innerHTML = values.length
-      ? values.map(item => `<article class="rpg-item${item.status && item.status !== 'active' ? ' done' : ''}"><div class="rpg-item-name">${esc(item.title || item.id)}${item.status && item.status !== 'active' ? ` <small>${esc(item.status)}</small>` : ''}</div><div class="rpg-item-sub">${esc(item.desc || '（暂无描述）')}</div></article>`).join('')
+      ? values.map(item => `<article class="rpg-item${item.status && item.status !== 'active' ? ' done' : ''}"><div class="rpg-item-name">${esc(item.title || item.id)}${item.status && item.status !== 'active' ? ` <small>${esc(item.status)}</small>` : ''}</div><div class="rpg-item-sub">${esc(item.desc || item.description || '（暂无描述）')}</div></article>`).join('')
       : `<p class="hint">${empty}</p>`;
   };
   renderObjectives('rpg-goals', worldModeActive() ? currentWorldSave.state?.goals : rs.goals, '暂无目标。');

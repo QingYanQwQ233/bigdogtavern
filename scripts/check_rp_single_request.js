@@ -47,7 +47,7 @@ document.getElementById = () => ({disabled:false, focus(){}});
 activeConversationScope = () => ({kind:'tavern',id:'s'});
 activeConversationKey = () => 'tavern:s';
 worldModeActive = () => false; worldTurnPendingActive = () => false;
-clearResponsePreview = clearRpgCheckAnimation = syncSendButton = addTyping = removeTyping = () => {};
+clearResponsePreview = clearRpgCheckAnimation = syncSendButton = addTyping = removeTyping = renderQuickActions = () => {};
 beginDebugRequest = setDebugTrace = setResponsePreview = () => {};
 maybeRollTavernMemory = () => {};
 applyOutputRegex = text => text;

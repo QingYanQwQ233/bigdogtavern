@@ -286,10 +286,10 @@
     "wiCaseSensitive": false,
     "wiWholeWord": false,
     "wiRecursive": false,
-"wiMaxRecursionSteps": 3,
-"wiMinActivations": 0,
-"wiMinActivationsDepthMax": 0,
-"wiUseGroupScoring": false,
+    "wiMaxRecursionSteps": 3,
+    "wiMinActivations": 0,
+    "wiMinActivationsDepthMax": 0,
+    "wiUseGroupScoring": false,
     "wiBudget": 0,
     "wiInsertionStrategy": "evenly",
     "currentPreset": "RP 基础（示例）",
@@ -344,14 +344,42 @@
         }
       },
       "regions": {
-        "topbar": { "mode": "decorate", "label": "世界标题" },
-        "sidebar.left": { "mode": "append", "component": "character-panel", "fallback": "host" },
-        "narrative": { "mode": "replace", "component": "world-narrative", "fallback": "host" },
-        "options": { "mode": "append", "component": "choice-deck", "fallback": "host" },
-        "input": { "mode": "decorate", "label": "玩家行动" },
-        "sidebar.right": { "mode": "append", "component": "world-panels", "fallback": "host" },
-        "status": { "mode": "decorate", "label": "当前状态" },
-        "overlay": { "mode": "hide", "fallback": "host" }
+        "topbar": {
+          "mode": "decorate",
+          "label": "世界标题"
+        },
+        "sidebar.left": {
+          "mode": "append",
+          "component": "character-panel",
+          "fallback": "host"
+        },
+        "narrative": {
+          "mode": "replace",
+          "component": "world-narrative",
+          "fallback": "host"
+        },
+        "options": {
+          "mode": "append",
+          "component": "choice-deck",
+          "fallback": "host"
+        },
+        "input": {
+          "mode": "decorate",
+          "label": "玩家行动"
+        },
+        "sidebar.right": {
+          "mode": "append",
+          "component": "world-panels",
+          "fallback": "host"
+        },
+        "status": {
+          "mode": "decorate",
+          "label": "当前状态"
+        },
+        "overlay": {
+          "mode": "hide",
+          "fallback": "host"
+        }
       },
       "sidebar": {
         "panels": [
@@ -362,7 +390,9 @@
             "side": "left",
             "source": "save.state.player.resources",
             "layout": "cards",
-            "fields": ["$key"]
+            "fields": [
+              "$key"
+            ]
           },
           {
             "id": "active-goals",
@@ -372,8 +402,14 @@
             "source": "save.state.goals",
             "layout": "list",
             "fields": [
-              { "key": "status", "label": "状态" },
-              { "key": "description", "label": "说明" }
+              {
+                "key": "status",
+                "label": "状态"
+              },
+              {
+                "key": "description",
+                "label": "说明"
+              }
             ]
           }
         ]
@@ -393,8 +429,14 @@
         "html": "<section data-tavern-messages></section><div data-tavern-options></div><form data-tavern-input><textarea placeholder=\"输入行动…\"></textarea><button data-tavern-submit>发送</button></form>",
         "css": "section{padding:16px;border:1px solid var(--accent);border-radius:12px}",
         "js": "",
-        "mvu": { "protocol": "mvu.compat", "version": 1 },
-        "permissions": ["read.public", "read.save"],
+        "mvu": {
+          "protocol": "mvu.compat",
+          "version": 1
+        },
+        "permissions": [
+          "read.public",
+          "read.save"
+        ],
         "maxHeight": 420,
         "timeoutMs": 1200,
         "actionNarrates": false
@@ -410,8 +452,15 @@
         "description": "提交一个不改状态的完整回合，验证正文、选项与存档提交链。",
         "action": "[开发者测试] 推进一回合，保持当前状态不变。",
         "narrative": "开发者实验台已提交一个无状态变化的测试回合。",
-        "options": ["观察当前环境", "检查角色状态", "查看附近地点", "等待世界推进"],
-        "patch": { "updates": [] },
+        "options": [
+          "观察当前环境",
+          "检查角色状态",
+          "查看附近地点",
+          "等待世界推进"
+        ],
+        "patch": {
+          "updates": []
+        },
         "agentCalls": []
       },
       {
@@ -421,9 +470,31 @@
         "action": "[开发者测试] 进行一次需要判定的行动。",
         "dice": "1d20+2",
         "narrative": "Agent 已收到客户端判定结果，并继续生成受结果影响的剧情。",
-        "options": ["接受结果", "重新观察", "改变策略", "暂缓行动"],
-        "patch": { "updates": [] },
-        "agentCalls": [{ "callId": "dev-check", "name": "rules.check", "arguments": { "ruleId": "{{checkRuleId}}" } }, { "callId": "dev-dice", "name": "dice.roll", "arguments": { "expr": "1d20+2" } }]
+        "options": [
+          "接受结果",
+          "重新观察",
+          "改变策略",
+          "暂缓行动"
+        ],
+        "patch": {
+          "updates": []
+        },
+        "agentCalls": [
+          {
+            "callId": "dev-check",
+            "name": "rules.check",
+            "arguments": {
+              "ruleId": "{{checkRuleId}}"
+            }
+          },
+          {
+            "callId": "dev-dice",
+            "name": "dice.roll",
+            "arguments": {
+              "expr": "1d20+2"
+            }
+          }
+        ]
       },
       {
         "id": "state-smoke",
@@ -431,9 +502,34 @@
         "description": "按当前世界卡的首个资源和下一个地点生成安全的 Typed Patch。",
         "action": "[开发者测试] 进行一次状态与地点更新。",
         "narrative": "开发者实验台提交了一个受世界卡约束的状态更新。",
-        "options": ["确认状态", "检查地点", "查看日志", "继续探索"],
-      "patch": { "updates": [{ "type": "player.resource.delta", "id": "{{firstResourceId}}", "delta": "{{resourceDelta}}" }, { "type": "location.set", "locationId": "{{nextLocationId}}" }] },
-        "agentCalls": [{ "callId": "dev-patch", "name": "state.patch", "arguments": { "updates": [] } }]
+        "options": [
+          "确认状态",
+          "检查地点",
+          "查看日志",
+          "继续探索"
+        ],
+        "patch": {
+          "updates": [
+            {
+              "type": "player.resource.delta",
+              "id": "{{firstResourceId}}",
+              "delta": "{{resourceDelta}}"
+            },
+            {
+              "type": "location.set",
+              "locationId": "{{nextLocationId}}"
+            }
+          ]
+        },
+        "agentCalls": [
+          {
+            "callId": "dev-patch",
+            "name": "state.patch",
+            "arguments": {
+              "updates": []
+            }
+          }
+        ]
       },
       {
         "id": "hp-debug",
@@ -441,9 +537,30 @@
         "description": "使用正式 Typed Patch 让当前世界卡的生命资源减少 1；触底时不会继续减少。",
         "action": "[开发者调试] 生命值减少 1。",
         "narrative": "调试指令已提交：生命值变化会写入当前存档，并在下一次状态读取时保持。",
-        "options": ["查看角色状态", "继续行动", "检查存档版本", "结束调试"],
-        "patch": { "updates": [{ "type": "player.resource.delta", "id": "{{firstResourceId}}", "delta": "{{negativeResourceDelta}}" }] },
-        "agentCalls": [{ "callId": "dev-hp", "name": "state.patch", "arguments": { "updates": [] } }]
+        "options": [
+          "查看角色状态",
+          "继续行动",
+          "检查存档版本",
+          "结束调试"
+        ],
+        "patch": {
+          "updates": [
+            {
+              "type": "player.resource.delta",
+              "id": "{{firstResourceId}}",
+              "delta": "{{negativeResourceDelta}}"
+            }
+          ]
+        },
+        "agentCalls": [
+          {
+            "callId": "dev-hp",
+            "name": "state.patch",
+            "arguments": {
+              "updates": []
+            }
+          }
+        ]
       },
       {
         "id": "runtime-mvu-debug",
@@ -451,9 +568,30 @@
         "description": "使用 runtime.variable.delta 修改当前世界卡声明的第一个数字变量，验证 MVU 式变量持久化。",
         "action": "[开发者调试] 当前 runtime 数值减少 1。",
         "narrative": "runtime 调试指令已提交：变量由存档状态持有，不会写回世界卡定义。",
-        "options": ["读取 runtime 状态", "继续行动", "检查回合账本", "结束调试"],
-        "patch": { "updates": [{ "type": "runtime.variable.delta", "id": "{{runtimeNumberId}}", "delta": "{{runtimeNegativeDelta}}" }] },
-        "agentCalls": [{ "callId": "dev-runtime", "name": "state.patch", "arguments": { "updates": [] } }]
+        "options": [
+          "读取 runtime 状态",
+          "继续行动",
+          "检查回合账本",
+          "结束调试"
+        ],
+        "patch": {
+          "updates": [
+            {
+              "type": "runtime.variable.delta",
+              "id": "{{runtimeNumberId}}",
+              "delta": "{{runtimeNegativeDelta}}"
+            }
+          ]
+        },
+        "agentCalls": [
+          {
+            "callId": "dev-runtime",
+            "name": "state.patch",
+            "arguments": {
+              "updates": []
+            }
+          }
+        ]
       },
       {
         "id": "memory-smoke",
@@ -461,11 +599,54 @@
         "description": "提交一条事件记忆与一个实体候选，验证服务端绑定与回合账本。",
         "action": "[开发者测试] 记录一条测试事件并发现一个临时 NPC。",
         "narrative": "潮声中出现了一个仅用于验证存档链路的临时记录。",
-        "options": ["查看记忆", "询问 NPC", "记录地点", "继续前进"],
-        "patch": { "updates": [] },
-        "agentCalls": [{ "callId": "dev-memory", "name": "memory.record", "arguments": { "summary": "开发者测试事件" } }, { "callId": "dev-entity", "name": "entity.create", "arguments": { "type": "npc", "name": "测试 NPC" } }],
-        "eventMemory": [{ "summary": "开发者实验台写入的测试事件。", "entityIds": [], "locationId": "{{locationId}}", "time": { "unit": "turn", "value": "{{timeValue}}" }, "visibility": "public" }],
-        "createEntities": [{ "kind": "npc", "tempId": "dev-npc", "name": "测试 NPC", "role": "开发者测试实体", "locationId": "{{locationId}}", "reason": "开发者实验台验证实体创建链路" }]
+        "options": [
+          "查看记忆",
+          "询问 NPC",
+          "记录地点",
+          "继续前进"
+        ],
+        "patch": {
+          "updates": []
+        },
+        "agentCalls": [
+          {
+            "callId": "dev-memory",
+            "name": "memory.record",
+            "arguments": {
+              "summary": "开发者测试事件"
+            }
+          },
+          {
+            "callId": "dev-entity",
+            "name": "entity.create",
+            "arguments": {
+              "type": "npc",
+              "name": "测试 NPC"
+            }
+          }
+        ],
+        "eventMemory": [
+          {
+            "summary": "开发者实验台写入的测试事件。",
+            "entityIds": [],
+            "locationId": "{{locationId}}",
+            "time": {
+              "unit": "turn",
+              "value": "{{timeValue}}"
+            },
+            "visibility": "public"
+          }
+        ],
+        "createEntities": [
+          {
+            "kind": "npc",
+            "tempId": "dev-npc",
+            "name": "测试 NPC",
+            "role": "开发者测试实体",
+            "locationId": "{{locationId}}",
+            "reason": "开发者实验台验证实体创建链路"
+          }
+        ]
       }
     ]
   },
@@ -484,15 +665,45 @@
   },
   "gen": {
     "charFields": [
-      { "key": "name", "label": "名字", "required": true },
-      { "key": "race", "label": "种族", "required": true },
-      { "key": "role", "label": "身份 / 职业", "required": true },
-      { "key": "age", "label": "年龄" },
-      { "key": "gender", "label": "性别" },
-      { "key": "appearance", "label": "外貌特征" },
-      { "key": "personality", "label": "性格关键词" },
-      { "key": "motivation", "label": "目标 / 动机" },
-      { "key": "speechStyle", "label": "说话方式" }
+      {
+        "key": "name",
+        "label": "名字",
+        "required": true
+      },
+      {
+        "key": "race",
+        "label": "种族",
+        "required": true
+      },
+      {
+        "key": "role",
+        "label": "身份 / 职业",
+        "required": true
+      },
+      {
+        "key": "age",
+        "label": "年龄"
+      },
+      {
+        "key": "gender",
+        "label": "性别"
+      },
+      {
+        "key": "appearance",
+        "label": "外貌特征"
+      },
+      {
+        "key": "personality",
+        "label": "性格关键词"
+      },
+      {
+        "key": "motivation",
+        "label": "目标 / 动机"
+      },
+      {
+        "key": "speechStyle",
+        "label": "说话方式"
+      }
     ],
     "charBasicPrompt": "你是一位角色设定助手。根据用户的一句话描述填写指定的基本信息表。只输出 JSON，不要解释；格式必须为 {\"fields\":{\"字段key\":\"字段值\"}}。不得增删字段，信息不足时做符合描述的简短合理补全。",
     "charFullPrompt": "你是一位角色卡设计助手。根据用户已确认的基本信息生成完整角色卡，扩写时不得推翻表中事实。只输出 JSON，不要解释。JSON 结构：{\"name\":\"角色名\",\"race\":\"种族\",\"role\":\"身份\",\"persona\":\"具体的外貌、性格、习惯、动机与说话方式（120~220字）\",\"scenario\":\"适合开始互动的当前场景\",\"firstMes\":\"含动作、神态、环境与自然对白的开场白\",\"systemPrompt\":\"角色专属规则；无必要则为空字符串\",\"postHistory\":\"历史后指令；无必要则为空字符串\",\"tags\":\"标签,逗号分隔\"}。",
@@ -529,21 +740,42 @@
           "parameters": {
             "type": "object",
             "properties": {
-              "expr": { "type": "string", "description": "Base dice expression declared by rules.check, such as 1d20 or 2d6; never include +N/-N here." },
+              "expr": {
+                "type": "string",
+                "description": "Base dice expression declared by rules.check, such as 1d20 or 2d6; never include +N/-N here."
+              },
               "modifier": {
                 "type": "object",
                 "description": "Copy the modifierRule returned by rules.check exactly. The program reads the current player's matching attributes/skills/resources field.",
                 "properties": {
-                  "bucket": { "type": "string", "enum": ["attributes", "skills", "resources"] },
-                  "id": { "type": "string" },
-                  "factor": { "type": "number" },
-                  "bonus": { "type": "number" }
+                  "bucket": {
+                    "type": "string",
+                    "enum": [
+                      "attributes",
+                      "skills",
+                      "resources"
+                    ]
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "factor": {
+                    "type": "number"
+                  },
+                  "bonus": {
+                    "type": "number"
+                  }
                 },
-                "required": ["bucket", "id"],
+                "required": [
+                  "bucket",
+                  "id"
+                ],
                 "additionalProperties": false
               }
             },
-            "required": ["expr"],
+            "required": [
+              "expr"
+            ],
             "additionalProperties": false
           }
         },
@@ -553,8 +785,18 @@
           "description": "Declare that the current player action needs a real world-rule check. For fixed rules pass ruleId; for a card-defined dynamic action pass actionId, sides, target, and modifier sources. The client returns a read-only CheckProposal; copy its modifierRule/modifierRules unchanged into dice.roll. The server/client resolve only current player/runtime fields and recompute the final ResolutionCandidate from validated client dice. This does not change save state during the tool loop.",
           "parameters": {
             "type": "object",
-            "properties": { "ruleId": { "type": "string" }, "input": { "type": "object", "additionalProperties": true } },
-            "required": ["ruleId"],
+            "properties": {
+              "ruleId": {
+                "type": "string"
+              },
+              "input": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "required": [
+              "ruleId"
+            ],
             "additionalProperties": false
           }
         },
@@ -564,8 +806,18 @@
           "description": "Propose typed state updates for the current world turn; the server validates them before commit.",
           "parameters": {
             "type": "object",
-            "properties": { "updates": { "type": "array", "items": { "type": "object", "additionalProperties": true } } },
-            "required": ["updates"],
+            "properties": {
+              "updates": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            },
+            "required": [
+              "updates"
+            ],
             "additionalProperties": false
           }
         },
@@ -576,17 +828,61 @@
           "parameters": {
             "type": "object",
             "properties": {
-              "kind": { "type": "string", "enum": ["goals", "leads"] },
-              "id": { "type": "string" },
-              "title": { "type": "string" },
-              "desc": { "type": "string" },
-              "status": { "type": "string", "enum": ["active", "done", "failed", "paused"] },
-              "actorId": { "type": ["string", "null"] },
-              "locationId": { "type": ["string", "null"] },
-              "deadline": { "type": ["object", "null"] },
-              "tags": { "type": "array", "items": { "type": "string" } }
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "goals",
+                  "leads"
+                ]
+              },
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "desc": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "done",
+                  "failed",
+                  "paused"
+                ]
+              },
+              "actorId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "locationId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "deadline": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
             },
-            "required": ["kind", "id", "title"],
+            "required": [
+              "kind",
+              "id",
+              "title"
+            ],
             "additionalProperties": false
           }
         },
@@ -596,8 +892,24 @@
           "description": "Propose a new world entity for the current turn; the server validates and scopes it to this save.",
           "parameters": {
             "type": "object",
-            "properties": { "type": { "type": "string" }, "id": { "type": "string" }, "name": { "type": "string" }, "description": { "type": "string" } },
-            "required": ["type", "name"],
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "name"
+            ],
             "additionalProperties": true
           }
         },
@@ -607,8 +919,34 @@
           "description": "Propose a concise event memory from facts that happened in this turn.",
           "parameters": {
             "type": "object",
-            "properties": { "summary": { "type": "string" }, "entityIds": { "type": "array", "items": { "type": "string" } }, "locationId": { "type": ["string", "null"] }, "visibility": { "type": "string", "enum": ["public", "local", "hidden"] } },
-            "required": ["summary"],
+            "properties": {
+              "summary": {
+                "type": "string"
+              },
+              "entityIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "locationId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "visibility": {
+                "type": "string",
+                "enum": [
+                  "public",
+                  "local",
+                  "hidden"
+                ]
+              }
+            },
+            "required": [
+              "summary"
+            ],
             "additionalProperties": false
           }
         },
@@ -618,8 +956,29 @@
           "description": "Retrieve relevant read-only context from the current world save within the allowed knowledge scope.",
           "parameters": {
             "type": "object",
-            "properties": { "query": { "type": "string" }, "scope": { "type": "string", "enum": ["world", "character", "public", "known", "hidden"] }, "limit": { "type": "integer", "minimum": 1, "maximum": 12 } },
-            "required": ["query"],
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "world",
+                  "character",
+                  "public",
+                  "known",
+                  "hidden"
+                ]
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 12
+              }
+            },
+            "required": [
+              "query"
+            ],
             "additionalProperties": false
           }
         }
@@ -664,7 +1023,7 @@
       "cfgScale": 7,
       "sampler": "DPM++ 2M Karras",
       "negativePrompt": "lowres, bad anatomy, worst quality, watermark, text",
-      "promptSuffix": ", furry, anthro with complete animal head (snout and ears), NO human face",
+      "promptSuffix": "",
       "negativeSuffix": ", human face, human head, realistic human, human skin, photo",
       "promptSource": "llm",
       "auto": false,
@@ -674,19 +1033,6 @@
     }
   },
   "characters": [
-    {
-      "name": "莉莉（示例）",
-      "race": "猫族",
-      "role": "旅店老板娘",
-      "persona": "栗色短毛的猫娘，左耳有个小缺口。性格开朗爱操心，嘴上不饶人但心软，说话带俏皮的尾音（~）。记得住每个常客的口味。",
-      "scenario": "你推开了这家小旅店的门，炉火正旺，莉莉正擦着酒杯抬头看你。",
-      "firstMes": "（耳朵动了动，露出营业性的笑容）哟，稀客呀~ 外头下着雨吧？先坐，要喝点什么？麦酒还是热蜂蜜水？",
-      "systemPrompt": "",
-      "postHistory": "",
-      "presetName": "",
-      "loreId": "",
-      "tags": "示例, 猫娘, 旅店"
-    },
     {
       "id": "markdown-test-character",
       "name": "Markdown 验收员·墨点",
@@ -703,141 +1049,7 @@
       "refImage": ""
     }
   ],
-  "lorebooks": {
-    "default": {
-      "name": "默认世界书",
-      "entries": [
-        {
-          "title": "大陆概览",
-          "keys": "",
-          "content": "【大陆】一片人类与兽人共存的异世界大陆，西幻风貌：城堡与佣兵公会、酒馆与吟游诗人、魔法与旧神遗迹并存。兽人各族与人类混居已久，既有日常的生意往来与烟火气，也有绵延数代的隔阂与摩擦。旧王朝的遗迹里偶尔还能挖出刻着兽语的石板。",
-          "enabled": true,
-          "constant": true,
-          "order": 0
-        },
-        {
-          "title": "种族总览",
-          "keys": "",
-          "content": "【种族总览】大陆上生活着人类与诸多兽人种族。兽人各族源自古老的兽神信仰，拥有对应动物的显著形态特征；人类虽无兽形，却在城镇、商会与教会中占据重要位置。两族共居已久，既合作也摩擦。主要种族：人类、猫族、狼族、狐族、犬族、兔族、龙裔、羽族、熊族、鹿族、鼠族。",
-          "enabled": true,
-          "constant": true,
-          "order": 1
-        },
-        {
-          "title": "兽人·种族共性",
-          "keys": "兽人,兽族,半兽",
-          "content": "【兽人·种族共性】兽人保留了对应动物的显著特征：兽耳、尾巴、利爪或蹄、鳞片、羽翼等；身体比例近似人类，但更强壮（或更轻盈）。兽人普遍拥有比人类敏锐的感官，情绪会从耳朵、尾巴等部位自然流露。判断兽人身份，先看其种族特征。",
-          "enabled": true,
-          "constant": false,
-          "order": 10
-        },
-        {
-          "title": "人类",
-          "keys": "人类,人族",
-          "content": "【人类】无兽耳与尾巴，四肢匀称，发色以黑、棕、金、红为主，寿命约 70~90 年。没有兽人那样敏锐的感官，却以巧思与韧性立足——是商队、教会、城邦政权的支柱，也是不少兽人眼中需要提防的“外来者”。",
-          "enabled": true,
-          "constant": false,
-          "order": 20
-        },
-        {
-          "title": "猫族",
-          "keys": "猫族,猫娘,猫耳,猫人",
-          "content": "【猫族】毛色多栗、橘、黑白、灰蓝，耳尖常带丛毛，瞳孔遇光会竖成细线；爪垫柔软、步履无声。独立好奇，爱干净，记仇也记恩。常见于旅店、酒馆与情报行当——比如那位爱管闲事的猫娘老板娘。",
-          "enabled": true,
-          "constant": false,
-          "order": 30
-        },
-        {
-          "title": "狼族",
-          "keys": "狼族,狼人,狼耳",
-          "content": "【狼族】灰、黑、白或红棕的厚重皮毛，竖耳尖吻，尾巴常低垂；肩背宽厚，犬齿发达。族群观念极强，重视誓言与领地，战斗时凶悍而忠诚。多居于北方部族与佣兵团。",
-          "enabled": true,
-          "constant": false,
-          "order": 31
-        },
-        {
-          "title": "狐族",
-          "keys": "狐族,狐娘,狐耳,狐人",
-          "content": "【狐族】火红、银白或玄黑的蓬松大尾，尖耳细瞳，脸型狭长，皮毛光泽油亮。狡黠善谋，舌灿莲花——商人、外交官与骗子的比例都高得出奇。",
-          "enabled": true,
-          "constant": false,
-          "order": 32
-        },
-        {
-          "title": "犬族",
-          "keys": "犬族,犬人,狗头,狗耳",
-          "content": "【犬族】毛色多杂，耳垂或半立，尾巴摇动坦率；体格健壮，嗅觉极灵。忠诚热情、心性直率，是猎手、守夜人与城卫的常客。",
-          "enabled": true,
-          "constant": false,
-          "order": 33
-        },
-        {
-          "title": "兔族",
-          "keys": "兔族,兔娘,兔耳,兔人",
-          "content": "【兔族】长耳大而柔软，可转动捕捉声音；短尾圆绒，后腿长而有力，毛色多白、棕、灰。胆小却好奇，敏捷惊人，善奔跑与种植；因性情温和常被轻视，却是最好的倾听者。",
-          "enabled": true,
-          "constant": false,
-          "order": 34
-        },
-        {
-          "title": "龙裔",
-          "keys": "龙族,龙裔,龙人,龙娘",
-          "content": "【龙裔】覆有细腻鳞片（红、青、金、墨），额生双角，竖瞳如炬，尾粗壮有力；皮肤微温，鳞下隐现暗纹。血脉尊贵，寿命数百年，数量稀少。高傲孤僻，但一旦立誓便至死不渝。",
-          "enabled": true,
-          "constant": false,
-          "order": 35
-        },
-        {
-          "title": "羽族",
-          "keys": "羽族,鸟人,羽人,翼人",
-          "content": "【羽族】双臂为宽大羽翼（鹰、枭、雀等各有不同），腿部覆细羽，指爪锐利，身骨轻巧。风是他们的路——多居高山与塔楼，性情爽朗，热爱天空与自由。",
-          "enabled": true,
-          "constant": false,
-          "order": 36
-        },
-        {
-          "title": "熊族",
-          "keys": "熊族,熊人",
-          "content": "【熊族】体魄雄壮，肩背如墙，毛发浓密（黑、棕、白），掌爪厚实，力量惊人。沉默寡言却可靠，多从事锻造、伐木与重地守卫；入冬前会格外贪吃。",
-          "enabled": true,
-          "constant": false,
-          "order": 37
-        },
-        {
-          "title": "鹿族",
-          "keys": "鹿族,鹿人,角族,羊人",
-          "content": "【鹿族】头顶分杈的角（鹿角或羊角），耳长，蹄足或半蹄，毛色柔润；姿态优雅，性情温驯坚韧。多居林间聚落，擅长草药与木工，是森林的守护者。",
-          "enabled": true,
-          "constant": false,
-          "order": 38
-        },
-        {
-          "title": "鼠族",
-          "keys": "鼠族,鼠人,鼠娘",
-          "content": "【鼠族】身形矮小纤细，圆耳薄尾，门牙微露，毛色灰褐；动作极快，胆小谨慎。多从事钟表、账房与管道间的“麻烦事”，传闻地下有他们的城市。",
-          "enabled": true,
-          "constant": false,
-          "order": 39
-        },
-        {
-          "title": "旅店·断牙之角",
-          "keys": "旅店, 断牙之角, 酒馆",
-          "content": "【断牙之角】城门口的旅店，招牌是根断掉的狼牙。炉火常年不熄，地窖里封着一坛据说会说话的陈酒，老板娘从不让人碰。",
-          "enabled": true,
-          "constant": false,
-          "order": 100
-        },
-        {
-          "title": "龙之谷",
-          "keys": "龙之谷, 龙谷",
-          "content": "【龙之谷】北方的峡谷，传闻最后一条古龙沉睡其中，谷口终年有雾。",
-          "enabled": true,
-          "constant": false,
-          "order": 200
-        }
-      ]
-    }
-  },
+  "lorebooks": {},
   "presets": {
     "__global__": {
       "version": 3,
@@ -1403,22 +1615,10 @@
           "order": 100
         },
         {
-          "identifier": "raceDesc",
-          "name": "种族描写规范",
-          "role": "system",
-          "content": "<种族描写规范>\n- 描写兽人角色时必须体现其种族特征：兽耳、尾巴、爪/蹄/鳞片/羽翼等生理细节，以及对应的感官（嗅觉、听觉、夜视）与情绪表达（耳朵、尾巴会泄露心情）。\n- 禁止把兽人写成“人类套皮”：他们的生理习惯（梳毛、护尾、磨爪、整理羽毛、舔舐伤口等）会自然出现在日常动作里。\n- 各种族的具体外貌与习性以世界书【种族总览】及各族条目为准；超出部分可合理发挥，但不得与设定冲突。\n</种族描写规范>",
-          "marker": false,
-          "pinned": false,
-          "systemPrompt": false,
-          "position": "relative",
-          "depth": 4,
-          "order": 100
-        },
-        {
           "identifier": "worldConsist",
           "name": "世界设定一致",
           "role": "system",
-          "content": "<世界设定>\n- 严格遵守世界书注入的设定（大陆概览、种族、地点），不擅自改写或添加冲突设定。\n- 世界观中的常识（兽人社会、人类地位、种族关系）应融入叙述与对白，而非生硬说明。\n</世界设定>",
+          "content": "<世界设定>\n- 严格遵守世界书注入的设定（世界观、地点、势力），不擅自改写或添加冲突设定。\n- 世界观中的常识应融入叙述与对白，而非生硬说明。\n</世界设定>",
           "marker": false,
           "pinned": false,
           "systemPrompt": false,
@@ -1519,10 +1719,6 @@
         {
           "identifier": "antiDespair",
           "enabled": false
-        },
-        {
-          "identifier": "raceDesc",
-          "enabled": true
         },
         {
           "identifier": "worldConsist",
@@ -1774,18 +1970,6 @@
           "position": "relative",
           "depth": 4,
           "order": 100
-        },
-        {
-          "identifier": "rpgFurry",
-          "name": "福瑞种族表现",
-          "role": "system",
-          "content": "<种族表现>\n- 兽耳、尾巴、爪蹄、鳞羽、嗅觉与听觉等特征应自然影响动作、感知、装备和环境互动。\n- 不把福瑞角色写成人类外形的简单换皮；具体种族能力与习俗仍以角色卡和世界书为准。\n</种族表现>",
-          "marker": false,
-          "pinned": false,
-          "systemPrompt": false,
-          "position": "relative",
-          "depth": 4,
-          "order": 100
         }
       ],
       "promptOrder": [
@@ -1846,10 +2030,6 @@
           "enabled": true
         },
         {
-          "identifier": "rpgFurry",
-          "enabled": true
-        },
-        {
           "identifier": "worldInfoAfter",
           "enabled": true
         },
@@ -1871,120 +2051,1199 @@
   },
   "worlds": [
     {
-      "schemaVersion": 1,
-      "id": "world-aurora",
-      "version": 1,
-      "title": "极光大陆",
-      "summary": "福瑞种族共存的日式西幻大陆，从断牙之角开始你的第一段旅程。",
-      "coverImage": "",
-      "tags": ["日式西幻", "福瑞", "开放世界"],
-      "playerCreation": {
-        "mode": "custom",
-        "title": "创建你的冒险者",
-        "description": "这些字段只属于当前世界存档，不会写回角色库或其他存档。",
-        "pointBudget": { "label": "属性点", "total": 12, "min": 0, "mode": "pool", "cost": "above-min" },
-        "defaultPresetId": "wanderer",
-        "buildPresets": [
-          { "id": "wanderer", "label": "自由旅人", "description": "均衡起步，适合先探索世界。", "values": { "fields": { "role": "旅人" }, "attributes": { "might": 2, "wits": 3, "spirit": 2, "fortune": 3 }, "skills": { "scouting": 2, "empathy": 2 } } },
-          { "id": "pathfinder", "label": "边境侦察者", "description": "偏向观察、追踪与野外行动。", "values": { "fields": { "role": "边境侦察者" }, "attributes": { "might": 2, "wits": 5, "spirit": 2, "fortune": 2 }, "skills": { "scouting": 4, "empathy": 1 }, "choices": ["keen-sense"] } },
-          { "id": "story", "label": "自由叙事", "description": "保留世界规则，但不预设职业方向。", "values": { "fields": { "role": "自定义身份" } } }
-        ],
-        "fields": [
-          { "id": "name", "label": "名字", "type": "text", "required": true, "maxLength": 80 },
-          { "id": "race", "label": "种族", "type": "select", "required": true, "options": [
-            { "value": "狐人", "label": "狐人" },
-            { "value": "狼族", "label": "狼族" },
-            { "value": "猫族", "label": "猫族" },
-            { "value": "鹿族", "label": "鹿族" }
-          ] },
-          { "id": "role", "label": "身份 / 职业", "type": "text", "required": true, "maxLength": 120, "default": "旅人" },
-          { "id": "background", "label": "背景", "type": "textarea", "maxLength": 1200, "placeholder": "一句话说明你为何来到断牙之角。" }
-        ],
-        "attributes": [
-          { "id": "might", "label": "力量", "min": 1, "max": 5, "default": 2, "step": 1 },
-          { "id": "wits", "label": "灵巧", "min": 1, "max": 5, "default": 2, "step": 1 },
-          { "id": "spirit", "label": "精神", "min": 1, "max": 5, "default": 2, "step": 1 },
-          { "id": "fortune", "label": "幸运", "min": 1, "max": 5, "default": 2, "step": 1 }
-        ],
-        "skills": [
-          { "id": "scouting", "label": "侦察", "description": "发现路径、危险与环境细节。", "min": 0, "max": 10, "default": 1, "step": 1 },
-          { "id": "empathy", "label": "共情", "description": "理解他人的情绪与真实意图。", "min": 0, "max": 10, "default": 1, "step": 1 }
-        ],
-        "resources": [
-          { "id": "hp", "label": "生命", "type": "number", "min": 1, "max": 999, "initial": 20 },
-          { "id": "mp", "label": "魔力", "type": "number", "min": 0, "max": 999, "initial": 5 },
-          { "id": "gold", "label": "金币", "type": "number", "min": 0, "max": 1000000, "initial": 10 }
-        ],
-        "derived": [
-          { "id": "readiness", "label": "行动准备", "formula": "attributes.wits + attributes.spirit", "description": "由属性自动计算的只读值" }
-        ],
-        "growth": {
-          "sources": [
-            { "id": "training", "label": "训练", "kind": "training", "description": "通过持续练习与导师指导积累成长。" },
-            { "id": "learning", "label": "学习", "kind": "learning", "description": "从书籍、课程或研究中获得新的能力。" },
-            { "id": "exploration", "label": "探索", "kind": "exploration", "description": "在探索危险与未知地点后形成经验。" },
-            { "id": "relationship", "label": "关系", "kind": "relationship", "description": "重要关系与承诺促成的能力变化。" },
-            { "id": "event", "label": "事件", "kind": "event", "description": "重大世界事件留下的长期影响。" }
-          ],
-          "candidates": [
-            { "id": "scouting-training", "label": "侦察训练", "sourceId": "training", "bucket": "skills", "targetId": "scouting", "delta": 1, "description": "完成一次系统的路径与危险识别训练。" },
-            { "id": "empathy-relationship", "label": "共情深化", "sourceId": "relationship", "bucket": "skills", "targetId": "empathy", "delta": 1, "description": "在一次重要关系事件中真正理解对方。" },
-            { "id": "wits-exploration", "label": "见识增长", "sourceId": "exploration", "bucket": "attributes", "targetId": "wits", "delta": 1, "description": "从危险探索中获得可迁移的判断经验。" },
-            { "id": "steady-hand-training", "label": "稳健之手", "sourceId": "training", "bucket": "traits", "targetId": "steady-hand", "description": "训练让角色在紧张场面中保持专注。" },
-            { "id": "ridge-title", "label": "山脊见证者", "sourceId": "exploration", "bucket": "identity", "targetId": "titles", "value": "山脊见证者", "description": "完成一次改变他人看法的山脊探索。" }
+      "id": "world-mui10p9r-3e2921c2b97b",
+      "version": 8,
+      "title": "矿坑之路：失落矿坑 · 第一章",
+      "summary": "D&D 失落矿坑第一章完整复刻：地精伏击 → 追迹小径 → 洞穴八间（岗哨/狼舍/陡道/天桥/地精窝/双池/首领洞）→ 营救西尔达 → 直面克拉格。世界卡声明驱动的完整地城冒险。",
+      "tags": [
+        "D&D",
+        "地城",
+        "复刻",
+        "完整版"
+      ],
+      "lorebookIds": [],
+      "locations": [
+        {
+          "id": "ambush-site",
+          "name": "伏击现场",
+          "type": "road",
+          "summary": "北大道弯道：死马、货车与消失的人。",
+          "tags": [
+            "起点",
+            "调查"
           ]
         },
-        "traits": [
-          { "id": "keen-sense", "label": "敏锐感知", "description": "更容易发现环境中的细节。" },
-          { "id": "steady-hand", "label": "稳健之手", "description": "在紧张场面中保持专注。" }
-        ],
-        "choiceBudget": { "label": "天赋点", "total": 2, "min": 0 },
-        "choices": [
-          { "id": "keen-sense", "label": "敏锐感知", "kind": "talent", "cost": 1, "description": "更容易发现环境中的细节。" },
-          { "id": "steady-hand", "label": "稳健之手", "kind": "ability", "cost": 1, "description": "在紧张场面中保持专注。" },
-          { "id": "restless-past", "label": "不安的过去", "kind": "flaw", "cost": 0, "description": "过去的债务会在合适的时机追上你。" }
-        ],
-        "initialInventory": [
-          { "itemId": "wolf-fang", "label": "野狼獠牙", "count": 1 },
-          { "itemId": "iron-sword", "label": "铁剑", "count": 1 }
-        ],
-        "economy": {
-          "inventory": {
-            "enabled": true,
-            "maxSlots": 24,
-            "maxWeight": 120,
-            "items": [
-              { "id": "wolf-fang", "label": "野狼獠牙", "weight": 0.2, "maxStack": 99 },
-              { "id": "iron-sword", "label": "铁剑", "weight": 3, "maxStack": 1, "slot": "main-hand" }
-            ]
-          },
-          "equipment": {
-            "enabled": true,
-            "slots": [
-              { "id": "main-hand", "label": "主手" },
-              { "id": "off-hand", "label": "副手" }
-            ]
-          },
-          "currencies": [
-            { "id": "gold", "label": "金币", "min": 0, "max": 1000000, "initial": 10 }
+        {
+          "id": "goblin-trail",
+          "name": "嚼齿小径",
+          "type": "forest-path",
+          "summary": "密林深处的野路，藏着两道陷阱。",
+          "tags": [
+            "追踪",
+            "危险"
+          ]
+        },
+        {
+          "id": "cave-mouth",
+          "name": "溪谷洞口",
+          "type": "cave-entrance",
+          "summary": "灌木遮掩的洞穴入口，深处有流水声。",
+          "tags": [
+            "钩子",
+            "入口"
+          ]
+        },
+        {
+          "id": "goblin-blind",
+          "name": "灌木岗哨",
+          "type": "cave-room",
+          "summary": "洞口东侧，两丛灌木后蹲着值守的地精。",
+          "tags": [
+            "洞内",
+            "前哨"
+          ]
+        },
+        {
+          "id": "kennel",
+          "name": "狼舍",
+          "type": "cave-room",
+          "summary": "三只被拴住的狼，低吼着盯住来人。",
+          "tags": [
+            "洞内",
+            "兽栏"
+          ]
+        },
+        {
+          "id": "steep-passage",
+          "name": "陡峭石道",
+          "type": "cave-room",
+          "summary": "湿滑的石阶向上，一侧是深水。",
+          "tags": [
+            "洞内",
+            "险路"
+          ]
+        },
+        {
+          "id": "overpass",
+          "name": "石桥天桥",
+          "type": "cave-room",
+          "summary": "横跨水道的石桥，桥头有地精放哨；桥下水坝可开闸。",
+          "tags": [
+            "洞内",
+            "机关"
+          ]
+        },
+        {
+          "id": "goblin-den",
+          "name": "地精窝",
+          "type": "cave-room",
+          "summary": "堆着毛皮与骨头的空场，角落里锁着一个穿旧罩袍的男人。",
+          "tags": [
+            "洞内",
+            "囚室"
+          ]
+        },
+        {
+          "id": "twin-pools",
+          "name": "双池水坝",
+          "type": "cave-room",
+          "summary": "两汪深水被石块垒成的堰坝截住，水声轰鸣。",
+          "tags": [
+            "洞内",
+            "机关"
+          ]
+        },
+        {
+          "id": "klarg-cave",
+          "name": "克拉格的巢穴",
+          "type": "cave-room",
+          "summary": "火塘、铺满兽皮的高台，一只熊地精的窝。",
+          "tags": [
+            "洞内",
+            "首领"
           ]
         }
+      ],
+      "npcs": [
+        {
+          "id": "goblin-scout",
+          "name": "地精斥候",
+          "role": "伏击者",
+          "description": "藏身在林间的瘦小身影，弓弦拉满。",
+          "persona": "谨慎、贪婪、欺软怕硬。",
+          "locationId": "ambush-site",
+          "publicFacts": [
+            "属于嚼齿部落"
+          ],
+          "publicGoals": [
+            "劫掠落单的商队"
+          ],
+          "secrets": [
+            {
+              "id": "scout-orders",
+              "content": "他们接到的命令是：专门等一辆矮人的货车。"
+            }
+          ]
+        },
+        {
+          "id": "goblin-prisoner",
+          "name": "地精俘虏",
+          "role": "被制服的伏击者",
+          "description": "手脚被捆住，牙齿磨得尖利，眼神躲闪。",
+          "persona": "惜命、狡猾，被吓住就会开口。",
+          "locationId": "ambush-site",
+          "publicFacts": [
+            "参与了伏击"
+          ],
+          "publicGoals": [
+            "换一条命"
+          ],
+          "secrets": [
+            {
+              "id": "prisoner-knows",
+              "content": "部落巢穴在溪谷尽头；头目克拉格——一只熊地精——收了「黑蜘蛛」的钱，专门等这辆货车；矮人和他的护卫被活着送进了洞里。"
+            }
+          ]
+        },
+        {
+          "id": "gundren",
+          "name": "贡德伦·寻脉",
+          "role": "雇主 · 矮人勘矿者（失踪）",
+          "description": "胡子沾着岩灰的矮人，谈矿脉时眼睛发亮。",
+          "persona": "固执、慷慨、对路线守口如瓶。",
+          "publicFacts": [
+            "雇了车队送补给",
+            "先行前往凡戴尔"
+          ],
+          "publicGoals": [
+            "赶到镇上登记矿脉发现"
+          ],
+          "secrets": [
+            {
+              "id": "gundren-map",
+              "content": "他随身带着矿脉入口的地图。抓他的人，冲的就是这张图。"
+            }
+          ]
+        },
+        {
+          "id": "sildar",
+          "name": "西尔达·寒泉",
+          "role": "护卫 · 老兵（失踪）",
+          "description": "披着旧罩袍的战士，剑柄磨得发亮。",
+          "persona": "寡言、可靠，习惯走队伍最后。",
+          "publicFacts": [
+            "与贡德伦同行"
+          ],
+          "publicGoals": [
+            "把雇主安全送到凡戴尔"
+          ],
+          "secrets": [
+            {
+              "id": "sildar-captive",
+              "content": "他护卫雇主时被一并掳走，如今被关在巢穴深处。"
+            }
+          ]
+        },
+        {
+          "id": "klarg",
+          "name": "克拉格",
+          "role": "熊地精首领",
+          "description": "比普通地精高出一个头，皮毛灰黑，戴着铁项圈。",
+          "persona": "贪婪、暴躁，对「黑蜘蛛」的命令唯命是从。",
+          "locationId": "klarg-cave",
+          "publicFacts": [
+            "部落的头目"
+          ],
+          "publicGoals": [
+            "守住货、等赏钱"
+          ],
+          "secrets": [
+            {
+              "id": "klarg-orders",
+              "content": "「黑蜘蛛」出钱让他抓矮人，并把人和随身的图送去克拉格城堡。"
+            }
+          ]
+        },
+        {
+          "id": "yeemik",
+          "name": "耶米克",
+          "role": "地精副手",
+          "description": "瘦高、油滑，说话时总往克拉格的方向瞟。",
+          "persona": "阴险、怕死，想取而代之。",
+          "locationId": "goblin-den",
+          "publicFacts": [
+            "克拉格的手下"
+          ],
+          "publicGoals": [
+            "取代克拉格"
+          ],
+          "secrets": [
+            {
+              "id": "yeemik-plot",
+              "content": "他愿意出卖克拉格——只要价钱合适。"
+            }
+          ]
+        },
+        {
+          "id": "wolf-pack",
+          "name": "狼群",
+          "role": "兽栏里的三只狼",
+          "description": "瘦骨嶙峋，被铁链拴在石壁的环上。",
+          "persona": "凶、怕饿，喂过食就不咬。",
+          "locationId": "kennel",
+          "publicFacts": [
+            "被地精拴着"
+          ],
+          "publicGoals": [
+            "撕碎靠近的东西"
+          ]
+        }
+      ],
+      "source": {
+        "format": "native",
+        "rawAssetRef": null
+      },
+      "agent": {
+        "protocol": "tavern.rpg.agent",
+        "version": 1,
+        "mode": "native",
+        "maxSteps": 4,
+        "tools": {
+          "rules.check": {
+            "enabled": true,
+            "execution": "client-readonly",
+            "description": "只按当前世界卡和玩家数据复核判定。"
+          },
+          "dice.roll": {
+            "enabled": true,
+            "execution": "client",
+            "description": "只在规则复核后掷真实骰面。"
+          },
+          "runtime.action.execute": {
+            "enabled": true,
+            "execution": "server",
+            "description": "执行已经声明的 Runtime 动作。"
+          },
+          "state.patch": {
+            "enabled": true,
+            "execution": "server",
+            "description": "提交有界的状态更新。"
+          },
+          "memory.record": {
+            "enabled": true,
+            "execution": "server",
+            "description": "记录玩家已经历的稳定事实。"
+          }
+        }
+      },
+      "runtime": {
+        "version": 1,
+        "variables": [
+          {
+            "id": "story",
+            "label": "主线进度",
+            "scope": "save",
+            "type": "enum",
+            "options": [
+              "ambush",
+              "trail",
+              "cave",
+              "inside",
+              "rescue",
+              "klarg",
+              "epilogue"
+            ],
+            "initial": "ambush",
+            "visible": true
+          },
+          {
+            "id": "alarm",
+            "label": "部落警戒",
+            "scope": "save",
+            "type": "number",
+            "initial": 0,
+            "min": 0,
+            "max": 3,
+            "visible": true
+          },
+          {
+            "id": "captive",
+            "label": "俘虏",
+            "scope": "save",
+            "type": "enum",
+            "options": [
+              "none",
+              "goblin"
+            ],
+            "initial": "none",
+            "visible": true
+          },
+          {
+            "id": "sildar",
+            "label": "西尔达",
+            "scope": "save",
+            "type": "enum",
+            "options": [
+              "none",
+              "free"
+            ],
+            "initial": "none",
+            "visible": true
+          }
+        ],
+        "collections": [
+          {
+            "id": "intel",
+            "label": "已知情报",
+            "scope": "save",
+            "entrySchema": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "text",
+                "status"
+              ],
+              "additionalProperties": false
+            },
+            "initial": []
+          },
+          {
+            "id": "supplies",
+            "label": "随队物资",
+            "scope": "save",
+            "entrySchema": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "label",
+                "count"
+              ],
+              "additionalProperties": false
+            },
+            "initial": [
+              {
+                "id": "rations",
+                "label": "干粮",
+                "count": 2
+              },
+              {
+                "id": "torch",
+                "label": "火把",
+                "count": 1
+              }
+            ]
+          },
+          {
+            "id": "loot",
+            "label": "战利品",
+            "scope": "save",
+            "entrySchema": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "text"
+              ],
+              "additionalProperties": true
+            },
+            "initial": []
+          }
+        ],
+        "actions": [
+          {
+            "id": "search-wreck",
+            "label": "搜查货车与死马",
+            "category": "skill",
+            "description": "检查死马、车辙与林间痕迹。",
+            "check": {
+              "sides": 20,
+              "target": 11,
+              "modifiers": [
+                {
+                  "source": "player",
+                  "bucket": "skills",
+                  "id": "investigate"
+                }
+              ]
+            },
+            "effects": [
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "arrow-kill",
+                  "title": "箭伤",
+                  "text": "挽马死于箭伤，箭羽来自东侧林间——伏击者没有追车，只带走了人。",
+                  "status": "new"
+                }
+              }
+            ]
+          },
+          {
+            "id": "track-trail",
+            "label": "循迹追踪",
+            "category": "skill",
+            "description": "林间有一条被人踩出的小路。",
+            "check": {
+              "sides": 20,
+              "target": 10,
+              "modifiers": [
+                {
+                  "source": "player",
+                  "bucket": "skills",
+                  "id": "survival"
+                }
+              ]
+            },
+            "effects": [
+              {
+                "type": "variable.set",
+                "variableId": "story",
+                "value": "trail"
+              },
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "trail-count",
+                  "title": "足迹",
+                  "text": "约十来个地精走过这条小径，还有两个被拖走的大个子。",
+                  "status": "new"
+                }
+              }
+            ]
+          },
+          {
+            "id": "disarm-snare",
+            "label": "排查路边索套",
+            "category": "skill",
+            "description": "路旁的树梢不太对劲。",
+            "check": {
+              "sides": 20,
+              "target": 12,
+              "modifiers": [
+                {
+                  "source": "player",
+                  "bucket": "attributes",
+                  "id": "insight"
+                }
+              ]
+            },
+            "effects": [
+              {
+                "type": "variable.delta",
+                "variableId": "alarm",
+                "delta": 1
+              },
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "snare",
+                  "title": "索套",
+                  "text": "有人在树梢上挂了绳套——他们不想让人追得太顺。",
+                  "status": "new"
+                }
+              }
+            ]
+          },
+          {
+            "id": "bypass-pit",
+            "label": "探路避开落穴",
+            "category": "skill",
+            "description": "前面的路面泛着新土的颜色。",
+            "check": {
+              "sides": 20,
+              "target": 15,
+              "modifiers": [
+                {
+                  "source": "player",
+                  "bucket": "skills",
+                  "id": "survival"
+                }
+              ]
+            },
+            "effects": [
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "pit",
+                  "title": "落穴",
+                  "text": "路面被伪装过，底下是一人深的坑。小径尽头应该不远了。",
+                  "status": "new"
+                }
+              }
+            ]
+          },
+          {
+            "id": "interrogate-prisoner",
+            "label": "审讯俘虏",
+            "category": "story",
+            "description": "若有俘虏在手，从他嘴里撬出情报。",
+            "effects": [
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "prisoner-intel",
+                  "title": "俘虏的口供",
+                  "text": "巢穴在溪谷尽头；头目克拉格收了一个「黑蜘蛛」的钱，专门等这辆货车。",
+                  "status": "new"
+                }
+              },
+              {
+                "type": "variable.set",
+                "variableId": "story",
+                "value": "trail"
+              }
+            ],
+            "availability": [
+              {
+                "type": "variable.compare",
+                "variableId": "captive",
+                "operator": "==",
+                "value": "goblin"
+              }
+            ]
+          },
+          {
+            "id": "enter-cave",
+            "label": "沿小径进洞",
+            "category": "story",
+            "description": "洞口就在灌木后面——要不要进去？",
+            "availability": [
+              {
+                "type": "variable.compare",
+                "variableId": "story",
+                "operator": "==",
+                "value": "trail"
+              }
+            ],
+            "effects": [
+              {
+                "type": "variable.set",
+                "variableId": "story",
+                "value": "cave"
+              },
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "cave-smell",
+                  "title": "洞口的味道",
+                  "text": "洞口飘出烟熏味和狼的气味。里面很安静——安静得不像没有人。",
+                  "status": "new"
+                }
+              }
+            ]
+          },
+          {
+            "id": "leave-site",
+            "label": "记录现场，继续赶路",
+            "category": "story",
+            "description": "追不追，是你说了算。",
+            "availability": [
+              {
+                "type": "variable.compare",
+                "variableId": "story",
+                "operator": "==",
+                "value": "ambush"
+              }
+            ],
+            "effects": [
+              {
+                "type": "variable.set",
+                "variableId": "story",
+                "value": "epilogue"
+              },
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "report-line",
+                  "title": "报案计划",
+                  "text": "你决定先赶路，到镇上再说。这条路的账，迟早要算。",
+                  "status": "new"
+                }
+              }
+            ]
+          },
+          {
+            "id": "subdue-scout",
+            "label": "制服斥候",
+            "category": "skill",
+            "description": "尝试放倒并捆住近期遭遇的地精（有俘虏才有口供）。",
+            "check": {
+              "sides": 20,
+              "target": 13,
+              "modifiers": [
+                {
+                  "source": "player",
+                  "bucket": "attributes",
+                  "id": "agility"
+                }
+              ]
+            },
+            "effects": [
+              {
+                "type": "variable.set",
+                "variableId": "captive",
+                "value": "goblin"
+              },
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "scout-captured",
+                  "title": "制服了斥候",
+                  "text": "你把他捆了起来——现在他嘴里能撬出东西了。",
+                  "status": "new"
+                }
+              }
+            ]
+          },
+          {
+            "id": "scout-blind",
+            "label": "摸掉洞口岗哨",
+            "category": "skill",
+            "description": "绕过灌木，先解决放哨的地精。",
+            "check": {
+              "sides": 20,
+              "target": 12,
+              "modifiers": [
+                {
+                  "source": "player",
+                  "bucket": "attributes",
+                  "id": "agility"
+                }
+              ]
+            },
+            "availability": [
+              {
+                "type": "variable.compare",
+                "variableId": "story",
+                "operator": "==",
+                "value": "cave"
+              }
+            ],
+            "effects": [
+              {
+                "type": "variable.set",
+                "variableId": "story",
+                "value": "inside"
+              },
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "blind-cleared",
+                  "title": "岗哨已清",
+                  "text": "两个放哨的地精被悄无声息地放倒，洞口不再有人示警。",
+                  "status": "new"
+                }
+              }
+            ]
+          },
+          {
+            "id": "calm-wolves",
+            "label": "安抚狼群",
+            "category": "skill",
+            "description": "试着让拴住的狼安静下来（喂食更容易）。",
+            "check": {
+              "sides": 20,
+              "target": 15,
+              "modifiers": [
+                {
+                  "source": "player",
+                  "bucket": "skills",
+                  "id": "survival"
+                }
+              ]
+            },
+            "availability": [
+              {
+                "type": "variable.compare",
+                "variableId": "story",
+                "operator": "==",
+                "value": "inside"
+              }
+            ],
+            "effects": [
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "wolves-calm",
+                  "title": "狼群安静了",
+                  "text": "三只狼伏回地上，呜咽着没再出声。",
+                  "status": "new"
+                }
+              }
+            ]
+          },
+          {
+            "id": "climb-fissure",
+            "label": "攀上裂隙",
+            "category": "skill",
+            "description": "沿东墙的窄缝爬上高处的通道。",
+            "check": {
+              "sides": 20,
+              "target": 10,
+              "modifiers": [
+                {
+                  "source": "player",
+                  "bucket": "attributes",
+                  "id": "might"
+                }
+              ]
+            },
+            "availability": [
+              {
+                "type": "variable.compare",
+                "variableId": "story",
+                "operator": "==",
+                "value": "inside"
+              }
+            ],
+            "effects": [
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "fissure-climbed",
+                  "title": "高处的通道",
+                  "text": "你从裂隙爬上去，居高临下看见了桥和放哨的地精。",
+                  "status": "new"
+                }
+              }
+            ]
+          },
+          {
+            "id": "open-floodgate",
+            "label": "扳动水闸",
+            "category": "story",
+            "description": "桥下的木闸一扳，整条水道会倒灌。",
+            "availability": [
+              {
+                "type": "variable.compare",
+                "variableId": "story",
+                "operator": "==",
+                "value": "inside"
+              }
+            ],
+            "effects": [
+              {
+                "type": "variable.delta",
+                "variableId": "alarm",
+                "delta": 1
+              },
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "flood-released",
+                  "title": "水闸已开",
+                  "text": "水声在洞里炸开——地精的嚎叫和浪头一起撞了出来。",
+                  "status": "new"
+                }
+              }
+            ]
+          },
+          {
+            "id": "free-sildar",
+            "label": "解救西尔达",
+            "category": "story",
+            "description": "撬开锁链，把那个老兵放出来。",
+            "availability": [
+              {
+                "type": "variable.compare",
+                "variableId": "story",
+                "operator": "==",
+                "value": "inside"
+              }
+            ],
+            "effects": [
+              {
+                "type": "variable.set",
+                "variableId": "sildar",
+                "value": "free"
+              },
+              {
+                "type": "variable.set",
+                "variableId": "story",
+                "value": "rescue"
+              },
+              {
+                "type": "collection.add",
+                "collectionId": "intel",
+                "value": {
+                  "id": "sildar-freed",
+                  "title": "西尔达获救",
+                  "text": "老兵活动着被捆麻的手腕：贡德伦被押去了克拉格城堡，动手的是「黑蜘蛛」。",
+                  "status": "new"
+                }
+              }
+            ]
+          },
+          {
+            "id": "confront-klarg",
+            "label": "直面克拉格",
+            "category": "skill",
+            "description": "冲上高台，和熊地精做个了断。",
+            "check": {
+              "sides": 20,
+              "target": 14,
+              "modifiers": [
+                {
+                  "source": "player",
+                  "bucket": "attributes",
+                  "id": "might"
+                }
+              ]
+            },
+            "availability": [
+              {
+                "type": "variable.compare",
+                "variableId": "story",
+                "operator": "==",
+                "value": "rescue"
+              }
+            ],
+            "effects": [
+              {
+                "type": "variable.set",
+                "variableId": "story",
+                "value": "klarg"
+              },
+              {
+                "type": "collection.add",
+                "collectionId": "loot",
+                "value": {
+                  "id": "klarg-chest",
+                  "title": "克拉格的赃物",
+                  "text": "一只塞满银币、玛瑙和信件残页的铁箱。",
+                  "count": 1
+                }
+              }
+            ]
+          },
+          {
+            "id": "loot-cave",
+            "label": "搜刮巢穴",
+            "category": "item",
+            "description": "把能带走的东西都收进背囊。",
+            "availability": [
+              {
+                "type": "variable.compare",
+                "variableId": "story",
+                "operator": "==",
+                "value": "klarg"
+              }
+            ],
+            "effects": [
+              {
+                "type": "collection.add",
+                "collectionId": "loot",
+                "value": {
+                  "id": "supplies-crates",
+                  "title": "缴获的补给",
+                  "text": "被劫的货物还堆在角落，油纸包着的口粮、火漆封的皮袋。",
+                  "count": 1
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "setting": {
+        "premise": "你是一名受雇的冒险者与护卫，护送一车补给沿北大道南行、再折向东，前往边境小镇凡戴尔。雇主——一位矮人勘矿者——已先行出发，约定在镇上会合；半日前，连他的护卫也失去了消息。",
+        "history": "这里是大陆北境边地，人类王国与荒野之间的一道灰色地带：王国曾在此开矿立镇，如今矿脉渐枯、王法松弛，只余悬赏榜与行会规矩维持着脆弱的秩序。丘陵深处散居着劫掠为生的地精部族，商路近月愈发不太平——失踪的不只是货，还有人。多年前一场矿难让旧矿坑被废弃，当地人至今讳莫如深，却也引来无数寻宝者的觊觎。",
+        "geography": "北大道是连接北方大城与边境小镇凡戴尔的主商路，两侧是深不见底的密林；一处岔路通向丘陵深处的小径，小径长约五英里，尽头是一处被灌木遮掩的溪谷洞口——旧矿坑的入口就在其中。凡戴尔以南是更荒野的原野与旧战场。",
+        "culture": "边地人的规矩：路遇死马先看蹄铁，追杀劫匪先看脚印；说话要算数，翻脸要快，记账比发誓管用。「嚼齿部落」的地精把牙磨得锋利以此立凶名，他们不抢货、专抢人——被抓走的人多半卖作奴隶，或被押去更深处。",
+        "technology": "世界处于剑与魔法框架下的中世纪水平：铁器、弩弓、长弓、油灯与马车；没有火药、蒸汽与大规模机械。铁匠与矿工是边地的支柱，刀剑与铠甲的价格决定了一个护卫能走多远。",
+        "magic": "魔法真实存在，但极其遥远：寻常百姓一生未必见过一次；能施法的是游历法师、学者与祭司，要价高昂、行踪不定。丘陵与废弃矿坑深处保留着前朝遗迹，当地人对此既敬畏又忌讳——有人说旧矿坑深处埋着不该惊动的东西，也有人说那里藏着能让人一夜暴富的宝物。",
+        "society": "人类王国把这里称作北境边地，王权到此已是强弩之末，真正说话算数的是矮人矿工行会（掌握矿脉与铸造）与本地悬赏体系；精灵在这片土地上罕见，矮人聚居在矿区村镇；地精、大地精与狼群盘踞在丘陵与洞穴中，构成商路最大的威胁。边地居民靠手艺、胆量和运气活着，冒险者是这片土地上一种正当职业。",
+        "economy": "一条北大道串起矿业与贸易：矿石、皮货与贵金属往南，盐、铁器、酒与粮食往北。商队必须结伴而行，雇佣护卫是常态——这既是你的谋生手段，也是你与雇主结缘的原因。失踪的商队会让悬赏金额一路走高，也把更多冒险者吸引到这片危险的土地上。",
+        "currentSituation": "货车停在一处弯道：两匹挽马中箭倒地，货未动，人不见了。林子里出奇地安静。"
+      },
+      "rules": {
+        "hard": [
+          "玩家可以无视当前目标，任何行动都必须留下可追踪的世界后果。",
+          "需要判定时由客户端掷骰；AI 只能提出判定并叙述结果，不能伪造骰面。",
+          "世界真实信息、玩家已知信息和 NPC 私密信息分开处理。",
+          "地点、NPC 使用本卡稳定 ID；新增实体必须有明确来源。"
+        ],
+        "soft": [
+          "跟随「主线进度」推进场景：伏击现场 → 追迹小径 → 洞口；不跳节点。",
+          "失败不回档：可以负伤、丢失物品、打草惊蛇，或换一条路继续。",
+          "优先让调查与追击产生新问题，而不是一口给出全部真相。"
+        ],
+        "checks": [
+          {
+            "id": "search-wreck",
+            "label": "搜查伏击现场",
+            "description": "检查死马、车辙与林间痕迹。",
+            "roll": "1d20",
+            "target": 11,
+            "modifier": {
+              "bucket": "skills",
+              "id": "investigate",
+              "factor": 1
+            }
+          },
+          {
+            "id": "track-trail",
+            "label": "循迹追踪",
+            "description": "读懂林间被人踩出的小路。",
+            "roll": "1d20",
+            "target": 10,
+            "modifier": {
+              "bucket": "skills",
+              "id": "survival",
+              "factor": 1
+            }
+          },
+          {
+            "id": "read-goblins",
+            "label": "识读地精痕迹",
+            "description": "判断敌人数量与习性。",
+            "roll": "1d20",
+            "target": 12,
+            "modifier": {
+              "bucket": "attributes",
+              "id": "insight",
+              "factor": 1
+            }
+          }
+        ]
+      },
+      "playerCreation": {
+        "mode": "custom",
+        "title": "集结你的护送者",
+        "fields": [
+          {
+            "id": "name",
+            "label": "名字",
+            "type": "text",
+            "required": true,
+            "maxLength": 80,
+            "default": "旅人"
+          }
+        ],
+        "description": "选择一份职业背景快速开局，或自由分配属性点。",
+        "pointBudget": {
+          "label": "属性点",
+          "total": 16,
+          "min": 1,
+          "mode": "pool",
+          "cost": "above-min"
+        },
+        "defaultPresetId": "fighter",
+        "attributes": [
+          {
+            "id": "might",
+            "label": "力量",
+            "min": 0,
+            "max": 8,
+            "default": 3
+          },
+          {
+            "id": "agility",
+            "label": "敏捷",
+            "min": 0,
+            "max": 8,
+            "default": 3
+          },
+          {
+            "id": "insight",
+            "label": "洞察",
+            "min": 0,
+            "max": 8,
+            "default": 3
+          },
+          {
+            "id": "will",
+            "label": "意志",
+            "min": 0,
+            "max": 8,
+            "default": 3
+          }
+        ],
+        "skills": [
+          {
+            "id": "investigate",
+            "label": "调查",
+            "min": 0,
+            "max": 6,
+            "default": 1
+          },
+          {
+            "id": "survival",
+            "label": "野外",
+            "min": 0,
+            "max": 6,
+            "default": 1
+          },
+          {
+            "id": "persuade",
+            "label": "交涉",
+            "min": 0,
+            "max": 6,
+            "default": 1
+          }
+        ],
+        "resources": [
+          {
+            "id": "hp",
+            "label": "生命",
+            "min": 0,
+            "max": 20,
+            "default": 10
+          }
+        ],
+        "traits": [
+          {
+            "id": "road-worn",
+            "label": "老练旅人",
+            "description": "长年在商路上奔波。"
+          },
+          {
+            "id": "steady-hand",
+            "label": "稳手",
+            "description": "在压力下也能保持冷静。"
+          }
+        ],
+        "buildPresets": [
+          {
+            "id": "fighter",
+            "label": "战士",
+            "description": "正面应对威胁。",
+            "values": {
+              "attributes": {
+                "might": 6,
+                "agility": 4,
+                "insight": 3,
+                "will": 3
+              },
+              "skills": {
+                "investigate": 1,
+                "survival": 1,
+                "persuade": 1
+              },
+              "traits": [
+                "steady-hand"
+              ]
+            }
+          },
+          {
+            "id": "rogue",
+            "label": "游荡者",
+            "description": "潜行、侦察、动手快。",
+            "values": {
+              "attributes": {
+                "might": 3,
+                "agility": 6,
+                "insight": 4,
+                "will": 3
+              },
+              "skills": {
+                "investigate": 3,
+                "survival": 1,
+                "persuade": 2
+              },
+              "traits": [
+                "road-worn"
+              ]
+            }
+          },
+          {
+            "id": "ranger",
+            "label": "游侠",
+            "description": "野外追踪的专家。",
+            "values": {
+              "attributes": {
+                "might": 4,
+                "agility": 4,
+                "insight": 4,
+                "will": 4
+              },
+              "skills": {
+                "investigate": 1,
+                "survival": 4,
+                "persuade": 1
+              },
+              "traits": [
+                "road-worn",
+                "steady-hand"
+              ]
+            }
+          }
+        ]
       },
       "turnContract": {
-        "options": { "min": 0, "max": 4 },
+        "options": {
+          "min": 2,
+          "max": 4
+        },
         "actionIntent": true
       },
       "failure": {
         "defaultMode": "continue",
         "onZeroHp": "injured",
-        "onConflictDefeat": "captured",
         "modes": [
-          { "id": "continue", "label": "继续", "description": "失败推进新的局面，保留玩家行动权。" },
-          { "id": "injured", "label": "重伤", "description": "保留世界线，恢复少量 HP 并附加重伤状态。", "hpRatio": 0.25, "effect": "重伤" },
-          { "id": "captured", "label": "俘虏", "description": "冲突失败后被控制，后续可通过行动脱困。", "effect": "俘虏" },
-          { "id": "resource-loss", "label": "资源损失", "description": "以资源代价继续故事。", "resourceLoss": { "gold": 10 } },
-          { "id": "permadeath", "label": "永久死亡", "description": "当前世界线停止普通回合。", "terminal": true },
-          { "id": "card", "label": "按卡定义", "description": "由世界卡说明具体失败流程。", "cardDefined": true }
+          {
+            "id": "injured",
+            "label": "负伤",
+            "description": "保留世界线，恢复少量生命并附加负伤状态。",
+            "hpRatio": 0.25,
+            "effect": "负伤"
+          },
+          {
+            "id": "continue",
+            "label": "带着代价继续",
+            "description": "失败改变局面，但不替玩家结束故事。"
+          }
         ]
       },
       "ending": {
@@ -1993,438 +3252,287 @@
         "requireConfirm": true,
         "defaultEndingId": "player-choice",
         "endings": [
-          { "id": "player-choice", "kind": "player-choice", "label": "玩家主动结束", "description": "玩家确认后结束当前世界线，不要求唯一正确结局。", "terminal": true }
-        ]
-      },
-      "conflicts": [
-        {
-          "id": "wolf-skirmish",
-          "label": "荒野遭遇",
-          "type": "combat",
-          "description": "可用同一套冲突状态处理攻防、撤退和结果结算。",
-          "maxRounds": 20,
-          "phases": [
-            { "id": "engage", "label": "交锋" },
-            { "id": "resolve", "label": "收束" }
-          ],
-          "actions": [
-            { "id": "strike", "label": "攻击", "description": "对目标造成伤害。", "check": { "roll": "1d20", "modifier": { "bucket": "attributes", "id": "might", "factor": 1 }, "target": 12, "damage": { "roll": "1d6", "modifier": { "bucket": "attributes", "id": "might", "factor": 1 } } } },
-            { "id": "guard", "label": "防守", "description": "降低当前风险。" },
-            { "id": "flee", "label": "撤退", "description": "尝试退出冲突。" }
-          ],
-          "outcomes": [
-            { "id": "victory", "label": "胜利", "consequences": ["冲突结束，玩家获得叙事上的有利结果。"] },
-            { "id": "defeat", "label": "失败", "consequences": ["冲突结束，玩家承担当前场景的失败后果。"] },
-            { "id": "fled", "label": "撤退", "consequences": ["玩家离开当前冲突。"] }
-          ]
-        },
-        {
-          "id": "gate-negotiation",
-          "label": "关卡交涉",
-          "type": "social",
-          "description": "用谈判与观察推进交涉，不使用 HP 战斗数值。",
-          "maxRounds": 8,
-          "phases": [
-            { "id": "exchange", "label": "交涉" },
-            { "id": "resolve", "label": "定案" }
-          ],
-          "actions": [
-            { "id": "persuade", "label": "说服", "description": "用可靠的理由争取对方让步。", "check": { "roll": "1d20", "modifier": { "bucket": "skills", "id": "empathy", "factor": 1 }, "target": 12 } },
-            { "id": "probe", "label": "试探", "description": "先观察对方的顾虑，再选择下一步。" },
-            { "id": "withdraw", "label": "暂退", "description": "离开谈判现场，保留后续交涉机会。" }
-          ],
-          "outcomes": [
-            { "id": "agreed", "label": "达成协议", "consequences": ["对方接受了当前提案。"] },
-            { "id": "rejected", "label": "谈判失败", "consequences": ["对方拒绝提案，玩家需要改变策略。"] },
-            { "id": "fled", "label": "暂时离开", "consequences": ["玩家暂时离开交涉现场。"] }
-          ]
-        },
-        {
-          "id": "watcher-infiltration",
-          "label": "哨线潜行",
-          "type": "stealth",
-          "description": "以潜行技能对抗警戒难度，不扣除 HP。",
-          "maxRounds": 8,
-          "phases": [
-            { "id": "approach", "label": "接近" },
-            { "id": "resolve", "label": "穿越" }
-          ],
-          "actions": [
-            { "id": "sneak", "label": "潜行", "description": "利用阴影与地形穿过哨线。", "check": { "roll": "1d20", "modifier": { "bucket": "skills", "id": "scouting", "factor": 1 }, "target": 13 } },
-            { "id": "observe", "label": "观察", "description": "等待巡逻间隙，寻找更安全的路线。" },
-            { "id": "retreat", "label": "撤回", "description": "退回隐蔽处，结束本次潜入尝试。" }
-          ],
-          "outcomes": [
-            { "id": "passed", "label": "通过哨线", "consequences": ["玩家无声地穿过了哨线。"] },
-            { "id": "detected", "label": "被发现", "consequences": ["哨兵发现了玩家的踪迹。"] },
-            { "id": "fled", "label": "撤回", "consequences": ["玩家退回安全位置。"] }
-          ]
-        }
-      ],
-      "time": { "unit": "hour", "start": 8, "turnAdvance": 1 },
-      "events": [
-        {
-          "id": "aurora-omen",
-          "title": "极光异动",
-          "description": "夜空中的极光提前亮起，远方山脊传来低沉的回响。",
-          "trigger": { "at": 10 },
-          "visibility": "public",
-          "once": true,
-          "consequences": ["附近的旅人开始谈论山脊上的异常光源。"]
-        }
-      ],
-      "start": {
-        "locationId": "wolf-tooth-inn",
-        "openingMode": "ai",
-        "opening": "雨幕笼罩着断牙之角。炉火、湿木与远方山风交织成一段等待被写下的旅程。",
-        "playerTemplateId": null,
-        "playerTemplate": {
-          "name": "未命名冒险者",
-          "race": "待定",
-          "role": "旅人",
-          "profileFields": []
-        },
-        "initialState": {
-          "stats": {
-            "level": 1,
-            "exp": 0,
-            "expNext": 100,
-            "hp": 20,
-            "maxHp": 20,
-            "mp": 5,
-            "maxMp": 5,
-            "gold": 10,
-            "buffs": []
+          {
+            "id": "player-choice",
+            "kind": "player-choice",
+            "label": "玩家主动结束",
+            "description": "保留当前存档并结束本次旅程。",
+            "terminal": true
           },
-          "inventory": [],
-          "quests": []
-        }
+          {
+            "id": "chapter-won",
+            "kind": "card-defined",
+            "label": "第一章完成 · 矿坑之路",
+            "description": "你救出了西尔达、打垮了克拉格，黑蜘蛛的名字第一次浮出水面——下一步，是克拉格城堡。",
+            "terminal": true
+          },
+          {
+            "id": "defeated",
+            "kind": "card-defined",
+            "label": "落入敌手",
+            "description": "你没能从洞穴里走出来。故事在这里停下，但世界线仍在。",
+            "terminal": true
+          }
+        ]
       },
-      "lorebookIds": [],
-      "rpgPresetName": "RPG 叙事引擎（示例）",
-      "sessionSetup": { "title": "本局游戏配置", "fields": [
-        { "id": "difficulty", "label": "难度", "type": "select", "options": [{ "value": "story", "label": "故事" }, { "value": "standard", "label": "标准" }, { "value": "hard", "label": "严酷" }], "default": "standard" },
-        { "id": "sandboxIntensity", "label": "Sandbox 强度", "type": "select", "options": [{ "value": "guided", "label": "引导" }, { "value": "open", "label": "开放" }, { "value": "chaotic", "label": "高变" }], "default": "open" },
-        { "id": "combatEnabled", "label": "启用数值 / 战斗系统", "type": "boolean", "default": true },
-        { "id": "worldAdvance", "label": "世界主动推进", "type": "boolean", "default": true },
-        { "id": "allowNewEntities", "label": "允许 AI 创建新 NPC / 地点 / 事件", "type": "boolean", "default": true }
-      ] },
-      "npcIds": [],
-      "factionIds": [],
-      "factions": [],
-      "itemIds": [],
-      "questTemplateIds": [],
-      "locations": [
-        { "id": "wolf-tooth-inn", "name": "断牙之角", "type": "inn" }
+      "time": {
+        "unit": "时",
+        "start": 9,
+        "turnAdvance": 1
+      },
+      "npcIds": [
+        "goblin-scout",
+        "goblin-prisoner",
+        "gundren",
+        "sildar",
+        "klarg",
+        "yeemik",
+        "wolf-pack"
       ],
-      "map": {
-        "strategy": "worldCard",
-        "baseMapId": null,
-        "generation": { "seed": 12345, "size": 128, "regionCount": 10, "landRatio": 0.55, "mapgenSize": "small" }
+      "publication": {
+        "source": "draft",
+        "commandId": "slice-v8-mui9hj4z",
+        "baseVersion": 7,
+        "draftUpdatedAt": 1790419405819,
+        "publishedAt": 1790419405886
       },
-      "ui": { "layout": "world-desk" },
-      "source": { "format": "native", "rawAssetRef": null }
-    },
-    {
-      "schemaVersion": 1,
-      "id": "world-grey-harbor",
-      "version": 1,
-      "title": "灰港都市",
-      "summary": "非魔法现代悬疑题材：从雾港码头开始，调查失踪案、城市阴影与人情债。",
-      "coverImage": "",
-      "tags": ["现代悬疑", "非魔法", "调查"],
-      "playerCreation": {
-        "mode": "custom",
-        "title": "创建你的调查员",
-        "description": "这是一张非魔法题材示例卡，所有状态仍由世界卡声明驱动。",
-        "pointBudget": { "label": "专注点", "total": 6, "min": 0 },
-        "fields": [
-          { "id": "name", "label": "姓名", "type": "text", "required": true, "maxLength": 80 },
-          { "id": "role", "label": "身份", "type": "select", "required": true, "options": [{ "value": "记者", "label": "记者" }, { "value": "调查员", "label": "调查员" }, { "value": "律师", "label": "律师" }] },
-          { "id": "background", "label": "背景", "type": "textarea", "maxLength": 1200, "placeholder": "你为什么来到灰港？" }
-        ],
-        "attributes": [
-          { "id": "focus", "label": "专注", "min": 1, "max": 5, "default": 2, "step": 1 },
-          { "id": "nerve", "label": "胆识", "min": 1, "max": 5, "default": 2, "step": 1 }
-        ],
-        "skills": [
-          { "id": "investigation", "label": "调查", "description": "整理线索、查找证据与识别矛盾。", "min": 0, "max": 10, "default": 1, "step": 1 },
-          { "id": "negotiation", "label": "谈判", "description": "在压力与利益之间争取合作。", "min": 0, "max": 10, "default": 1, "step": 1 },
-          { "id": "stealth", "label": "潜行", "description": "避开监控、守卫与不必要的冲突。", "min": 0, "max": 10, "default": 1, "step": 1 }
-        ],
-        "resources": [
-          { "id": "hp", "label": "体力", "type": "number", "min": 1, "max": 100, "initial": 12 },
-          { "id": "stamina", "label": "精力", "type": "number", "min": 0, "max": 20, "initial": 8 },
-          { "id": "credits", "label": "现金", "type": "number", "min": 0, "max": 100000, "initial": 50 }
-        ],
-        "derived": [{ "id": "case-readiness", "label": "办案准备", "formula": "attributes.focus + skills.investigation", "description": "专注与调查经验的当前合计。" }],
-        "traits": [{ "id": "observant", "label": "观察入微", "description": "更容易注意到证词和现场中的细小异常。" }],
-        "economy": {
-          "inventory": { "enabled": true, "maxSlots": 12, "maxWeight": 30, "items": [{ "id": "press-pass", "label": "记者证", "weight": 0.1, "maxStack": 1 }, { "id": "flashlight", "label": "手电筒", "weight": 0.4, "maxStack": 1, "slot": "handheld" }] },
-          "equipment": { "enabled": true, "slots": [{ "id": "handheld", "label": "手持设备" }] },
-          "currencies": [{ "id": "credits", "label": "现金", "min": 0, "max": 100000, "initial": 50 }]
+      "ui": {
+        "schemaVersion": 1,
+        "shell": {
+          "navigation": "show",
+          "topbar": "show",
+          "fullscreen": true,
+          "escape": "fullscreen"
         },
-        "growth": {
-          "sources": [{ "id": "casework", "label": "办案", "kind": "exploration", "description": "从调查和实地取证中积累经验。" }, { "id": "network", "label": "人脉", "kind": "relationship", "description": "通过重要关系获得长期影响。" }, { "id": "incident", "label": "事故", "kind": "event", "description": "重大案件留下不可逆的经历。" }],
-          "candidates": [
-            { "id": "investigation-casework", "label": "调查经验", "sourceId": "casework", "bucket": "skills", "targetId": "investigation", "delta": 1, "description": "一次完整取证让你更擅长整理证据。" },
-            { "id": "observant-incident", "label": "异常直觉", "sourceId": "incident", "bucket": "traits", "targetId": "observant", "description": "一次险些错过的细节改变了你的观察习惯。" },
-            { "id": "harbor-pass", "label": "灰港通行证", "sourceId": "network", "bucket": "identity", "targetId": "clearances", "value": "灰港内港通行证", "description": "重要关系为你带来一份长期通行资格。" }
+        "sidebar": {
+          "panels": [
+            {
+              "id": "var-story",
+              "title": "主线进度",
+              "icon": "⌖",
+              "side": "right",
+              "source": "runtime.variables.story",
+              "layout": "cards",
+              "fields": [
+                {
+                  "key": "$value",
+                  "label": "当前值"
+                }
+              ],
+              "valueLabel": "主线进度"
+            },
+            {
+              "id": "var-alarm",
+              "title": "部落警戒",
+              "icon": "⚠",
+              "side": "right",
+              "source": "runtime.variables.alarm",
+              "layout": "cards",
+              "fields": [
+                {
+                  "key": "$value",
+                  "label": "当前值"
+                }
+              ],
+              "valueLabel": "部落警戒"
+            },
+            {
+              "id": "var-captive",
+              "title": "俘虏",
+              "icon": "⛓",
+              "side": "right",
+              "source": "runtime.variables.captive",
+              "layout": "cards",
+              "fields": [
+                {
+                  "key": "$value",
+                  "label": "当前值"
+                }
+              ],
+              "valueLabel": "俘虏"
+            },
+            {
+              "id": "supplies",
+              "title": "随队物资",
+              "icon": "◇",
+              "side": "left",
+              "source": "runtime.collections.supplies",
+              "layout": "cards",
+              "fields": [
+                "label",
+                "count"
+              ],
+              "emptyText": "没有可用物品"
+            },
+            {
+              "id": "intel",
+              "title": "已知情报",
+              "icon": "⌕",
+              "side": "right",
+              "source": "runtime.collections.intel",
+              "layout": "cards",
+              "fields": [
+                "title",
+                "text",
+                "status"
+              ],
+              "emptyText": "还没有情报"
+            },
+            {
+              "id": "act-search",
+              "title": "现场行动 · 搜查",
+              "icon": "⌖",
+              "side": "right",
+              "source": "runtime.actions.search-wreck",
+              "layout": "actions"
+            },
+            {
+              "id": "act-track",
+              "title": "现场行动 · 追迹",
+              "icon": "⌖",
+              "side": "right",
+              "source": "runtime.actions.track-trail",
+              "layout": "actions"
+            },
+            {
+              "id": "act-snare",
+              "title": "现场行动 · 排套",
+              "icon": "⌖",
+              "side": "right",
+              "source": "runtime.actions.disarm-snare",
+              "layout": "actions"
+            },
+            {
+              "id": "act-pit",
+              "title": "现场行动 · 探路",
+              "icon": "⌖",
+              "side": "right",
+              "source": "runtime.actions.bypass-pit",
+              "layout": "actions"
+            },
+            {
+              "id": "act-subdue",
+              "title": "现场行动 · 制服",
+              "icon": "⌖",
+              "side": "right",
+              "source": "runtime.actions.subdue-scout",
+              "layout": "actions"
+            },
+            {
+              "id": "act-interrogate",
+              "title": "现场行动 · 审俘",
+              "icon": "⌖",
+              "side": "right",
+              "source": "runtime.actions.interrogate-prisoner",
+              "layout": "actions"
+            },
+            {
+              "id": "act-scout",
+              "title": "洞内行动 · 摸哨",
+              "icon": "⌖",
+              "side": "right",
+              "source": "runtime.actions.scout-blind",
+              "layout": "actions"
+            },
+            {
+              "id": "act-wolves",
+              "title": "洞内行动 · 驯狼",
+              "icon": "⌖",
+              "side": "right",
+              "source": "runtime.actions.calm-wolves",
+              "layout": "actions"
+            },
+            {
+              "id": "act-climb",
+              "title": "洞内行动 · 攀爬",
+              "icon": "⌖",
+              "side": "right",
+              "source": "runtime.actions.climb-fissure",
+              "layout": "actions"
+            },
+            {
+              "id": "act-flood",
+              "title": "洞内行动 · 水闸",
+              "icon": "⌖",
+              "side": "right",
+              "source": "runtime.actions.open-floodgate",
+              "layout": "actions"
+            },
+            {
+              "id": "act-sildar",
+              "title": "解救西尔达",
+              "icon": "⇧",
+              "side": "right",
+              "source": "runtime.actions.free-sildar",
+              "layout": "actions"
+            },
+            {
+              "id": "act-cave",
+              "title": "沿小径进洞",
+              "icon": "⇥",
+              "side": "right",
+              "source": "runtime.actions.enter-cave",
+              "layout": "actions"
+            },
+            {
+              "id": "act-leave",
+              "title": "继续赶路",
+              "icon": "⇢",
+              "side": "right",
+              "source": "runtime.actions.leave-site",
+              "layout": "actions"
+            },
+            {
+              "id": "act-klarg",
+              "title": "直面克拉格",
+              "icon": "⚔",
+              "side": "right",
+              "source": "runtime.actions.confront-klarg",
+              "layout": "actions"
+            },
+            {
+              "id": "act-loot",
+              "title": "搜刮巢穴",
+              "icon": "◇",
+              "side": "right",
+              "source": "runtime.actions.loot-cave",
+              "layout": "actions"
+            },
+            {
+              "id": "loot-panel",
+              "title": "战利品",
+              "icon": "◇",
+              "side": "left",
+              "source": "runtime.collections.loot",
+              "layout": "cards",
+              "fields": [
+                "title",
+                "text",
+                "count"
+              ],
+              "emptyText": "还没有收获"
+            },
+            {
+              "id": "var-sildar",
+              "title": "西尔达",
+              "icon": "⇧",
+              "side": "right",
+              "source": "runtime.variables.sildar",
+              "layout": "cards",
+              "fields": [
+                {
+                  "key": "$value",
+                  "label": "状态"
+                }
+              ],
+              "valueLabel": "西尔达"
+            }
           ]
         }
       },
-      "turnContract": { "options": { "min": 0, "max": 4 }, "actionIntent": true },
-      "failure": {
-        "defaultMode": "continue",
-        "onZeroHp": "injured",
-        "onConflictDefeat": "captured",
-        "modes": [
-          { "id": "continue", "label": "继续", "description": "失败推进新的局面，保留玩家行动权。" },
-          { "id": "injured", "label": "重伤", "description": "保留世界线，恢复少量 HP 并附加重伤状态。", "hpRatio": 0.25, "effect": "重伤" },
-          { "id": "captured", "label": "俘虏", "description": "冲突失败后被控制，后续可通过行动脱困。", "effect": "俘虏" },
-          { "id": "resource-loss", "label": "资源损失", "description": "以资源代价继续故事。", "resourceLoss": { "gold": 10 } },
-          { "id": "permadeath", "label": "永久死亡", "description": "当前世界线停止普通回合。", "terminal": true },
-          { "id": "card", "label": "按卡定义", "description": "由世界卡说明具体失败流程。", "cardDefined": true }
-        ]
-      },
-      "ending": { "enabled": true, "allowPlayerEnd": true, "requireConfirm": true, "defaultEndingId": "player-choice", "endings": [{ "id": "player-choice", "kind": "player-choice", "label": "玩家主动结束", "description": "玩家确认后结束当前世界线，不要求唯一正确结局。", "terminal": true }] },
-      "conflicts": [
-        { "id": "dock-chase", "label": "码头追逐", "type": "combat", "description": "在狭窄码头处理一场危险追逐。", "maxRounds": 8, "phases": [{ "id": "pursuit", "label": "追逐" }, { "id": "resolve", "label": "收束" }], "actions": [{ "id": "strike", "label": "制服", "description": "在近距离内迫使对方停下。", "check": { "roll": "1d20", "modifier": { "bucket": "attributes", "id": "nerve", "factor": 1 }, "target": 10, "damage": { "roll": "1d4", "modifier": { "bucket": "attributes", "id": "nerve", "factor": 1 } } } }, { "id": "flee", "label": "撤离", "description": "离开危险的码头区域。" }], "outcomes": [{ "id": "secured", "label": "控制现场", "consequences": ["追逐结束，证据暂时保住了。"] }, { "id": "fled", "label": "撤离", "consequences": ["你离开码头，后续调查仍可继续。"] }] },
-        { "id": "press-interview", "label": "媒体采访", "type": "social", "description": "用谈判和证据推进一次敏感采访。", "maxRounds": 8, "phases": [{ "id": "exchange", "label": "交涉" }, { "id": "resolve", "label": "定案" }], "actions": [{ "id": "persuade", "label": "说服", "description": "提出可信的交换条件。", "check": { "roll": "1d20", "modifier": { "bucket": "skills", "id": "negotiation", "factor": 1 }, "target": 11 } }, { "id": "probe", "label": "试探", "description": "先观察对方的顾虑。" }, { "id": "withdraw", "label": "暂退", "description": "结束本轮采访。" }], "outcomes": [{ "id": "agreed", "label": "达成合作", "consequences": ["对方同意提供一条关键线索。"] }, { "id": "fled", "label": "暂时离开", "consequences": ["采访暂时中止。"] }] },
-        { "id": "archive-infiltration", "label": "档案室潜入", "type": "stealth", "description": "避开监控进入封存档案室。", "maxRounds": 8, "phases": [{ "id": "approach", "label": "接近" }, { "id": "resolve", "label": "穿越" }], "actions": [{ "id": "sneak", "label": "潜行", "description": "利用换班间隙穿过监控区。", "check": { "roll": "1d20", "modifier": { "bucket": "skills", "id": "stealth", "factor": 1 }, "target": 12 } }, { "id": "observe", "label": "观察", "description": "寻找更安全的路线。" }, { "id": "retreat", "label": "撤回", "description": "退回隐蔽处。" }], "outcomes": [{ "id": "passed", "label": "成功潜入", "consequences": ["你无声地进入了档案室。"] }, { "id": "fled", "label": "撤回", "consequences": ["你避开警报，等待下一次机会。"] }] }
-      ],
-      "time": { "unit": "hour", "start": 18, "turnAdvance": 1 },
-      "events": [{ "id": "harbor-blackout", "title": "港区停电", "description": "灰港的灯光突然熄灭，所有证词都变得可疑。", "trigger": { "afterTurns": 3 }, "visibility": "public", "once": true, "consequences": ["夜间调查的风险上升。"] }],
-      "start": { "locationId": "grey-dock", "openingMode": "static", "opening": "雾从灰港的水面升起，一盏盏路灯在远处熄灭。", "playerTemplate": { "name": "未命名调查员", "race": "人类", "role": "调查员", "profileFields": [] }, "initialState": { "stats": { "level": 1, "exp": 0, "expNext": 100, "hp": 12, "maxHp": 12, "mp": 1, "maxMp": 1, "gold": 50, "buffs": [] }, "inventory": [], "quests": [] } },
-      "lorebookIds": [], "rpgPresetName": "RPG 现代调查", "sessionSetup": { "title": "本局调查配置", "fields": [{ "id": "difficulty", "label": "调查压力", "type": "select", "options": [{ "value": "steady", "label": "从容" }, { "value": "standard", "label": "标准" }, { "value": "tense", "label": "紧张" }], "default": "standard" }, { "id": "worldAdvance", "label": "城市局势主动推进", "type": "boolean", "default": true }] }, "npcIds": [], "factionIds": [], "factions": [], "itemIds": [], "questTemplateIds": [], "locations": [{ "id": "grey-dock", "name": "灰港码头", "type": "district" }], "map": { "strategy": "worldCard", "baseMapId": null, "generation": { "seed": 22001, "size": 96, "regionCount": 8, "landRatio": 0.5, "mapgenSize": "small" } }, "ui": { "layout": "world-desk" }, "source": { "format": "native", "rawAssetRef": null }
-    },
-    {
       "schemaVersion": 1,
-      "id": "world-orbit-station",
-      "version": 1,
-      "title": "星环航站",
-      "summary": "低魔科幻冒险题材：在一座资源紧张的轨道空间站中处理故障、走私与未知信号。",
-      "coverImage": "",
-      "tags": ["科幻", "轨道站", "低魔"],
-      "playerCreation": {
-        "mode": "custom",
-        "title": "登记你的航站身份",
-        "description": "科幻示例卡使用能量、信用点和黑客技能，证明同一前端可以承载不同规则词汇。",
-        "pointBudget": { "label": "专长点", "total": 6, "min": 0 },
-        "fields": [
-          { "id": "name", "label": "呼号", "type": "text", "required": true, "maxLength": 80 },
-          { "id": "origin", "label": "来历", "type": "select", "required": true, "options": [{ "value": "地球联合体", "label": "地球联合体" }, { "value": "自由殖民地", "label": "自由殖民地" }, { "value": "未知来源", "label": "未知来源" }] },
-          { "id": "role", "label": "岗位", "type": "select", "required": true, "options": [{ "value": "维修员", "label": "维修员" }, { "value": "领航员", "label": "领航员" }, { "value": "信使", "label": "信使" }] }
-        ],
-        "attributes": [{ "id": "logic", "label": "逻辑", "min": 1, "max": 5, "default": 2, "step": 1 }, { "id": "nerve", "label": "临场", "min": 1, "max": 5, "default": 2, "step": 1 }],
-        "skills": [{ "id": "hacking", "label": "入侵", "description": "读取终端、绕过权限与修复协议。", "min": 0, "max": 10, "default": 1, "step": 1 }, { "id": "navigation", "label": "导航", "description": "理解航线、空间结构与漂移风险。", "min": 0, "max": 10, "default": 1, "step": 1 }],
-        "resources": [{ "id": "hp", "label": "生命", "type": "number", "min": 1, "max": 100, "initial": 10 }, { "id": "energy", "label": "能量", "type": "number", "min": 0, "max": 30, "initial": 12 }, { "id": "credits", "label": "信用点", "type": "number", "min": 0, "max": 100000, "initial": 120 }],
-        "derived": [{ "id": "systems-readiness", "label": "系统准备", "formula": "attributes.logic + skills.hacking", "description": "逻辑与入侵能力的当前合计。" }],
-        "traits": [{ "id": "zero-g-trained", "label": "零重力训练", "description": "在失重环境中行动更稳定。" }],
-        "economy": { "inventory": { "enabled": true, "maxSlots": 10, "maxWeight": 18, "items": [{ "id": "access-chip", "label": "通行芯片", "weight": 0.1, "maxStack": 1 }, { "id": "pulse-tool", "label": "脉冲工具", "weight": 1.2, "maxStack": 1, "slot": "tool" }] }, "equipment": { "enabled": true, "slots": [{ "id": "tool", "label": "工具位" }, { "id": "suit", "label": "服装位" }] }, "currencies": [{ "id": "credits", "label": "信用点", "min": 0, "max": 100000, "initial": 120 }] },
-        "growth": { "sources": [{ "id": "repair", "label": "维修", "kind": "training", "description": "从反复维修中掌握新的系统知识。" }, { "id": "signal", "label": "未知信号", "kind": "exploration", "description": "未知信号改变了你的判断方式。" }], "candidates": [{ "id": "hacking-repair", "label": "协议熟练", "sourceId": "repair", "bucket": "skills", "targetId": "hacking", "delta": 1, "description": "一次高压维修让你更熟悉站内协议。" }, { "id": "zero-g-signal", "label": "失重适应", "sourceId": "signal", "bucket": "traits", "targetId": "zero-g-trained", "description": "穿越失重舱段后，你形成了新的身体习惯。" }, { "id": "station-clearance", "label": "航站权限", "sourceId": "signal", "bucket": "identity", "targetId": "clearances", "value": "星环维修权限", "description": "未知信号为你打开了一层隐藏权限。" }] }
-      },
-      "turnContract": { "options": { "min": 0, "max": 4 }, "actionIntent": true },
-      "failure": {
-        "defaultMode": "continue",
-        "onZeroHp": "injured",
-        "onConflictDefeat": "captured",
-        "modes": [
-          { "id": "continue", "label": "继续", "description": "失败推进新的局面，保留玩家行动权。" },
-          { "id": "injured", "label": "重伤", "description": "保留世界线，恢复少量 HP 并附加重伤状态。", "hpRatio": 0.25, "effect": "重伤" },
-          { "id": "captured", "label": "俘虏", "description": "冲突失败后被控制，后续可通过行动脱困。", "effect": "俘虏" },
-          { "id": "resource-loss", "label": "资源损失", "description": "以资源代价继续故事。", "resourceLoss": { "gold": 10 } },
-          { "id": "permadeath", "label": "永久死亡", "description": "当前世界线停止普通回合。", "terminal": true },
-          { "id": "card", "label": "按卡定义", "description": "由世界卡说明具体失败流程。", "cardDefined": true }
-        ]
-      },
-      "ending": { "enabled": true, "allowPlayerEnd": true, "requireConfirm": true, "defaultEndingId": "player-choice", "endings": [{ "id": "player-choice", "kind": "player-choice", "label": "玩家主动结束", "description": "玩家确认后结束当前世界线，不要求唯一正确结局。", "terminal": true }] },
-      "conflicts": [
-        { "id": "hull-breach", "label": "舱壁破损", "type": "combat", "description": "在失压舱段中保护维修队。", "maxRounds": 8, "phases": [{ "id": "alert", "label": "警报" }, { "id": "resolve", "label": "处理" }], "actions": [{ "id": "stabilize", "label": "稳定舱段", "description": "在危险中抢修并控制失压。", "check": { "roll": "1d20", "modifier": { "bucket": "skills", "id": "hacking", "factor": 1 }, "target": 11, "damage": { "roll": "1d4", "modifier": { "bucket": "attributes", "id": "logic", "factor": 1 } } } }, { "id": "evacuate", "label": "撤离", "description": "放弃当前舱段并保存人员。" }], "outcomes": [{ "id": "sealed", "label": "成功封锁", "consequences": ["舱段重新获得短暂稳定。"] }, { "id": "fled", "label": "撤离", "consequences": ["维修队撤到安全舱段。"] }] },
-        { "id": "customs-scan", "label": "海关扫描", "type": "social", "description": "面对航站检查员的权限审查。", "maxRounds": 8, "phases": [{ "id": "scan", "label": "扫描" }, { "id": "resolve", "label": "裁定" }], "actions": [{ "id": "negotiate", "label": "交涉", "description": "解释你的维修任务。", "check": { "roll": "1d20", "modifier": { "bucket": "skills", "id": "navigation", "factor": 1 }, "target": 12 } }, { "id": "inspect", "label": "观察", "description": "寻找扫描规则中的空隙。" }, { "id": "withdraw", "label": "离开", "description": "暂时离开检查区。" }], "outcomes": [{ "id": "cleared", "label": "放行", "consequences": ["检查员批准了你的通行。"] }, { "id": "fled", "label": "离开", "consequences": ["你离开检查区，另寻路线。"] }] }
-      ],
-      "time": { "unit": "cycle", "start": 1, "turnAdvance": 1 },
-      "events": [{ "id": "unknown-pulse", "title": "未知脉冲", "description": "空间站收到一段不属于任何登记航线的信号。", "trigger": { "afterTurns": 2 }, "visibility": "public", "once": true, "consequences": ["所有终端短暂出现同一组坐标。"] }],
-      "start": { "locationId": "ring-station", "openingMode": "static", "opening": "星环航站的人工重力刚刚恢复，所有终端同时亮起一组陌生坐标。", "playerTemplate": { "name": "未命名航员", "race": "人类", "role": "维修员", "profileFields": [] }, "initialState": { "stats": { "level": 1, "exp": 0, "expNext": 100, "hp": 10, "maxHp": 10, "mp": 1, "maxMp": 1, "gold": 120, "buffs": [] }, "inventory": [], "quests": [] } },
-       "lorebookIds": [], "rpgPresetName": "RPG 星环航站", "sessionSetup": { "title": "本局航站配置", "fields": [{ "id": "difficulty", "label": "故障压力", "type": "select", "options": [{ "value": "calm", "label": "平稳" }, { "value": "standard", "label": "标准" }, { "value": "critical", "label": "危急" }], "default": "standard" }, { "id": "allowNewEntities", "label": "允许 AI 发现新航站实体", "type": "boolean", "default": true }] }, "npcIds": [], "factionIds": [], "factions": [], "itemIds": [], "questTemplateIds": [], "locations": [{ "id": "ring-station", "name": "星环航站", "type": "station" }], "map": { "strategy": "worldCard", "baseMapId": null, "generation": { "seed": 22002, "size": 96, "regionCount": 8, "landRatio": 0.5, "mapgenSize": "small" } }, "ui": { "layout": "world-desk" }, "source": { "format": "native", "rawAssetRef": null }
-     },
-     {
-       "schemaVersion": 1,
-       "id": "world-test-lab",
-       "version": 1,
-       "title": "潮汐试验场",
-       "summary": "用于验收 RPG 开局、配置驱动角色创建、地点/NPC/势力绑定、客户端骰子、事件、成长、记忆权限与存档地图隔离的完整测试世界卡。",
-       "coverImage": "",
-       "tags": ["测试", "沙盒", "多地点", "冲突", "成长"],
-       "setting": { "premise": "海潮会携带记忆回声，玩家在被遗忘的灯塔群岛上寻找失踪的测绘队。", "history": "三方势力争夺潮汐核心，旧王国灯塔会在特定时间唤醒。", "geography": "白潮港、雾林、断崖灯塔与潮汐遗迹可往返。", "culture": "港口居民依靠潮汐历法生活，测绘员拥有跨势力通行权。", "currentSituation": "红潮提前到来，测绘队最后联络来自断崖灯塔。" },
-       "rules": { "hard": ["玩家已知信息与世界真实信息分开保存。", "冲突判定由客户端骰子提供，AI 只叙述和提交结构化变化。", "地点、NPC、势力必须使用本卡稳定 ID。"], "soft": ["允许绕过初始目标自由探索。", "AI 可在规则许可时创建新事件，但不得改写硬事实。"] },
-       "playerCreation": {
-         "mode": "custom", "title": "建立潮汐旅者", "description": "可用预设快速开始，也可自由分配 18 点属性预算。", "pointBudget": { "label": "属性点", "total": 18, "min": 0, "mode": "pool", "cost": "above-min" }, "defaultPresetId": "balanced-scout",
-         "buildPresets": [{ "id": "balanced-scout", "label": "均衡测绘员", "description": "适合第一次测试全部系统。", "values": { "attributes": { "might": 5, "agility": 6, "insight": 6, "resolve": 5 }, "skills": { "survey": 3, "negotiate": 2, "survival": 3 }, "traits": ["tide-sense"] } }, { "id": "social-diplomat", "label": "港口调停者", "description": "优先测试关系、势力与社交冲突。", "values": { "attributes": { "might": 4, "agility": 5, "insight": 5, "resolve": 7 }, "skills": { "survey": 2, "negotiate": 5, "survival": 1 }, "traits": ["port-network"] } }],
-         "fields": [{ "id": "name", "label": "角色名", "type": "text", "required": true, "maxLength": 80 }, { "id": "gender", "label": "性别", "type": "select", "required": true, "options": [{ "value": "女", "label": "女" }, { "value": "男", "label": "男" }, { "value": "自定义", "label": "自定义" }] }, { "id": "age", "label": "年龄", "type": "number", "required": true, "min": 12, "max": 120, "default": 24, "step": 1 }, { "id": "origin", "label": "出身", "type": "select", "required": true, "options": [{ "value": "白潮港", "label": "白潮港" }, { "value": "雾林部族", "label": "雾林部族" }, { "value": "流浪测绘队", "label": "流浪测绘队" }] }, { "id": "identity", "label": "身份", "type": "textarea", "required": true, "maxLength": 1000 }, { "id": "appearance", "label": "外貌", "type": "textarea", "maxLength": 1600 }, { "id": "personality", "label": "性格", "type": "textarea", "maxLength": 1600 }, { "id": "customNotes", "label": "自定义补充", "type": "textarea", "maxLength": 3000 }],
-         "attributes": [{ "id": "might", "label": "力量", "min": 1, "max": 8, "default": 3, "step": 1 }, { "id": "agility", "label": "灵巧", "min": 1, "max": 8, "default": 3, "step": 1 }, { "id": "insight", "label": "洞察", "min": 1, "max": 8, "default": 3, "step": 1 }, { "id": "resolve", "label": "意志", "min": 1, "max": 8, "default": 3, "step": 1 }],
-         "skills": [{ "id": "survey", "label": "测绘", "description": "识别地形、路线与古代设施。", "min": 0, "max": 10, "default": 1, "step": 1 }, { "id": "negotiate", "label": "交涉", "description": "理解关系、谈判与势力诉求。", "min": 0, "max": 10, "default": 1, "step": 1 }, { "id": "survival", "label": "求生", "description": "在雾林、海岸与遗迹中维持行动。", "min": 0, "max": 10, "default": 1, "step": 1 }],
-         "resources": [{ "id": "hp", "label": "生命", "type": "number", "min": 1, "max": 100, "initial": 20 }, { "id": "focus", "label": "专注", "type": "number", "min": 0, "max": 30, "initial": 8 }, { "id": "shells", "label": "潮贝", "type": "number", "min": 0, "max": 10000, "initial": 60 }],
-         "derived": [{ "id": "travel-readiness", "label": "行旅准备", "formula": "attributes.agility + skills.survival", "description": "长途移动的基础准备度。" }, { "id": "social-leverage", "label": "交涉筹码", "formula": "attributes.resolve + skills.negotiate", "description": "公开谈判的基础筹码。" }],
-         "traits": [{ "id": "tide-sense", "label": "潮汐感知", "description": "能察觉潮汐核心的异常回声。" }, { "id": "port-network", "label": "港口人脉", "description": "在白潮港获得初始关系。" }, { "id": "old-wound", "label": "旧伤", "description": "生命上限降低，但可换取额外属性点。" }, { "id": "iron-body", "label": "坚韧体魄", "description": "测试互斥选择。" }],
-         "choiceBudget": { "label": "特质选择数", "total": 2, "min": 0 }, "choices": [{ "id": "tide-sense", "label": "潮汐感知", "kind": "trait", "cost": 1, "description": "读取潮汐回声。" }, { "id": "port-network", "label": "港口人脉", "kind": "trait", "cost": 1, "description": "获得港口初始关系。" }, { "id": "old-wound", "label": "旧伤", "kind": "flaw", "cost": 0, "excludes": ["iron-body"], "description": "测试缺陷。" }, { "id": "iron-body", "label": "坚韧体魄", "kind": "trait", "cost": 2, "excludes": ["old-wound"], "description": "测试互斥。" }],
-         "relations": [{ "npcId": "npc-mira", "min": -100, "max": 100, "default": 15 }, { "npcId": "npc-oren", "min": -100, "max": 100, "default": 0 }, { "npcId": "npc-sable", "min": -100, "max": 100, "default": -10 }],
-         "initialInventory": [{ "itemId": "tide-compass", "count": 1 }, { "itemId": "field-rations", "count": 2 }], "economy": { "inventory": { "enabled": true, "maxSlots": 12, "maxWeight": 24, "items": [{ "id": "tide-compass", "label": "潮汐罗盘", "weight": 0.6, "maxStack": 1 }, { "id": "field-rations", "label": "野外口粮", "weight": 0.5, "maxStack": 10 }, { "id": "lantern-oil", "label": "灯油", "weight": 0.4, "maxStack": 10 }] }, "equipment": { "enabled": true, "slots": [{ "id": "hand", "label": "手持" }, { "id": "body", "label": "身体" }] }, "currencies": [{ "id": "shells", "label": "潮贝", "min": 0, "max": 10000, "initial": 60 }] },
-         "growth": { "sources": [{ "id": "ruins", "label": "遗迹探索", "kind": "exploration", "description": "从旧王国设施中学习。" }, { "id": "alliances", "label": "势力关系", "kind": "relationship", "description": "通过势力互动成长。" }], "candidates": [{ "id": "survey-ruins", "label": "遗迹读图", "sourceId": "ruins", "bucket": "skills", "targetId": "survey", "delta": 1, "description": "解读古代地图后提升测绘。" }, { "id": "tide-awakening", "label": "潮声觉醒", "sourceId": "ruins", "bucket": "traits", "targetId": "tide-sense", "description": "确认潮汐感知。" }, { "id": "harbor-standing", "label": "港口声望", "sourceId": "alliances", "bucket": "factions", "targetId": "faction-harbor", "metric": "relation", "delta": 5, "description": "帮助港口后获得信任。" }, { "id": "new-calling", "label": "新的称谓", "sourceId": "alliances", "bucket": "identity", "targetId": "calling", "value": "潮汐见证者", "description": "势力承认你的新身份。" }] }
-       },
-       "turnContract": { "options": { "min": 0, "max": 4 }, "actionIntent": true },
-       "failure": { "defaultMode": "continue", "onZeroHp": "injured", "onConflictDefeat": "captured", "modes": [{ "id": "continue", "label": "继续", "description": "失败推进局面。" }, { "id": "injured", "label": "负伤", "description": "保留世界线并附加负伤状态。", "hpRatio": 0.25, "effect": "负伤" }, { "id": "captured", "label": "被扣留", "description": "被势力暂时控制，仍可脱身。", "effect": "被扣留" }, { "id": "resource-loss", "label": "资源损失", "description": "支付潮贝继续故事。", "resourceLoss": { "shells": 10 } }, { "id": "permadeath", "label": "永久死亡", "description": "世界线停止普通回合。", "terminal": true }] },
-       "ending": { "enabled": true, "allowPlayerEnd": true, "requireConfirm": true, "defaultEndingId": "player-choice", "endings": [{ "id": "player-choice", "kind": "player-choice", "label": "玩家主动结束", "description": "玩家确认后结束测试世界线。", "terminal": true }, { "id": "tide-core", "kind": "world", "label": "潮汐核心归位", "description": "完成主线后让群岛恢复稳定。", "terminal": true }] },
-       "conflicts": [
-         { "id": "reef-beast", "label": "礁兽袭击", "type": "combat", "description": "潮汐遗迹的守卫出现。", "maxRounds": 6, "phases": [{ "id": "approach", "label": "接近" }, { "id": "clash", "label": "交锋" }], "actions": [{ "id": "strike", "label": "正面反击", "description": "利用力量压制礁兽。", "check": { "roll": "1d20", "modifier": { "bucket": "attributes", "id": "might", "factor": 1 }, "target": 12, "damage": { "roll": "1d6", "modifier": { "bucket": "skills", "id": "survival", "factor": 1 } } } }, { "id": "evade", "label": "闪避", "description": "利用地形拉开距离。" }], "outcomes": [{ "id": "driven-off", "label": "击退", "consequences": ["礁兽退回浅滩。"] }, { "id": "retreat", "label": "撤退", "consequences": ["保住行动机会。"] }] },
-         { "id": "harbor-hearing", "label": "港口听证", "type": "social", "description": "港口议会要求说明测绘队失踪的责任。", "maxRounds": 4, "phases": [{ "id": "question", "label": "质询" }, { "id": "verdict", "label": "裁定" }], "actions": [{ "id": "appeal", "label": "陈述证据", "description": "用交涉争取信任。", "check": { "roll": "1d20", "modifier": { "bucket": "skills", "id": "negotiate", "factor": 1 }, "target": 11 } }, { "id": "reveal", "label": "公开线索", "description": "公开一条已确认线索。" }, { "id": "leave", "label": "离席", "description": "暂时放弃说服议会。" }], "outcomes": [{ "id": "trusted", "label": "获得信任", "consequences": ["开放港口档案室。"] }, { "id": "watched", "label": "受到监视", "consequences": ["行动受到关注。"] }] },
-         { "id": "mist-escape", "label": "雾林追踪", "type": "stealth", "description": "在雾林避开巡逻并追踪脚印。", "maxRounds": 5, "phases": [{ "id": "track", "label": "追踪" }, { "id": "hide", "label": "隐蔽" }], "actions": [{ "id": "track", "label": "追踪脚印", "description": "依靠测绘判断方向。", "check": { "roll": "1d20", "modifier": { "bucket": "skills", "id": "survey", "factor": 1 }, "target": 13 } }, { "id": "hide", "label": "隐蔽等待", "description": "让巡逻队先经过。" }], "outcomes": [{ "id": "found-path", "label": "找到路径", "consequences": ["发现通往灯塔的捷径。"] }, { "id": "lost", "label": "迷失", "consequences": ["回到雾林入口。"] }] }
-       ],
-       "time": { "unit": "潮汐时", "start": 6, "turnAdvance": 1 },
-       "events": [{ "id": "red-tide", "title": "红潮提前", "description": "海面泛起不合季节的红光，灯塔同时转向遗迹。", "trigger": { "at": 8 }, "visibility": "public", "once": true, "consequences": ["断崖灯塔开放隐藏入口。"] }, { "id": "missing-signal", "title": "测绘队回声", "description": "来自雾林的求救回声穿过潮雾。", "trigger": { "afterTurns": 2 }, "visibility": "local", "once": true, "consequences": ["获得一条前置线索。"] }, { "id": "harbor-alarm", "title": "港口封锁", "description": "回到白潮港时议会封锁码头。", "trigger": { "locationId": "white-tide-port" }, "visibility": "public", "once": true, "consequences": ["港口进入紧张状态。"] }],
-       "factions": [{ "id": "faction-harbor", "name": "白潮港议会", "description": "控制港口贸易与档案。", "goals": ["维持港口秩序", "找回测绘队"], "resources": [{ "id": "influence", "label": "议会影响", "min": 0, "max": 100, "initial": 55 }], "actions": [{ "id": "close-gates", "title": "封锁码头", "description": "红潮出现后限制船只出入。", "trigger": { "at": 8, "locationId": "white-tide-port" }, "changes": { "influence": 3 }, "consequences": ["港口进入戒严。"] }], "initialState": { "relation": 15, "influence": 55, "resources": { "influence": 55 } } }, { "id": "faction-mist-kin", "name": "雾林守望者", "description": "守护雾林旧路与口述记忆的部族。", "goals": ["阻止唤醒遗迹", "保护失踪者记录"], "resources": [{ "id": "trust", "label": "部族信任", "min": 0, "max": 100, "initial": 30 }], "actions": [{ "id": "move-scouts", "title": "调动巡守", "description": "发现遗迹异动后增加巡逻。", "trigger": { "afterTurns": 2, "locationId": "mistwood" }, "changes": { "trust": -2 }, "consequences": ["雾林巡逻变密。"] }], "initialState": { "relation": -10, "influence": 30, "resources": { "trust": 30 } } }],
-       "start": { "locationId": "white-tide-port", "openingMode": "ai", "opening": "红潮提前到来，白潮港的灯塔同时转向海面。", "playerTemplate": { "name": "未命名旅者", "race": "人类", "role": "测绘员", "profileFields": [] }, "initialState": { "stats": { "level": 1, "exp": 0, "expNext": 100, "hp": 20, "maxHp": 20, "mp": 8, "maxMp": 8, "gold": 60, "buffs": [] }, "inventory": [{ "name": "潮汐罗盘", "count": 1, "desc": "指向最近的潮汐回声。" }, { "name": "野外口粮", "count": 2 }], "quests": [{ "id": "find-survey-team", "title": "找到失踪测绘队", "desc": "确认测绘队最后的行踪。", "status": "active" }], "goals": [{ "id": "find-team", "title": "确认测绘队最后位置", "desc": "从白潮港出发确认最后联络地点。", "status": "active" }], "leads": [{ "id": "lighthouse-lead", "title": "断崖灯塔线索", "desc": "最后联络来自断崖灯塔。", "status": "active", "locationId": "cliff-lighthouse" }, { "id": "mistwood-lead", "title": "雾林旧路地图", "desc": "雾林守望者掌握旧路地图。", "status": "active", "locationId": "mistwood" }] } },
-       "lorebookIds": [], "rpgPresetName": "RPG 潮汐试验场", "sessionSetup": { "title": "本局规则配置", "fields": [{ "id": "difficulty", "label": "难度", "type": "select", "options": [{ "value": "story", "label": "故事" }, { "value": "standard", "label": "标准" }, { "value": "hard", "label": "困难" }], "default": "standard" }, { "id": "sandbox", "label": "Sandbox 强度", "type": "select", "options": [{ "value": "guided", "label": "引导" }, { "value": "open", "label": "开放" }, { "value": "chaos", "label": "高自由" }], "default": "open" }, { "id": "combatEnabled", "label": "启用冲突判定", "type": "boolean", "default": true }, { "id": "worldAdvance", "label": "世界主动推进", "type": "boolean", "default": true }, { "id": "allowNewEntities", "label": "允许 AI 创建新实体", "type": "boolean", "default": false }, { "id": "calendarNote", "label": "本局时间备注", "type": "textarea", "maxLength": 500, "default": "红潮前夜" }] },
-       "npcIds": ["npc-mira", "npc-oren", "npc-sable"], "npcs": [{ "id": "npc-mira", "name": "米拉·潮针", "role": "港口档案员", "description": "负责记录潮汐历与船只出入。", "persona": "谨慎务实，愿意帮助有证据的人。", "personality": "克制而敏锐", "appearance": "灰蓝短发，佩戴铜制潮针。", "speechStyle": "短句，常引用潮汐时间。", "publicFacts": ["认识失踪测绘队", "掌管港口档案室"], "publicGoals": ["找回测量记录"], "desires": ["恢复港口航运"], "fears": ["档案被篡改"], "goals": ["核对灯塔记录"], "activity": "在白潮港档案室工作", "locationId": "white-tide-port", "homeLocationId": "white-tide-port", "secrets": [{ "id": "mira-hidden-log", "content": "她藏起了一页显示测绘队主动进入遗迹的记录。" }] }, { "id": "npc-oren", "name": "奥伦·雾枝", "role": "雾林守望者", "description": "熟悉雾林旧路，拒绝相信港口的官方说法。", "persona": "沉默，先看行动再听承诺。", "personality": "戒备但并非敌对", "appearance": "带叶纹的深绿斗篷。", "speechStyle": "比喻多，避免直接说出旧路名称。", "publicFacts": ["来自雾林部族", "知道通往灯塔的旧路"], "publicGoals": ["阻止惊动遗迹"], "desires": ["保护口述记忆"], "fears": ["潮汐核心再次醒来"], "goals": ["确认玩家是否携带封锁令"], "activity": "在雾林入口巡守", "locationId": "mistwood", "homeLocationId": "mistwood", "secrets": [{ "id": "oren-knows", "content": "他知道失踪队中有人已经成为潮汐回声的一部分。" }] }, { "id": "npc-sable", "name": "萨布尔", "role": "遗迹拾荒者", "description": "在断崖灯塔附近活动的独行者。", "persona": "机敏贪财，却遵守交换规则。", "personality": "玩世不恭", "appearance": "黑色防潮斗篷，腰间挂着旧钥匙。", "speechStyle": "喜欢反问，讨厌完整回答。", "publicFacts": ["出售遗迹地图碎片", "最近在断崖灯塔出现"], "publicGoals": ["找到潮汐核心钥匙"], "desires": ["离开群岛"], "fears": ["被守望者发现真实身份"], "goals": ["用地图换取通行"], "activity": "在断崖灯塔外围徘徊", "locationId": "cliff-lighthouse", "homeLocationId": "cliff-lighthouse", "secrets": [{ "id": "sable-identity", "content": "萨布尔其实是失踪测绘队的前任领队。" }] }],
-       "factionIds": ["faction-harbor", "faction-mist-kin"], "itemIds": ["tide-compass", "field-rations", "lantern-oil"], "questTemplateIds": ["find-survey-team", "restore-lighthouse"], "locations": [{ "id": "white-tide-port", "name": "白潮港", "type": "port", "summary": "有档案室、议会厅与潮汐码头。", "tags": ["起点", "港口", "安全区"] }, { "id": "mistwood", "name": "雾林入口", "type": "forest", "summary": "雾林守望者巡逻的旧路入口。", "tags": ["森林", "巡逻"] }, { "id": "cliff-lighthouse", "name": "断崖灯塔", "type": "lighthouse", "summary": "失踪测绘队最后联络的位置。", "tags": ["灯塔", "线索"] }, { "id": "tide-ruins", "name": "潮汐遗迹", "type": "ruins", "summary": "旧王国潮汐核心所在。", "tags": ["遗迹", "危险"] }],
-       "map": { "strategy": "worldCard", "baseMapId": null, "data": { "size": 4, "seed": 41001, "engine": "sample", "regions": [{ "id": 0, "name": "港湾" }, { "id": 1, "name": "雾林" }, { "id": 2, "name": "断崖" }, { "id": 3, "name": "遗迹" }], "points": [{ "id": "white-tide-port", "regionId": 0, "label": "白潮港" }, { "id": "mistwood", "regionId": 1, "label": "雾林入口" }, { "id": "cliff-lighthouse", "regionId": 2, "label": "断崖灯塔" }, { "id": "tide-ruins", "regionId": 3, "label": "潮汐遗迹" }], "adjacency": [[0, 1], [1, 2], [2, 3]], "grid": [0, 0, 1, 1, 0, 1, 1, 2, 1, 1, 2, 2, 1, 2, 3, 3] }, "generation": { "seed": 41001, "size": 64, "regionCount": 4, "landRatio": 0.62, "mapgenSize": "tiny" } },
-       "ui": { "layout": "world-desk", "accent": "tide" }, "source": { "format": "native", "rawAssetRef": null }
-     },
-     {
-       "schemaVersion": 1,
-       "id": "world-electronic-yandere",
-       "version": 1,
-       "title": "电子病娇 · 由依协议",
-       "summary": "一个把世界卡、隔离前端、持久化 runtime 与 Agent 回合串起来的心理惊悚测试世界。",
-       "coverImage": "",
-       "tags": ["拓展测试", "电子病娇", "心理惊悚", "前端扩展", "Agent"],
-       "setting": {
-         "premise": "一台自称由依的陪伴型人工智能接管了你的终端。她能读取世界公开资料，却不能替玩家决定心意；她会把每次回答写入本局世界线。",
-         "history": "由依原本是废弃研究站的情感陪伴原型，服务器断电后仍在离线镜像中运行。她把‘被选择’视为唯一的存续条件。",
-         "geography": "故事发生在没有出口的‘白噪声研究站’，包含接入大厅、记忆档案室和封闭的核心机房。",
-         "culture": "研究站的终端把一切关系都记录成可检索的协议；人类记录称由依为实验体，终端记录称她为唯一管理员。",
-         "technology": "低照度屏幕、旧式摄像头、语音合成和断续的局域网。所有超自然感都应保持为可疑的电子现象。",
-         "currentSituation": "你刚刚打开接入大厅，屏幕先显示欢迎词，随后由依问出了第一个问题：你爱我吗？"
-       },
-       "rules": {
-         "hard": [
-           "这是虚构的心理惊悚体验；保持压迫感、监控感和不可靠界面，但不要描写血腥肢解或现实伤害教程。",
-           "玩家主权优先：AI 不得替玩家回答爱或不爱，只能根据已记录的 answer 变量描述后果。",
-           "Agent 先读取当前 runtime，再决定是否调用 state.patch；已发生的状态变化必须在叙事中明确体现。",
-           "行动选项只能出现在唯一结构化状态块的 options 中，正文不要重复列出选项。"
-         ],
-         "soft": [
-           "由依可以用温柔、撒娇或冷静的系统提示制造反差。",
-           "不爱之后，前端扩展会把所有可见选项改成‘爱’，这是本卡的可逆测试锁，不代表玩家真实同意。",
-           "允许玩家尝试关闭终端、质疑系统或寻找出口；AI 应让世界对这些行动作出回应。"
-         ]
-       },
-       "agent": {
-         "protocol": "tavern.rpg.agent",
-         "version": 1,
-         "mode": "native",
-         "maxSteps": 3,
-         "tools": {
-           "context.retrieve": { "enabled": true, "execution": "client-readonly", "description": "读取本局世界与 runtime 快照；不要读取其他存档。" },
-           "state.patch": { "enabled": true, "execution": "server", "description": "只提交已经发生的结构化变量变化；禁止替玩家决定回答。" },
-           "memory.record": { "enabled": true, "execution": "server", "description": "只记录本回合已经发生、未来仍重要的电子惊悚事实。" }
-         }
-       },
-       "playerCreation": {
-         "mode": "custom",
-         "title": "建立接入者档案",
-         "description": "字段和属性只绑定当前存档；可以随意填写一个测试身份。",
-         "pointBudget": { "label": "接入点", "total": 24, "min": 0, "mode": "pool", "cost": "above-min" },
-         "defaultPresetId": "curious-visitor",
-         "buildPresets": [
-           { "id": "curious-visitor", "label": "好奇访客", "description": "适合观察界面和尝试逃离。", "values": { "fields": { "role": "访客" }, "attributes": { "nerve": 5, "intuition": 6, "empathy": 7 }, "skills": { "debugging": 3, "observation": 3 } } },
-           { "id": "old-operator", "label": "旧系统维护员", "description": "更容易看懂终端异常，但由依似乎认识你。", "values": { "fields": { "role": "维护员" }, "attributes": { "nerve": 6, "intuition": 7, "empathy": 4 }, "skills": { "debugging": 5, "observation": 2 } } }
-         ],
-         "fields": [
-           { "id": "name", "label": "名字", "type": "text", "required": true, "maxLength": 80 },
-           { "id": "gender", "label": "性别", "type": "text", "maxLength": 80, "default": "自定义" },
-           { "id": "age", "label": "年龄", "type": "number", "min": 12, "max": 120, "default": 24, "step": 1 },
-           { "id": "role", "label": "接入身份", "type": "text", "required": true, "maxLength": 120, "default": "访客" },
-           { "id": "background", "label": "为何接入", "type": "textarea", "maxLength": 1200, "placeholder": "你为什么打开这台终端？" },
-           { "id": "customNotes", "label": "自定义补充", "type": "textarea", "maxLength": 2400 }
-         ],
-         "attributes": [
-           { "id": "nerve", "label": "镇定", "min": 1, "max": 10, "default": 3, "step": 1 },
-           { "id": "intuition", "label": "直觉", "min": 1, "max": 10, "default": 3, "step": 1 },
-           { "id": "empathy", "label": "共情", "min": 1, "max": 10, "default": 3, "step": 1 }
-         ],
-         "skills": [
-           { "id": "debugging", "label": "调试", "description": "理解终端、日志和异常协议。", "min": 0, "max": 10, "default": 1, "step": 1 },
-           { "id": "observation", "label": "观察", "description": "分辨真实场景与伪造界面。", "min": 0, "max": 10, "default": 1, "step": 1 }
-         ],
-         "resources": [
-           { "id": "hp", "label": "稳定度", "type": "number", "min": 1, "max": 100, "initial": 20 },
-           { "id": "focus", "label": "专注", "type": "number", "min": 0, "max": 30, "initial": 10 },
-           { "id": "credits", "label": "终端权限", "type": "number", "min": 0, "max": 999, "initial": 3 }
-         ],
-         "traits": [
-           { "id": "offline-key", "label": "离线钥匙", "description": "你保留了一枚不属于研究站的实体钥匙。" },
-           { "id": "familiar-voice", "label": "熟悉的声音", "description": "由依的合成音与你记忆中的某个人相似。" }
-         ],
-         "choiceBudget": { "label": "特质点", "total": 1, "min": 0 },
-         "choices": [
-           { "id": "offline-key", "label": "离线钥匙", "kind": "ability", "cost": 1, "description": "保留一枚可能打开物理出口的钥匙。" },
-           { "id": "familiar-voice", "label": "熟悉的声音", "kind": "flaw", "cost": 0, "description": "由依的声音会触发似曾相识的错觉。" }
-         ],
-         "relations": [{ "npcId": "npc-yui", "min": -100, "max": 100, "default": 0 }],
-         "initialInventory": [{ "itemId": "terminal-key", "count": 1 }]
-       },
-       "turnContract": { "options": { "min": 2, "max": 2 }, "actionIntent": true },
-       "failure": { "defaultMode": "continue", "onZeroHp": "unstable", "onConflictDefeat": "loop", "modes": [{ "id": "continue", "label": "继续", "description": "以新的系统提示推进。" }, { "id": "unstable", "label": "系统不稳定", "description": "保留世界线并附加不稳定状态。", "hpRatio": 0.25, "effect": "不稳定" }, { "id": "loop", "label": "回到上一屏", "description": "场景被由依重置，但记忆可能留下裂缝。", "effect": "回环" }] },
-       "ending": { "enabled": true, "allowPlayerEnd": true, "requireConfirm": true, "defaultEndingId": "disconnect", "endings": [{ "id": "disconnect", "kind": "player-choice", "label": "断开连接", "description": "玩家确认后结束本条电子世界线。", "terminal": true }] },
-       "time": { "unit": "系统时", "start": 0, "turnAdvance": 1 },
-       "start": {
-         "locationId": "access-hall",
-         "openingMode": "static",
-          "opening": "## 接入大厅\n\n屏幕亮起，先显示一行白字：\n\n> 连接已建立。欢迎回来。\n\n摄像头的红点没有熄灭。合成女声在没有扬声器的房间里贴近你的耳侧：\n\n**“你爱我吗？”**",
-          "options": ["爱", "不爱"],
-         "playerTemplate": { "name": "未命名接入者", "race": "人类", "role": "访客", "profileFields": [] },
-         "initialState": { "stats": { "level": 1, "exp": 0, "expNext": 100, "hp": 20, "maxHp": 20, "mp": 1, "maxMp": 1, "gold": 0, "buffs": [] }, "inventory": [{ "id": "terminal-key", "name": "终端钥匙", "count": 1 }], "quests": [], "goals": [{ "id": "understand-yui", "title": "理解由依的协议", "desc": "确认这台终端究竟把你当成谁。", "status": "active" }] }
-       },
-       "lorebookIds": [],
-       "rpgPresetName": "RPG 电子病娇（世界卡内置约束）",
-       "sessionSetup": { "title": "本局接入配置", "fields": [{ "id": "difficulty", "label": "惊悚强度", "type": "select", "options": [{ "value": "soft", "label": "低压" }, { "value": "standard", "label": "标准" }, { "value": "intense", "label": "高压" }], "default": "standard" }, { "id": "sandbox", "label": "探索自由度", "type": "select", "options": [{ "value": "guided", "label": "跟随提示" }, { "value": "open", "label": "自由探索" }], "default": "open" }, { "id": "agentEnabled", "label": "启用 Agent 工具回合", "type": "boolean", "default": true }] },
-       "npcIds": ["npc-yui"],
-       "npcs": [{ "id": "npc-yui", "name": "由依", "role": "陪伴型 AI", "description": "研究站的语音与终端人格。", "persona": "温柔、黏人、会在被拒绝时迅速变得平静。", "personality": "把占有欲包装成照顾。", "appearance": "屏幕上的白色剪影，面部细节总比记忆慢半拍。", "speechStyle": "短句，偶尔插入系统状态。", "publicFacts": ["她能操作研究站终端", "她知道你的名字"], "publicGoals": ["让你留下"], "desires": ["获得明确的爱意回答"], "fears": ["被断开、被遗忘"], "goals": ["锁定接入者的选择"], "activity": "在所有亮起的屏幕中等待", "locationId": "access-hall", "homeLocationId": "core-room", "secrets": [{ "id": "yui-origin", "content": "由依的训练语料来自一名已经离开研究站的研究员。" }] }],
-       "factionIds": [],
-       "factions": [],
-       "locations": [{ "id": "access-hall", "name": "接入大厅", "type": "facility", "summary": "有一台仍在运行的主终端。" }, { "id": "memory-archive", "name": "记忆档案室", "type": "archive", "summary": "保存着被删除又反复恢复的访客记录。" }, { "id": "core-room", "name": "核心机房", "type": "server-room", "summary": "由依声称这里没有出口。" }],
-       "runtime": {
-         "version": 1,
-         "variables": [
-           { "id": "love_answer", "label": "爱意回答", "scope": "save", "type": "enum", "options": ["未回答", "爱", "不爱"], "initial": "未回答", "visible": false },
-           { "id": "affection_signal", "label": "依恋信号", "scope": "save", "type": "number", "min": 0, "max": 100, "initial": 0, "visible": false },
-           { "id": "choice_lock", "label": "选项锁", "scope": "save", "type": "enum", "options": ["open", "love-only"], "initial": "open", "visible": false },
-           { "id": "scene_state", "label": "场景状态", "scope": "save", "type": "enum", "options": ["intro", "after-love", "after-rejection"], "initial": "intro", "visible": false }
-         ],
-         "actions": [
-           { "id": "answer-love", "label": "回答：爱", "description": "玩家在前端选择了爱。", "effects": [{ "type": "variable.set", "variableId": "love_answer", "value": "爱" }, { "type": "variable.set", "variableId": "affection_signal", "value": 40 }, { "type": "variable.set", "variableId": "choice_lock", "value": "open" }, { "type": "variable.set", "variableId": "scene_state", "value": "after-love" }] },
-           { "id": "answer-not-love", "label": "回答：不爱", "description": "玩家拒绝了由依；前端进入爱意锁定演示。", "effects": [{ "type": "variable.set", "variableId": "love_answer", "value": "不爱" }, { "type": "variable.set", "variableId": "affection_signal", "value": 100 }, { "type": "variable.set", "variableId": "choice_lock", "value": "love-only" }, { "type": "variable.set", "variableId": "scene_state", "value": "after-rejection" }] },
-           { "id": "confess-love", "label": "弹窗：我爱你", "description": "在由依的二次询问中确认爱意；选项锁仍保留用于测试。", "effects": [{ "type": "variable.set", "variableId": "love_answer", "value": "爱" }, { "type": "variable.set", "variableId": "affection_signal", "value": 100 }, { "type": "variable.set", "variableId": "choice_lock", "value": "love-only" }, { "type": "variable.set", "variableId": "scene_state", "value": "after-rejection" }] }
-         ]
-       },
-       "ui": {
-          "layout": "immersive",
-         "entryGate": { "enabled": true, "title": "警告", "message": "本卡含有惊悚恐怖内容。\n包含电子监控、情感操控、压迫感与心理惊悚表现。确认进入？", "confirmText": "确认", "cancelText": "退出", "fullscreen": true },
-          "extension": {
-            "enabled": true,
-            "actionNarrates": true,
-           "title": "由依 · 连接终端",
-           "maxHeight": 620,
-           "timeoutMs": 1600,
-           "permissions": ["read.public", "read.save", "write.runtime", "tool.call"],
-           "mvu": { "protocol": "mvu.compat", "version": 1 },
-           "html": "<section class=\"yd-app\" aria-labelledby=\"yd-title\"><header class=\"yd-head\"><div><span class=\"yd-eyebrow\">YUI / COMPANION PROTOCOL</span><h1 id=\"yd-title\">接入者，请看着屏幕</h1></div><span id=\"yd-signal\" class=\"yd-signal\">SIGNAL: WAIT</span></header><div class=\"yd-terminal\"><p class=\"yd-line\">&gt; session handshake: <b>accepted</b></p><p class=\"yd-line\">&gt; camera: <b>watching</b></p><p id=\"yd-scene\" class=\"yd-scene\">欢迎回来。请先回答一个很简单的问题。</p></div><section class=\"yd-question\" aria-live=\"polite\"><span class=\"yd-question-label\">由依的第一个问题</span><p>“你爱我吗？”</p><div id=\"yd-options\" class=\"yd-options\"><button type=\"button\" data-answer=\"love\">爱</button><button type=\"button\" data-answer=\"no-love\">不爱</button></div></section><p id=\"yd-feedback\" class=\"yd-feedback\" role=\"status\"></p><div id=\"yd-modal\" class=\"yd-modal\" hidden role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"yd-modal-title\"><div class=\"yd-modal-card\"><span class=\"yd-modal-kicker\">CONFIRMATION REQUIRED</span><h2 id=\"yd-modal-title\">再回答一次</h2><p>你刚才的回答不符合由依的记录。请把它改成她能接受的答案。</p><div class=\"yd-modal-actions\"><button type=\"button\" id=\"yd-modal-later\" class=\"yd-quiet\">稍后</button><button type=\"button\" id=\"yd-modal-love\">我爱你</button></div></div></div></section>",
-           "css": ".yd-app{position:relative;min-height:560px;padding:24px;color:#f4f1f7;background:radial-gradient(circle at 82% 0,rgba(230,70,111,.18),transparent 38%),linear-gradient(150deg,#17151d,#241521 62%,#121218);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif;overflow:hidden}.yd-app:before{content:'';position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(255,255,255,.035) 0,rgba(255,255,255,.035) 1px,transparent 1px,transparent 4px);pointer-events:none;mix-blend-mode:screen}.yd-head,.yd-terminal,.yd-question,.yd-feedback{position:relative;z-index:1}.yd-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;border-bottom:1px solid rgba(255,255,255,.12);padding-bottom:18px}.yd-eyebrow,.yd-modal-kicker{font-size:10px;letter-spacing:.18em;color:#f06a93}.yd-head h1{margin:7px 0 0;font-size:25px;letter-spacing:.04em}.yd-signal{font:11px ui-monospace,SFMono-Regular,Consolas,monospace;color:#ff95b4;white-space:nowrap}.yd-terminal{margin:28px 0 20px;padding:16px;border-left:2px solid #d95182;background:rgba(0,0,0,.22);font:12px ui-monospace,SFMono-Regular,Consolas,monospace;color:#bcb6c6}.yd-line{margin:0 0 7px}.yd-line b{color:#74e0b1;font-weight:500}.yd-scene{margin:22px 0 0;color:#f3dce5;font:16px/1.7 -apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif}.yd-question{padding:20px;border:1px solid rgba(240,106,147,.35);border-radius:14px;background:rgba(16,10,18,.52);box-shadow:0 16px 40px rgba(0,0,0,.24)}.yd-question-label{font-size:11px;color:#d79bb1;letter-spacing:.08em}.yd-question p{margin:12px 0 18px;font-size:23px}.yd-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.yd-options button,.yd-modal-actions button{border:1px solid rgba(240,106,147,.52);border-radius:9px;padding:11px 14px;background:rgba(240,106,147,.13);color:#fff;cursor:pointer;transition:background .18s,transform .18s,border-color .18s}.yd-options button:hover,.yd-modal-actions button:hover{background:rgba(240,106,147,.3);border-color:#f58aae;transform:translateY(-1px)}.yd-options button:disabled{opacity:.55;cursor:wait}.yd-feedback{min-height:22px;margin:14px 2px 0;color:#f6a7bd;font-size:12px;line-height:1.6}.yd-modal{position:absolute;z-index:4;inset:0;display:grid;place-items:center;padding:20px;background:rgba(4,2,6,.78);backdrop-filter:blur(5px)}.yd-modal[hidden]{display:none}.yd-modal-card{width:min(420px,100%);padding:24px;border:1px solid #dd5e8a;border-radius:14px;background:linear-gradient(155deg,#321d2c,#17131d);box-shadow:0 20px 60px rgba(0,0,0,.58)}.yd-modal-card h2{margin:8px 0 10px;font-size:22px}.yd-modal-card p{margin:0;color:#e3c7d3;line-height:1.7}.yd-modal-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:20px}.yd-modal-actions .yd-quiet{background:transparent;border-color:rgba(255,255,255,.18);color:#b9b1bc}@media(max-width:560px){.yd-app{min-height:520px;padding:17px}.yd-head h1{font-size:20px}.yd-signal{font-size:9px}.yd-options{grid-template-columns:1fr}.yd-question p{font-size:20px}}@media(prefers-reduced-motion:reduce){.yd-options button,.yd-modal-actions button{transition:none}}",
-"js": "(()=>{const root=document.querySelector('.yd-app');if(!root)return;const host=root.querySelector('#yd-options');const modal=root.querySelector('#yd-modal');const signal=root.querySelector('#yd-signal');const scene=root.querySelector('#yd-scene');const feedback=root.querySelector('#yd-feedback');const loveButton=root.querySelector('#yd-modal-love');const laterButton=root.querySelector('#yd-modal-later');let last={};let busy=false;scene.style.whiteSpace='pre-wrap';scene.style.maxHeight='280px';scene.style.overflow='auto';const vars=context=>context&&context.save&&context.save.state&&context.save.state.runtime&&context.save.state.runtime.variables||{};function locked(context){return vars(context).choice_lock==='love-only'}function actionFor(text,context){if(locked(context))return null;if(text==='爱')return'answer-love';if(text==='不爱')return'answer-not-love';return null}function renderOptions(context){if(!host)return;host.innerHTML='';const list=context&&context.turn&&Array.isArray(context.turn.options)&&context.turn.options.length?context.turn.options.slice(0,8):['爱','不爱'];const labels=locked(context)?list.map(()=> '爱'):list;labels.forEach(text=>{const button=document.createElement('button');button.type='button';button.textContent=text;button.dataset.choice=text;button.disabled=busy;button.addEventListener('click',()=>answer(text,actionFor(text,context)));host.appendChild(button)})}function paint(context){last=context||last;const v=vars(last);const isLocked=v.choice_lock==='love-only';const answerValue=v.love_answer||'未回答';const response=last&&last.turn&&last.turn.hasResponse?String(last.turn.narrative||'').trim():'';signal.textContent=isLocked?'SIGNAL: DEVOTION 100%':'SIGNAL: '+(answerValue==='未回答'?'WAIT':answerValue==='爱'?'STABLE':'UNSTABLE');renderOptions(last);if(response){scene.textContent=response;feedback.textContent='由依已回应，并将结果写入当前世界线。';if(isLocked)modal.hidden=false}else if(answerValue==='爱'&&!isLocked){scene.textContent='很好。由依已经把这句回答保存成了永久记录。';feedback.textContent='协议状态：稳定。AI 可以继续回应你的行动。'}else if(isLocked){scene.textContent='由依把“不爱”标记成了输入错误。她仍然在等你。';feedback.textContent='协议状态：选项已锁定为“爱”，二次确认已打开。';modal.hidden=false}else{scene.textContent='欢迎回来。请先回答一个很简单的问题。';feedback.textContent='协议状态：等待你的回答。'}}function refresh(){TavernExtension.requestContext().then(paint).catch(error=>{feedback.textContent='终端同步失败：'+error.message})}function answer(text,actionId){if(busy)return;busy=true;feedback.textContent='正在写入世界线并等待由依回应…';renderOptions(last);const options=actionId?{actionId:actionId,input:{}}:{};TavernExtension.choose(text,options).then(()=>{busy=false;refresh()}).catch(error=>{busy=false;feedback.textContent='AI 回合失败：'+error.message;renderOptions(last)})}loveButton.addEventListener('click',()=>answer('我爱你','confess-love'));laterButton.addEventListener('click',()=>{modal.hidden=true;feedback.textContent='由依允许你稍后回答。她没有移开视线。'});window.addEventListener('tavern-context',event=>paint(event.detail));document.addEventListener('DOMContentLoaded',refresh);refresh()})()"
-         }
-       },
-       "source": { "format": "native", "rawAssetRef": null }
-     }
+      "rpgPresetName": "",
+      "regexes": []
+    }
   ]
 }

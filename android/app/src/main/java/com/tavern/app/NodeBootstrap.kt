@@ -25,7 +25,14 @@ import java.net.URL
  */
 object NodeBootstrap {
 
-    const val PORT = 3000
+    /**
+     * 内嵌 Node 的监听端口。
+     *
+     * 按应用包名派生：同一台设备安装多个分支（例如 com.tavern.app 与 com.tavern.rpg）时，
+     * 各自使用不同端口，避免后启动的客户端因端口被占用而黑屏。
+     * 基础段 3000–3899，便于调试时识别。
+     */
+    val PORT: Int by lazy { 3000 + (Math.abs(BuildConfig.APPLICATION_ID.hashCode()) % 900) }
 
     private const val TAG = "NodeBootstrap"
     private const val ASSET_ROOT = "nodejs"
@@ -54,8 +61,8 @@ object NodeBootstrap {
     fun start(context: Context): File {
         val dir = runtimeDir(context)
         val serverJs = unpack(context)
-        val rc = NodeRuntime.startNode(arrayOf("node", serverJs.absolutePath), dir.absolutePath, true)
-        Log.i(TAG, "已拉起 Node 线程 rc=$rc, server.js=${serverJs.absolutePath}")
+        val rc = NodeRuntime.startNode(arrayOf("node", serverJs.absolutePath, "--port", PORT.toString()), dir.absolutePath, true)
+        Log.i(TAG, "已拉起 Node 线程 rc=$rc, server.js=${serverJs.absolutePath}, port=$PORT")
         check(rc == 0) { "无法创建 Node 线程（rc=$rc）" }
         return dir
     }

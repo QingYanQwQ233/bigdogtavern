@@ -8,7 +8,8 @@ const path = require('path');
 const root = path.resolve(__dirname, '..');
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tavern-setup-surface-'));
 const defaults = JSON.parse(fs.readFileSync(path.join(root, 'public', 'data', '_defaults.json'), 'utf8'));
-const source = defaults.worlds.find(world => world.id === 'world-electronic-yandere') || defaults.worlds[0];
+// 测试夹具独立于产品内置数据：产品内置只有 D&D 卡，旧 schema 的测试卡放在 scripts/fixtures。
+const source = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'world-electronic-yandere.json'), 'utf8'));
 const world = JSON.parse(JSON.stringify(source));
 world.id = 'world-setup-surface-test';
 world.ui = { ...(world.ui || {}), extension: { ...(world.ui?.extension || {}), surfaces: ['setup', 'play'], permissions: [...new Set([...(world.ui?.extension?.permissions || []), 'write.setup'])] } };

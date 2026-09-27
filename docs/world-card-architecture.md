@@ -92,7 +92,7 @@
   setting: { premise, history, geography, culture, technology, magic, society, economy, currentSituation },
   rules: { hard: ['不可违反的世界约束'], soft: ['供叙事取舍的风格规则'], checks: [{ id: 'notice', label: '观察', roll: '1d20', target: 10 }] },
   coverImage: '/images/world-aurora.png',
-  tags: ['日式西幻', '福瑞', '冒险'],
+  tags: ['日式西幻', '冒险'],
 
   start: {
     locationId: 'wolf-tooth-inn',
@@ -121,7 +121,7 @@
   factionIds: ['faction-guild'],
   itemIds: ['wolf-fang'],
   questTemplateIds: ['cross-wilds'],
-  locations: [{ id: 'wolf-tooth-inn', name: '断牙之角', type: 'inn' }],
+  locations: [{ id: 'town-inn', name: '旅店', type: 'inn' }],
   map: {
     strategy: 'fixed', // fixed | perSave
     baseMapId: 'map-aurora-v1', // fixed 时读取的底图
@@ -149,7 +149,7 @@
 
   player: {
     characterId: 'pc-fox',
-    snapshot: { name: '艾岚', race: '狐族', role: '游侠', profileFields: [] },
+    snapshot: { name: '艾岚', race: '人类', role: '游侠', profileFields: [] },
   },
   party: { memberIds: ['pc-fox'], leaderId: 'pc-fox' },
   state: {

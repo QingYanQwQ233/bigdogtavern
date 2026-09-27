@@ -8,7 +8,9 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.tavern.app"
+        // applicationId 与 namespace 分离：namespace 只是源码包名（保持不变，避免改动源码目录结构），
+        // applicationId 决定安装身份与私有数据目录。用独立包名可与其它版本并存，互不覆盖。
+        applicationId = "com.tavern.rpg"
         minSdk = 24
         targetSdk = 34
         // 版本控制：versionCode 由构建时 -Pvc 传入（= git commit 数，每次构建递增，避免覆盖安装冲突）；
@@ -45,6 +47,10 @@ android {
         }
     }
 
+    // 需要 BuildConfig.APPLICATION_ID 派生内嵌 Node 端口（AGP8 默认不生成 BuildConfig）
+    buildFeatures {
+        buildConfig = true
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

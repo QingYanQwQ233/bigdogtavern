@@ -51,7 +51,7 @@ assert.ok(tavernCommit.indexOf('clearResponsePreview()') < tavernCommit.indexOf(
 const clearChat = source.slice(source.indexOf("$('btn-clear-chat').addEventListener"), source.indexOf("$('btn-clear-chat').addEventListener") + 1800);
 assert.match(clearChat, /if \(sending\) stopGeneration\(\);/, '清空对话必须中止进行中的异步回复');
 assert.match(clearChat, /clearResponsePreview\(\);[\s\S]{0,120}removeTyping\(\);/, '清空对话必须移除临时回复节点');
-assert.match(styles, /\.composer-row \{ display: flex; gap: 12px; align-items: stretch; \}/, '输入栏与按钮必须保持同高布局');
+assert.match(styles, /\.composer-row \{ display: flex; gap: \d+px; align-items: stretch; \}/, '输入栏与按钮必须保持同高布局');
 assert.match(styles, /\.send-spinner[\s\S]{0,240}animation: composer-spin/, '发送中按钮必须显示轻量加载动画');
 
 const timers = [];

@@ -1,6 +1,6 @@
 # 潮汐试验场：最小 RPG 冒烟测试
 
-示例世界卡 ID：`world-test-lab`。
+该卡作为测试夹具维护在 `scripts/fixtures/world-test-lab.json`，不随应用内置；世界与存档接口的回归检查从这里读取它。
 
 ## 自动自检
 

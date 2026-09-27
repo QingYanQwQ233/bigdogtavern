@@ -34,21 +34,27 @@ node server.js
 
 APK 不随 push 自动构建（避免浪费构建额度）；需要时在 GitHub 的 **Actions → Build Tavern APK → Run workflow** 选择目标分支手动触发。构建完成后，在对应运行页下载 `tavern-apk` artifact；当前产物是已签名的 Debug APK，不会自动发布为 GitHub Release。
 
-本地构建需要 JDK 17、Android SDK 与 Gradle 8.7。构建前只复制前端资源和默认模板，不会把本地 API Key、存档或其他运行时数据打进 APK：
+本地构建需要 JDK 17、Android SDK 与 Gradle 8.7。资源同步只有一个入口——`scripts/sync_android_assets.sh`，不要手写复制命令：
 
-```powershell
-$assets = 'android\app\src\main\assets'
-New-Item -ItemType Directory -Force "$assets\data", "$assets\licenses" | Out-Null
-node scripts\build_frontend.js
-Copy-Item public\index.html, public\styles.css, public\app.js, public\mapgen.js, public\manifest.json, public\sw.js, public\favicon.png -Destination $assets -Force
-Copy-Item public\vendor -Destination $assets -Recurse -Force
-Copy-Item public\icons -Destination $assets -Recurse -Force
-Copy-Item LICENSE, LICENSE-MIT-LEGACY, THIRD_PARTY_NOTICES.md -Destination "$assets\licenses" -Force
-Copy-Item public\data\_defaults.json "$assets\data\_defaults.json" -Force
-Push-Location android
-gradle assembleDebug --no-daemon -Pvc=1 -Pvn=alpha-local
-Pop-Location
+```bash
+bash scripts/sync_android_assets.sh alpha-local   # 重建 public/app.js 并同步 assets
+cd android && gradle assembleDebug --no-daemon -Pvc=1 -Pvn=alpha-local
 ```
+
+它会整目录重建 `android/app/src/main/assets/nodejs/`，并给 `index.html` / `sw.js` 打上资源版本戳：
+
+```text
+android/app/src/main/assets/
+└─ nodejs/
+   ├─ server.js                   后端本体（与桌面端同一文件，零改动）
+   ├─ public/...                  前端资源
+   ├─ public/data/_defaults.json  仅默认模板：首次启动据此初始化运行时数据
+   └─ licenses/                   许可与第三方声明
+```
+
+GitHub Actions 走同一个脚本，避免本地与 CI 产出不同的 assets 布局。复制范围刻意不含 `public/data/` 下的运行时文件（含用户 API Key）与存档。
+
+APK 的 `applicationId` 是 `com.tavern.rpg`（应用名 tavernRPG），可与旧版 `com.tavern.app` 并存：两者数据目录独立，内嵌 Node 的监听端口按包名派生（`3000 + |hash(applicationId)| % 900`），互不抢占。
 
 APK 输出路径：`android/app/build/outputs/apk/debug/app-debug.apk`。
 
@@ -90,7 +96,7 @@ node scripts/build_frontend.js
 
 ## 数据所有权
 
-默认模板只有一个来源：`public/data/_defaults.json`。首次启动时，服务端根据它初始化运行时 JSON。
+默认模板只有一个来源：`public/data/_defaults.json`。首次启动时，服务端根据它初始化运行时 JSON。内置世界卡是 D&D 的「矿坑之路：失落矿坑 · 第一章」，内置世界书为空。
 
 ```text
 _defaults.json
@@ -110,6 +116,8 @@ world-deleted.json         已删除世界卡 ID（防止默认模板重新出�
 `localStorage` 只保存离线缓存和当前 ID，服务端 JSON 是权威源。会话同样走服务端：启动时与服务端 `sessions.json` 按 ID 取并集合并（冲突保留更新时间新者），删除的会话以墓碑记录，不会在其他浏览器复活，因此更换浏览器聊天记录不丢失。`WorldCard@worldVersion` 保存稳定世界资料；`WorldSave@revision` 保存本局玩家、状态、事件、回合和记忆。世界卡后续编辑不会静默覆盖已有存档；世界包自 `specVersion 2` 起不再携带角色实体（`characters`），v1 旧包可导入且角色字段被忽略。
 
 世界库中的存档可单独删除；删除世界卡前必须先删除该世界的全部存档，确认后会移除所有已发布版本和未发布草稿。默认世界通过 `world-deleted.json` 记录删除标记，刷新后不会被 `_defaults.json` 自动补回。
+
+服务端读取世界库时会把 `_defaults.json` 里声明的世界卡合并进来，因此升级客户端后旧卡不会自动消失。世界库侧栏的「↺ 恢复内置世界卡」（`POST /api/worlds/reset-builtin`）把 `worlds.json` 与 `lorebooks.json` 重置为 `_defaults.json` 的内容并清空删除标记；它不触碰设置与存档，但会移除自定义 / 导入的世界卡，引用了被移除世界卡的存档会变成孤儿——接口在回执里列出这些存档，需要手动删除。
 
 ## 预设、世界书与聊天体验
 - SillyTavern 风格提示词预设：固定提示词、运行时 Marker、世界书前后、Post-History、In-Chat、Relative、宏、Prompt Order、生成参数和导入导出；
@@ -301,7 +309,7 @@ docs/                          数据结构、世界卡与 Android 文档
 
 ### 当前限制
 
-- 世界观与角色内容仍有占位，需要实际世界卡填充；
+- 内置世界卡只有一张完整的 D&D 第一章，其余题材与角色内容需要自己的世界卡填充；
 - 地图展示暂时关闭，地图生成调优暂缓；
 - 手动记忆仍是用户级共享；
 - RPG 记忆尚无向量检索、自动聚类和完整人工编辑器；

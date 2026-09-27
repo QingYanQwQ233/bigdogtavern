@@ -126,6 +126,8 @@ let worldSummaryPending = false;
 let worldTurnError = null;
 let worldTurnPreparing = false;
 let worldTurnEpoch = 0;
+// 回合级提示（如动作判定缺失警告）：显示在玩家行动区，新回合开始时清除。
+let worldActionNotice = '';
 let rpgCheckAnimation = null;
 // AI 正文已完成、协议/状态仍在收尾时的临时预览；不进入历史，提交成功后原子替换。
 let responsePreview = null;

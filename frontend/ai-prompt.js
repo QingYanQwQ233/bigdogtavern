@@ -397,6 +397,38 @@ function buildWorldNpcPromptPart() {
   return '【当前作用域 NPC】\n只允许引用以下 NPC；未列出的世界 NPC 不在本回合上下文中。静态资料仅代表公开信息；不得臆测未注入的秘密。NPC 只能使用公共资料、本存档已知事实和已解锁秘密，不得读取其他存档或其他 NPC 的知识。\n' + sections.join('\n\n');
 }
 
+// 把玩家快照翻译成可读文本：属性/技能/特质用世界卡里的中文标签，同时保留 id 以便状态更新引用。
+// 只注入原始 id 时，模型不知道「steady-hand」「might」是什么意思，会写不出角色身份与本事。
+function buildPlayerSnapshotLines(player, world) {
+  if (!player || typeof player !== 'object') return '';
+  const defs = world?.playerCreation || {};
+  const labelOf = (list, id) => (Array.isArray(list) ? list.find(item => item?.id === id)?.label : '') || id;
+  const lines = [];
+  const fieldDefs = Array.isArray(defs.fields) ? defs.fields : [];
+  const fields = player.fields && typeof player.fields === 'object' ? player.fields : {};
+  for (const [key, value] of Object.entries(fields)) {
+    if (value == null || !String(value).trim()) continue;
+    lines.push(`${labelOf(fieldDefs, key)}：${value}`);
+  }
+  const mapLine = (title, map, list) => {
+    const entries = Object.entries(map && typeof map === 'object' ? map : {}).filter(([, value]) => value != null);
+    if (!entries.length) return;
+    lines.push(`${title}：${entries.map(([id, value]) => `${labelOf(list, id)}(${id})=${value}`).join('、')}`);
+  };
+  mapLine('属性', player.attributes, defs.attributes);
+  mapLine('技能', player.skills, defs.skills);
+  mapLine('资源', player.resources, defs.resources);
+  if (Array.isArray(player.traits) && player.traits.length) lines.push(`特质：${player.traits.map(id => `${labelOf(defs.traits, id)}(${id})`).join('、')}`);
+  if (Array.isArray(player.choices) && player.choices.length) lines.push(`天赋：${player.choices.map(id => `${labelOf(defs.choices, id)}(${id})`).join('、')}`);
+  if (player.relations && Object.keys(player.relations).length) lines.push(`起始关系：${JSON.stringify(player.relations)}`);
+  if (player.initialInventory && Object.keys(player.initialInventory).length) lines.push(`初始装备：${JSON.stringify(player.initialInventory)}`);
+  const handled = new Set(['fields', 'attributes', 'skills', 'resources', 'traits', 'choices', 'relations', 'initialInventory', 'profileFields']);
+  for (const [key, value] of Object.entries(player)) {
+    if (handled.has(key) || value == null || (typeof value === 'string' && !value.trim())) continue;
+    lines.push(`${key}：${typeof value === 'object' ? JSON.stringify(value) : value}`);
+  }
+  return lines.join('\n');
+}
 function buildWorldFactLayerPromptPart() {
   if (!worldModeActive()) return '';
   const world = currentWorldCard();
@@ -603,12 +635,14 @@ function buildRpgPromptSections() {
       unshiftSection('world.card', '【当前世界卡】\n' + [
         `世界：${world.title || world.id}（v${world.version || 1}）`,
         world.summary || '',
-        '位置协议：state.locationId 与 NPC locationId 只能使用已登记的稳定 locationId；地点名称只用于叙事，不得写入状态。',
+        world.locations?.length
+          ? '位置协议：state.locationId 与 NPC locationId 只能使用已登记的稳定 locationId；地点名称只用于叙事，不得写入状态。'
+          : '位置协议：本世界卡未登记任何地点——不要输出任何地点状态更新（如 location.set、state.locationId、player.location 等）；地点变化一律只在正文里叙事，不写入状态。',
         world.locations?.length ? '已登记地点：' + world.locations.map(x => `${x.name || x.id}（id: ${x.id}；${x.type || '地点'}）`).join('、') : '',
         currentWorldSave.opening ? '开局：' + currentWorldSave.opening : '',
       ].filter(Boolean).join('\n'));
       const player = currentWorldSave.player?.snapshot;
-      if (player) unshiftSection('save.player-snapshot', '【世界存档中的玩家快照】\n' + Object.entries(player).filter(([k, v]) => k !== 'profileFields' && v != null && String(v).trim()).map(([k, v]) => `${k}：${typeof v === 'object' ? JSON.stringify(v) : v}`).join('\n'));
+      if (player) unshiftSection('save.player-snapshot', '【世界存档中的玩家快照】\n' + buildPlayerSnapshotLines(player, world));
       const dynamicPlayer = currentWorldSave.state?.player;
       if (dynamicPlayer) unshiftSection('save.player-state', '【当前玩家动态状态】\n' + ['attributes', 'skills', 'resources', 'traits', 'relations', 'identity', 'effects'].filter(key => dynamicPlayer[key] !== undefined).map(key => `${key}：${JSON.stringify(dynamicPlayer[key])}`).join('\n'));
       const derivedValues = evaluateWorldDerivedValues(world.playerCreation, dynamicPlayer);
@@ -620,7 +654,7 @@ function buildRpgPromptSections() {
         const intentAction = (Array.isArray(world.runtime?.actions) ? world.runtime.actions : []).find(action => action?.id === intent.actionId);
         const intentAvailability = intentAction && !rpgRuntimeActionAvailabilityUsesInput(intentAction)
           ? rpgRuntimeActionAvailabilityError(intentAction, currentWorldSave?.state?.runtime || {}) : '';
-        pushSection('turn.action-intent', `【玩家明确动作意图】本回合 actionId=${intent.actionId}${intentAction ? `（${intentAction.label || intentAction.id}）` : '（未声明，不能执行）'}。actionId 是玩家通过卡内按钮或自由输入精确匹配明确提交的动作，不得只当作叙事描述：动作已声明且可用时必须调用一次 runtime.action.execute；需要判定时先完成该 actionId 的 rules.check → dice.roll，只有达到目标才执行。绝不把该动作的效果手写成 item.delta、runtime.collection.patch 或其他等价 updates；卡内动作的状态效果只能由声明的 runtime.action.execute 结算。${intentAvailability ? `当前不可用：${intentAvailability}。不要调用、不要手写等价 updates，只在正文说明资源或条件不足。` : '若工具返回 accepted=candidate，最终提交必须保留该动作候选。'}`);
+        pushSection('turn.action-intent', `【玩家明确动作意图】本回合 actionId=${intent.actionId}${intentAction ? `（${intentAction.label || intentAction.id}）` : '（未声明，不能执行）'}。actionId 是玩家通过卡内按钮或自由输入精确匹配明确提交的动作，不得只当作叙事描述：动作已声明且可用时必须调用一次 runtime.action.execute；需要判定时先完成该 actionId 的 rules.check → dice.roll，只有达到目标才执行。判定逐回合独立：同一动作即使此前回合判定过（无论成败），本回合重新提交时也必须重新完成 rules.check → dice.roll 全流程，禁止复用历史骰面或只在正文中口述判定结果。绝不把该动作的效果手写成 item.delta、runtime.collection.patch 或其他等价 updates；卡内动作的状态效果只能由声明的 runtime.action.execute 结算。${intentAvailability ? `当前不可用：${intentAvailability}。不要调用、不要手写等价 updates，只在正文说明资源或条件不足。` : '若工具返回 accepted=candidate，最终提交必须保留该动作候选。'}`);
       }
       pushSection('turn.side-effects', '【副作用边界】Markdown 叙事、NPC 台词、行动选项和普通文本中的骰子表达式都只是文本，不会自动执行骰子或改写状态；只有协议中通过服务端校验的结构化更新才可产生状态变化。');
       pushSection('turn.tool-candidates', agentProfile.mode === 'native'
@@ -649,7 +683,12 @@ function buildRpgPromptSections() {
           state: runtimeState,
         });
         const runtimeLimit = Math.min(12000, Math.max(4000, Math.floor(worldContextBudget() / 2)));
-        pushSection('world.runtime-contract', `【世界卡 Runtime 契约】只可使用以下已声明的变量、集合和动作；不得修改 schema 或凭空创建字段。Agent 调用 state.patch 工具时，updates 不得包含 runtime.action.execute；执行声明式动作只能调用同名工具，并使用当前 runtime.actions 已声明的 actionId。玩家行动没有对应 action 时，应使用当前协议已声明的其他 Typed Patch（如 runtime.variable.* 或 runtime.collection.*），不能编造 actionId。状态变化放入唯一标签的 updates，动作有 check 时须先完成同 actionId 判定。\n${runtimeProjection.slice(0, runtimeLimit)}`);
+        const idManifest = [
+          `可用变量 ID：${(Array.isArray(runtime.variables) ? runtime.variables.map(item => item.id) : []).join('、') || '无'}`,
+          `可用集合 ID：${(Array.isArray(runtime.collections) ? runtime.collections.map(item => item.id) : []).join('、') || '无'}`,
+          `可用动作 ID：${(Array.isArray(runtime.actions) ? runtime.actions.map(item => item.id) : []).join('、') || '无'}`,
+        ].join('\n');
+        pushSection('world.runtime-contract', `【世界卡 Runtime 契约】只可使用以下已声明的变量、集合和动作；不得修改 schema 或凭空创建字段。**禁止发明 ID**：任何未在下表列出的变量/集合/动作 ID（例如自己拼接出来的状态名）都属于非法更新，会导致整回合被服务端拒绝、玩家白玩一次，必须严格避免。需要表达未声明的状态时，只能用已声明字段或集合条目表达，或只写进叙事正文，绝不新建 ID。Agent 调用 state.patch 工具时，updates 不得包含 runtime.action.execute；执行声明式动作只能调用同名工具，并使用已声明的 actionId。玩家行动没有对应 action 时，应使用已声明的其他 Typed Patch（如 runtime.variable.* 或 runtime.collection.*）。状态变化放入唯一标签的 updates，动作有 check 时须先完成同 actionId 判定。\n${idManifest}\n${runtimeProjection.slice(0, runtimeLimit)}`);
       } else {
         pushSection('world.runtime-contract', '【世界卡 Runtime 契约】当前世界卡未声明自定义 runtime；不要猜测或提交 runtime 更新。');
       }
