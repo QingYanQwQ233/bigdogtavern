@@ -3528,17 +3528,25 @@ body[data-mode="rpg"] .composer {
   color: var(--text);
   font-size: 13px;
   line-height: 1.5;
+  box-sizing: border-box;
   transform-origin: top center;
   /* 单行：宽度过渡期间文字不重排，胶囊才是“平滑伸缩”，而不是忽高忽低 */
   white-space: nowrap;
   overflow: hidden;
   /* 入场带一点回弹（0.34,1.56 是轻微 overshoot），比纯 ease-out 更有“弹出来”的手感 */
   animation: toast-in 250ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
-  /* 胶囊内容被替换时宽度平滑跟随（JS 用 FLIP 驱动） */
-  transition: width 250ms var(--motion-out);
+  /* 宽度平滑伸缩、退场时高度与占位一起收敛（否则移除的瞬间下方的胶囊会跳） */
+  transition:
+    width 250ms var(--motion-out),
+    height 200ms var(--motion-in-out),
+    margin-bottom 200ms var(--motion-in-out),
+    padding-top 200ms var(--motion-in-out),
+    padding-bottom 200ms var(--motion-in-out),
+    border-top-width 200ms var(--motion-in-out),
+    border-bottom-width 200ms var(--motion-in-out);
 }
 .toast-icon { flex: none; font-size: 14px; }
-.toast-msg { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.toast-msg { min-width: 0; overflow: hidden; text-overflow: ellipsis; transition: opacity 150ms var(--motion-out); }
 /* 单行放不下（长报错等）时改用宽条多行：宽度恒定，因此没有“过渡中重排”的拖动。
    圆角必须从 999px 退到 16px，否则两端文字会被胶囊弧线压住。 */
 .toast.is-multiline {
@@ -3566,7 +3574,14 @@ body[data-mode="rpg"] .composer {
 .toast-error { border-color: rgba(var(--danger-rgb), 0.55); }
 .toast-error .toast-icon { color: var(--danger); }
 .toast-success { border-color: rgba(48, 209, 88, 0.45); }
-.toast.toast-out { animation: toast-out 200ms var(--motion-in-out) forwards; }
+.toast.toast-out {
+  animation: toast-out 200ms var(--motion-in-out) forwards;
+  /* 与 height 一起收到 0：边距 / 内边距 / 上下边框都占高度，不收干净还是会跳 */
+  padding-top: 0;
+  padding-bottom: 0;
+  border-top-width: 0;
+  border-bottom-width: 0;
+}
 @keyframes toast-in {
   from { opacity: 0; transform: translateY(-12px) scale(0.96); }
 }

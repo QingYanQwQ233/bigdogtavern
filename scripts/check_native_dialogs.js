@@ -78,6 +78,6 @@ assert.ok(/notifyProgress\(/.test(sources['ai-runtime.js'] || ''), 'ai-runtime.j
 assert.ok(/update = \(text/.test(appCore), 'showToast 必须提供 update（原地替换内容）');
 assert.ok(/busy\.update\(/.test(appCore), 'notifyResult 必须复用进行中的胶囊');
 assert.ok(/\.toast\.is-updating/.test(css), 'styles.css 必须提供 .toast.is-updating（内容替换脉冲）');
-assert.ok(/\.toast \{[^}]*transition: width/.test(css), '.toast 必须允许宽度平滑过渡（FLIP）');
+assert.ok(/\.toast \{[^}]*transition:[^}]*width 250ms/.test(css), '.toast 必须允许宽度平滑过渡（FLIP）');
 
 console.log('check_native_dialogs: ok');
