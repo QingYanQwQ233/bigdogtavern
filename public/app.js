@@ -327,11 +327,18 @@ function showAppConfirm(message, options = {}) {
 function showAppPrompt(message, defaultValue = '', options = {}) {
   return openAppDialog(Object.assign({}, options, { mode: 'prompt', message: String(message == null ? '' : message), defaultValue }));
 }
-/* 操作结果统一播报：页面内保留文字方便回看，默认再弹一个浮层确保被看到。
-   options.silent：次要提示（如「没有候选」）只写消息栏，不打断用户。 */
-/* 通知统一走顶部「灵动岛」胶囊浮层（showToast）：
-   操作结果 -> 弹 toast；进行中 -> 用不自动消失的 busy toast 占位，完成时被结果替换。
-   silent 只留给「只写消息栏」的次要提示（例如上游没返回候选）。 */
+/* 操作结果统一播报：页面内保留文字方便回看，同时在顶部「灵动岛」弹一条。
+   通知统一走 showToast：操作结果 -> 弹 toast；进行中 -> 用不自动消失的 busy toast 占位，
+   完成时被结果替换。silent 只留给「只写消息栏」的次要提示（例如上游没返回候选）。 */
+// 消息自带的 ✅/❌ 前缀会被剥掉：灵动岛自己有 ✓ / ⚠ 图标，两个叠一起反而乱。
+const LEAD_RESULT_ICONS = ['✅', '❌', '⚠', '❗', '✓', '✕'];
+function stripResultIcon(message) {
+  let text = String(message == null ? '' : message).trimStart();
+  for (const icon of LEAD_RESULT_ICONS) {
+    if (text.startsWith(icon)) { text = text.slice(icon.length).trimStart(); break; }
+  }
+  return text;
+}
 let appBusyToast = null;
 function dismissProgress() {
   if (!appBusyToast) return;
@@ -346,20 +353,15 @@ function notifyProgress(message) {
 }
 function notifyResult(message, ok, options = {}) {
   dismissProgress();
+  const text = stripResultIcon(message);
   const out = $('test-result');
-  if (out) { out.textContent = message; out.className = ok ? 'ok' : 'err'; }
-  if (!options.silent) {
-    // 消息自带 emoji 时不再叠一个内置图标（否则会出现 ✓ ✅ 这种重复）
-    const lead = String(message).trimStart();
-    const hasIcon = ['✅', '❌', '⚠', '❗', '✓', '✕'].some(icon => lead.startsWith(icon));
-    showToast(message, {
-      kind: ok ? 'success' : 'error',
-      icon: !hasIcon,
-      // 操作结果（模型列表 / 报错详情）往往不止一句，默认 3.2s 读不完
-      duration: options.duration ?? (ok ? 5000 : 8000),
-    });
-  }
-  return message;
+  if (out) { out.textContent = text; out.className = ok ? 'ok' : 'err'; }
+  if (!options.silent) showToast(text, {
+    kind: ok ? 'success' : 'error',
+    // 操作结果（模型列表 / 报错详情）往往不止一句，默认 3.2s 读不完
+    duration: options.duration ?? (ok ? 5000 : 8000),
+  });
+  return text;
 }
 /* ─────────── 自定义下拉（替代原生 <select>） ───────────
    部分 Android WebView 在 <dialog> / modal 内无法弹出原生选择器（点了没反应），
