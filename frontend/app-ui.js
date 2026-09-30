@@ -27,8 +27,7 @@ function profileSwitch() {
   fillSettingsForm();
   updateApiStatusFromSettings();
   const out = $('test-result');
-  out.textContent = `✅ 已切换到「${name}」`;
-  out.className = 'ok';
+  notifyResult(`✅ 已切换到「${name}」`, true);
 }
 
 async function profileSave() {
@@ -42,8 +41,7 @@ async function profileSave() {
   renderProfileSelect();
   $('s-profile').value = name;
   const out = $('test-result');
-  out.textContent = `✅ 已存档「${name}」`;
-  out.className = 'ok';
+  notifyResult(`✅ 已存档「${name}」`, true);
 }
 
 async function profileDelete() {
@@ -54,8 +52,7 @@ async function profileDelete() {
   saveJSON(LS_PROFILES, profiles);
   renderProfileSelect();
   const out = $('test-result');
-  out.textContent = '已删除';
-  out.className = 'ok';
+  notifyResult('已删除', true);
 }
 
 /* ─────────── 设置面板 ─────────── */
@@ -1388,12 +1385,10 @@ async function testConnection() {
     out.className = '';
     const data = await callAPI(buildPayload({ test: true }));
     const reply = data?.choices?.[0]?.message?.content;
-    out.textContent = `✅ 连接成功！模型响应：${(reply || '(空)').slice(0, 40)}`;
-    out.className = 'ok';
+    notifyResult(`✅ 连接成功！模型响应：${(reply || '(空)').slice(0, 40)}`, true);
     updateApiStatusFromSettings();
   } catch (err) {
-    out.textContent = `❌ 连接失败：${err.message}`;
-    out.className = 'err';
+    notifyResult(`❌ 连接失败：${err.message}`, false);
   }
 }
 
@@ -1416,16 +1411,16 @@ async function importSettings() {
   const out = $('test-result');
   const text = await showAppPrompt('粘贴要导入的配置 JSON（也可双击「导入配置」选择文件）');
   if (text === null) return;
-  try { importSettingsFromText(text); out.textContent = '✅ 配置已导入'; out.className = 'ok'; }
-  catch (err) { out.textContent = `❌ 导入失败：${err.message}`; out.className = 'err'; }
+  try { importSettingsFromText(text); notifyResult('✅ 配置已导入', true); }
+  catch (err) { notifyResult(`❌ 导入失败：${err.message}`, false); }
 }
 
 function importSettingsFromFile(file) {
   const out = $('test-result');
   const reader = new FileReader();
   reader.onload = () => {
-    try { importSettingsFromText(reader.result); out.textContent = '✅ 配置已导入'; out.className = 'ok'; }
-    catch (err) { out.textContent = `❌ 导入失败：${err.message}`; out.className = 'err'; }
+    try { importSettingsFromText(reader.result); notifyResult('✅ 配置已导入', true); }
+    catch (err) { notifyResult(`❌ 导入失败：${err.message}`, false); }
   };
   reader.readAsText(file);
 }

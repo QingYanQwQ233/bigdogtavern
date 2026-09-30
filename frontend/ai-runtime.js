@@ -1191,8 +1191,7 @@ async function fetchModels() {
   const out = $('test-result');
   readSettingsForm();
   if (!settings.baseUrl) {
-    out.textContent = '❌ 请先填写 Base URL';
-    out.className = 'err';
+    notifyResult('❌ 请先填写 Base URL', false);
     return;
   }
   try {
@@ -1218,10 +1217,8 @@ async function fetchModels() {
       saveSettings();
     }
     const preview = ids.slice(0, 3).join(', ') + (ids.length > 3 ? '…' : '');
-    out.textContent = `✅ 获取到 ${ids.length} 个模型：${preview}`;
-    out.className = 'ok';
+    notifyResult(`✅ 获取到 ${ids.length} 个模型：${preview}`, true);
   } catch (err) {
-    out.textContent = `❌ 获取失败：${err.message}`;
-    out.className = 'err';
+    notifyResult(`❌ 获取失败：${err.message}`, false);
   }
 }

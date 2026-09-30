@@ -326,6 +326,13 @@ function showAppConfirm(message, options = {}) {
 function showAppPrompt(message, defaultValue = '', options = {}) {
   return openAppDialog(Object.assign({}, options, { mode: 'prompt', message: String(message == null ? '' : message), defaultValue }));
 }
+/* 操作结果统一播报：页面内保留文字方便回看，同时弹出浮层，确保用户一定看得到。 */
+function notifyResult(message, ok) {
+  const out = $('test-result');
+  if (out) { out.textContent = message; out.className = ok ? 'ok' : 'err'; }
+  showAppAlert(message, { kind: ok ? 'success' : 'error' });
+  return message;
+}
 /* ─────────── 自定义下拉（替代原生 <select>） ───────────
    部分 Android WebView 在 <dialog> / modal 内无法弹出原生选择器（点了没反应），
    项目此前只在一个世界预设下拉上绕开了它。现在做成通用能力并自动应用到所有下拉：
