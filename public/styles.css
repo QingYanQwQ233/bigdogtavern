@@ -3529,13 +3529,23 @@ body[data-mode="rpg"] .composer {
   font-size: 13px;
   line-height: 1.5;
   transform-origin: top center;
+  /* 单行：宽度过渡期间文字不重排，胶囊才是“平滑伸缩”，而不是忽高忽低 */
+  white-space: nowrap;
+  overflow: hidden;
   /* 入场带一点回弹（0.34,1.56 是轻微 overshoot），比纯 ease-out 更有“弹出来”的手感 */
   animation: toast-in 250ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
-  /* 胶囊内容被替换时宽度平滑跟随（JS 用 FLIP 驱动），避免宽度瞬间跳变 */
+  /* 胶囊内容被替换时宽度平滑跟随（JS 用 FLIP 驱动） */
   transition: width 250ms var(--motion-out);
 }
 .toast-icon { flex: none; font-size: 14px; }
-.toast-msg { min-width: 0; }
+.toast-msg { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* 单行放不下（长报错等）时改用宽条多行：宽度恒定，因此没有“过渡中重排”的拖动 */
+.toast.is-multiline {
+  width: 100%;
+  white-space: normal;
+  align-items: flex-start;
+}
+.toast.is-multiline .toast-msg { overflow: visible; text-overflow: clip; }
 /* 同一条胶囊换了内容（例如「正在获取模型列表…」→结果）时轻轻脉冲一下，表达状态变化 */
 .toast.is-updating .toast-msg { animation: toast-msg-in 250ms var(--motion-out); }
 .toast-close,

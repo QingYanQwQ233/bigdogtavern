@@ -211,6 +211,11 @@ function showToast(message, options = {}) {
     kind = nextKind || '';
     toast.className = 'toast' + (kind ? ' toast-' + kind : '');
     toast.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+    // 单行放不下就切成宽条多行：宽度恒定，否则宽度过渡中文字会反复重排（高度 50->511->139 那种抽动）。
+    // 必须放在 className 赋值之后，否则会被覆盖掉。
+    toast.classList.remove('is-multiline');
+    // 量 .toast-msg 自身的溢出（toast 的 scrollWidth 会被子元素的 overflow:hidden 掩盖）
+    if (body.scrollWidth > body.clientWidth + 1) toast.classList.add('is-multiline');
     if (timer) { clearTimeout(timer); timer = null; }
     const duration = nextOptions.duration ?? (kind === 'error' ? 8000 : 3200);
     if (duration > 0 && toast.isConnected) timer = setTimeout(dismiss, duration);
@@ -218,10 +223,12 @@ function showToast(message, options = {}) {
   // 原地换内容：胶囊宽度用 FLIP 平滑跟随，避免宽度瞬间跳变挂一下
   const update = (text, nextOptions = {}) => {
     if (!toast.isConnected) return showToast(text, nextOptions);
+    toast.style.width = ''; // 清掉上一次 FLIP 可能残留的锁宽，保证量到的是自然宽度
     const first = toast.offsetWidth;
     paint(text, nextOptions.kind === undefined ? kind : nextOptions.kind, nextOptions);
     const last = toast.offsetWidth;
-    if (Math.abs(last - first) > 1) {
+    // 多行模式宽度恒为 100%，没有可过渡的伸缩；只有单行胶囊才做 FLIP
+    if (!toast.classList.contains('is-multiline') && Math.abs(last - first) > 1) {
       toast.style.width = first + 'px';
       void toast.offsetWidth; // 强制一次布局，让宽度过渡有起点
       toast.style.width = last + 'px';
