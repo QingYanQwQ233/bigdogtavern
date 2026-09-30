@@ -31,9 +31,9 @@ function profileSwitch() {
   out.className = 'ok';
 }
 
-function profileSave() {
+async function profileSave() {
   readSettingsForm();
-  const name = prompt('为新配置存档命名：', '配置 ' + (Object.keys(profiles).length + 1));
+  const name = await showAppPrompt('为新配置存档命名：', '配置 ' + (Object.keys(profiles).length + 1));
   if (!name) return;
   const snap = {};
   for (const k of PROFILE_KEYS) snap[k] = settings[k];
@@ -46,10 +46,10 @@ function profileSave() {
   out.className = 'ok';
 }
 
-function profileDelete() {
+async function profileDelete() {
   const name = $('s-profile').value;
   if (!name || !profiles[name]) return;
-  if (!confirm(`删除配置存档「${name}」？`)) return;
+  if (!(await showAppConfirm(`删除配置存档「${name}」？`))) return;
   delete profiles[name];
   saveJSON(LS_PROFILES, profiles);
   renderProfileSelect();
@@ -754,8 +754,8 @@ function readGenerationForm() {
   return true;
 }
 
-function resetGenerationForm() {
-  if (!defaults?.gen || !confirm('恢复内置的一键写卡提示词和角色字段？当前自定义内容会被覆盖。')) return;
+async function resetGenerationForm() {
+  if (!defaults?.gen || !(await showAppConfirm('恢复内置的一键写卡提示词和角色字段？当前自定义内容会被覆盖。'))) return;
   genSettings = cloneValue(defaults.gen);
   fillSettingsForm();
   saveGenerationSettings();
@@ -1058,7 +1058,7 @@ async function loadDebugMemoryDiagnostics(saveId = currentWorldSaveId) {
 
 async function rebuildDebugMemory() {
   if (!worldModeActive() || !currentWorldSave) return;
-  if (!confirm('将用当前存档的正式事件与成长事实重建派生记忆；不会修改叙事、状态或世界卡。继续？')) return;
+  if (!(await showAppConfirm('将用当前存档的正式事件与成长事实重建派生记忆；不会修改叙事、状态或世界卡。继续？'))) return;
   const button = $('debug-memory-rebuild');
   const oldLabel = button.textContent;
   button.disabled = true;
@@ -1412,9 +1412,9 @@ function importSettingsFromText(text) {
   updateApiStatusFromSettings();
 }
 
-function importSettings() {
+async function importSettings() {
   const out = $('test-result');
-  const text = prompt('粘贴要导入的配置 JSON（也可双击「导入配置」选择文件）');
+  const text = await showAppPrompt('粘贴要导入的配置 JSON（也可双击「导入配置」选择文件）');
   if (text === null) return;
   try { importSettingsFromText(text); out.textContent = '✅ 配置已导入'; out.className = 'ok'; }
   catch (err) { out.textContent = `❌ 导入失败：${err.message}`; out.className = 'err'; }
@@ -1490,10 +1490,10 @@ function cancelEdit(m) {
   delete m._editing;
   renderMessages();
 }
-function deleteMessage(m) {
+async function deleteMessage(m) {
   if (worldModeActive()) {
     if (m._opening) return;
-    if (!confirm('删除这条消息？')) return;
+    if (!(await showAppConfirm('删除这条消息？'))) return;
     const i = (currentWorldSave.turns || []).indexOf(m);
     if (i < 0) return;
     currentWorldSave.turns.splice(i, 1);
@@ -1505,7 +1505,7 @@ function deleteMessage(m) {
   if (!s) return;
   const i = s.messages.indexOf(m);
   if (i < 0) return;
-  if (!confirm('删除这条消息？')) return;
+  if (!(await showAppConfirm('删除这条消息？'))) return;
   s.messages.splice(i, 1);
   saveSessions(s);
   renderMessages();
@@ -2170,8 +2170,8 @@ function copyMapJson() {
   const txt = data ? JSON.stringify(data, null, 2) : lastMapJson;
   if (!txt) return;
   navigator.clipboard.writeText(txt).then(
-    () => alert('✅ 地图数据 JSON 已复制'),
-    () => alert('复制失败（浏览器剪贴板权限）')
+    () => showAppAlert('✅ 地图数据 JSON 已复制'),
+    () => showAppAlert('复制失败（浏览器剪贴板权限）')
   );
 }
 
@@ -3040,9 +3040,9 @@ function parseLLMJson(text) {
 /* 生成世界书条目 → 填入条目编辑器（用户确认后保存） */
 async function aiGenWI() {
   const desc = $('wi-ai-desc').value.trim();
-  if (!desc) { alert('先描述要生成的设定，例如：北方沉睡古龙的龙之谷'); return; }
+  if (!desc) { showAppAlert('先描述要生成的设定，例如：北方沉睡古龙的龙之谷'); return; }
   const gen = genSettings || {};
-  if (!gen.lorePrompt) { alert('未配置生成指令（_defaults.json → gen.lorePrompt）'); return; }
+  if (!gen.lorePrompt) { showAppAlert('未配置生成指令（_defaults.json → gen.lorePrompt）'); return; }
   const btn = $('btn-ai-wi');
   btn.disabled = true; btn.textContent = '生成中…';
   try {
@@ -3052,10 +3052,10 @@ async function aiGenWI() {
     $('wi-content').value = obj.content || '';
     $('wi-order').value = 100;
     $('wi-constant').checked = !!obj.constant;
-    alert('✅ 已生成并填入 —— 检查后点「保存条目」');
+    showAppAlert('✅ 已生成并填入 —— 检查后点「保存条目」');
   } catch (err) {
     console.error('[Tavern] AI 生成世界书失败:', err.message);
-    alert('❌ ' + err.message);
+    showAppAlert('❌ ' + err.message);
   } finally {
     btn.disabled = false; btn.textContent = '✨ 生成';
   }
@@ -3063,26 +3063,26 @@ async function aiGenWI() {
 
 /* ─────────── RPG 手动管理（背包 / 任务 / 快捷行动） ─────────── */
 
-function addRpgItem() {
+async function addRpgItem() {
   const rs = curRpgState();
-  if (!rs) { alert('当前不是 RPG 会话'); return; }
-  const name = (prompt('道具名称：') || '').trim();
+  if (!rs) { showAppAlert('当前不是 RPG 会话'); return; }
+  const name = (await showAppPrompt('道具名称：') || '').trim();
   if (!name) return;
-  const n = parseInt(prompt('数量（默认 1）：', '1'), 10);
+  const n = parseInt(await showAppPrompt('数量（默认 1）：', '1'), 10);
   const count = isNaN(n) ? 1 : n;
-  const desc = (prompt('描述（可留空）：') || '').trim();
+  const desc = (await showAppPrompt('描述（可留空）：') || '').trim();
   const exist = rs.inventory.find(i => i.name === name);
   if (exist) exist.count += count;
   else rs.inventory.push({ name, count, desc });
   commitRpgState(rs); renderRPG();
 }
 
-function addRpgQuest() {
+async function addRpgQuest() {
   const rs = curRpgState();
-  if (!rs) { alert('当前不是 RPG 会话'); return; }
-  const title = (prompt('任务标题：') || '').trim();
+  if (!rs) { showAppAlert('当前不是 RPG 会话'); return; }
+  const title = (await showAppPrompt('任务标题：') || '').trim();
   if (!title) return;
-  const desc = (prompt('任务内容（可留空）：') || '').trim();
+  const desc = (await showAppPrompt('任务内容（可留空）：') || '').trim();
   rs.quests.push({ id: uid(), title, desc, status: 'active' });
   commitRpgState(rs); renderRPG();
 }
@@ -3290,7 +3290,7 @@ async function mapBeautify() {
   if (!map) return;
   const ig = (settings && settings.imageGen) || {};
   if (!ig.baseUrl) {
-    alert('请先在 设置 → 文生图 中配置 Base URL（gpt-image 反代）');
+    showAppAlert('请先在 设置 → 文生图 中配置 Base URL（gpt-image 反代）');
     return;
   }
   const status = $('mm-info');
@@ -3707,9 +3707,9 @@ function bindEvents() {
     try {
       if (file.size > 5 * 1024 * 1024) throw new Error('文件超过 5 MB，拒绝导入');
       const report = importSTPreset(JSON.parse(await file.text()), file.name);
-      alert(`已导入「${report.name}」：素材 ${report.prompts} 条，当前顺序 ${report.ordered} 条。${report.regexes ? `已识别并启用 ${report.regexes} 条输出正则。` : ''}`);
+      showAppAlert(`已导入「${report.name}」：素材 ${report.prompts} 条，当前顺序 ${report.ordered} 条。${report.regexes ? `已识别并启用 ${report.regexes} 条输出正则。` : ''}`);
     } catch (err) {
-      alert('导入失败：' + err.message);
+      showAppAlert('导入失败：' + err.message);
     } finally {
       e.target.value = '';
     }
@@ -3735,9 +3735,9 @@ function bindEvents() {
     try {
       if (file.size > 10 * 1024 * 1024) throw new Error('世界书文件超过 10 MB，拒绝导入');
       const report = importSTLorebookText(await file.text(), file.name);
-      alert(`✅ 世界书已导入：「${report.name}」· ${report.entries} 条目`);
+      showAppAlert(`✅ 世界书已导入：「${report.name}」· ${report.entries} 条目`);
     } catch (error) {
-      alert('❌ 世界书导入失败：' + error.message);
+      showAppAlert('❌ 世界书导入失败：' + error.message);
     } finally {
       event.target.value = '';
     }
@@ -4191,15 +4191,15 @@ function bindEvents() {
   // RPG 重置存档；酒馆仍只清空当前对话并重新加载开场白。
   $('btn-clear-chat').addEventListener('click', async () => {
     if (worldModeActive()) {
-      if (!confirm('确定重置当前 RPG 存档？\n\n回合记录、MVU/runtime 变量、事件记忆和动态状态都会恢复到开局基线。')) return;
+      if (!(await showAppConfirm('确定重置当前 RPG 存档？\n\n回合记录、MVU/runtime 变量、事件记忆和动态状态都会恢复到开局基线。'))) return;
       const button = $('btn-clear-chat');
       if (button) { button.disabled = true; button.textContent = '重置中…'; }
       try { await resetCurrentWorldSave(); }
-      catch (err) { alert(err.message); }
+      catch (err) { showAppAlert(err.message); }
       finally { if (button) button.disabled = false; syncConversationResetButton(); }
       return;
     }
-    if (!confirm('确定清空当前对话？将重新加载开场白。')) return;
+    if (!(await showAppConfirm('确定清空当前对话？将重新加载开场白。'))) return;
     const s = curSession();
     if (!s) return;
     // 清空时连同临时预览、思考占位和进行中的请求一起失效，避免旧回复在异步返回后残留。
@@ -4246,15 +4246,15 @@ function bindEvents() {
         const result = importCharOrLorebookFromBuffer(reader.result, fileName);
         if (result.kind === 'lorebook') {
           switchView('lore');
-          alert(`✅ 检测到这是 ST 世界书，已导入「${result.report.name}」· ${result.report.entries} 条目`);
+          showAppAlert(`✅ 检测到这是 ST 世界书，已导入「${result.report.name}」· ${result.report.entries} 条目`);
         } else {
           const report = result.report;
-          alert(report?.lorebook?.created
+          showAppAlert(report?.lorebook?.created
             ? `✅ 角色卡已导入；内嵌世界书已注册为「${report.lorebook.name}」`
             : '✅ 角色卡已导入');
         }
       }
-      catch (err) { alert('❌ 导入失败：' + err.message); }
+      catch (err) { showAppAlert('❌ 导入失败：' + err.message); }
     };
     reader.readAsArrayBuffer(file);
     charFileInput.value = '';

@@ -1959,13 +1959,13 @@ function fillWorldDraftExtensionEditor(extension = null) {
   $('world-extension-js').value = value.js || '';
   $('world-extension-mvu').value = value.mvu ? JSON.stringify(value.mvu, null, 2) : '';
 }
-function loadWorldUiTemplate() {
+async function loadWorldUiTemplate() {
   const template = defaults?.ui?.worldUiTemplate;
   if (!template || typeof template !== 'object' || Array.isArray(template)) {
     setWorldDraftStatus('当前默认数据没有配置完整 UI 模板。', 'error');
     return;
   }
-  if ($('world-draft-ui').value.trim() && !confirm('载入完整 UI 模板会覆盖当前界面 JSON，确定继续吗？')) return;
+  if ($('world-draft-ui').value.trim() && !(await showAppConfirm('载入完整 UI 模板会覆盖当前界面 JSON，确定继续吗？'))) return;
   const next = cloneValue(template);
   $('world-draft-ui').value = JSON.stringify(next, null, 2);
   fillWorldDraftExtensionEditor(next.extension);
@@ -2121,7 +2121,7 @@ async function syncWorldDraftRoute({ fromPopstate = false } = {}) {
   const dialog = $('world-draft-dialog');
   if (!routeId) {
     worldDraftRouteLoadToken += 1;
-    if (dialog?.open && worldDraftDirty && fromPopstate && !confirm('草稿还有未保存的修改，确定离开制卡页吗？')) {
+    if (dialog?.open && worldDraftDirty && fromPopstate && !(await showAppConfirm('草稿还有未保存的修改，确定离开制卡页吗？'))) {
       writeWorldDraftRoute(worldDraft?.worldId || '', { replace: false });
       return;
     }
@@ -2208,10 +2208,10 @@ async function openWorldDraftEditor({ createNew = false } = {}) {
     setWorldDraftStatus(err.message, 'error');
   }
 }
-function requestCloseWorldDraft() {
+async function requestCloseWorldDraft() {
   const dialog = $('world-draft-dialog');
   if (!dialog?.open) return;
-  if (worldDraftDirty && !confirm('草稿还有未保存的修改，确定关闭吗？')) return;
+  if (worldDraftDirty && !(await showAppConfirm('草稿还有未保存的修改，确定关闭吗？'))) return;
   worldDraftDirty = false;
   leaveWorldDraftEditor();
 }
@@ -2380,7 +2380,7 @@ async function publishWorldDraft() {
   const isNewWorld = worldDraftIsNew(worldDraft);
   const nextVersion = isNewWorld ? 1 : Number(worldDraft.baseVersion) + 1;
   const publishLabel = isNewWorld ? '新的世界卡' : `v${nextVersion}`;
-  if (!confirm(`将“${title}”发布为${publishLabel}？\n\n已发布版本不可覆盖；现有存档仍绑定各自原版本。`)) return;
+  if (!(await showAppConfirm(`将“${title}”发布为${publishLabel}？\n\n已发布版本不可覆盖；现有存档仍绑定各自原版本。`))) return;
   if (!worldDraftPublishId) worldDraftPublishId = 'publish-' + uid();
   const publishButton = $('world-draft-publish');
   const saveButton = $('world-draft-save');
@@ -3424,7 +3424,7 @@ async function commitWorldSaveUpgrade() {
   const upgrade = worldUpgrade;
   const report = upgrade?.report;
   if (!report?.canUpgrade) return;
-  if (!confirm(`将“${upgrade.save.name}”从 v${report.fromVersion} 升级到 v${report.targetVersion}？\n\n升级后保留当前进度，并在存档中记录迁移历史。`)) return;
+  if (!(await showAppConfirm(`将“${upgrade.save.name}”从 v${report.fromVersion} 升级到 v${report.targetVersion}？\n\n升级后保留当前进度，并在存档中记录迁移历史。`))) return;
   if (!upgrade.commandId) upgrade.commandId = 'upgrade-' + uid();
   const button = $('world-upgrade-commit');
   button.disabled = true;
@@ -3518,7 +3518,7 @@ function showWorldError(message) {
 }
 /* 恢复内置世界卡：把本地世界库重置为随应用内置的版本（不触碰设置与存档）。 */
 async function resetBuiltinWorlds(button) {
-  if (!confirm('恢复内置世界卡？\n\n· 本地世界卡会重置为随应用内置的版本（自定义/导入的卡会被移除）\n· 「已删除世界卡」记录会被清空\n· 设置与存档不会被删除')) return;
+  if (!(await showAppConfirm('恢复内置世界卡？\n\n· 本地世界卡会重置为随应用内置的版本（自定义/导入的卡会被移除）\n· 「已删除世界卡」记录会被清空\n· 设置与存档不会被删除'))) return;
   const old = button?.textContent;
   if (button) { button.disabled = true; button.textContent = '恢复中…'; }
   try {
@@ -3536,7 +3536,7 @@ async function resetBuiltinWorlds(button) {
     const lines = [`已恢复内置世界卡：${data?.worlds ?? 0} 张。`];
     if (Array.isArray(data?.removedWorlds) && data.removedWorlds.length) lines.push(`移除了 ${data.removedWorlds.length} 张本地世界卡。`);
     if (orphan.length) lines.push(`\n注意：${orphan.length} 份存档引用了已被移除的世界卡，需要删除后重新开始。`);
-    alert(lines.join('\n'));
+    showAppAlert(lines.join('\n'));
   } catch (err) {
     showWorldError(err.message);
   } finally {
@@ -3551,7 +3551,7 @@ async function deleteWorldSave(saveId, button) {
     showWorldError('当前存档还有未完成的回合，请先处理当前回合。');
     return;
   }
-  if (!confirm(`确定删除存档“${save.name || save.id}”？\n\n这会永久删除该存档的状态与叙事记录。`)) return;
+  if (!(await showAppConfirm(`确定删除存档“${save.name || save.id}”？\n\n这会永久删除该存档的状态与叙事记录。`))) return;
   const old = button?.textContent;
   if (button) { button.disabled = true; button.textContent = '删除中…'; }
   try {
@@ -3581,7 +3581,7 @@ async function renameWorldSave(saveId, button) {
   const saves = worldSavesByWorld.get(currentWorldId) || [];
   const save = saves.find(item => item.id === saveId);
   if (!save) return;
-  const name = window.prompt('存档名称', save.name || '');
+  const name = await showAppPrompt('存档名称', save.name || '');
   if (name === null || !name.trim() || name.trim() === save.name) return;
   const old = button?.textContent;
   if (button) { button.disabled = true; button.textContent = '保存中…'; }
@@ -3624,7 +3624,7 @@ async function copyWorldSave(saveId, button) {
   const save = saves.find(item => item.id === saveId);
   if (!save) return;
   const suggested = `${save.name || '存档'} · 副本`;
-  const name = window.prompt('副本名称', suggested);
+  const name = await showAppPrompt('副本名称', suggested);
   if (name === null || !name.trim()) return;
   const old = button?.textContent;
   if (button) { button.disabled = true; button.textContent = '复制中…'; }
@@ -3655,7 +3655,7 @@ async function deleteWorldCard(worldId, button) {
     showWorldError(`“${world.title || world.id}”还有 ${saves.length} 份存档，请先删除存档。`);
     return;
   }
-  if (!confirm(`确定删除世界卡“${world.title || world.id}”？\n\n世界卡的全部版本与未发布草稿都会移除。`)) return;
+  if (!(await showAppConfirm(`确定删除世界卡“${world.title || world.id}”？\n\n世界卡的全部版本与未发布草稿都会移除。`))) return;
   const old = button?.textContent;
   if (button) { button.disabled = true; button.textContent = '删除中…'; }
   try {
@@ -4152,7 +4152,7 @@ async function endCurrentWorld() {
   const endingId = select?.value || 'player-choice';
   const ending = (Array.isArray(currentWorldCard()?.ending?.endings) ? currentWorldCard().ending.endings : []).find(item => item.id === endingId);
   const label = ending?.label || endingId;
-  if (!confirm(`确定结束当前世界线“${label}”吗？结束后将不能继续普通回合。`)) return;
+  if (!(await showAppConfirm(`确定结束当前世界线“${label}”吗？结束后将不能继续普通回合。`))) return;
   const button = $('rpg-end-world');
   if (button) button.disabled = true;
   try {
@@ -4176,9 +4176,9 @@ async function reopenCurrentWorld() {
   const terminalFailure = currentWorldSave.state?.failure?.status === 'terminal';
   if (!ending && !terminalFailure) return;
   const sourceLabel = ending ? '已结束' : '终止失败';
-  if (!confirm(`从当前${sourceLabel}世界线重开一份独立存档？原存档会保留不变。`)) return;
+  if (!(await showAppConfirm(`从当前${sourceLabel}世界线重开一份独立存档？原存档会保留不变。`))) return;
   const suggested = `${currentWorldSave.name || '世界线'} · 重开`;
-  const name = prompt('新存档名称（留空使用默认名称）：', suggested);
+  const name = await showAppPrompt('新存档名称（留空使用默认名称）：', suggested);
   if (name === null) return;
   const button = $('rpg-reopen-world');
   if (button) { button.disabled = true; button.textContent = '重开中…'; }
@@ -4927,23 +4927,29 @@ function worldExtensionApprovalKey(extension) {
   return `${currentWorldId || 'world'}@${currentWorldSave?.worldVersion ?? currentWorldCard()?.version ?? 0}:${lorebookHash(JSON.stringify({ html: extension?.html || '', css: extension?.css || '', js: extension?.js || '', mvu: extension?.mvu || null }))}`;
 }
 
-function approveWorldExtensionCode(extension) {
+function approveWorldExtensionCode(extension, onApproved) {
   const kinds = executableContentKinds(extension);
   if (!kinds.length) return true;
   const key = worldExtensionApprovalKey(extension);
   const approvals = prefs.extensionApprovals && typeof prefs.extensionApprovals === 'object' ? prefs.extensionApprovals : {};
   if (approvals[key] === true) return true;
   if (worldExtensionDeniedApprovals.has(key)) return false;
-  const approved = typeof window !== 'undefined' && typeof window.confirm === 'function'
-    ? window.confirm(`当前世界卡包含 ${kinds.join('、')}。\n确认后仅在隔离 sandbox iframe 中启用世界扩展；不会执行主页面脚本，角色卡/预设里的 EJS 也不会被解释。\n是否启用？`)
-    : false;
-  if (approved) {
-    prefs.extensionApprovals = { ...approvals, [key]: true };
-    saveJSON(LS_PREFS, prefs);
-  } else {
-    worldExtensionDeniedApprovals.add(key);
-  }
-  return approved;
+  // 渲染路径是同步的，无法在此等待用户点击：先同步返回 false 阻止扩展，
+  // 再用应用内对话框询问；同意后重新渲染，使其在下一轮通过校验。
+  if (worldExtensionApprovalPending.has(key)) return false;
+  worldExtensionApprovalPending.add(key);
+  showAppConfirm(`当前世界卡包含 ${kinds.join('、')}。\n确认后仅在隔离 sandbox iframe 中启用世界扩展；不会执行主页面脚本，角色卡/预设里的 EJS 也不会被解释。\n是否启用？`, { title: '启用世界扩展？', confirmText: '启用', cancelText: '不启用' }).then(approved => {
+    worldExtensionApprovalPending.delete(key);
+    if (approved) {
+      prefs.extensionApprovals = { ...approvals, [key]: true };
+      saveJSON(LS_PREFS, prefs);
+      worldExtensionDeniedApprovals.delete(key);
+      if (typeof onApproved === 'function') onApproved();
+    } else {
+      worldExtensionDeniedApprovals.add(key);
+    }
+  });
+  return false;
 }
 
 function worldExtensionContext() {
@@ -5561,7 +5567,7 @@ function renderWorldExtension(surface = 'play') {
   const extension = currentWorldCard()?.ui?.extension;
   const surfaces = Array.isArray(extension?.surfaces) && extension.surfaces.length ? extension.surfaces : ['play'];
   if (!extension || extension.enabled === false || !surfaces.includes(surface) || (!extension.html && !extension.css && !extension.js && extension.mvu == null)) { clearWorldExtension(); return; }
-  if (!approveWorldExtensionCode(extension)) {
+  if (!approveWorldExtensionCode(extension, () => renderWorldExtension(surface))) {
     clearWorldExtension();
     setWorldCustomLayout(false);
     if (surface === 'setup') {

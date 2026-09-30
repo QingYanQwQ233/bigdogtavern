@@ -220,6 +220,113 @@ function showToast(message, options = {}) {
   if (duration > 0) timer = setTimeout(dismiss, duration);
   return { dismiss, element: toast };
 }
+/* ─────────── 应用内对话框（替代原生 alert / confirm / prompt） ───────────
+   原生对话框在 WebView 里样式不可控、出现位置随内核变化，用户容易错过；
+   这里统一成应用内浮层。alert 的语义是「告知」，做成不阻塞的浮层（不要求调用方 await）；
+   confirm / prompt 需要用户选择，返回 Promise。宿主缺失时退回原生，功能不丢。 */
+let appDialogSeq = 0;
+function openAppDialog(options = {}) {
+  const mode = options.mode || 'alert';
+  return new Promise(resolve => {
+    const host = $('dialog-host');
+    const message = String(options.message == null ? '' : options.message);
+    if (!host) {
+      if (mode === 'confirm') return resolve(typeof window.confirm === 'function' ? window.confirm(message) : true);
+      if (mode === 'prompt') return resolve(typeof window.prompt === 'function' ? window.prompt(message, options.defaultValue || '') : null);
+      if (typeof window.alert === 'function') window.alert(message);
+      return resolve(true);
+    }
+    const kind = options.kind || '';
+    const titleId = 'dialog-title-' + (++appDialogSeq);
+    const veil = document.createElement('div');
+    veil.className = 'dialog-veil';
+    const card = document.createElement('section');
+    card.className = 'dialog-card' + (kind ? ' dialog-' + kind : '');
+    card.setAttribute('role', kind === 'error' ? 'alertdialog' : 'dialog');
+    card.setAttribute('aria-modal', 'true');
+    card.setAttribute('aria-labelledby', titleId);
+    const title = document.createElement('h2');
+    title.className = 'dialog-title';
+    title.id = titleId;
+    title.textContent = options.title || (kind === 'error' ? '出错了' : kind === 'success' ? '已完成' : '提示');
+    card.appendChild(title);
+    const body = document.createElement('p');
+    body.className = 'dialog-body';
+    body.textContent = message;
+    card.appendChild(body);
+    let inputEl = null;
+    if (mode === 'prompt') {
+      inputEl = document.createElement('input');
+      inputEl.type = 'text';
+      inputEl.className = 'dialog-input';
+      inputEl.value = options.defaultValue == null ? '' : String(options.defaultValue);
+      if (options.placeholder) inputEl.placeholder = String(options.placeholder);
+      if (options.maxLength) inputEl.maxLength = options.maxLength;
+      card.appendChild(inputEl);
+    }
+    const actions = document.createElement('div');
+    actions.className = 'dialog-actions';
+    card.appendChild(actions);
+    const cancelValue = mode === 'prompt' ? null : false;
+    let settled = false;
+    const prevFocus = document.activeElement;
+    const close = value => {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener('keydown', onKey, true);
+      veil.remove();
+      card.remove();
+      if (!host.querySelector('.dialog-card')) {
+        host.replaceChildren();
+        host.classList.remove('has-dialog');
+      }
+      if (prevFocus && typeof prevFocus.focus === 'function' && document.contains(prevFocus)) prevFocus.focus();
+      resolve(value);
+    };
+    const onKey = event => {
+      if (event.key === 'Escape') { event.preventDefault(); close(mode === 'alert' ? true : cancelValue); return; }
+      if (event.key === 'Enter' && mode === 'prompt') { event.preventDefault(); close(String(inputEl.value)); }
+    };
+    const addButton = (label, value, className) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'dialog-btn' + (className ? ' ' + className : '');
+      btn.textContent = label;
+      btn.addEventListener('click', () => close(typeof value === 'function' ? value() : value));
+      actions.appendChild(btn);
+      return btn;
+    };
+    if (mode === 'alert') {
+      actions.classList.add('is-single');
+      addButton(options.confirmText || '知道了', true, 'primary');
+    } else {
+      addButton(options.cancelText || '取消', cancelValue, '');
+      addButton(options.confirmText || '确定', mode === 'prompt' ? () => String(inputEl.value) : true, options.danger ? 'danger' : 'primary');
+    }
+    veil.addEventListener('click', () => { if (mode === 'alert') close(true); });
+    host.appendChild(veil);
+    host.appendChild(card);
+    host.classList.add('has-dialog');
+    document.addEventListener('keydown', onKey, true);
+    const focusTarget = mode === 'prompt' ? inputEl : actions.querySelector('.dialog-btn.primary') || actions.querySelector('.dialog-btn');
+    if (focusTarget) {
+      try { focusTarget.focus(); } catch { /* 焦点失败不影响可用性 */ }
+      if (mode === 'prompt' && typeof inputEl.select === 'function') inputEl.select();
+    }
+  });
+}
+/* 告知类：不阻塞调用方，返回 Promise 供需要时等待用户确认。 */
+function showAppAlert(message, options = {}) {
+  const text = String(message == null ? '' : message);
+  const kind = options.kind || (/^✅|^✔|^☑|^已完成/.test(text) ? 'success' : /^❌|^⚠|^✕/.test(text) ? 'error' : '');
+  return openAppDialog(Object.assign({}, options, { mode: 'alert', message: text, kind }));
+}
+function showAppConfirm(message, options = {}) {
+  return openAppDialog(Object.assign({}, options, { mode: 'confirm', message: String(message == null ? '' : message) }));
+}
+function showAppPrompt(message, defaultValue = '', options = {}) {
+  return openAppDialog(Object.assign({}, options, { mode: 'prompt', message: String(message == null ? '' : message), defaultValue }));
+}
 function webCompatBootstrap() {
   try {
     if (typeof Array.prototype.at !== 'function') {
@@ -290,6 +397,8 @@ const serverDataWriteQueues = new Map();
 const WORLD_EXTENSION_CHANNEL = 'tavern.rpg.extension';
 let worldExtensionState = { iframe: null, nonce: '', signature: '', ready: false, timer: null, pending: new Map(), nextRequestId: 0, surface: 'play' };
 const worldExtensionDeniedApprovals = new Set();
+// 已弹窗询问、等待用户答复的扩展：避免同一轮渲染重复弹窗
+const worldExtensionApprovalPending = new Set();
 const cardScriptDeniedApprovals = new Set();
 
 /* ─────────── 数据加载 / 保存（JSON 文件存储） ─────────── */
@@ -2366,13 +2475,13 @@ function fillWorldDraftExtensionEditor(extension = null) {
   $('world-extension-js').value = value.js || '';
   $('world-extension-mvu').value = value.mvu ? JSON.stringify(value.mvu, null, 2) : '';
 }
-function loadWorldUiTemplate() {
+async function loadWorldUiTemplate() {
   const template = defaults?.ui?.worldUiTemplate;
   if (!template || typeof template !== 'object' || Array.isArray(template)) {
     setWorldDraftStatus('当前默认数据没有配置完整 UI 模板。', 'error');
     return;
   }
-  if ($('world-draft-ui').value.trim() && !confirm('载入完整 UI 模板会覆盖当前界面 JSON，确定继续吗？')) return;
+  if ($('world-draft-ui').value.trim() && !(await showAppConfirm('载入完整 UI 模板会覆盖当前界面 JSON，确定继续吗？'))) return;
   const next = cloneValue(template);
   $('world-draft-ui').value = JSON.stringify(next, null, 2);
   fillWorldDraftExtensionEditor(next.extension);
@@ -2528,7 +2637,7 @@ async function syncWorldDraftRoute({ fromPopstate = false } = {}) {
   const dialog = $('world-draft-dialog');
   if (!routeId) {
     worldDraftRouteLoadToken += 1;
-    if (dialog?.open && worldDraftDirty && fromPopstate && !confirm('草稿还有未保存的修改，确定离开制卡页吗？')) {
+    if (dialog?.open && worldDraftDirty && fromPopstate && !(await showAppConfirm('草稿还有未保存的修改，确定离开制卡页吗？'))) {
       writeWorldDraftRoute(worldDraft?.worldId || '', { replace: false });
       return;
     }
@@ -2615,10 +2724,10 @@ async function openWorldDraftEditor({ createNew = false } = {}) {
     setWorldDraftStatus(err.message, 'error');
   }
 }
-function requestCloseWorldDraft() {
+async function requestCloseWorldDraft() {
   const dialog = $('world-draft-dialog');
   if (!dialog?.open) return;
-  if (worldDraftDirty && !confirm('草稿还有未保存的修改，确定关闭吗？')) return;
+  if (worldDraftDirty && !(await showAppConfirm('草稿还有未保存的修改，确定关闭吗？'))) return;
   worldDraftDirty = false;
   leaveWorldDraftEditor();
 }
@@ -2787,7 +2896,7 @@ async function publishWorldDraft() {
   const isNewWorld = worldDraftIsNew(worldDraft);
   const nextVersion = isNewWorld ? 1 : Number(worldDraft.baseVersion) + 1;
   const publishLabel = isNewWorld ? '新的世界卡' : `v${nextVersion}`;
-  if (!confirm(`将“${title}”发布为${publishLabel}？\n\n已发布版本不可覆盖；现有存档仍绑定各自原版本。`)) return;
+  if (!(await showAppConfirm(`将“${title}”发布为${publishLabel}？\n\n已发布版本不可覆盖；现有存档仍绑定各自原版本。`))) return;
   if (!worldDraftPublishId) worldDraftPublishId = 'publish-' + uid();
   const publishButton = $('world-draft-publish');
   const saveButton = $('world-draft-save');
@@ -3831,7 +3940,7 @@ async function commitWorldSaveUpgrade() {
   const upgrade = worldUpgrade;
   const report = upgrade?.report;
   if (!report?.canUpgrade) return;
-  if (!confirm(`将“${upgrade.save.name}”从 v${report.fromVersion} 升级到 v${report.targetVersion}？\n\n升级后保留当前进度，并在存档中记录迁移历史。`)) return;
+  if (!(await showAppConfirm(`将“${upgrade.save.name}”从 v${report.fromVersion} 升级到 v${report.targetVersion}？\n\n升级后保留当前进度，并在存档中记录迁移历史。`))) return;
   if (!upgrade.commandId) upgrade.commandId = 'upgrade-' + uid();
   const button = $('world-upgrade-commit');
   button.disabled = true;
@@ -3925,7 +4034,7 @@ function showWorldError(message) {
 }
 /* 恢复内置世界卡：把本地世界库重置为随应用内置的版本（不触碰设置与存档）。 */
 async function resetBuiltinWorlds(button) {
-  if (!confirm('恢复内置世界卡？\n\n· 本地世界卡会重置为随应用内置的版本（自定义/导入的卡会被移除）\n· 「已删除世界卡」记录会被清空\n· 设置与存档不会被删除')) return;
+  if (!(await showAppConfirm('恢复内置世界卡？\n\n· 本地世界卡会重置为随应用内置的版本（自定义/导入的卡会被移除）\n· 「已删除世界卡」记录会被清空\n· 设置与存档不会被删除'))) return;
   const old = button?.textContent;
   if (button) { button.disabled = true; button.textContent = '恢复中…'; }
   try {
@@ -3943,7 +4052,7 @@ async function resetBuiltinWorlds(button) {
     const lines = [`已恢复内置世界卡：${data?.worlds ?? 0} 张。`];
     if (Array.isArray(data?.removedWorlds) && data.removedWorlds.length) lines.push(`移除了 ${data.removedWorlds.length} 张本地世界卡。`);
     if (orphan.length) lines.push(`\n注意：${orphan.length} 份存档引用了已被移除的世界卡，需要删除后重新开始。`);
-    alert(lines.join('\n'));
+    showAppAlert(lines.join('\n'));
   } catch (err) {
     showWorldError(err.message);
   } finally {
@@ -3958,7 +4067,7 @@ async function deleteWorldSave(saveId, button) {
     showWorldError('当前存档还有未完成的回合，请先处理当前回合。');
     return;
   }
-  if (!confirm(`确定删除存档“${save.name || save.id}”？\n\n这会永久删除该存档的状态与叙事记录。`)) return;
+  if (!(await showAppConfirm(`确定删除存档“${save.name || save.id}”？\n\n这会永久删除该存档的状态与叙事记录。`))) return;
   const old = button?.textContent;
   if (button) { button.disabled = true; button.textContent = '删除中…'; }
   try {
@@ -3988,7 +4097,7 @@ async function renameWorldSave(saveId, button) {
   const saves = worldSavesByWorld.get(currentWorldId) || [];
   const save = saves.find(item => item.id === saveId);
   if (!save) return;
-  const name = window.prompt('存档名称', save.name || '');
+  const name = await showAppPrompt('存档名称', save.name || '');
   if (name === null || !name.trim() || name.trim() === save.name) return;
   const old = button?.textContent;
   if (button) { button.disabled = true; button.textContent = '保存中…'; }
@@ -4031,7 +4140,7 @@ async function copyWorldSave(saveId, button) {
   const save = saves.find(item => item.id === saveId);
   if (!save) return;
   const suggested = `${save.name || '存档'} · 副本`;
-  const name = window.prompt('副本名称', suggested);
+  const name = await showAppPrompt('副本名称', suggested);
   if (name === null || !name.trim()) return;
   const old = button?.textContent;
   if (button) { button.disabled = true; button.textContent = '复制中…'; }
@@ -4062,7 +4171,7 @@ async function deleteWorldCard(worldId, button) {
     showWorldError(`“${world.title || world.id}”还有 ${saves.length} 份存档，请先删除存档。`);
     return;
   }
-  if (!confirm(`确定删除世界卡“${world.title || world.id}”？\n\n世界卡的全部版本与未发布草稿都会移除。`)) return;
+  if (!(await showAppConfirm(`确定删除世界卡“${world.title || world.id}”？\n\n世界卡的全部版本与未发布草稿都会移除。`))) return;
   const old = button?.textContent;
   if (button) { button.disabled = true; button.textContent = '删除中…'; }
   try {
@@ -4559,7 +4668,7 @@ async function endCurrentWorld() {
   const endingId = select?.value || 'player-choice';
   const ending = (Array.isArray(currentWorldCard()?.ending?.endings) ? currentWorldCard().ending.endings : []).find(item => item.id === endingId);
   const label = ending?.label || endingId;
-  if (!confirm(`确定结束当前世界线“${label}”吗？结束后将不能继续普通回合。`)) return;
+  if (!(await showAppConfirm(`确定结束当前世界线“${label}”吗？结束后将不能继续普通回合。`))) return;
   const button = $('rpg-end-world');
   if (button) button.disabled = true;
   try {
@@ -4583,9 +4692,9 @@ async function reopenCurrentWorld() {
   const terminalFailure = currentWorldSave.state?.failure?.status === 'terminal';
   if (!ending && !terminalFailure) return;
   const sourceLabel = ending ? '已结束' : '终止失败';
-  if (!confirm(`从当前${sourceLabel}世界线重开一份独立存档？原存档会保留不变。`)) return;
+  if (!(await showAppConfirm(`从当前${sourceLabel}世界线重开一份独立存档？原存档会保留不变。`))) return;
   const suggested = `${currentWorldSave.name || '世界线'} · 重开`;
-  const name = prompt('新存档名称（留空使用默认名称）：', suggested);
+  const name = await showAppPrompt('新存档名称（留空使用默认名称）：', suggested);
   if (name === null) return;
   const button = $('rpg-reopen-world');
   if (button) { button.disabled = true; button.textContent = '重开中…'; }
@@ -5334,23 +5443,29 @@ function worldExtensionApprovalKey(extension) {
   return `${currentWorldId || 'world'}@${currentWorldSave?.worldVersion ?? currentWorldCard()?.version ?? 0}:${lorebookHash(JSON.stringify({ html: extension?.html || '', css: extension?.css || '', js: extension?.js || '', mvu: extension?.mvu || null }))}`;
 }
 
-function approveWorldExtensionCode(extension) {
+function approveWorldExtensionCode(extension, onApproved) {
   const kinds = executableContentKinds(extension);
   if (!kinds.length) return true;
   const key = worldExtensionApprovalKey(extension);
   const approvals = prefs.extensionApprovals && typeof prefs.extensionApprovals === 'object' ? prefs.extensionApprovals : {};
   if (approvals[key] === true) return true;
   if (worldExtensionDeniedApprovals.has(key)) return false;
-  const approved = typeof window !== 'undefined' && typeof window.confirm === 'function'
-    ? window.confirm(`当前世界卡包含 ${kinds.join('、')}。\n确认后仅在隔离 sandbox iframe 中启用世界扩展；不会执行主页面脚本，角色卡/预设里的 EJS 也不会被解释。\n是否启用？`)
-    : false;
-  if (approved) {
-    prefs.extensionApprovals = { ...approvals, [key]: true };
-    saveJSON(LS_PREFS, prefs);
-  } else {
-    worldExtensionDeniedApprovals.add(key);
-  }
-  return approved;
+  // 渲染路径是同步的，无法在此等待用户点击：先同步返回 false 阻止扩展，
+  // 再用应用内对话框询问；同意后重新渲染，使其在下一轮通过校验。
+  if (worldExtensionApprovalPending.has(key)) return false;
+  worldExtensionApprovalPending.add(key);
+  showAppConfirm(`当前世界卡包含 ${kinds.join('、')}。\n确认后仅在隔离 sandbox iframe 中启用世界扩展；不会执行主页面脚本，角色卡/预设里的 EJS 也不会被解释。\n是否启用？`, { title: '启用世界扩展？', confirmText: '启用', cancelText: '不启用' }).then(approved => {
+    worldExtensionApprovalPending.delete(key);
+    if (approved) {
+      prefs.extensionApprovals = { ...approvals, [key]: true };
+      saveJSON(LS_PREFS, prefs);
+      worldExtensionDeniedApprovals.delete(key);
+      if (typeof onApproved === 'function') onApproved();
+    } else {
+      worldExtensionDeniedApprovals.add(key);
+    }
+  });
+  return false;
 }
 
 function worldExtensionContext() {
@@ -5968,7 +6083,7 @@ function renderWorldExtension(surface = 'play') {
   const extension = currentWorldCard()?.ui?.extension;
   const surfaces = Array.isArray(extension?.surfaces) && extension.surfaces.length ? extension.surfaces : ['play'];
   if (!extension || extension.enabled === false || !surfaces.includes(surface) || (!extension.html && !extension.css && !extension.js && extension.mvu == null)) { clearWorldExtension(); return; }
-  if (!approveWorldExtensionCode(extension)) {
+  if (!approveWorldExtensionCode(extension, () => renderWorldExtension(surface))) {
     clearWorldExtension();
     setWorldCustomLayout(false);
     if (surface === 'setup') {
@@ -8465,8 +8580,8 @@ function switchSession(id) {
   renderMessages();
 }
 
-function deleteSession(id) {
-  if (!confirm('删除该会话？此操作不可撤销。')) return;
+async function deleteSession(id) {
+  if (!(await showAppConfirm('删除该会话？此操作不可撤销。'))) return;
   sessions = sessions.filter(s => s.id !== id);
   if (!sessionsDeleted.includes(id)) sessionsDeleted.push(id); // 墓碑：另一台浏览器合并时不再复活
   if (currentSessionId === id) currentSessionId = null;
@@ -8477,10 +8592,10 @@ function deleteSession(id) {
   renderMessages();
 }
 
-function renameSession(id) {
+async function renameSession(id) {
   const s = sessions.find(x => x.id === id);
   if (!s) return;
-  const name = prompt('重命名会话：', s.name);
+  const name = await showAppPrompt('重命名会话：', s.name);
   if (name && name.trim()) { s.name = name.trim(); s.updatedAt = Date.now(); saveSessions(); renderSessions(); }
 }
 
@@ -8865,7 +8980,7 @@ function importCharOrLorebookFromBuffer(buffer, fileName = '') {
 
 async function exportCurrentChar() {
   const c = currentChar();
-  if (!c) return alert('请先创建 / 选择一个角色');
+  if (!c) return showAppAlert('请先创建 / 选择一个角色');
   await downloadBlob(new Blob([JSON.stringify(charToV3(c), null, 2)], { type: 'application/json' }), (c.name || 'character').replace(/[\\/:*?"<>|]/g, '_') + '.card.json');
 }
 
@@ -9065,21 +9180,21 @@ function readUserForm() {
 function saveUserForm() {
   readUserForm();
   saveUserData();
-  alert('✅ 玩家设定已保存');
+  showAppAlert('✅ 玩家设定已保存');
 }
-function saveUserAsNew() {
+async function saveUserAsNew() {
   readUserForm();
-  const name = prompt('预设名称：', '设定 ' + (Object.keys(userData.presets).length + 1));
+  const name = await showAppPrompt('预设名称：', '设定 ' + (Object.keys(userData.presets).length + 1));
   if (!name || !name.trim()) return;
   userData.presets[name.trim()] = JSON.parse(JSON.stringify(currentUserPreset()));
   userData.currentPreset = name.trim();
   saveUserData();
   fillUserForm();
 }
-function deleteUserPreset() {
+async function deleteUserPreset() {
   const name = userData.currentPreset;
-  if (!name || name === 'default') { alert('默认预设不可删除'); return; }
-  if (!confirm(`删除预设「${name}」？`)) return;
+  if (!name || name === 'default') { showAppAlert('默认预设不可删除'); return; }
+  if (!(await showAppConfirm(`删除预设「${name}」？`))) return;
   delete userData.presets[name];
   userData.currentPreset = 'default';
   saveUserData();
@@ -9140,7 +9255,7 @@ function renderMemList() {
     const el = document.createElement('div');
     el.className = 'wi-item' + (m.enabled === false ? ' mem-off' : '');
     el.innerHTML = `<span class="wi-title-wrap">${m.enabled === false ? '🚫 ' : '💭 '}${esc(m.content)}</span><span class="wi-const" data-mi="${i}" title="启用/停用">${m.enabled === false ? '🔓' : '🔒'}</span><span class="wi-const" data-di="${i}" title="删除">✕</span>`;
-    el.addEventListener('click', (ev) => {
+    el.addEventListener('click', async (ev) => {
       if (ev.target.dataset && ev.target.dataset.di !== undefined) { mems.splice(parseInt(ev.target.dataset.di, 10), 1); saveUserData(); renderMemList(); return; }
       if (ev.target.dataset && ev.target.dataset.mi !== undefined) {
         const idx = parseInt(ev.target.dataset.mi, 10);
@@ -9148,7 +9263,7 @@ function renderMemList() {
         saveUserData(); renderMemList(); return;
       }
       // 点击编辑
-      const edit = prompt('编辑记忆：', m.content);
+      const edit = await showAppPrompt('编辑记忆：', m.content);
       if (edit === null) return;
       m.content = edit.trim();
       if (!m.content) { mems.splice(i, 1); }
@@ -10276,19 +10391,19 @@ function togglePGPresetRegex(id, enabled, bindingMode = mode) {
   renderPGList();
 }
 
-function pgNew() {
+async function pgNew() {
   setMobileManagerPanel('prompt-mgr', 'detail');
-  const name = prompt('新预设名称：', '预设 ' + (Object.keys(promptPresets).length + 1));
+  const name = await showAppPrompt('新预设名称：', '预设 ' + (Object.keys(promptPresets).length + 1));
   if (!name || !name.trim()) return;
-  if (promptPresets[name.trim()]) { alert('已存在同名预设。'); return; }
+  if (promptPresets[name.trim()]) { showAppAlert('已存在同名预设。'); return; }
   promptPresets[name.trim()] = normalizePromptPreset(name.trim(), { mode, firstMes: '' });
   savePresets();
   selectPresetForEdit(name.trim());
 }
 
-function pgDelete(name) {
+async function pgDelete(name) {
   if (!promptPresets[name] || name === GLOBAL_PRESET_KEY) return; // 全局默认不可删
-  if (!confirm(`删除预设「${name}」？`)) return;
+  if (!(await showAppConfirm(`删除预设「${name}」？`))) return;
   delete promptPresets[name];
   for (const targetMode of ['tavern', 'rpg']) {
     if (prefs.currentPresetByMode?.[targetMode] === name) prefs.currentPresetByMode[targetMode] = '';
@@ -10697,14 +10812,14 @@ function saveRegexEditor() {
     enabled: $('regex-enabled').checked,
   }, 0, 'custom');
   if (!buildOutputRegex(candidate)) {
-    alert('匹配表达式为空或不是有效正则。');
+    showAppAlert('匹配表达式为空或不是有效正则。');
     $('regex-find').focus();
     return;
   }
   if (regexEditingSource === 'preset') {
     const updated = savePresetRegexRule(regexEditingId, candidate);
     if (!updated) {
-      alert('当前预设正则已不存在，请重新打开正则列表。');
+      showAppAlert('当前预设正则已不存在，请重新打开正则列表。');
       resetRegexEditor();
       return;
     }
@@ -10739,12 +10854,12 @@ function copyPresetRegexToCustom() {
   renderRegexEditor(copy, 'custom');
 }
 
-function deleteRegexEditor() {
+async function deleteRegexEditor() {
   if (regexEditingSource === 'world' || !regexEditingId) return;
   if (regexEditingSource === 'preset') {
     const { name, preset } = activePresetRegexStore();
     const index = presetRegexIndex(preset, regexEditingId);
-    if (index < 0 || !confirm(`从预设「${name === GLOBAL_PRESET_KEY ? '全局默认' : name}」删除正则「${preset.regexes[index].name || regexEditingId}」？`)) return;
+    if (index < 0 || !(await showAppConfirm(`从预设「${name === GLOBAL_PRESET_KEY ? '全局默认' : name}」删除正则「${preset.regexes[index].name || regexEditingId}」？`))) return;
     preset.regexes.splice(index, 1);
     promptPresets[name] = normalizePromptPreset(name, preset);
     if (pgEditingName === name && pgEditingPreset) pgEditingPreset.regexes = cloneValue(promptPresets[name].regexes);
@@ -10755,7 +10870,7 @@ function deleteRegexEditor() {
   }
   const rules = modeOutputRegexes();
   const index = rules.findIndex(rule => rule.id === regexEditingId);
-  if (index < 0 || !confirm(`删除正则「${rules[index].name || regexEditingId}」？`)) return;
+  if (index < 0 || !(await showAppConfirm(`删除正则「${rules[index].name || regexEditingId}」？`))) return;
   rules.splice(index, 1);
   saveOutputRegexPrefs();
   renderPGRegexBindings();
@@ -10871,9 +10986,9 @@ function renameCurrentLB() {
   renderLBList();
 }
 
-function lbNew() {
+async function lbNew() {
   setMobileManagerPanel('lore-mgr', 'detail');
-  const name = prompt('新世界书名称：', '世界书 ' + (Object.keys(lorebooks).length + 1));
+  const name = await showAppPrompt('新世界书名称：', '世界书 ' + (Object.keys(lorebooks).length + 1));
   if (!name || !name.trim()) return;
   const id = uid();
   lorebooks[id] = { name: name.trim(), entries: [], settings: {} };
@@ -10881,10 +10996,10 @@ function lbNew() {
   selectLB(id);
 }
 
-function deleteLBById(id) {
+async function deleteLBById(id) {
   if (!id || !lorebooks[id]) return;
   const lb = lorebooks[id];
-  if (!confirm(`删除世界书「${lb.name}」？其条目将一并删除。`)) return;
+  if (!(await showAppConfirm(`删除世界书「${lb.name}」？其条目将一并删除。`))) return;
   delete lorebooks[id];
   const nextId = Object.keys(lorebooks)[0] || null;
   if (prefs.activeLoreId === id || !lorebooks[prefs.activeLoreId]) prefs.activeLoreId = nextId;
@@ -11073,9 +11188,9 @@ function saveWI() {
   renderWIList();
 }
 
-function deleteWI() {
+async function deleteWI() {
   if (!wiEditingId || !lbEditingId) return;
-  if (!confirm('删除该世界书条目？')) return;
+  if (!(await showAppConfirm('删除该世界书条目？'))) return;
   lorebooks[lbEditingId].entries = currentLBEntries().filter(e => e.id !== wiEditingId);
   wiEditingId = null;
   saveLore();
@@ -11390,7 +11505,7 @@ function serializeSTWorldInfoEntry(entry, index = 0) {
 
 async function exportCurrentLorebook() {
   const book = currentLB();
-  if (!book) return alert('请先选择世界书');
+  if (!book) return showAppAlert('请先选择世界书');
   const bookSettings = normalizeLorebookSettings(book);
   const entries = {};
   currentLBEntries().forEach((entry, index) => { entries[String(entry.uid ?? index)] = serializeSTWorldInfoEntry(entry, index); });
@@ -12877,9 +12992,9 @@ function profileSwitch() {
   out.className = 'ok';
 }
 
-function profileSave() {
+async function profileSave() {
   readSettingsForm();
-  const name = prompt('为新配置存档命名：', '配置 ' + (Object.keys(profiles).length + 1));
+  const name = await showAppPrompt('为新配置存档命名：', '配置 ' + (Object.keys(profiles).length + 1));
   if (!name) return;
   const snap = {};
   for (const k of PROFILE_KEYS) snap[k] = settings[k];
@@ -12892,10 +13007,10 @@ function profileSave() {
   out.className = 'ok';
 }
 
-function profileDelete() {
+async function profileDelete() {
   const name = $('s-profile').value;
   if (!name || !profiles[name]) return;
-  if (!confirm(`删除配置存档「${name}」？`)) return;
+  if (!(await showAppConfirm(`删除配置存档「${name}」？`))) return;
   delete profiles[name];
   saveJSON(LS_PROFILES, profiles);
   renderProfileSelect();
@@ -13600,8 +13715,8 @@ function readGenerationForm() {
   return true;
 }
 
-function resetGenerationForm() {
-  if (!defaults?.gen || !confirm('恢复内置的一键写卡提示词和角色字段？当前自定义内容会被覆盖。')) return;
+async function resetGenerationForm() {
+  if (!defaults?.gen || !(await showAppConfirm('恢复内置的一键写卡提示词和角色字段？当前自定义内容会被覆盖。'))) return;
   genSettings = cloneValue(defaults.gen);
   fillSettingsForm();
   saveGenerationSettings();
@@ -13904,7 +14019,7 @@ async function loadDebugMemoryDiagnostics(saveId = currentWorldSaveId) {
 
 async function rebuildDebugMemory() {
   if (!worldModeActive() || !currentWorldSave) return;
-  if (!confirm('将用当前存档的正式事件与成长事实重建派生记忆；不会修改叙事、状态或世界卡。继续？')) return;
+  if (!(await showAppConfirm('将用当前存档的正式事件与成长事实重建派生记忆；不会修改叙事、状态或世界卡。继续？'))) return;
   const button = $('debug-memory-rebuild');
   const oldLabel = button.textContent;
   button.disabled = true;
@@ -14258,9 +14373,9 @@ function importSettingsFromText(text) {
   updateApiStatusFromSettings();
 }
 
-function importSettings() {
+async function importSettings() {
   const out = $('test-result');
-  const text = prompt('粘贴要导入的配置 JSON（也可双击「导入配置」选择文件）');
+  const text = await showAppPrompt('粘贴要导入的配置 JSON（也可双击「导入配置」选择文件）');
   if (text === null) return;
   try { importSettingsFromText(text); out.textContent = '✅ 配置已导入'; out.className = 'ok'; }
   catch (err) { out.textContent = `❌ 导入失败：${err.message}`; out.className = 'err'; }
@@ -14336,10 +14451,10 @@ function cancelEdit(m) {
   delete m._editing;
   renderMessages();
 }
-function deleteMessage(m) {
+async function deleteMessage(m) {
   if (worldModeActive()) {
     if (m._opening) return;
-    if (!confirm('删除这条消息？')) return;
+    if (!(await showAppConfirm('删除这条消息？'))) return;
     const i = (currentWorldSave.turns || []).indexOf(m);
     if (i < 0) return;
     currentWorldSave.turns.splice(i, 1);
@@ -14351,7 +14466,7 @@ function deleteMessage(m) {
   if (!s) return;
   const i = s.messages.indexOf(m);
   if (i < 0) return;
-  if (!confirm('删除这条消息？')) return;
+  if (!(await showAppConfirm('删除这条消息？'))) return;
   s.messages.splice(i, 1);
   saveSessions(s);
   renderMessages();
@@ -15016,8 +15131,8 @@ function copyMapJson() {
   const txt = data ? JSON.stringify(data, null, 2) : lastMapJson;
   if (!txt) return;
   navigator.clipboard.writeText(txt).then(
-    () => alert('✅ 地图数据 JSON 已复制'),
-    () => alert('复制失败（浏览器剪贴板权限）')
+    () => showAppAlert('✅ 地图数据 JSON 已复制'),
+    () => showAppAlert('复制失败（浏览器剪贴板权限）')
   );
 }
 
@@ -15886,9 +16001,9 @@ function parseLLMJson(text) {
 /* 生成世界书条目 → 填入条目编辑器（用户确认后保存） */
 async function aiGenWI() {
   const desc = $('wi-ai-desc').value.trim();
-  if (!desc) { alert('先描述要生成的设定，例如：北方沉睡古龙的龙之谷'); return; }
+  if (!desc) { showAppAlert('先描述要生成的设定，例如：北方沉睡古龙的龙之谷'); return; }
   const gen = genSettings || {};
-  if (!gen.lorePrompt) { alert('未配置生成指令（_defaults.json → gen.lorePrompt）'); return; }
+  if (!gen.lorePrompt) { showAppAlert('未配置生成指令（_defaults.json → gen.lorePrompt）'); return; }
   const btn = $('btn-ai-wi');
   btn.disabled = true; btn.textContent = '生成中…';
   try {
@@ -15898,10 +16013,10 @@ async function aiGenWI() {
     $('wi-content').value = obj.content || '';
     $('wi-order').value = 100;
     $('wi-constant').checked = !!obj.constant;
-    alert('✅ 已生成并填入 —— 检查后点「保存条目」');
+    showAppAlert('✅ 已生成并填入 —— 检查后点「保存条目」');
   } catch (err) {
     console.error('[Tavern] AI 生成世界书失败:', err.message);
-    alert('❌ ' + err.message);
+    showAppAlert('❌ ' + err.message);
   } finally {
     btn.disabled = false; btn.textContent = '✨ 生成';
   }
@@ -15909,26 +16024,26 @@ async function aiGenWI() {
 
 /* ─────────── RPG 手动管理（背包 / 任务 / 快捷行动） ─────────── */
 
-function addRpgItem() {
+async function addRpgItem() {
   const rs = curRpgState();
-  if (!rs) { alert('当前不是 RPG 会话'); return; }
-  const name = (prompt('道具名称：') || '').trim();
+  if (!rs) { showAppAlert('当前不是 RPG 会话'); return; }
+  const name = (await showAppPrompt('道具名称：') || '').trim();
   if (!name) return;
-  const n = parseInt(prompt('数量（默认 1）：', '1'), 10);
+  const n = parseInt(await showAppPrompt('数量（默认 1）：', '1'), 10);
   const count = isNaN(n) ? 1 : n;
-  const desc = (prompt('描述（可留空）：') || '').trim();
+  const desc = (await showAppPrompt('描述（可留空）：') || '').trim();
   const exist = rs.inventory.find(i => i.name === name);
   if (exist) exist.count += count;
   else rs.inventory.push({ name, count, desc });
   commitRpgState(rs); renderRPG();
 }
 
-function addRpgQuest() {
+async function addRpgQuest() {
   const rs = curRpgState();
-  if (!rs) { alert('当前不是 RPG 会话'); return; }
-  const title = (prompt('任务标题：') || '').trim();
+  if (!rs) { showAppAlert('当前不是 RPG 会话'); return; }
+  const title = (await showAppPrompt('任务标题：') || '').trim();
   if (!title) return;
-  const desc = (prompt('任务内容（可留空）：') || '').trim();
+  const desc = (await showAppPrompt('任务内容（可留空）：') || '').trim();
   rs.quests.push({ id: uid(), title, desc, status: 'active' });
   commitRpgState(rs); renderRPG();
 }
@@ -16136,7 +16251,7 @@ async function mapBeautify() {
   if (!map) return;
   const ig = (settings && settings.imageGen) || {};
   if (!ig.baseUrl) {
-    alert('请先在 设置 → 文生图 中配置 Base URL（gpt-image 反代）');
+    showAppAlert('请先在 设置 → 文生图 中配置 Base URL（gpt-image 反代）');
     return;
   }
   const status = $('mm-info');
@@ -16553,9 +16668,9 @@ function bindEvents() {
     try {
       if (file.size > 5 * 1024 * 1024) throw new Error('文件超过 5 MB，拒绝导入');
       const report = importSTPreset(JSON.parse(await file.text()), file.name);
-      alert(`已导入「${report.name}」：素材 ${report.prompts} 条，当前顺序 ${report.ordered} 条。${report.regexes ? `已识别并启用 ${report.regexes} 条输出正则。` : ''}`);
+      showAppAlert(`已导入「${report.name}」：素材 ${report.prompts} 条，当前顺序 ${report.ordered} 条。${report.regexes ? `已识别并启用 ${report.regexes} 条输出正则。` : ''}`);
     } catch (err) {
-      alert('导入失败：' + err.message);
+      showAppAlert('导入失败：' + err.message);
     } finally {
       e.target.value = '';
     }
@@ -16581,9 +16696,9 @@ function bindEvents() {
     try {
       if (file.size > 10 * 1024 * 1024) throw new Error('世界书文件超过 10 MB，拒绝导入');
       const report = importSTLorebookText(await file.text(), file.name);
-      alert(`✅ 世界书已导入：「${report.name}」· ${report.entries} 条目`);
+      showAppAlert(`✅ 世界书已导入：「${report.name}」· ${report.entries} 条目`);
     } catch (error) {
-      alert('❌ 世界书导入失败：' + error.message);
+      showAppAlert('❌ 世界书导入失败：' + error.message);
     } finally {
       event.target.value = '';
     }
@@ -17037,15 +17152,15 @@ function bindEvents() {
   // RPG 重置存档；酒馆仍只清空当前对话并重新加载开场白。
   $('btn-clear-chat').addEventListener('click', async () => {
     if (worldModeActive()) {
-      if (!confirm('确定重置当前 RPG 存档？\n\n回合记录、MVU/runtime 变量、事件记忆和动态状态都会恢复到开局基线。')) return;
+      if (!(await showAppConfirm('确定重置当前 RPG 存档？\n\n回合记录、MVU/runtime 变量、事件记忆和动态状态都会恢复到开局基线。'))) return;
       const button = $('btn-clear-chat');
       if (button) { button.disabled = true; button.textContent = '重置中…'; }
       try { await resetCurrentWorldSave(); }
-      catch (err) { alert(err.message); }
+      catch (err) { showAppAlert(err.message); }
       finally { if (button) button.disabled = false; syncConversationResetButton(); }
       return;
     }
-    if (!confirm('确定清空当前对话？将重新加载开场白。')) return;
+    if (!(await showAppConfirm('确定清空当前对话？将重新加载开场白。'))) return;
     const s = curSession();
     if (!s) return;
     // 清空时连同临时预览、思考占位和进行中的请求一起失效，避免旧回复在异步返回后残留。
@@ -17092,15 +17207,15 @@ function bindEvents() {
         const result = importCharOrLorebookFromBuffer(reader.result, fileName);
         if (result.kind === 'lorebook') {
           switchView('lore');
-          alert(`✅ 检测到这是 ST 世界书，已导入「${result.report.name}」· ${result.report.entries} 条目`);
+          showAppAlert(`✅ 检测到这是 ST 世界书，已导入「${result.report.name}」· ${result.report.entries} 条目`);
         } else {
           const report = result.report;
-          alert(report?.lorebook?.created
+          showAppAlert(report?.lorebook?.created
             ? `✅ 角色卡已导入；内嵌世界书已注册为「${report.lorebook.name}」`
             : '✅ 角色卡已导入');
         }
       }
-      catch (err) { alert('❌ 导入失败：' + err.message); }
+      catch (err) { showAppAlert('❌ 导入失败：' + err.message); }
     };
     reader.readAsArrayBuffer(file);
     charFileInput.value = '';

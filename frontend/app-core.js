@@ -219,6 +219,113 @@ function showToast(message, options = {}) {
   if (duration > 0) timer = setTimeout(dismiss, duration);
   return { dismiss, element: toast };
 }
+/* ─────────── 应用内对话框（替代原生 alert / confirm / prompt） ───────────
+   原生对话框在 WebView 里样式不可控、出现位置随内核变化，用户容易错过；
+   这里统一成应用内浮层。alert 的语义是「告知」，做成不阻塞的浮层（不要求调用方 await）；
+   confirm / prompt 需要用户选择，返回 Promise。宿主缺失时退回原生，功能不丢。 */
+let appDialogSeq = 0;
+function openAppDialog(options = {}) {
+  const mode = options.mode || 'alert';
+  return new Promise(resolve => {
+    const host = $('dialog-host');
+    const message = String(options.message == null ? '' : options.message);
+    if (!host) {
+      if (mode === 'confirm') return resolve(typeof window.confirm === 'function' ? window.confirm(message) : true);
+      if (mode === 'prompt') return resolve(typeof window.prompt === 'function' ? window.prompt(message, options.defaultValue || '') : null);
+      if (typeof window.alert === 'function') window.alert(message);
+      return resolve(true);
+    }
+    const kind = options.kind || '';
+    const titleId = 'dialog-title-' + (++appDialogSeq);
+    const veil = document.createElement('div');
+    veil.className = 'dialog-veil';
+    const card = document.createElement('section');
+    card.className = 'dialog-card' + (kind ? ' dialog-' + kind : '');
+    card.setAttribute('role', kind === 'error' ? 'alertdialog' : 'dialog');
+    card.setAttribute('aria-modal', 'true');
+    card.setAttribute('aria-labelledby', titleId);
+    const title = document.createElement('h2');
+    title.className = 'dialog-title';
+    title.id = titleId;
+    title.textContent = options.title || (kind === 'error' ? '出错了' : kind === 'success' ? '已完成' : '提示');
+    card.appendChild(title);
+    const body = document.createElement('p');
+    body.className = 'dialog-body';
+    body.textContent = message;
+    card.appendChild(body);
+    let inputEl = null;
+    if (mode === 'prompt') {
+      inputEl = document.createElement('input');
+      inputEl.type = 'text';
+      inputEl.className = 'dialog-input';
+      inputEl.value = options.defaultValue == null ? '' : String(options.defaultValue);
+      if (options.placeholder) inputEl.placeholder = String(options.placeholder);
+      if (options.maxLength) inputEl.maxLength = options.maxLength;
+      card.appendChild(inputEl);
+    }
+    const actions = document.createElement('div');
+    actions.className = 'dialog-actions';
+    card.appendChild(actions);
+    const cancelValue = mode === 'prompt' ? null : false;
+    let settled = false;
+    const prevFocus = document.activeElement;
+    const close = value => {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener('keydown', onKey, true);
+      veil.remove();
+      card.remove();
+      if (!host.querySelector('.dialog-card')) {
+        host.replaceChildren();
+        host.classList.remove('has-dialog');
+      }
+      if (prevFocus && typeof prevFocus.focus === 'function' && document.contains(prevFocus)) prevFocus.focus();
+      resolve(value);
+    };
+    const onKey = event => {
+      if (event.key === 'Escape') { event.preventDefault(); close(mode === 'alert' ? true : cancelValue); return; }
+      if (event.key === 'Enter' && mode === 'prompt') { event.preventDefault(); close(String(inputEl.value)); }
+    };
+    const addButton = (label, value, className) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'dialog-btn' + (className ? ' ' + className : '');
+      btn.textContent = label;
+      btn.addEventListener('click', () => close(typeof value === 'function' ? value() : value));
+      actions.appendChild(btn);
+      return btn;
+    };
+    if (mode === 'alert') {
+      actions.classList.add('is-single');
+      addButton(options.confirmText || '知道了', true, 'primary');
+    } else {
+      addButton(options.cancelText || '取消', cancelValue, '');
+      addButton(options.confirmText || '确定', mode === 'prompt' ? () => String(inputEl.value) : true, options.danger ? 'danger' : 'primary');
+    }
+    veil.addEventListener('click', () => { if (mode === 'alert') close(true); });
+    host.appendChild(veil);
+    host.appendChild(card);
+    host.classList.add('has-dialog');
+    document.addEventListener('keydown', onKey, true);
+    const focusTarget = mode === 'prompt' ? inputEl : actions.querySelector('.dialog-btn.primary') || actions.querySelector('.dialog-btn');
+    if (focusTarget) {
+      try { focusTarget.focus(); } catch { /* 焦点失败不影响可用性 */ }
+      if (mode === 'prompt' && typeof inputEl.select === 'function') inputEl.select();
+    }
+  });
+}
+/* 告知类：不阻塞调用方，返回 Promise 供需要时等待用户确认。 */
+function showAppAlert(message, options = {}) {
+  const text = String(message == null ? '' : message);
+  const kind = options.kind || (/^✅|^✔|^☑|^已完成/.test(text) ? 'success' : /^❌|^⚠|^✕/.test(text) ? 'error' : '');
+  return openAppDialog(Object.assign({}, options, { mode: 'alert', message: text, kind }));
+}
+function showAppConfirm(message, options = {}) {
+  return openAppDialog(Object.assign({}, options, { mode: 'confirm', message: String(message == null ? '' : message) }));
+}
+function showAppPrompt(message, defaultValue = '', options = {}) {
+  return openAppDialog(Object.assign({}, options, { mode: 'prompt', message: String(message == null ? '' : message), defaultValue }));
+}
 function webCompatBootstrap() {
   try {
     if (typeof Array.prototype.at !== 'function') {
@@ -289,6 +396,8 @@ const serverDataWriteQueues = new Map();
 const WORLD_EXTENSION_CHANNEL = 'tavern.rpg.extension';
 let worldExtensionState = { iframe: null, nonce: '', signature: '', ready: false, timer: null, pending: new Map(), nextRequestId: 0, surface: 'play' };
 const worldExtensionDeniedApprovals = new Set();
+// 已弹窗询问、等待用户答复的扩展：避免同一轮渲染重复弹窗
+const worldExtensionApprovalPending = new Set();
 const cardScriptDeniedApprovals = new Set();
 
 /* ─────────── 数据加载 / 保存（JSON 文件存储） ─────────── */

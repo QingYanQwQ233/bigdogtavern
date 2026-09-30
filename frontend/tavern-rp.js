@@ -111,8 +111,8 @@ function switchSession(id) {
   renderMessages();
 }
 
-function deleteSession(id) {
-  if (!confirm('删除该会话？此操作不可撤销。')) return;
+async function deleteSession(id) {
+  if (!(await showAppConfirm('删除该会话？此操作不可撤销。'))) return;
   sessions = sessions.filter(s => s.id !== id);
   if (!sessionsDeleted.includes(id)) sessionsDeleted.push(id); // 墓碑：另一台浏览器合并时不再复活
   if (currentSessionId === id) currentSessionId = null;
@@ -123,10 +123,10 @@ function deleteSession(id) {
   renderMessages();
 }
 
-function renameSession(id) {
+async function renameSession(id) {
   const s = sessions.find(x => x.id === id);
   if (!s) return;
-  const name = prompt('重命名会话：', s.name);
+  const name = await showAppPrompt('重命名会话：', s.name);
   if (name && name.trim()) { s.name = name.trim(); s.updatedAt = Date.now(); saveSessions(); renderSessions(); }
 }
 
@@ -511,7 +511,7 @@ function importCharOrLorebookFromBuffer(buffer, fileName = '') {
 
 async function exportCurrentChar() {
   const c = currentChar();
-  if (!c) return alert('请先创建 / 选择一个角色');
+  if (!c) return showAppAlert('请先创建 / 选择一个角色');
   await downloadBlob(new Blob([JSON.stringify(charToV3(c), null, 2)], { type: 'application/json' }), (c.name || 'character').replace(/[\\/:*?"<>|]/g, '_') + '.card.json');
 }
 
@@ -711,21 +711,21 @@ function readUserForm() {
 function saveUserForm() {
   readUserForm();
   saveUserData();
-  alert('✅ 玩家设定已保存');
+  showAppAlert('✅ 玩家设定已保存');
 }
-function saveUserAsNew() {
+async function saveUserAsNew() {
   readUserForm();
-  const name = prompt('预设名称：', '设定 ' + (Object.keys(userData.presets).length + 1));
+  const name = await showAppPrompt('预设名称：', '设定 ' + (Object.keys(userData.presets).length + 1));
   if (!name || !name.trim()) return;
   userData.presets[name.trim()] = JSON.parse(JSON.stringify(currentUserPreset()));
   userData.currentPreset = name.trim();
   saveUserData();
   fillUserForm();
 }
-function deleteUserPreset() {
+async function deleteUserPreset() {
   const name = userData.currentPreset;
-  if (!name || name === 'default') { alert('默认预设不可删除'); return; }
-  if (!confirm(`删除预设「${name}」？`)) return;
+  if (!name || name === 'default') { showAppAlert('默认预设不可删除'); return; }
+  if (!(await showAppConfirm(`删除预设「${name}」？`))) return;
   delete userData.presets[name];
   userData.currentPreset = 'default';
   saveUserData();
@@ -786,7 +786,7 @@ function renderMemList() {
     const el = document.createElement('div');
     el.className = 'wi-item' + (m.enabled === false ? ' mem-off' : '');
     el.innerHTML = `<span class="wi-title-wrap">${m.enabled === false ? '🚫 ' : '💭 '}${esc(m.content)}</span><span class="wi-const" data-mi="${i}" title="启用/停用">${m.enabled === false ? '🔓' : '🔒'}</span><span class="wi-const" data-di="${i}" title="删除">✕</span>`;
-    el.addEventListener('click', (ev) => {
+    el.addEventListener('click', async (ev) => {
       if (ev.target.dataset && ev.target.dataset.di !== undefined) { mems.splice(parseInt(ev.target.dataset.di, 10), 1); saveUserData(); renderMemList(); return; }
       if (ev.target.dataset && ev.target.dataset.mi !== undefined) {
         const idx = parseInt(ev.target.dataset.mi, 10);
@@ -794,7 +794,7 @@ function renderMemList() {
         saveUserData(); renderMemList(); return;
       }
       // 点击编辑
-      const edit = prompt('编辑记忆：', m.content);
+      const edit = await showAppPrompt('编辑记忆：', m.content);
       if (edit === null) return;
       m.content = edit.trim();
       if (!m.content) { mems.splice(i, 1); }
@@ -1922,19 +1922,19 @@ function togglePGPresetRegex(id, enabled, bindingMode = mode) {
   renderPGList();
 }
 
-function pgNew() {
+async function pgNew() {
   setMobileManagerPanel('prompt-mgr', 'detail');
-  const name = prompt('新预设名称：', '预设 ' + (Object.keys(promptPresets).length + 1));
+  const name = await showAppPrompt('新预设名称：', '预设 ' + (Object.keys(promptPresets).length + 1));
   if (!name || !name.trim()) return;
-  if (promptPresets[name.trim()]) { alert('已存在同名预设。'); return; }
+  if (promptPresets[name.trim()]) { showAppAlert('已存在同名预设。'); return; }
   promptPresets[name.trim()] = normalizePromptPreset(name.trim(), { mode, firstMes: '' });
   savePresets();
   selectPresetForEdit(name.trim());
 }
 
-function pgDelete(name) {
+async function pgDelete(name) {
   if (!promptPresets[name] || name === GLOBAL_PRESET_KEY) return; // 全局默认不可删
-  if (!confirm(`删除预设「${name}」？`)) return;
+  if (!(await showAppConfirm(`删除预设「${name}」？`))) return;
   delete promptPresets[name];
   for (const targetMode of ['tavern', 'rpg']) {
     if (prefs.currentPresetByMode?.[targetMode] === name) prefs.currentPresetByMode[targetMode] = '';
@@ -2343,14 +2343,14 @@ function saveRegexEditor() {
     enabled: $('regex-enabled').checked,
   }, 0, 'custom');
   if (!buildOutputRegex(candidate)) {
-    alert('匹配表达式为空或不是有效正则。');
+    showAppAlert('匹配表达式为空或不是有效正则。');
     $('regex-find').focus();
     return;
   }
   if (regexEditingSource === 'preset') {
     const updated = savePresetRegexRule(regexEditingId, candidate);
     if (!updated) {
-      alert('当前预设正则已不存在，请重新打开正则列表。');
+      showAppAlert('当前预设正则已不存在，请重新打开正则列表。');
       resetRegexEditor();
       return;
     }
@@ -2385,12 +2385,12 @@ function copyPresetRegexToCustom() {
   renderRegexEditor(copy, 'custom');
 }
 
-function deleteRegexEditor() {
+async function deleteRegexEditor() {
   if (regexEditingSource === 'world' || !regexEditingId) return;
   if (regexEditingSource === 'preset') {
     const { name, preset } = activePresetRegexStore();
     const index = presetRegexIndex(preset, regexEditingId);
-    if (index < 0 || !confirm(`从预设「${name === GLOBAL_PRESET_KEY ? '全局默认' : name}」删除正则「${preset.regexes[index].name || regexEditingId}」？`)) return;
+    if (index < 0 || !(await showAppConfirm(`从预设「${name === GLOBAL_PRESET_KEY ? '全局默认' : name}」删除正则「${preset.regexes[index].name || regexEditingId}」？`))) return;
     preset.regexes.splice(index, 1);
     promptPresets[name] = normalizePromptPreset(name, preset);
     if (pgEditingName === name && pgEditingPreset) pgEditingPreset.regexes = cloneValue(promptPresets[name].regexes);
@@ -2401,7 +2401,7 @@ function deleteRegexEditor() {
   }
   const rules = modeOutputRegexes();
   const index = rules.findIndex(rule => rule.id === regexEditingId);
-  if (index < 0 || !confirm(`删除正则「${rules[index].name || regexEditingId}」？`)) return;
+  if (index < 0 || !(await showAppConfirm(`删除正则「${rules[index].name || regexEditingId}」？`))) return;
   rules.splice(index, 1);
   saveOutputRegexPrefs();
   renderPGRegexBindings();
@@ -2517,9 +2517,9 @@ function renameCurrentLB() {
   renderLBList();
 }
 
-function lbNew() {
+async function lbNew() {
   setMobileManagerPanel('lore-mgr', 'detail');
-  const name = prompt('新世界书名称：', '世界书 ' + (Object.keys(lorebooks).length + 1));
+  const name = await showAppPrompt('新世界书名称：', '世界书 ' + (Object.keys(lorebooks).length + 1));
   if (!name || !name.trim()) return;
   const id = uid();
   lorebooks[id] = { name: name.trim(), entries: [], settings: {} };
@@ -2527,10 +2527,10 @@ function lbNew() {
   selectLB(id);
 }
 
-function deleteLBById(id) {
+async function deleteLBById(id) {
   if (!id || !lorebooks[id]) return;
   const lb = lorebooks[id];
-  if (!confirm(`删除世界书「${lb.name}」？其条目将一并删除。`)) return;
+  if (!(await showAppConfirm(`删除世界书「${lb.name}」？其条目将一并删除。`))) return;
   delete lorebooks[id];
   const nextId = Object.keys(lorebooks)[0] || null;
   if (prefs.activeLoreId === id || !lorebooks[prefs.activeLoreId]) prefs.activeLoreId = nextId;
@@ -2719,9 +2719,9 @@ function saveWI() {
   renderWIList();
 }
 
-function deleteWI() {
+async function deleteWI() {
   if (!wiEditingId || !lbEditingId) return;
-  if (!confirm('删除该世界书条目？')) return;
+  if (!(await showAppConfirm('删除该世界书条目？'))) return;
   lorebooks[lbEditingId].entries = currentLBEntries().filter(e => e.id !== wiEditingId);
   wiEditingId = null;
   saveLore();
@@ -3036,7 +3036,7 @@ function serializeSTWorldInfoEntry(entry, index = 0) {
 
 async function exportCurrentLorebook() {
   const book = currentLB();
-  if (!book) return alert('请先选择世界书');
+  if (!book) return showAppAlert('请先选择世界书');
   const bookSettings = normalizeLorebookSettings(book);
   const entries = {};
   currentLBEntries().forEach((entry, index) => { entries[String(entry.uid ?? index)] = serializeSTWorldInfoEntry(entry, index); });

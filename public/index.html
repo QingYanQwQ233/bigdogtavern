@@ -7,12 +7,13 @@
   <link rel="manifest" href="manifest.json" />
   <title>Tavern · AI RP 框架演示</title>
   <link rel="icon" type="image/png" href="favicon.png" />
-  <link rel="stylesheet" href="styles.css?v=20260930a" />
+  <link rel="stylesheet" href="styles.css?v=10923334" />
 </head>
 <body data-theme="vibrancy" data-layout="classic">
   <canvas id="bg-fx" aria-hidden="true"></canvas>
   <!-- 应用内浮层提示（灵动岛式）：由 showToast() 驱动，替代零散的内联提示文字 -->
   <div id="toast-host" class="toast-host"></div>
+  <div id="dialog-host" class="dialog-host"></div>
 
   <!-- 兼容层：本段必须保持 ES5 语法并早于 vendor / app.js 执行。它补齐旧内核缺失的 API，
        并在内核能力不足时提示更新。最低要求见下方 minimum 常量（当前 Chromium 111）。 -->
@@ -1732,13 +1733,13 @@
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
   <script src="vendor/mapgen2.bundle.js"></script>
-  <script src="mapgen.js?v=20260930a"></script>
-  <script src="app.js?v=20260930a"></script>
+  <script src="mapgen.js?v=10923334"></script>
+  <script src="app.js?v=10923334"></script>
   <script>
     // PWA：注册 service worker（仅 HTTPS / localhost 生效，套壳 APK 可用）
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js?v=20260903c').catch(() => {});
+    navigator.serviceWorker.register('sw.js?v=10923334').catch(() => {});
       });
     }
   </script>
