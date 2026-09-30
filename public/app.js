@@ -171,38 +171,44 @@ let requestAbortRequested = false;
 // 旧内核缺少 at / Object.hasOwn / replaceChildren。函数体保持 ES5：既供隔离 iframe 原样注入，
 // 也作为低于最低内核版本时的 JS 降级层（内核过旧的用户关闭提示后仍可继续使用）。
 function webCompatBootstrap() {
-  if (typeof Array.prototype.at !== 'function') {
-    Object.defineProperty(Array.prototype, 'at', {
-      configurable: true,
-      writable: true,
-      value: function(index) {
-        'use strict';
-        if (this === null || this === undefined) throw new TypeError('Cannot convert undefined or null to object');
-        var length = Number(this.length) || 0;
-        var integer = Number(index);
-        if (isNaN(integer) || integer === 0) integer = 0;
-        integer = integer < 0 ? Math.ceil(integer) : Math.floor(integer);
-        var actual = integer < 0 ? length + integer : integer;
-        return actual < 0 || actual >= length ? undefined : this[actual];
-      },
-    });
-  }
-  if (typeof Object.hasOwn !== 'function') {
-    Object.hasOwn = function(object, property) {
-      if (object === null || object === undefined) throw new TypeError('Cannot convert undefined or null to object');
-      return Object.prototype.hasOwnProperty.call(object, property);
-    };
-  }
-  if (typeof Element !== 'undefined' && typeof Element.prototype.replaceChildren !== 'function') {
-    Element.prototype.replaceChildren = function() {
-      var index;
-      while (this.firstChild) this.removeChild(this.firstChild);
-      for (index = 0; index < arguments.length; index += 1) {
-        var child = arguments[index];
-        this.appendChild(child && typeof child.nodeType === 'number' ? child : document.createTextNode(String(child)));
-      }
-    };
-  }
+  try {
+    if (typeof Array.prototype.at !== 'function') {
+      Object.defineProperty(Array.prototype, 'at', {
+        configurable: true,
+        writable: true,
+        value: function(index) {
+          'use strict';
+          if (this === null || this === undefined) throw new TypeError('Cannot convert undefined or null to object');
+          var length = Number(this.length) || 0;
+          var integer = Number(index);
+          if (isNaN(integer) || integer === 0) integer = 0;
+          integer = integer < 0 ? Math.ceil(integer) : Math.floor(integer);
+          var actual = integer < 0 ? length + integer : integer;
+          return actual < 0 || actual >= length ? undefined : this[actual];
+        },
+      });
+    }
+  } catch (error) {}
+  try {
+    if (typeof Object.hasOwn !== 'function') {
+      Object.hasOwn = function(object, property) {
+        if (object === null || object === undefined) throw new TypeError('Cannot convert undefined or null to object');
+        return Object.prototype.hasOwnProperty.call(object, property);
+      };
+    }
+  } catch (error) {}
+  try {
+    if (typeof Element !== 'undefined' && typeof Element.prototype.replaceChildren !== 'function') {
+      Element.prototype.replaceChildren = function() {
+        var index;
+        while (this.firstChild) this.removeChild(this.firstChild);
+        for (index = 0; index < arguments.length; index += 1) {
+          var child = arguments[index];
+          this.appendChild(child && typeof child.nodeType === 'number' ? child : document.createTextNode(String(child)));
+        }
+      };
+    }
+  } catch (error) {}
 }
 function webCompatSource() {
   return `(${webCompatBootstrap.toString()}());`;

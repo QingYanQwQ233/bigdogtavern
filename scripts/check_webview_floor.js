@@ -153,6 +153,10 @@ function runBootstrap(options) {
     'Array.prototype.at = undefined;',
     'Object.hasOwn = undefined;',
   ].join('\n'), context);
+  if (options.hostileDefineProperty) {
+    // 模拟「旧内核禁止改内建原型」：此后 Object.defineProperty 一律抛错。
+    vm.runInContext('Object.defineProperty = function () { throw new TypeError("not extensible"); };', context);
+  }
   vm.runInContext(bootstrap, context);
   return { warning, version, closeBound, closeFocused, context };
 }
@@ -232,5 +236,35 @@ assert.ok(!classes.has('open'), '关闭抽屉必须移除打开态');
 assert.strictEqual(attributes['aria-expanded'], 'false');
 viewport.matches = true;
 assert.strictEqual(navContext.usesDesktopNavigation(), true);
+
+// ── 5. 告警通道自身不能依赖比「告警对象」更新的特性 ─────────────────────
+// 这一层存在的唯一意义，就是给内核过低的用户看。若它自己用了更新的 CSS，
+// 那在最需要它的内核上反而会错位/塌缩，把「有提示」变成「看起来打不开」。
+const compatBlock = css.match(/\.webview-compat-warning\s*\{([^}]*)\}/);
+assert.ok(compatBlock, 'styles.css 缺少 .webview-compat-warning 规则');
+const compatCss = compatBlock[1].replace(/\/\*[\s\S]*?\*\//g, '');
+for (const edge of ['top', 'right', 'bottom', 'left']) {
+  assert.match(
+    compatCss,
+    new RegExp('(?:^|[;{\\s])' + edge + '\\s*:'),
+    `.webview-compat-warning 必须提供物理四边定位（${edge}）：inset 简写是 Chromium 87+，在更旧内核上会被整条丢弃`
+  );
+}
+const compatCssUpper = css.slice(css.indexOf('.webview-compat-warning'), css.indexOf('.webview-compat-warning[hidden]'));
+assert.ok(
+  !/\b(?:min|max|clamp)\(/.test(compatCssUpper.replace(/\/\*[\s\S]*?\*\//g, '')),
+  '兼容告警层不得使用 min() / max() / clamp()（Chromium 79+）：它要能在更低的内核上正确布局'
+);
+
+// ── 6. 补丁失败不能让提示通道自己断掉 ───────────────────────────────────
+// 旧内核可能禁止修改内建原型（Object.defineProperty 抛错）。若没有逐步 try/catch，
+// 脚本会在第一段中断，用户看不到任何解释——这正是「内核过低」最不该出现的表现。
+const hostileCase = runBootstrap({ ua: WEBVIEW_UA, supports: 'no', hostileDefineProperty: true });
+assert.strictEqual(
+  hostileCase.warning.hidden,
+  false,
+  '补丁失败时仍必须显示告警：兼容层每一步都要独立 try/catch，否则提示通道自己就断了'
+);
+assert.ok(hostileCase.closeBound, '补丁失败时告警仍必须可关闭');
 
 console.log('webview floor check passed');

@@ -25,39 +25,47 @@
   </aside>
   <script id="webview-compat-bootstrap">
     // 保持 ES5 语法并早于 vendor / app.js 执行：这是唯一能在过旧内核上运行、并告知用户版本过低的通道。
+    // 因此每一步补齐都各自 try/catch —— 任一步失败都不能让提示通道自己断掉（否则用户只会看到一个白屏，
+    // 而这正是「内核过低」最不该出现的表现）。
     (function () {
-      if (typeof Array.prototype.at !== 'function') {
-        Object.defineProperty(Array.prototype, 'at', {
-          configurable: true,
-          writable: true,
-          value: function (index) {
-            'use strict';
-            if (this === null || this === undefined) throw new TypeError('Cannot convert undefined or null to object');
-            var length = Number(this.length) || 0;
-            var integer = Number(index);
-            if (isNaN(integer) || integer === 0) integer = 0;
-            integer = integer < 0 ? Math.ceil(integer) : Math.floor(integer);
-            var actual = integer < 0 ? length + integer : integer;
-            return actual < 0 || actual >= length ? undefined : this[actual];
-          }
-        });
-      }
-      if (typeof Object.hasOwn !== 'function') {
-        Object.hasOwn = function (object, property) {
-          if (object === null || object === undefined) throw new TypeError('Cannot convert undefined or null to object');
-          return Object.prototype.hasOwnProperty.call(object, property);
-        };
-      }
-      if (typeof Element !== 'undefined' && typeof Element.prototype.replaceChildren !== 'function') {
-        Element.prototype.replaceChildren = function () {
-          var index;
-          while (this.firstChild) this.removeChild(this.firstChild);
-          for (index = 0; index < arguments.length; index += 1) {
-            var child = arguments[index];
-            this.appendChild(child && typeof child.nodeType === 'number' ? child : document.createTextNode(String(child)));
-          }
-        };
-      }
+      try {
+        if (typeof Array.prototype.at !== 'function') {
+          Object.defineProperty(Array.prototype, 'at', {
+            configurable: true,
+            writable: true,
+            value: function (index) {
+              'use strict';
+              if (this === null || this === undefined) throw new TypeError('Cannot convert undefined or null to object');
+              var length = Number(this.length) || 0;
+              var integer = Number(index);
+              if (isNaN(integer) || integer === 0) integer = 0;
+              integer = integer < 0 ? Math.ceil(integer) : Math.floor(integer);
+              var actual = integer < 0 ? length + integer : integer;
+              return actual < 0 || actual >= length ? undefined : this[actual];
+            }
+          });
+        }
+      } catch (error) {}
+      try {
+        if (typeof Object.hasOwn !== 'function') {
+          Object.hasOwn = function (object, property) {
+            if (object === null || object === undefined) throw new TypeError('Cannot convert undefined or null to object');
+            return Object.prototype.hasOwnProperty.call(object, property);
+          };
+        }
+      } catch (error) {}
+      try {
+        if (typeof Element !== 'undefined' && typeof Element.prototype.replaceChildren !== 'function') {
+          Element.prototype.replaceChildren = function () {
+            var index;
+            while (this.firstChild) this.removeChild(this.firstChild);
+            for (index = 0; index < arguments.length; index += 1) {
+              var child = arguments[index];
+              this.appendChild(child && typeof child.nodeType === 'number' ? child : document.createTextNode(String(child)));
+            }
+          };
+        }
+      } catch (error) {}
       var ua = navigator.userAgent || '';
       var isAndroid = /Android/i.test(ua);
       var isWebView = isAndroid && (/\bwv\b/i.test(ua) || /;\s*wv\)/i.test(ua) || (/Version\/4\.0/i.test(ua) && /Chrome\//i.test(ua)));

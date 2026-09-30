@@ -1827,6 +1827,13 @@ body[data-mode="rpg"] .composer {
 /* ── 弹窗 ── */
 .webview-compat-warning {
   position: fixed;
+  /* 物理四边定位（历史回退）；下一行的 inset 简写在 Chromium 87+ 生效并覆盖此处。
+     本层是给「内核过低」用户看的提示，它自己不能依赖比告警对象更新的特性：
+     旧内核上 inset 失效会让遮罩不铺屏、错位塌缩，把「有提示」变成「看起来打不开」。 */
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   inset: 0;
   z-index: 10000;
   display: grid;
@@ -1838,7 +1845,9 @@ body[data-mode="rpg"] .composer {
 }
 .webview-compat-warning[hidden] { display: none !important; }
 .webview-compat-card {
-  width: min(460px, calc(100vw - 32px));
+  /* min() 是 Chromium 79+；这里用 calc + max-width 表达同一约束，旧内核同样成立。 */
+  width: calc(100vw - 32px);
+  max-width: 460px;
   padding: 24px;
   border: 1px solid rgba(var(--danger-rgb), 0.72);
   border-radius: 16px;
