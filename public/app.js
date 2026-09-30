@@ -3277,7 +3277,7 @@ function renderWorldSessionConfig(save = currentWorldSave) {
   if (!world || !root || !binding) return;
   const setup = save?.setup || {};
   const game = setup.game && typeof setup.game === 'object' ? setup.game : {};
-  binding.innerHTML = `<span>Worldbook：<b>${esc(Array.isArray(world.lorebookIds) && world.lorebookIds.length ? world.lorebookIds.join('、') : 'default')}</b></span><span>RPG Preset：<b>${esc(world.rpgPresetName || '当前默认')}</b></span><span>时间：<b>${esc(world.time?.unit || 'tick')} / ${esc(world.time?.start ?? 0)}</b></span><span>回合契约：<b>${esc(world.turnContract?.options ? `${world.turnContract.options.min ?? 0}-${world.turnContract.options.max ?? 4} 选项` : '自由输入')}</b></span>`;
+  binding.innerHTML = `<span>Worldbook：<b>${esc(Array.isArray(world.lorebookIds) && world.lorebookIds.length ? world.lorebookIds.join('、') : '未绑定')}</b></span><span>RPG Preset：<b>${esc(world.rpgPresetName || '当前默认')}</b></span><span>时间：<b>${esc(world.time?.unit || 'tick')} / ${esc(world.time?.start ?? 0)}</b></span><span>回合契约：<b>${esc(world.turnContract?.options ? `${world.turnContract.options.min ?? 0}-${world.turnContract.options.max ?? 4} 选项` : '自由输入')}</b></span>`;
   const fields = Array.isArray(world.sessionSetup?.fields) ? world.sessionSetup.fields : [];
   root.innerHTML = fields.length ? fields.map(field => {
     const value = game[field.id] ?? field.default ?? (field.type === 'boolean' ? false : '');
@@ -15610,7 +15610,7 @@ function buildWorldSetupPromptPart() {
   const hooks = Array.isArray(save.state?.activeHooks) ? save.state.activeHooks.filter(hook => hook && hook.status !== 'done' && hook.status !== 'failed') : [];
   const hookText = hooks.length ? hooks.map(hook => `${hook.title || hook.id}${hook.description ? `：${hook.description}` : ''}${hook.optional ? '（可选）' : ''}`).join('；') : '无';
   return `【本局游戏配置】
-本局绑定 WorldCard ${world.id || save.worldId}@v${world.version || save.worldVersion}；Worldbook=${Array.isArray(world.lorebookIds) && world.lorebookIds.length ? world.lorebookIds.join(',') : 'default'}；RPG Preset=${world.rpgPresetName || '当前默认预设'}。
+本局绑定 WorldCard ${world.id || save.worldId}@v${world.version || save.worldVersion}；Worldbook=${Array.isArray(world.lorebookIds) && world.lorebookIds.length ? world.lorebookIds.join(',') : '未绑定'}；RPG Preset=${world.rpgPresetName || '当前默认预设'}。
 存档专属规则：${gameText || '世界卡未声明额外动态规则，遵循 WorldCard 已有 time / turnContract / failure / ending 规则。'}
 开局配置（只读事实来源）：${planText}
 当前开放 Hook（可选叙事抓手，不是强制主线）：${hookText}

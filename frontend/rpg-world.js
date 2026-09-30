@@ -2920,7 +2920,7 @@ function renderWorldSessionConfig(save = currentWorldSave) {
   if (!world || !root || !binding) return;
   const setup = save?.setup || {};
   const game = setup.game && typeof setup.game === 'object' ? setup.game : {};
-  binding.innerHTML = `<span>Worldbook：<b>${esc(Array.isArray(world.lorebookIds) && world.lorebookIds.length ? world.lorebookIds.join('、') : 'default')}</b></span><span>RPG Preset：<b>${esc(world.rpgPresetName || '当前默认')}</b></span><span>时间：<b>${esc(world.time?.unit || 'tick')} / ${esc(world.time?.start ?? 0)}</b></span><span>回合契约：<b>${esc(world.turnContract?.options ? `${world.turnContract.options.min ?? 0}-${world.turnContract.options.max ?? 4} 选项` : '自由输入')}</b></span>`;
+  binding.innerHTML = `<span>Worldbook：<b>${esc(Array.isArray(world.lorebookIds) && world.lorebookIds.length ? world.lorebookIds.join('、') : '未绑定')}</b></span><span>RPG Preset：<b>${esc(world.rpgPresetName || '当前默认')}</b></span><span>时间：<b>${esc(world.time?.unit || 'tick')} / ${esc(world.time?.start ?? 0)}</b></span><span>回合契约：<b>${esc(world.turnContract?.options ? `${world.turnContract.options.min ?? 0}-${world.turnContract.options.max ?? 4} 选项` : '自由输入')}</b></span>`;
   const fields = Array.isArray(world.sessionSetup?.fields) ? world.sessionSetup.fields : [];
   root.innerHTML = fields.length ? fields.map(field => {
     const value = game[field.id] ?? field.default ?? (field.type === 'boolean' ? false : '');
