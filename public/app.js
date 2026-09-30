@@ -13107,7 +13107,7 @@ async function fetchModels() {
     const combo = modelInput && modelInput.comboMenu;
     if (combo) combo.open();
     const preview = ids.slice(0, 3).join(', ') + (ids.length > 3 ? '…' : '');
-    notifyResult(`✅ 获取到 ${ids.length} 个模型，请在下拉中选择：${preview}`, true, { silent: true });
+    notifyResult(`✅ 获取到 ${ids.length} 个模型，请在下拉中选择：${preview}`, true);
   } catch (err) {
     notifyResult(`❌ 获取失败：${err.message}`, false);
   }

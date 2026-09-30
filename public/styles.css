@@ -3647,9 +3647,24 @@ body[data-mode="rpg"] .composer {
 .custom-select-menu li[aria-disabled="true"] { opacity: 0.45; cursor: default; }
 
 /* 可输入候选下拉（替代原生 datalist） */
-.combo-input { position: relative; display: flex; align-items: center; gap: 6px; width: 100%; }
-.combo-input > input { flex: 1 1 auto; min-width: 0; }
-.combo-toggle { flex: none; width: 36px; min-height: 36px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg-1); color: var(--muted); font-size: 12px; cursor: pointer; }
-.combo-toggle:hover { color: var(--text); border-color: rgba(255, 255, 255, 0.3); }
+.combo-input { position: relative; display: block; width: 100%; }
+.combo-input > input { width: 100%; padding-right: 40px; }
+/* 展开按钮内嵌在输入框右端：与输入框合成一个控件（不另起一个框） */
+.combo-toggle {
+  position: absolute;
+  top: 1px; right: 1px; bottom: 1px;
+  width: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0 8px 8px 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.combo-toggle:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
 .combo-menu { top: calc(100% + 4px); }
 .combo-empty { color: var(--muted); cursor: default; }
