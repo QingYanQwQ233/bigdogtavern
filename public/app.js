@@ -327,11 +327,12 @@ function showAppConfirm(message, options = {}) {
 function showAppPrompt(message, defaultValue = '', options = {}) {
   return openAppDialog(Object.assign({}, options, { mode: 'prompt', message: String(message == null ? '' : message), defaultValue }));
 }
-/* 操作结果统一播报：页面内保留文字方便回看，同时弹出浮层，确保用户一定看得到。 */
-function notifyResult(message, ok) {
+/* 操作结果统一播报：页面内保留文字方便回看，默认再弹一个浮层确保被看到。
+   options.silent：次要提示（如「没有候选」）只写消息栏，不打断用户。 */
+function notifyResult(message, ok, options = {}) {
   const out = $('test-result');
   if (out) { out.textContent = message; out.className = ok ? 'ok' : 'err'; }
-  showAppAlert(message, { kind: ok ? 'success' : 'error' });
+  if (!options.silent) showAppAlert(message, { kind: ok ? 'success' : 'error' });
   return message;
 }
 /* ─────────── 自定义下拉（替代原生 <select>） ───────────
@@ -484,6 +485,71 @@ function autoEnhanceCustomSelects() {
     }
   });
   customSelectObserver.observe(document.body, { childList: true, subtree: true });
+}
+/* 可输入的候选下拉：替代原生 <datalist>。
+   原生 datalist 在各平台外观/行为不一致，部分 WebView 里弹不出来（会盖住输入框）。
+   input 仍可手输，另给一个可见的展开按钮 + 应用内菜单，样式与其他下拉一致。 */
+function enhanceComboInput(input, options = {}) {
+  if (!input || input.dataset.comboEnhanced === '1') return null;
+  input.dataset.comboEnhanced = '1';
+  const sourceId = options.source || input.getAttribute('list');
+  if (sourceId) input.removeAttribute('list'); // 禁用原生 datalist
+  const wrap = document.createElement('div');
+  wrap.className = 'combo-input';
+  input.parentNode.insertBefore(wrap, input);
+  wrap.appendChild(input);
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'combo-toggle';
+  toggle.setAttribute('aria-haspopup', 'listbox');
+  toggle.setAttribute('aria-expanded', 'false');
+  toggle.setAttribute('aria-label', options.toggleLabel || '展开候选项');
+  toggle.textContent = '\u25be';
+  const menu = document.createElement('ul');
+  menu.className = 'custom-select-menu combo-menu';
+  menu.setAttribute('role', 'listbox');
+  menu.hidden = true;
+  wrap.appendChild(toggle);
+  wrap.appendChild(menu);
+  const candidateValues = () => {
+    const dl = sourceId ? document.getElementById(sourceId) : null;
+    return dl ? Array.from(dl.options).map(option => option.value).filter(Boolean) : [];
+  };
+  const render = () => {
+    const values = candidateValues();
+    menu.innerHTML = values.length
+      ? values.map(value => `<li role="option" data-value="${esc(value)}">${esc(value)}</li>`).join('')
+      : `<li class="combo-empty" aria-disabled="true">${esc(options.emptyText || '暂无候选，请先点「获取」')}</li>`;
+  };
+  const close = () => {
+    menu.hidden = true;
+    wrap.classList.remove('is-open');
+    toggle.setAttribute('aria-expanded', 'false');
+  };
+  const open = () => {
+    render();
+    if (!candidateValues().length) { close(); return false; }
+    menu.hidden = false;
+    wrap.classList.add('is-open');
+    toggle.setAttribute('aria-expanded', 'true');
+    return true;
+  };
+  toggle.addEventListener('click', event => {
+    event.stopPropagation();
+    if (wrap.classList.contains('is-open')) close();
+    else open();
+  });
+  menu.addEventListener('click', event => {
+    const item = event.target.closest('li[data-value]');
+    if (!item) return;
+    input.value = item.dataset.value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    close();
+  });
+  document.addEventListener('click', () => close());
+  document.addEventListener('keydown', event => { if (event.key === 'Escape') close(); });
+  input.comboMenu = { open, close, render };
+  return input.comboMenu;
 }
 function webCompatBootstrap() {
   try {
@@ -13023,7 +13089,11 @@ async function fetchModels() {
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(data?.error?.message || `HTTP ${resp.status}`);
     const ids = (data.data || []).map(m => m.id).filter(Boolean);
-    if (!ids.length) throw new Error('上游未返回任何模型（请确认该服务支持 /models 端点）');
+    if (!ids.length) {
+      // 次要提示：只写消息栏，不独立弹框
+      notifyResult('❗ 上游未返回任何模型（请确认该服务支持 /models 端点）', false, { silent: true });
+      return;
+    }
     const dl = $('model-list');
     dl.innerHTML = '';
     for (const id of ids) {
@@ -13031,13 +13101,13 @@ async function fetchModels() {
       o.value = id;
       dl.appendChild(o);
     }
-    if (!settings.model) {
-      settings.model = ids[0];
-      $('s-model').value = ids[0];
-      saveSettings();
-    }
+    // 清空输入框并自动展开候选，让用户直接选
+    const modelInput = $('s-model');
+    if (modelInput) modelInput.value = '';
+    const combo = modelInput && modelInput.comboMenu;
+    if (combo) combo.open();
     const preview = ids.slice(0, 3).join(', ') + (ids.length > 3 ? '…' : '');
-    notifyResult(`✅ 获取到 ${ids.length} 个模型：${preview}`, true);
+    notifyResult(`✅ 获取到 ${ids.length} 个模型，请在下拉中选择：${preview}`, true, { silent: true });
   } catch (err) {
     notifyResult(`❌ 获取失败：${err.message}`, false);
   }
@@ -17360,6 +17430,9 @@ async function init() {
   renderProviderOptions();
   // 所有下拉统一为应用内自定义控件（原生 select 在部分 WebView 的 dialog 内弹不出）
   autoEnhanceCustomSelects();
+  // 模型候选：原生 datalist 会盖住输入框，换成应用内候选菜单
+  const modelInput = $('s-model');
+  if (modelInput) enhanceComboInput(modelInput, { source: 'model-list' });
   ensureLorebooks();
   ensureCharacterBookLorebooks();
   renderBindSelects();

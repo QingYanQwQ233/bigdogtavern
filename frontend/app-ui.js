@@ -4316,6 +4316,9 @@ async function init() {
   renderProviderOptions();
   // 所有下拉统一为应用内自定义控件（原生 select 在部分 WebView 的 dialog 内弹不出）
   autoEnhanceCustomSelects();
+  // 模型候选：原生 datalist 会盖住输入框，换成应用内候选菜单
+  const modelInput = $('s-model');
+  if (modelInput) enhanceComboInput(modelInput, { source: 'model-list' });
   ensureLorebooks();
   ensureCharacterBookLorebooks();
   renderBindSelects();

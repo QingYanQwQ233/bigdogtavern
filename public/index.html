@@ -7,7 +7,7 @@
   <link rel="manifest" href="manifest.json" />
   <title>Tavern · AI RP 框架演示</title>
   <link rel="icon" type="image/png" href="favicon.png" />
-  <link rel="stylesheet" href="styles.css?v=2e357426" />
+  <link rel="stylesheet" href="styles.css?v=bfcb9af6" />
 </head>
 <body data-theme="vibrancy" data-layout="classic">
   <canvas id="bg-fx" aria-hidden="true"></canvas>
@@ -703,7 +703,7 @@
           <div class="field">
             <label for="s-model">模型 <span class="hint-inline">可点「获取」从上游 /models 拉取</span></label>
             <div class="row-inline">
-              <input id="s-model" list="model-list" placeholder="gpt-4o-mini / deepseek-chat / qwen2.5" />
+              <input id="s-model" placeholder="gpt-4o-mini / deepseek-chat / qwen2.5" />
               <button class="ghost-btn" id="btn-fetch-models">获取</button>
             </div>
             <datalist id="model-list">
@@ -1733,13 +1733,13 @@
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
   <script src="vendor/mapgen2.bundle.js"></script>
-  <script src="mapgen.js?v=2e357426"></script>
-  <script src="app.js?v=2e357426"></script>
+  <script src="mapgen.js?v=bfcb9af6"></script>
+  <script src="app.js?v=bfcb9af6"></script>
   <script>
     // PWA：注册 service worker（仅 HTTPS / localhost 生效，套壳 APK 可用）
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js?v=2e357426').catch(() => {});
+    navigator.serviceWorker.register('sw.js?v=bfcb9af6').catch(() => {});
       });
     }
   </script>

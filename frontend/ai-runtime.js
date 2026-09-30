@@ -1203,7 +1203,11 @@ async function fetchModels() {
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(data?.error?.message || `HTTP ${resp.status}`);
     const ids = (data.data || []).map(m => m.id).filter(Boolean);
-    if (!ids.length) throw new Error('上游未返回任何模型（请确认该服务支持 /models 端点）');
+    if (!ids.length) {
+      // 次要提示：只写消息栏，不独立弹框
+      notifyResult('❗ 上游未返回任何模型（请确认该服务支持 /models 端点）', false, { silent: true });
+      return;
+    }
     const dl = $('model-list');
     dl.innerHTML = '';
     for (const id of ids) {
@@ -1211,13 +1215,13 @@ async function fetchModels() {
       o.value = id;
       dl.appendChild(o);
     }
-    if (!settings.model) {
-      settings.model = ids[0];
-      $('s-model').value = ids[0];
-      saveSettings();
-    }
+    // 清空输入框并自动展开候选，让用户直接选
+    const modelInput = $('s-model');
+    if (modelInput) modelInput.value = '';
+    const combo = modelInput && modelInput.comboMenu;
+    if (combo) combo.open();
     const preview = ids.slice(0, 3).join(', ') + (ids.length > 3 ? '…' : '');
-    notifyResult(`✅ 获取到 ${ids.length} 个模型：${preview}`, true);
+    notifyResult(`✅ 获取到 ${ids.length} 个模型，请在下拉中选择：${preview}`, true, { silent: true });
   } catch (err) {
     notifyResult(`❌ 获取失败：${err.message}`, false);
   }

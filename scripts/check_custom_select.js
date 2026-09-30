@@ -36,4 +36,10 @@ for (const cls of ['.custom-select-picker', '.custom-select-trigger', '.custom-s
 // 5. 不得退回逐处手写的旧实现
 assert.ok(!/enhanceWorldPresetSelect/.test(bundle), '应统一使用 enhanceCustomSelect，不再保留单点实现');
 
+// 6. 候选输入框不得回到原生 datalist（会盖住输入框，且各平台行为不一致）
+const html = fs.readFileSync('public/index.html', 'utf8');
+assert.ok(!/<input[^>]+list=/.test(html), '不得使用原生 datalist：请用 enhanceComboInput');
+assert.ok(/function enhanceComboInput\(/.test(appCore), 'app-core.js 必须提供 enhanceComboInput');
+assert.ok(/enhanceComboInput\(modelInput, \{ source: 'model-list' \}\)/.test(appUi), '模型输入必须初始化为应用内候选菜单');
+
 console.log('check_custom_select: ok');
