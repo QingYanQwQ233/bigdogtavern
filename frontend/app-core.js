@@ -169,6 +169,56 @@ let activeRequestController = null;
 let requestAbortRequested = false;
 // 旧内核缺少 at / Object.hasOwn / replaceChildren。函数体保持 ES5：既供隔离 iframe 原样注入，
 // 也作为低于最低内核版本时的 JS 降级层（内核过旧的用户关闭提示后仍可继续使用）。
+/* 应用内浮层提示（灵动岛式）：替代零散的内联状态文字与原生 alert。
+ * kind: '' | 'success' | 'error'；action: { label, onClick }；duration: ms（0 = 不自动关闭）
+ * 错误带 role=alert 并停留更久；支持手动关闭与 Esc。 */
+function showToast(message, options = {}) {
+  const host = $('toast-host');
+  if (!host || !message) return null;
+  const kind = options.kind || '';
+  const toast = document.createElement('div');
+  toast.className = 'toast' + (kind ? ' toast-' + kind : '');
+  toast.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+  const iconText = kind === 'error' ? '⚠' : (kind === 'success' ? '✓' : '');
+  if (iconText) {
+    const icon = document.createElement('span');
+    icon.className = 'toast-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = iconText;
+    toast.appendChild(icon);
+  }
+  const body = document.createElement('span');
+  body.className = 'toast-msg';
+  body.textContent = String(message);
+  toast.appendChild(body);
+  let timer = null;
+  const dismiss = () => {
+    if (timer) clearTimeout(timer);
+    toast.classList.add('toast-out');
+    setTimeout(() => toast.remove(), 200);
+  };
+  if (options.action && options.action.label) {
+    const action = document.createElement('button');
+    action.type = 'button';
+    action.className = 'toast-action';
+    action.textContent = options.action.label;
+    action.addEventListener('click', () => { dismiss(); options.action.onClick?.(); });
+    toast.appendChild(action);
+  }
+  if (options.closable !== false) {
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'toast-close';
+    close.setAttribute('aria-label', '关闭提示');
+    close.textContent = '✕';
+    close.addEventListener('click', dismiss);
+    toast.appendChild(close);
+  }
+  host.appendChild(toast);
+  const duration = options.duration ?? (kind === 'error' ? 8000 : 3200);
+  if (duration > 0) timer = setTimeout(dismiss, duration);
+  return { dismiss, element: toast };
+}
 function webCompatBootstrap() {
   try {
     if (typeof Array.prototype.at !== 'function') {

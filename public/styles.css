@@ -3465,3 +3465,65 @@ body[data-mode="rpg"] .rpg-mobile-toolbar,
 body[data-mode="rpg"] .composer {
   background: var(--bg-0);
 }
+
+/* ——应用内浮层提示（灵动岛式）：顶部居中胶囊，滑入 + 自动收敛 —— */
+.toast-host {
+  position: fixed;
+  top: max(10px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 12000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: min(420px, calc(100vw - 24px));
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(28, 28, 30, 0.92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+  animation: toast-in 250ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.toast-icon { flex: none; font-size: 14px; }
+.toast-msg { min-width: 0; }
+.toast-close,
+.toast-action {
+  flex: none;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.toast-action { border-color: rgba(255, 255, 255, 0.32); }
+.toast-error { border-color: rgba(var(--danger-rgb), 0.55); }
+.toast-error .toast-icon { color: var(--danger); }
+.toast-success { border-color: rgba(48, 209, 88, 0.45); }
+.toast.toast-out { animation: toast-out 200ms ease-in forwards; }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-14px) scale(0.94); }
+}
+@keyframes toast-out {
+  to { opacity: 0; transform: translateY(-10px) scale(0.96); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast, .toast.toast-out { animation: none; }
+}

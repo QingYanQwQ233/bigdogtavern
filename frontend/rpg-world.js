@@ -3103,6 +3103,13 @@ async function generateWorldOpening(save) {
   if (!settings.baseUrl) {
     const status = $('world-opening-status');
     if (status) status.textContent = '请先在设置中配置 AI API，再生成开场候选。规划已保存，可稍后继续。';
+    if (typeof showToast === 'function') {
+      showToast('还没有配置 AI API，无法生成开场候选。规划已保存。', {
+        kind: 'error',
+        duration: 0,
+        action: { label: '去设置', onClick: () => openSettings() },
+      });
+    }
     return save;
   }
   const world = currentWorldCard();
@@ -3506,6 +3513,8 @@ function renderWorldList() {
 function showWorldError(message) {
   const el = $('world-error');
   if (el) el.textContent = message || '';
+  // 内联文字保留（可在页面内回看），同时给一个醒目的浮层提示
+  if (message && typeof showToast === 'function') showToast(message, { kind: 'error' });
 }
 /* 恢复内置世界卡：把本地世界库重置为随应用内置的版本（不触碰设置与存档）。 */
 async function resetBuiltinWorlds(button) {

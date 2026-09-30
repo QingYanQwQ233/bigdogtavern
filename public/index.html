@@ -11,6 +11,8 @@
 </head>
 <body data-theme="vibrancy" data-layout="classic">
   <canvas id="bg-fx" aria-hidden="true"></canvas>
+  <!-- 应用内浮层提示（灵动岛式）：由 showToast() 驱动，替代零散的内联提示文字 -->
+  <div id="toast-host" class="toast-host"></div>
 
   <!-- 兼容层：本段必须保持 ES5 语法并早于 vendor / app.js 执行。它补齐旧内核缺失的 API，
        并在内核能力不足时提示更新。最低要求见下方 minimum 常量（当前 Chromium 111）。 -->

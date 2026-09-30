@@ -170,6 +170,56 @@ let activeRequestController = null;
 let requestAbortRequested = false;
 // 旧内核缺少 at / Object.hasOwn / replaceChildren。函数体保持 ES5：既供隔离 iframe 原样注入，
 // 也作为低于最低内核版本时的 JS 降级层（内核过旧的用户关闭提示后仍可继续使用）。
+/* 应用内浮层提示（灵动岛式）：替代零散的内联状态文字与原生 alert。
+ * kind: '' | 'success' | 'error'；action: { label, onClick }；duration: ms（0 = 不自动关闭）
+ * 错误带 role=alert 并停留更久；支持手动关闭与 Esc。 */
+function showToast(message, options = {}) {
+  const host = $('toast-host');
+  if (!host || !message) return null;
+  const kind = options.kind || '';
+  const toast = document.createElement('div');
+  toast.className = 'toast' + (kind ? ' toast-' + kind : '');
+  toast.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+  const iconText = kind === 'error' ? '⚠' : (kind === 'success' ? '✓' : '');
+  if (iconText) {
+    const icon = document.createElement('span');
+    icon.className = 'toast-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = iconText;
+    toast.appendChild(icon);
+  }
+  const body = document.createElement('span');
+  body.className = 'toast-msg';
+  body.textContent = String(message);
+  toast.appendChild(body);
+  let timer = null;
+  const dismiss = () => {
+    if (timer) clearTimeout(timer);
+    toast.classList.add('toast-out');
+    setTimeout(() => toast.remove(), 200);
+  };
+  if (options.action && options.action.label) {
+    const action = document.createElement('button');
+    action.type = 'button';
+    action.className = 'toast-action';
+    action.textContent = options.action.label;
+    action.addEventListener('click', () => { dismiss(); options.action.onClick?.(); });
+    toast.appendChild(action);
+  }
+  if (options.closable !== false) {
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'toast-close';
+    close.setAttribute('aria-label', '关闭提示');
+    close.textContent = '✕';
+    close.addEventListener('click', dismiss);
+    toast.appendChild(close);
+  }
+  host.appendChild(toast);
+  const duration = options.duration ?? (kind === 'error' ? 8000 : 3200);
+  if (duration > 0) timer = setTimeout(dismiss, duration);
+  return { dismiss, element: toast };
+}
 function webCompatBootstrap() {
   try {
     if (typeof Array.prototype.at !== 'function') {
@@ -3460,6 +3510,13 @@ async function generateWorldOpening(save) {
   if (!settings.baseUrl) {
     const status = $('world-opening-status');
     if (status) status.textContent = '请先在设置中配置 AI API，再生成开场候选。规划已保存，可稍后继续。';
+    if (typeof showToast === 'function') {
+      showToast('还没有配置 AI API，无法生成开场候选。规划已保存。', {
+        kind: 'error',
+        duration: 0,
+        action: { label: '去设置', onClick: () => openSettings() },
+      });
+    }
     return save;
   }
   const world = currentWorldCard();
@@ -3863,6 +3920,8 @@ function renderWorldList() {
 function showWorldError(message) {
   const el = $('world-error');
   if (el) el.textContent = message || '';
+  // 内联文字保留（可在页面内回看），同时给一个醒目的浮层提示
+  if (message && typeof showToast === 'function') showToast(message, { kind: 'error' });
 }
 /* 恢复内置世界卡：把本地世界库重置为随应用内置的版本（不触碰设置与存档）。 */
 async function resetBuiltinWorlds(button) {
