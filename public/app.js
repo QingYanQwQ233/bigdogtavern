@@ -3078,7 +3078,7 @@ async function aiFillWorldPlayerFull() {
     renderWorldPlayerForm(world, 'world-player-fields', worldPlayerWithPreset(world, '', { ...current, ...generated, fields: { ...current.fields, ...(generated.fields || {}) }, attributes: { ...current.attributes, ...(generated.attributes || {}) }, skills: { ...current.skills, ...(generated.skills || {}) }, resources: { ...current.resources, ...(generated.resources || {}) }, relations: { ...current.relations, ...(generated.relations || {}) } }));
     setWorldPlayerStatus('完整结构已生成。请再次确认后点击“保存角色并继续”。');
   } catch (err) { setWorldPlayerStatus('AI 完善失败：' + err.message, 'error'); }
-  finally { button.disabled = false; button.textContent = '③ AI 完善结构'; }
+  finally { button.disabled = false; button.textContent = '② AI 完善结构'; }
 }
 function closeWorldPlayerDialog(result = 'cancel') {
   const dialog = $('world-player-dialog');
@@ -3324,6 +3324,9 @@ function renderWorldOpeningDialog(save = currentWorldSave) {
   const dialog = $('world-opening-dialog');
   const world = currentWorldCard();
   if (!dialog || !save || !world) return;
+  // 顶栏也要认「已打开的存档」：否则规划期间顶栏仍显示「请先选择世界存档」，
+  // 与正在进行的开局规划自相矛盾（玩家会以为存档没打开）。
+  renderSessions();
   const plan = save.setup?.plan || {};
   renderWorldPlayerForm(world, 'world-opening-character-fields', save.state?.player || null);
   renderWorldSessionConfig(save);
