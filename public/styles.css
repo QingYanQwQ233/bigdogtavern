@@ -2035,7 +2035,24 @@ body[data-theme="vibrancy"] .dropdown { box-shadow: none; }
   border-radius: 10px;
   background: rgba(var(--accent-rgb), 0.06);
 }
-#settings-modal .modal-box { width: min(760px, 94vw); }
+/* 设置是完整页面，不是悬浮小窗：全屏铺满（内容再少也不在底下漏出聊天区）。
+   头部与分类 tab 固定，只有正文滚动。 */
+#settings-modal .modal { background: var(--bg-0); backdrop-filter: none; -webkit-backdrop-filter: none; }
+#settings-modal .modal-box {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+#settings-modal .modal-head,
+#settings-modal .settings-tabs { flex: 0 0 auto; }
+#settings-modal .modal-body { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .settings-gen-intro strong { color: var(--accent); }
 .settings-gen-intro span { color: var(--muted); font-size: 12px; }
 .settings-gen-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }

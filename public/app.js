@@ -16897,8 +16897,11 @@ function bindEvents() {
         p.classList.toggle('hidden', !active);
         p.toggleAttribute('hidden', !active);
       });
+      // 设置面板全屏后，滚动容器是 .modal-body（切分类时回到顶部）
       const box = $('settings-modal').querySelector('.modal-box');
+      const body = $('settings-modal').querySelector('.modal-body');
       if (box) box.scrollTop = 0;
+      if (body) body.scrollTop = 0;
     }));
   // 设置
   document.querySelectorAll('.js-settings').forEach(b => b.addEventListener('click', openSettings));
