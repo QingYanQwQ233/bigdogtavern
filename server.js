@@ -423,12 +423,17 @@ function runtimeJsonSize(value) {
   try { return JSON.stringify(value).length; } catch { return Infinity; }
 }
 
+function runtimeEnumOptionValue(option) {
+  if (typeof option === 'string') return option.trim();
+  if (option && typeof option === 'object') return String(option.value == null ? '' : option.value).trim();
+  return '';
+}
 function runtimeValueValid(value, definition, label) {
   const type = definition?.type;
   if (type === 'string') return typeof value === 'string' && value.length <= 4000 ? null : `${label} 必须是不超过 4000 字符的字符串`;
   if (type === 'number') return validBoundedNumber(value, definition?.min ?? -1000000000, definition?.max ?? 1000000000) ? null : `${label} 数值无效`;
   if (type === 'boolean') return typeof value === 'boolean' ? null : `${label} 必须是布尔值`;
-  if (type === 'enum') return typeof value === 'string' && Array.isArray(definition?.options) && definition.options.includes(value) ? null : `${label} 必须是 options 中的值`;
+  if (type === 'enum') { const enumValues = (Array.isArray(definition?.options) ? definition.options : []).map(runtimeEnumOptionValue); return typeof value === 'string' && enumValues.includes(value) ? null : `${label} 必须是 options 中的值`; }
   if (type === 'list') return Array.isArray(value) && value.length <= 256 && runtimeJsonSize(value) <= 12000 ? null : `${label} 必须是最多 256 项且不超过 12000 字节的数组`;
   if (type === 'map') return value && typeof value === 'object' && !Array.isArray(value) && runtimeJsonSize(value) <= 12000 ? null : `${label} 必须是不超过 12000 字节的对象`;
   if (type === 'json') return runtimeJsonSize(value) <= 12000 ? null : `${label} JSON 不能超过 12000 字节`;
@@ -538,7 +543,17 @@ function validateWorldRuntime(value) {
     if (item.min !== undefined && !validBoundedNumber(item.min, -1000000000, 1000000000)) return `runtime.variables.${id}.min 无效`;
     if (item.max !== undefined && !validBoundedNumber(item.max, -1000000000, 1000000000)) return `runtime.variables.${id}.max 无效`;
     if (item.type === 'number' && item.min !== undefined && item.max !== undefined && item.min > item.max) return `runtime.variables.${id}.min 不能大于 max`;
-    if (item.type === 'enum' && (!Array.isArray(item.options) || item.options.length < 1 || item.options.length > 64 || item.options.some(option => typeof option !== 'string' || option.length > 200))) return `runtime.variables.${id}.options 无效`;
+    if (item.type === 'enum') {
+      if (!Array.isArray(item.options) || item.options.length < 1 || item.options.length > 64) return `runtime.variables.${id}.options 无效`;
+      const enumValues = new Set();
+      for (const option of item.options) {
+        const optionValue = runtimeEnumOptionValue(option);
+        const optionLabel = typeof option === 'string' ? option : option?.label;
+        if (!optionValue || optionValue.length > 200 || enumValues.has(optionValue)) return `runtime.variables.${id}.options 无效`;
+        if (optionLabel !== undefined && optionLabel !== null && !draftTextValid(optionLabel, 200, true)) return `runtime.variables.${id}.options 无效`;
+        enumValues.add(optionValue);
+      }
+    }
     if (item.visible !== undefined && typeof item.visible !== 'boolean') return `runtime.variables.${id}.visible 无效`;
     if (item.initial !== undefined) {
       const initialInvalid = runtimeValueValid(item.initial, item, `runtime.variables.${id}.initial`);
@@ -573,7 +588,7 @@ function validateWorldRuntime(value) {
     if (item.inputs !== undefined && (!Array.isArray(item.inputs) || item.inputs.length > 16)) return `runtime.actions.${id}.inputs 无效`;
     for (const input of Array.isArray(item.inputs) ? item.inputs : []) {
       if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['id', 'label', 'type', 'required', 'default', 'options', 'min', 'max'].includes(key)) || !isSafeId(String(input.id || '')) || typeof input.label !== 'string' || !RUNTIME_TYPES.has(input.type || 'string')) return `runtime.actions.${id}.inputs 无效`;
-      if (input.options !== undefined && (!Array.isArray(input.options) || input.options.length > 64)) return `runtime.actions.${id}.inputs.options 无效`;
+      if (input.options !== undefined && (!Array.isArray(input.options) || input.options.length > 64 || input.options.some(option => !runtimeEnumOptionValue(option)))) return `runtime.actions.${id}.inputs.options 无效`;
     }
     const availabilityInvalid = validateRuntimeAvailability(item.availability, definitions, `runtime.actions.${id}.availability`);
     if (availabilityInvalid) return availabilityInvalid;
@@ -633,7 +648,7 @@ function materializeWorldRuntimeState(runtime) {
     ? item.initial
     : item.type === 'boolean' ? false
         : item.type === 'number' ? 0
-          : item.type === 'enum' ? (item.options?.[0] || '')
+          : item.type === 'enum' ? runtimeEnumOptionValue(item.options?.[0])
           : item.type === 'list' ? []
           : item.type === 'map' ? {} : '';
   return {

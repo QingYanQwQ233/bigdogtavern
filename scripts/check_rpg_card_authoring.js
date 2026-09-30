@@ -52,6 +52,14 @@ assert.ok(/\/api\/world-drafts\/[\s\S]{0,2000}body:\s*JSON\.stringify\(\{[\s\S]{
 
 assert.ok(/state\.runtime 不能省略/.test(server), 'runtime state must not be silently dropped from a save');
 assert.ok(/state\.runtime\.schema 必须与当前世界卡快照一致/.test(server), 'runtime state must remain bound to its world-card schema');
+
+// enum 选项は string | {value,label} 两种形态：值用 value，界面用 label
+assert.ok(/function runtimeEnumOptionValue\(/.test(server), 'server must resolve enum option values from both string and {value,label} options');
+assert.ok(/const enumValues = \(Array\.isArray\(definition\?\.options\) \? definition\.options : \[\]\)\.map\(runtimeEnumOptionValue\)/.test(server), 'enum value validation must compare against option values, not raw options');
+assert.ok(/function rpgRuntimeEnumOptionLabel\(/.test(app), 'enum values must be able to render their declared label');
+assert.ok(/rpgRuntimeEnumOptionLabel\(panelVariableDef, raw\)/.test(app), 'sidebar variable panels must map enum values to labels');
+assert.ok(/optionLabel = typeof option === 'string' \? option : \(option\?\.label/.test(app), 'enum action inputs must display option labels');
+assert.ok(/\*\*必须写 value（机器值）/.test(app) || /enum 变量的 options 可能是/.test(app), 'prompt must require value (not label) in enum updates');
 assert.ok(/function recoverMalformedExplicitActionIntentPatch\(/.test(server), 'server must recover malformed model patches for explicit world-card actions');
 
 const durabilityWorld = {

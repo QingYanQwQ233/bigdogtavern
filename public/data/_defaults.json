@@ -2345,13 +2345,13 @@
             "scope": "save",
             "type": "enum",
             "options": [
-              "ambush",
-              "trail",
-              "cave",
-              "inside",
-              "rescue",
-              "klarg",
-              "epilogue"
+              { "value": "ambush", "label": "埋伏现场" },
+              { "value": "trail", "label": "兽径追踪" },
+              { "value": "cave", "label": "洞口" },
+              { "value": "inside", "label": "洞窟深处" },
+              { "value": "rescue", "label": "营救俘虏" },
+              { "value": "klarg", "label": "克拉格之巢" },
+              { "value": "epilogue", "label": "尾声" }
             ],
             "initial": "ambush",
             "visible": true
@@ -2372,8 +2372,8 @@
             "scope": "save",
             "type": "enum",
             "options": [
-              "none",
-              "goblin"
+              { "value": "none", "label": "无" },
+              { "value": "goblin", "label": "哥布林" }
             ],
             "initial": "none",
             "visible": true
@@ -2384,8 +2384,8 @@
             "scope": "save",
             "type": "enum",
             "options": [
-              "none",
-              "free"
+              { "value": "none", "label": "未寻获" },
+              { "value": "free", "label": "已获释" }
             ],
             "initial": "none",
             "visible": true

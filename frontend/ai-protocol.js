@@ -228,7 +228,7 @@ const RPG_UPDATE_OPEN = `<${RPG_UPDATE_TAG}>`;
 const RPG_UPDATE_CLOSE = `</${RPG_UPDATE_TAG}>`;
 const RPG_PROTOCOL_REPAIR_ATTEMPTS = 2;
 const RPG_REPAIR_TOOL_NAME = 'tavern_rpg_turn_repair';
-const RPG_RUNTIME_UPDATE_FORMAT_HINT = 'Runtime 更新格式：runtime.variable.set 使用 {"type":"runtime.variable.set","id":"变量 ID","value":值}；runtime.variable.delta 使用 {"type":"runtime.variable.delta","id":"变量 ID","delta":数值}；runtime.collection.add 必须使用 {"type":"runtime.collection.add","collectionId":"集合 ID","value":{"id":"stable-entry-id",…}}。新增条目的 title、text、status 等字段一律放在 value 内，不能平铺在 update 顶层；条目 ID 只能使用字母、数字、_、-，缺少稳定条目 ID 时不要提交 collection.add。';
+const RPG_RUNTIME_UPDATE_FORMAT_HINT = 'Runtime 更新格式：runtime.variable.set 使用 {"type":"runtime.variable.set","id":"变量 ID","value":值}；runtime.variable.delta 使用 {"type":"runtime.variable.delta","id":"变量 ID","delta":数值}；runtime.collection.add 必须使用 {"type":"runtime.collection.add","collectionId":"集合 ID","value":{"id":"stable-entry-id",…}}。新增条目的 title、text、status 等字段一律放在 value 内，不能平铺在 update 顶层；条目 ID 只能使用字母、数字、_、-，缺少稳定条目 ID 时不要提交 collection.add。enum 变量的 options 可能是 {value, label} 对象：更新时**必须写 value（机器值）**，不得写 label（仅用于界面展示）。';
 
 function stripJsonFence(text) {
   return String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();

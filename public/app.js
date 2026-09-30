@@ -4656,6 +4656,15 @@ function readRpgUiField(value, path) {
   }, value);
 }
 
+function rpgRuntimeEnumOptionLabel(definition, value) {
+  if (!definition || definition.type !== 'enum' || !Array.isArray(definition.options)) return null;
+  for (const option of definition.options) {
+    if (!option || typeof option !== 'object') continue;
+    if (String(option.value) === String(value)) return option.label === undefined || option.label === null ? null : String(option.label);
+  }
+  return null;
+}
+
 function rpgUiValueText(value, fieldKey = '') {
   if (value === undefined || value === null || value === '') return '—';
   if (fieldKey === 'status' && value === 'confirmed') return '已确认';
@@ -5133,8 +5142,10 @@ function renderWorldSidebarPanels() {
           control = document.createElement('select');
           inputDefinition.options.slice(0, 64).forEach(option => {
             const optionEl = document.createElement('option');
-            optionEl.value = String(option);
-            optionEl.textContent = String(option);
+            const optionValue = typeof option === 'string' ? option : String(option?.value ?? '');
+            const optionLabel = typeof option === 'string' ? option : (option?.label === undefined || option?.label === null ? optionValue : option.label);
+            optionEl.value = optionValue;
+            optionEl.textContent = String(optionLabel);
             control.appendChild(optionEl);
           });
         } else if (['list', 'map', 'json'].includes(inputDefinition.type)) {
@@ -5210,7 +5221,13 @@ function renderWorldSidebarPanels() {
       ? Object.keys(entries[0].value).filter(key => !['id', 'name', 'title'].includes(key)).slice(0, 6).map(key => ({ key, label: key === 'status' ? '状态' : key }))
       : [];
     const fields = configuredFields.length ? configuredFields : inferredFields;
-    const valueForField = (entry, field) => rpgUiValueText(field.key === '$key' ? entry.key : field.key === '$value' ? entry.value : readRpgUiField(entry.value, field.key), field.key);
+    const panelVariableMatch = /^runtime\.variables\.([A-Za-z0-9][A-Za-z0-9_-]{0,63})$/.exec(String(panel.source || ''));
+    const panelVariableDef = panelVariableMatch ? (currentWorldCard()?.runtime?.variables || []).find(item => item?.id === panelVariableMatch[1]) || null : null;
+    const valueForField = (entry, field) => {
+      let raw = field.key === '$key' ? entry.key : field.key === '$value' ? entry.value : readRpgUiField(entry.value, field.key);
+      if (field.key === '$value' && panelVariableDef) { const mapped = rpgRuntimeEnumOptionLabel(panelVariableDef, raw); if (mapped !== null) raw = mapped; }
+      return rpgUiValueText(raw, field.key);
+    };
     const entryTitle = entry => entry.value && typeof entry.value === 'object'
       ? entry.value?.name || entry.value?.label || entry.value?.title || entry.key
       : panel.valueLabel || entry.key;
@@ -6565,7 +6582,7 @@ const RPG_UPDATE_OPEN = `<${RPG_UPDATE_TAG}>`;
 const RPG_UPDATE_CLOSE = `</${RPG_UPDATE_TAG}>`;
 const RPG_PROTOCOL_REPAIR_ATTEMPTS = 2;
 const RPG_REPAIR_TOOL_NAME = 'tavern_rpg_turn_repair';
-const RPG_RUNTIME_UPDATE_FORMAT_HINT = 'Runtime 更新格式：runtime.variable.set 使用 {"type":"runtime.variable.set","id":"变量 ID","value":值}；runtime.variable.delta 使用 {"type":"runtime.variable.delta","id":"变量 ID","delta":数值}；runtime.collection.add 必须使用 {"type":"runtime.collection.add","collectionId":"集合 ID","value":{"id":"stable-entry-id",…}}。新增条目的 title、text、status 等字段一律放在 value 内，不能平铺在 update 顶层；条目 ID 只能使用字母、数字、_、-，缺少稳定条目 ID 时不要提交 collection.add。';
+const RPG_RUNTIME_UPDATE_FORMAT_HINT = 'Runtime 更新格式：runtime.variable.set 使用 {"type":"runtime.variable.set","id":"变量 ID","value":值}；runtime.variable.delta 使用 {"type":"runtime.variable.delta","id":"变量 ID","delta":数值}；runtime.collection.add 必须使用 {"type":"runtime.collection.add","collectionId":"集合 ID","value":{"id":"stable-entry-id",…}}。新增条目的 title、text、status 等字段一律放在 value 内，不能平铺在 update 顶层；条目 ID 只能使用字母、数字、_、-，缺少稳定条目 ID 时不要提交 collection.add。enum 变量的 options 可能是 {value, label} 对象：更新时**必须写 value（机器值）**，不得写 label（仅用于界面展示）。';
 
 function stripJsonFence(text) {
   return String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
