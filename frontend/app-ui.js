@@ -1995,7 +1995,7 @@ async function callImageAPI(ig, prompt, refImage) {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const msg = (data && data.error && (data.error.message || data.error)) || ('生图 API 返回 ' + res.status);
+      const msg = localizeUpstreamError((data && data.error && (data.error.message || data.error)) || ('生图 API 返回 ' + res.status));
       throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
     }
     const src = parseImageSrc(data);
@@ -3014,7 +3014,7 @@ async function aiGenerate(instruction, desc) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.choices || !data.choices[0]) {
-    throw new Error('生成失败：' + ((data.error && data.error.message) || ('HTTP ' + res.status)));
+    throw new Error('生成失败：' + localizeUpstreamError((data.error && data.error.message) || ('HTTP ' + res.status)));
   }
   const choice = data.choices[0];
   const content = choice.message && choice.message.content;
@@ -3316,7 +3316,7 @@ async function mapBeautify() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const msg = (data.error && (data.error.message || data.error)) || ('生图 API 返回 ' + res.status);
+      const msg = localizeUpstreamError((data.error && (data.error.message || data.error)) || ('生图 API 返回 ' + res.status));
       throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
     }
     const src = parseImageSrc(data);

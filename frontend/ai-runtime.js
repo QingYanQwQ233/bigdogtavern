@@ -307,6 +307,25 @@ function buildPayload({ test = false } = {}) {
   return payload;
 }
 
+/* 上游 API 错误本地化：内部错误已是中文，这里只把服务商返回的英文原因翻成可用提示，
+   并把原文截断保留在括号里供排查。含中文的文案视为已本地化，原样返回。 */
+function localizeUpstreamError(raw) {
+  const text = String(raw == null ? '' : raw).trim();
+  if (!text) return '请求失败，请稍后重试。';
+  if (/[\u4e00-\u9fa5]/.test(text)) return text;
+  const rules = [
+    [/(invalid_api_key|incorrect api key|authentication fails|invalid authentication|unauthorized|api key[^a-z]*(invalid|expired|not found)|\b401\b)/i, 'API Key 无效或已过期，请在「设置 → 连接」中更新'],
+    [/(insufficient_quota|exceeded your current quota|insufficient balance|quota|balance)/i, '账户额度不足，请检查服务商余额或套餐'],
+    [/(rate limit|too many requests|\b429\b)/i, '请求过于频繁，请稍后重试'],
+    [/(context_length_exceeded|maximum context length|context length|too many tokens|max_tokens)/i, '上下文超出模型上限，请减少上下文或回复长度'],
+    [/(model_not_found|model[^a-z]*not found|no such model|does not exist|\b404\b)/i, '模型不存在或当前账号无权访问，请在「设置」里换一个模型'],
+    [/(failed to fetch|networkerror|network error|econnrefused|enotfound|fetch failed|socket hang up)/i, '无法连接服务器，请检查网络或「设置 → 连接」中的 Base URL'],
+    [/(timeout|timed out|etimedout)/i, '请求超时，请稍后重试或检查网络'],
+  ];
+  for (const [re, zh] of rules) if (re.test(text)) return `${zh}（${text.slice(0, 160)}）`;
+  return `服务返回错误：${text.slice(0, 200)}`;
+}
+
 async function callAPI(payload) {
   const resp = await fetch('/api/chat', {
     method: 'POST',
@@ -321,7 +340,7 @@ async function callAPI(payload) {
     if (!data?.error) {
       try { const t = await resp.text(); if (t) msg = `HTTP ${resp.status}: ${t.slice(0, 300)}`; } catch {}
     }
-    throw new Error(msg);
+    throw new Error(localizeUpstreamError(msg));
   }
   recordProviderUsage(data?.usage || data?.usage_metadata);
   return data;
@@ -1081,7 +1100,7 @@ async function callAPIStream(payload, { previewPrefix = '', render = true } = {}
   });
   if (!resp.ok) {
     const d = await resp.json().catch(() => ({}));
-    throw new Error(d?.error?.message || `HTTP ${resp.status}`);
+    throw new Error(localizeUpstreamError(d?.error?.message || `HTTP ${resp.status}`));
   }
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
