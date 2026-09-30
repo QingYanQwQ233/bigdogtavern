@@ -13,10 +13,11 @@ android {
         applicationId = "com.tavern.rpg"
         minSdk = 24
         targetSdk = 34
-        // 版本控制：versionCode 由构建时 -Pvc 传入（= git commit 数，每次构建递增，避免覆盖安装冲突）；
-        // versionName 语义化迭代：自 0.2 起进入 alpha-0.2.<序号> 线（由 -Pvn 传入）
+        // 版本控制：versionCode 由构建时 -Pvc 传入（构建脚本取当前提交数，内容一变号必变）；
+        // versionName 语义化迭代：自 0.2 起为 alpha-0.2.<构建序号>[字母后缀]（由 -Pvn 传入）。
+        // 硬规则：任何改动后重新构建都必须换版本号，不允许「不同内容、同一版本号」。
         versionCode = (project.findProperty("vc") as String?)?.toIntOrNull() ?: 1
-        versionName = (project.findProperty("vn") as String?) ?: "alpha-0.2.1"
+        versionName = (project.findProperty("vn") as String?) ?: "alpha-0.2.1b"
 
         // 内嵌 Node 运行时（nodejs-mobile）只随包分发 arm64-v8a。
         // 显式声明 ABI，使 32 位/模拟器设备不会被误装后运行期才失败。
