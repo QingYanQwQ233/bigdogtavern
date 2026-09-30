@@ -1381,7 +1381,7 @@ async function testConnection() {
   const out = $('test-result');
   readSettingsForm();
   try {
-    out.textContent = '正在测试…';
+    notifyProgress('正在测试…');
     out.className = '';
     const data = await callAPI(buildPayload({ test: true }));
     const reply = data?.choices?.[0]?.message?.content;

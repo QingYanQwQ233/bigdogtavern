@@ -61,4 +61,16 @@ for (const name of files) {
 }
 assert.deepStrictEqual(asyncViolations, [], `这些 await 调用不在 async 函数内：${asyncViolations.join(', ')}`);
 
+
+// 5. 通知必须走顶部「灵动岛」toast，而不是模态弹窗（用户反馈：弹窗“不知道在哪里”，且要求进行中也进灵动岛）
+assert.ok(/function notifyProgress\(/.test(appCore), 'app-core.js 必须提供 notifyProgress（进行中提示进灵动岛）');
+const nrIdx = appCore.indexOf('function notifyResult(');
+assert.ok(nrIdx >= 0, 'app-core.js 必须提供 notifyResult');
+const nrEnd = appCore.indexOf('\n}', nrIdx);
+const nrBody = nrEnd > nrIdx ? appCore.slice(nrIdx, nrEnd) : appCore.slice(nrIdx, nrIdx + 600);
+assert.ok(/showToast\(/.test(nrBody), 'notifyResult 必须用 showToast（灵动岛）');
+assert.ok(!/showAppAlert\(/.test(nrBody), 'notifyResult 不得用模态弹窗（showAppAlert）');
+assert.ok(/notifyProgress\(/.test(sources['app-ui.js'] || ''), 'app-ui.js 的进行中提示必须用 notifyProgress');
+assert.ok(/notifyProgress\(/.test(sources['ai-runtime.js'] || ''), 'ai-runtime.js 的进行中提示必须用 notifyProgress');
+
 console.log('check_native_dialogs: ok');

@@ -1195,7 +1195,7 @@ async function fetchModels() {
     return;
   }
   try {
-    out.textContent = '正在获取模型列表…';
+    notifyProgress('正在获取模型列表…');
     out.className = '';
     const resp = await fetch('/api/models', {
       headers: { 'X-Base-Url': settings.baseUrl, 'X-Api-Key': settings.apiKey || '' },

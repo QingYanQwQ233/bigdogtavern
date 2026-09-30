@@ -180,7 +180,7 @@ function showToast(message, options = {}) {
   toast.className = 'toast' + (kind ? ' toast-' + kind : '');
   toast.setAttribute('role', kind === 'error' ? 'alert' : 'status');
   const iconText = kind === 'error' ? '⚠' : (kind === 'success' ? '✓' : '');
-  if (iconText) {
+  if (iconText && options.icon !== false) {
     const icon = document.createElement('span');
     icon.className = 'toast-icon';
     icon.setAttribute('aria-hidden', 'true');
@@ -328,10 +328,36 @@ function showAppPrompt(message, defaultValue = '', options = {}) {
 }
 /* 操作结果统一播报：页面内保留文字方便回看，默认再弹一个浮层确保被看到。
    options.silent：次要提示（如「没有候选」）只写消息栏，不打断用户。 */
+/* 通知统一走顶部「灵动岛」胶囊浮层（showToast）：
+   操作结果 -> 弹 toast；进行中 -> 用不自动消失的 busy toast 占位，完成时被结果替换。
+   silent 只留给「只写消息栏」的次要提示（例如上游没返回候选）。 */
+let appBusyToast = null;
+function dismissProgress() {
+  if (!appBusyToast) return;
+  try { appBusyToast.dismiss(); } catch { /* 已被关闭的 toast 再 dismiss 无副作用 */ }
+  appBusyToast = null;
+}
+function notifyProgress(message) {
+  if (!message) return null;
+  dismissProgress();
+  appBusyToast = showToast(message, { duration: 0 });
+  return appBusyToast;
+}
 function notifyResult(message, ok, options = {}) {
+  dismissProgress();
   const out = $('test-result');
   if (out) { out.textContent = message; out.className = ok ? 'ok' : 'err'; }
-  if (!options.silent) showAppAlert(message, { kind: ok ? 'success' : 'error' });
+  if (!options.silent) {
+    // 消息自带 emoji 时不再叠一个内置图标（否则会出现 ✓ ✅ 这种重复）
+    const lead = String(message).trimStart();
+    const hasIcon = ['✅', '❌', '⚠', '❗', '✓', '✕'].some(icon => lead.startsWith(icon));
+    showToast(message, {
+      kind: ok ? 'success' : 'error',
+      icon: !hasIcon,
+      // 操作结果（模型列表 / 报错详情）往往不止一句，默认 3.2s 读不完
+      duration: options.duration ?? (ok ? 5000 : 8000),
+    });
+  }
   return message;
 }
 /* ─────────── 自定义下拉（替代原生 <select>） ───────────

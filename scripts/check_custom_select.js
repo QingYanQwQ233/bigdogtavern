@@ -42,4 +42,11 @@ assert.ok(!/<input[^>]+list=/.test(html), '不得使用原生 datalist：请用
 assert.ok(/function enhanceComboInput\(/.test(appCore), 'app-core.js 必须提供 enhanceComboInput');
 assert.ok(/enhanceComboInput\(modelInput, \{ source: 'model-list' \}\)/.test(appUi), '模型输入必须初始化为应用内候选菜单');
 
+
+// 7. 可输入候选框：展开按钮必须内嵌且不带分隔线（否则看起来像并列的第二个控件）
+const toggleMatch = css.match(/\.combo-toggle\s*\{[^}]*\}/);
+assert.ok(toggleMatch, 'styles.css 必须提供 .combo-toggle');
+assert.ok(!/border-left\s*:/.test(toggleMatch[0]), '.combo-toggle 不得带 border-left 分隔线');
+assert.ok(/\.combo-input > input\s*\{[^}]*padding-right/.test(css), '.combo-input > input 必须为内嵌按钮留出右内边距');
+
 console.log('check_custom_select: ok');
