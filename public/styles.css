@@ -1936,6 +1936,9 @@ body[data-mode="rpg"] .composer {
   letter-spacing: normal;
   text-indent: 0;
 }
+/* 连接页动作区排成两列：导入 / 导出这类成对操作落在同一行，四个按钮也自然等宽。 */
+#st-panel-conn .modal-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+#st-panel-conn .modal-actions > button { min-width: 0; }
 #test-result { margin-top: 12px; }
 #test-result.ok { color: var(--ok); }
 #test-result.err { color: var(--danger); }
