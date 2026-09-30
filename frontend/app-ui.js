@@ -4319,6 +4319,8 @@ async function init() {
   }
 
   renderProviderOptions();
+  // 所有下拉统一为应用内自定义控件（原生 select 在部分 WebView 的 dialog 内弹不出）
+  autoEnhanceCustomSelects();
   ensureLorebooks();
   ensureCharacterBookLorebooks();
   renderBindSelects();

@@ -327,6 +327,157 @@ function showAppConfirm(message, options = {}) {
 function showAppPrompt(message, defaultValue = '', options = {}) {
   return openAppDialog(Object.assign({}, options, { mode: 'prompt', message: String(message == null ? '' : message), defaultValue }));
 }
+/* ─────────── 自定义下拉（替代原生 <select>） ───────────
+   部分 Android WebView 在 <dialog> / modal 内无法弹出原生选择器（点了没反应），
+   项目此前只在一个世界预设下拉上绕开了它。现在做成通用能力并自动应用到所有下拉：
+   保留原生 <select>（value / change 语义、表单校验、无障碍全部不变），
+   只在它旁边渲染一个可见触发器 + 列表，原生控件视觉隐藏。 */
+// 惰性获取：本文件也会在 node vm 沙箱里被加载（没有 DOM），顶层不能直接摸 HTMLSelectElement。
+let nativeSelectValueDesc;
+function nativeSelectValueDescriptor() {
+  if (nativeSelectValueDesc === undefined) {
+    nativeSelectValueDesc = (typeof HTMLSelectElement === 'function' && HTMLSelectElement.prototype)
+      ? Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value') || null
+      : null;
+  }
+  return nativeSelectValueDesc;
+}
+function nativeSelectValue(select) {
+  const desc = nativeSelectValueDescriptor();
+  return desc ? desc.get.call(select) : select.value;
+}
+function setNativeSelectValue(select, value) {
+  const desc = nativeSelectValueDescriptor();
+  if (desc) desc.set.call(select, value);
+  else select.value = value;
+}
+function customSelectPickerOf(select) { return select.closest('.custom-select-picker'); }
+function customSelectLabelText(select) {
+  if (!select.id) return '';
+  const label = document.querySelector('label[for="' + select.id + '"]');
+  return label ? (label.textContent || '').trim() : '';
+}
+function syncCustomSelect(select) {
+  const picker = customSelectPickerOf(select);
+  if (!picker) return;
+  const valueEl = picker.querySelector('.custom-select-value');
+  if (valueEl) {
+    const option = select.selectedIndex >= 0 ? select.options[select.selectedIndex] : null;
+    const text = option ? option.textContent : '';
+    valueEl.textContent = text;
+    valueEl.classList.toggle('is-placeholder', !option);
+  }
+  const current = nativeSelectValue(select);
+  picker.querySelectorAll('.custom-select-menu li[data-value]').forEach(li => {
+    li.setAttribute('aria-selected', String(li.dataset.value === current));
+  });
+}
+function renderCustomSelectMenu(select) {
+  const picker = customSelectPickerOf(select);
+  const menu = picker && picker.querySelector('.custom-select-menu');
+  if (!menu) return;
+  const current = nativeSelectValue(select);
+  menu.innerHTML = Array.from(select.options).map(option => {
+    const disabled = option.disabled ? ' aria-disabled="true"' : '';
+    return `<li role="option" data-value="${esc(option.value)}"${disabled} aria-selected="${option.value === current}">${esc(option.textContent)}</li>`;
+  }).join('');
+}
+function closeCustomSelects(except) {
+  document.querySelectorAll('.custom-select-picker.is-open').forEach(picker => {
+    if (picker === except) return;
+    picker.classList.remove('is-open');
+    const menu = picker.querySelector('.custom-select-menu');
+    const trigger = picker.querySelector('.custom-select-trigger');
+    if (menu) menu.hidden = true;
+    if (trigger) trigger.setAttribute('aria-expanded', 'false');
+  });
+}
+function enhanceCustomSelect(select) {
+  if (!select || select.dataset.customSelect === '1') return null;
+  if (select.multiple || Number(select.size) > 1) return null;
+  if (select.closest('.custom-select-picker')) return null;
+  select.dataset.customSelect = '1';
+  const wrap = document.createElement('div');
+  wrap.className = 'custom-select-picker';
+  select.parentNode.insertBefore(wrap, select);
+  wrap.appendChild(select);
+  select.classList.add('custom-select-native');
+  select.tabIndex = -1;
+  select.setAttribute('aria-hidden', 'true');
+  // 用 hidden 而不是只靠 CSS：.field select 的宽度规则会盖掉低特异性的隐藏样式。
+  select.hidden = true;
+  const trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'custom-select-trigger';
+  trigger.setAttribute('aria-haspopup', 'listbox');
+  trigger.setAttribute('aria-expanded', 'false');
+  const labelText = customSelectLabelText(select);
+  if (labelText) trigger.setAttribute('aria-label', labelText);
+  trigger.innerHTML = '<span class="custom-select-value"></span><span class="custom-select-caret" aria-hidden="true">\u25be</span>';
+  const menu = document.createElement('ul');
+  menu.className = 'custom-select-menu';
+  menu.setAttribute('role', 'listbox');
+  menu.hidden = true;
+  wrap.appendChild(trigger);
+  wrap.appendChild(menu);
+  const setOpen = open => {
+    wrap.classList.toggle('is-open', open);
+    menu.hidden = !open;
+    trigger.setAttribute('aria-expanded', String(open));
+    if (open) renderCustomSelectMenu(select);
+  };
+  trigger.addEventListener('click', event => {
+    event.stopPropagation();
+    const willOpen = !wrap.classList.contains('is-open');
+    closeCustomSelects(wrap);
+    setOpen(willOpen);
+  });
+  menu.addEventListener('click', event => {
+    const item = event.target.closest('li[data-value]');
+    if (!item || item.getAttribute('aria-disabled') === 'true') return;
+    setNativeSelectValue(select, item.dataset.value);
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    setOpen(false);
+    syncCustomSelect(select);
+  });
+  // 代码直接赋值 select.value 时（不触发 change）也要跟手刷新显示。
+  Object.defineProperty(select, 'value', {
+    configurable: true,
+    get() { return nativeSelectValue(select); },
+    set(next) { setNativeSelectValue(select, next); syncCustomSelect(select); },
+  });
+  select.addEventListener('change', () => syncCustomSelect(select));
+  // 选项被整体重写时（innerHTML = ...）重建菜单。
+  new MutationObserver(() => { renderCustomSelectMenu(select); syncCustomSelect(select); })
+    .observe(select, { childList: true, subtree: true, attributes: true, characterData: true });
+  renderCustomSelectMenu(select);
+  syncCustomSelect(select);
+  return { trigger, menu, sync: () => syncCustomSelect(select) };
+}
+function enhanceCustomSelectsIn(root = document) {
+  if (!root || typeof root.querySelectorAll !== 'function') return;
+  root.querySelectorAll('select:not([data-custom-select])').forEach(enhanceCustomSelect);
+}
+let customSelectObserver = null;
+function autoEnhanceCustomSelects() {
+  enhanceCustomSelectsIn(document);
+  if (!autoEnhanceCustomSelects.bound) {
+    autoEnhanceCustomSelects.bound = true;
+    document.addEventListener('click', () => closeCustomSelects());
+    document.addEventListener('keydown', event => { if (event.key === 'Escape') closeCustomSelects(); });
+  }
+  if (customSelectObserver || typeof MutationObserver !== 'function' || !document.body) return;
+  customSelectObserver = new MutationObserver(records => {
+    for (const record of records) {
+      for (const node of record.addedNodes) {
+        if (!node || node.nodeType !== 1) continue;
+        if (node.tagName === 'SELECT') enhanceCustomSelect(node);
+        else enhanceCustomSelectsIn(node);
+      }
+    }
+  });
+  customSelectObserver.observe(document.body, { childList: true, subtree: true });
+}
 function webCompatBootstrap() {
   try {
     if (typeof Array.prototype.at !== 'function') {
@@ -3037,80 +3188,8 @@ function renderWorldPlayerPresetSelects(world, selected = '') {
     if (!select) return;
     select.innerHTML = html;
     select.value = selected || '';
-    enhanceWorldPresetSelect(select);
+    enhanceCustomSelect(select);
   });
-}
-// 原生 <select> 在部分 Android WebView 的 <dialog> 内无法弹出选择器；改用 JS 控制的自定义下拉。
-function closeAllWorldPresetMenus(except) {
-  document.querySelectorAll('.world-preset-picker.is-open').forEach(picker => {
-    if (picker === except) return;
-    picker.classList.remove('is-open');
-    const menu = picker.querySelector('.world-preset-menu');
-    const trigger = picker.querySelector('.world-preset-trigger');
-    if (menu) menu.hidden = true;
-    if (trigger) trigger.setAttribute('aria-expanded', 'false');
-  });
-}
-function enhanceWorldPresetSelect(select) {
-  if (!select) return;
-  const syncOption = () => {
-    const picker = select.closest('.world-preset-picker');
-    if (!picker) return;
-    const valueEl = picker.querySelector('.world-preset-value');
-    if (valueEl) valueEl.textContent = select.options[select.selectedIndex]?.textContent || '自定义配置';
-    picker.querySelectorAll('.world-preset-menu li').forEach(li => li.setAttribute('aria-selected', String(li.dataset.value === select.value)));
-  };
-  if (select.dataset.presetEnhanced === '1') { syncOption(); return; }
-  select.dataset.presetEnhanced = '1';
-  const wrap = document.createElement('div');
-  wrap.className = 'world-preset-picker';
-  select.parentNode.insertBefore(wrap, select);
-  wrap.appendChild(select);
-  select.classList.add('world-preset-native');
-  select.tabIndex = -1;
-  select.setAttribute('aria-hidden', 'true');
-  const trigger = document.createElement('button');
-  trigger.type = 'button';
-  trigger.className = 'ghost-btn small world-preset-trigger';
-  trigger.setAttribute('aria-haspopup', 'listbox');
-  trigger.setAttribute('aria-expanded', 'false');
-  trigger.innerHTML = '<span class="world-preset-value"></span><span class="world-preset-caret" aria-hidden="true">▾</span>';
-  const menu = document.createElement('ul');
-  menu.className = 'world-preset-menu';
-  menu.setAttribute('role', 'listbox');
-  menu.hidden = true;
-  wrap.appendChild(trigger);
-  wrap.appendChild(menu);
-  const renderMenu = () => {
-    menu.innerHTML = [...select.options].map(option => `<li role="option" data-value="${esc(option.value)}" aria-selected="${option.value === select.value}">${esc(option.textContent)}</li>`).join('');
-  };
-  trigger.addEventListener('click', event => {
-    event.stopPropagation();
-    const willOpen = !wrap.classList.contains('is-open');
-    closeAllWorldPresetMenus(wrap);
-    wrap.classList.toggle('is-open', willOpen);
-    menu.hidden = !willOpen;
-    trigger.setAttribute('aria-expanded', String(willOpen));
-    if (willOpen) renderMenu();
-  });
-  menu.addEventListener('click', event => {
-    const item = event.target.closest('li[data-value]');
-    if (!item) return;
-    select.value = item.dataset.value;
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-    wrap.classList.remove('is-open');
-    menu.hidden = true;
-    trigger.setAttribute('aria-expanded', 'false');
-    syncOption();
-  });
-  select.addEventListener('change', syncOption);
-  if (!enhanceWorldPresetSelect.bound) {
-    enhanceWorldPresetSelect.bound = true;
-    document.addEventListener('click', () => closeAllWorldPresetMenus());
-    document.addEventListener('keydown', event => { if (event.key === 'Escape') closeAllWorldPresetMenus(); });
-  }
-  renderMenu();
-  syncOption();
 }
 function worldPlayerWithPreset(world, presetId, player = {}) {
   const preset = worldPlayerPresetList(world).find(item => item.id === presetId);
@@ -17280,6 +17359,8 @@ async function init() {
   }
 
   renderProviderOptions();
+  // 所有下拉统一为应用内自定义控件（原生 select 在部分 WebView 的 dialog 内弹不出）
+  autoEnhanceCustomSelects();
   ensureLorebooks();
   ensureCharacterBookLorebooks();
   renderBindSelects();
