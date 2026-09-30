@@ -43,7 +43,7 @@ APK 首次启动把 `assets/nodejs/` 解包到 `filesDir/nodejs/`，因此 `serv
 
 ```bash
 # 本地（需 JDK 17 + Android SDK + Gradle）
-bash scripts/build_android_apk.sh 80 alpha-0.1.80
+bash scripts/build_android_apk.sh 80 alpha-0.2.1
 
 # CI 在 push 到 main 时自动执行（见 .github/workflows/android-apk.yml）
 ```

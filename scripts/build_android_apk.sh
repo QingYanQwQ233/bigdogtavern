@@ -9,7 +9,7 @@
 #
 # 用法：
 #   bash scripts/build_android_apk.sh [versionCode] [versionName]
-#   bash scripts/build_android_apk.sh 80 alpha-0.1.80
+#   bash scripts/build_android_apk.sh 80 alpha-0.2.1
 #
 # 前置条件：
 #   ANDROID_HOME（或 /opt/android-sdk）、JDK 17、Gradle

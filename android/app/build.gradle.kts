@@ -14,9 +14,9 @@ android {
         minSdk = 24
         targetSdk = 34
         // 版本控制：versionCode 由构建时 -Pvc 传入（= git commit 数，每次构建递增，避免覆盖安装冲突）；
-        // versionName 语义化迭代：alpha-0.1.<构建序号>（由 -Pvn 传入）
+        // versionName 语义化迭代：自 0.2 起进入 alpha-0.2.<序号> 线（由 -Pvn 传入）
         versionCode = (project.findProperty("vc") as String?)?.toIntOrNull() ?: 1
-        versionName = (project.findProperty("vn") as String?) ?: "alpha-0.1.0"
+        versionName = (project.findProperty("vn") as String?) ?: "alpha-0.2.1"
 
         // 内嵌 Node 运行时（nodejs-mobile）只随包分发 arm64-v8a。
         // 显式声明 ABI，使 32 位/模拟器设备不会被误装后运行期才失败。

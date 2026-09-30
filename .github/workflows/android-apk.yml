@@ -50,7 +50,7 @@ jobs:
           cd android
           # versionCode / versionName 都用 GitHub 全局运行序号（仓库级递增；git rev-list 在 fetch-depth=1 下恒为 1，不可用）
           VCODE=${{ github.run_number }}
-          VNAME="alpha-0.1.${{ github.run_number }}"
+          VNAME="alpha-0.2.${{ github.run_number }}"
           echo "versionCode=$VCODE versionName=$VNAME"
           gradle assembleDebug --no-daemon -Pvc=$VCODE -Pvn=$VNAME
 
