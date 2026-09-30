@@ -45,6 +45,13 @@ case "$ABI" in
   *) echo "❌ 不支持的 ABI: $ABI"; exit 1 ;;
 esac
 
+# clang resource-dir 里的架构子目录名（libunwind.a 等按架构分目录存放）
+case "$ABI" in
+  arm64-v8a)   CLANG_ARCH="aarch64" ;;
+  armeabi-v7a) CLANG_ARCH="arm" ;;
+  x86_64)      CLANG_ARCH="x86_64" ;;
+esac
+
 [ -d "$NDK" ] || { echo "❌ 找不到 NDK。请设置 ANDROID_NDK_HOME，或安装到 $SDK/ndk/"; exit 1; }
 PRE="$NDK/toolchains/llvm/prebuilt/linux-x86_64"
 SYS="$PRE/sysroot"
@@ -99,7 +106,10 @@ else
   DYNLIB="$CACHE/dynlibs-$ABI"
   rm -rf "$DYNLIB"; mkdir -p "$DYNLIB"
   find "$SYS/usr/lib/$ANDROID_TRIPLE" -maxdepth 1 -name '*.so' -exec cp -f {} "$DYNLIB/" \; 2>/dev/null || true
-  LINK_EXTRA=(-L"$DYNLIB" -L"$CLANG_RT" -rtlib=compiler-rt
+  # libunwind.a 提供 _Unwind_Resume 等 C++ 异常展开符号，位于 resource-dir 的架构子目录；
+  # 不显式链接时它会是未定义符号，被 --allow-shlib-undefined 放过，运行期 dlopen 才报
+  # "cannot locate symbol _Unwind_Resume"（Android 10 等设备上必现）。
+  LINK_EXTRA=(-L"$DYNLIB" -L"$CLANG_RT" -L"$CLANG_RT/$CLANG_ARCH" -rtlib=compiler-rt
               -ftls-model=global-dynamic
               -Wl,--exclude-libs,ALL -Wl,--allow-shlib-undefined)
 fi
@@ -112,7 +122,8 @@ echo "== 3/4 编译 libnode_bridge.so =="
   "${LINK_EXTRA[@]}" \
   -o "$OUT/libnode_bridge.so" \
   "$SRC" "$OUT/libnode.so" \
-  -lc++_shared -llog
+  -lc++_shared -llog \
+  -lunwind
 
 echo "== 4/4 结果 =="
 ls -l "$OUT"
