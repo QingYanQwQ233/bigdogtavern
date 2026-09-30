@@ -73,4 +73,11 @@ assert.ok(!/showAppAlert\(/.test(nrBody), 'notifyResult 不得用模态弹窗（
 assert.ok(/notifyProgress\(/.test(sources['app-ui.js'] || ''), 'app-ui.js 的进行中提示必须用 notifyProgress');
 assert.ok(/notifyProgress\(/.test(sources['ai-runtime.js'] || ''), 'ai-runtime.js 的进行中提示必须用 notifyProgress');
 
+// 6. 灵动岛动效防回退：内容切换必须原地复用同一条胶囊（新建一条时，旧的淡出 + 新的入场
+//    两条会同时占据 flex 列，看起来像抽搐），且宽度过渡与状态脉冲的样式必须在位。
+assert.ok(/update = \(text/.test(appCore), 'showToast 必须提供 update（原地替换内容）');
+assert.ok(/busy\.update\(/.test(appCore), 'notifyResult 必须复用进行中的胶囊');
+assert.ok(/\.toast\.is-updating/.test(css), 'styles.css 必须提供 .toast.is-updating（内容替换脉冲）');
+assert.ok(/\.toast \{[^}]*transition: width/.test(css), '.toast 必须允许宽度平滑过渡（FLIP）');
+
 console.log('check_native_dialogs: ok');

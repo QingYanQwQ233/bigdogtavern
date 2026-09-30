@@ -176,28 +176,64 @@ let requestAbortRequested = false;
 function showToast(message, options = {}) {
   const host = $('toast-host');
   if (!host || !message) return null;
-  const kind = options.kind || '';
+  // 同屏最多两条：再往上堆时，下面几条会互相挤压、看起来像抽搐
+  while (host.children.length >= 2) host.firstElementChild.remove();
   const toast = document.createElement('div');
-  toast.className = 'toast' + (kind ? ' toast-' + kind : '');
-  toast.setAttribute('role', kind === 'error' ? 'alert' : 'status');
-  const iconText = kind === 'error' ? '⚠' : (kind === 'success' ? '✓' : '');
-  if (iconText && options.icon !== false) {
-    const icon = document.createElement('span');
-    icon.className = 'toast-icon';
-    icon.setAttribute('aria-hidden', 'true');
-    icon.textContent = iconText;
-    toast.appendChild(icon);
-  }
   const body = document.createElement('span');
   body.className = 'toast-msg';
-  body.textContent = String(message);
   toast.appendChild(body);
+  let iconEl = null;
   let timer = null;
+  let kind = '';
   const dismiss = () => {
-    if (timer) clearTimeout(timer);
+    if (timer) { clearTimeout(timer); timer = null; }
+    if (toast.classList.contains('toast-out')) return;
     toast.classList.add('toast-out');
     setTimeout(() => toast.remove(), 200);
   };
+  // 按内容重绘图标 / 语义 / 计时。切换内容时复用同一个元素：
+  // 否则「旧的还在淡出、新的已入场」两条胶囊会互相挤，看起来像抽搐。
+  const paint = (text, nextKind, nextOptions = {}) => {
+    const iconText = nextKind === 'error' ? '⚠' : (nextKind === 'success' ? '✓' : '');
+    if (iconText && nextOptions.icon !== false) {
+      if (!iconEl) {
+        iconEl = document.createElement('span');
+        iconEl.className = 'toast-icon';
+        iconEl.setAttribute('aria-hidden', 'true');
+        toast.insertBefore(iconEl, body);
+      }
+      iconEl.textContent = iconText;
+    } else if (iconEl) {
+      iconEl.remove();
+      iconEl = null;
+    }
+    body.textContent = String(text);
+    kind = nextKind || '';
+    toast.className = 'toast' + (kind ? ' toast-' + kind : '');
+    toast.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+    if (timer) { clearTimeout(timer); timer = null; }
+    const duration = nextOptions.duration ?? (kind === 'error' ? 8000 : 3200);
+    if (duration > 0 && toast.isConnected) timer = setTimeout(dismiss, duration);
+  };
+  // 原地换内容：胶囊宽度用 FLIP 平滑跟随，避免宽度瞬间跳变挂一下
+  const update = (text, nextOptions = {}) => {
+    if (!toast.isConnected) return showToast(text, nextOptions);
+    const first = toast.offsetWidth;
+    paint(text, nextOptions.kind === undefined ? kind : nextOptions.kind, nextOptions);
+    const last = toast.offsetWidth;
+    if (Math.abs(last - first) > 1) {
+      toast.style.width = first + 'px';
+      void toast.offsetWidth; // 强制一次布局，让宽度过渡有起点
+      toast.style.width = last + 'px';
+      setTimeout(() => { toast.style.width = ''; }, 250);
+    }
+    toast.classList.remove('is-updating');
+    void toast.offsetWidth;
+    toast.classList.add('is-updating');
+    setTimeout(() => toast.classList.remove('is-updating'), 250);
+    return handle;
+  };
+  const handle = { dismiss, update, element: toast };
   if (options.action && options.action.label) {
     const action = document.createElement('button');
     action.type = 'button';
@@ -216,9 +252,8 @@ function showToast(message, options = {}) {
     toast.appendChild(close);
   }
   host.appendChild(toast);
-  const duration = options.duration ?? (kind === 'error' ? 8000 : 3200);
-  if (duration > 0) timer = setTimeout(dismiss, duration);
-  return { dismiss, element: toast };
+  paint(message, options.kind, options);
+  return handle;
 }
 /* ─────────── 应用内对话框（替代原生 alert / confirm / prompt） ───────────
    原生对话框在 WebView 里样式不可控、出现位置随内核变化，用户容易错过；
@@ -347,20 +382,34 @@ function dismissProgress() {
 }
 function notifyProgress(message) {
   if (!message) return null;
+  // 已有进行中的胶囊就原地换文案，不再叠一条新的
+  if (appBusyToast && appBusyToast.element && appBusyToast.element.isConnected) {
+    appBusyToast.update(message, { kind: '', duration: 0 });
+    return appBusyToast;
+  }
   dismissProgress();
   appBusyToast = showToast(message, { duration: 0 });
   return appBusyToast;
 }
 function notifyResult(message, ok, options = {}) {
-  dismissProgress();
   const text = stripResultIcon(message);
   const out = $('test-result');
   if (out) { out.textContent = text; out.className = ok ? 'ok' : 'err'; }
-  if (!options.silent) showToast(text, {
-    kind: ok ? 'success' : 'error',
-    // 操作结果（模型列表 / 报错详情）往往不止一句，默认 3.2s 读不完
-    duration: options.duration ?? (ok ? 5000 : 8000),
-  });
+  const kind = ok ? 'success' : 'error';
+  // 操作结果（模型列表 / 报错详情）往往不止一句，默认 3.2s 读不完
+  const duration = options.duration ?? (ok ? 5000 : 8000);
+  const busy = appBusyToast;
+  appBusyToast = null;
+  if (options.silent) {
+    if (busy) busy.dismiss();
+    return text;
+  }
+  if (busy && busy.element && busy.element.isConnected) {
+    // 进行中的胶囊原地变成结果：不再“旧的淡出 + 新的入场”叠两条
+    busy.update(text, { kind, duration });
+  } else {
+    showToast(text, { kind, duration });
+  }
   return text;
 }
 /* ─────────── 自定义下拉（替代原生 <select>） ───────────
