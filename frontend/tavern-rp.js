@@ -217,18 +217,6 @@ function renderBindSelects() {
   }
 }
 
-const CHAR_FIELD_FORM = {
-  name: 'cm-name', race: 'cm-race', role: 'cm-role', persona: 'cm-persona',
-  personality: 'cm-personality', scenario: 'cm-scenario', firstMes: 'cm-first-mes', tags: 'cm-tags',
-};
-
-function charFieldDefs() {
-  const fields = genSettings && genSettings.charFields;
-  return Array.isArray(fields) ? fields.filter(f => f && typeof f === 'object' && !Array.isArray(f)
-    && /^[A-Za-z][A-Za-z0-9_-]{0,48}$/.test(String(f.key || ''))
-    && typeof f.label === 'string' && f.label.trim().length > 0 && f.label.trim().length <= 120) : [];
-}
-
 function normalizeCharProfileFields(fields) {
   if (!Array.isArray(fields)) return [];
   return fields.filter(f => f && f.key && f.label).map(f => ({

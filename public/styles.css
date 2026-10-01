@@ -2097,7 +2097,6 @@ body[data-theme="vibrancy"] .dropdown { box-shadow: none; }
 #settings-modal .modal-body { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .settings-gen-intro strong { color: var(--accent); }
 .settings-gen-intro span { color: var(--muted); font-size: 12px; }
-.settings-gen-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .settings-ui-intro { display: grid; gap: 4px; padding: 10px 12px; margin-bottom: 14px; border: 1px solid rgba(var(--accent-rgb), 0.24); border-radius: var(--radius); background: rgba(var(--accent-rgb), 0.06); }
 .settings-ui-intro strong { color: var(--accent); }
 .settings-ui-intro span { color: var(--muted); font-size: 12px; line-height: 1.5; }
@@ -3327,7 +3326,6 @@ body.world-setup-extension-mode .rpg-extension-head {
   .wi-settings-grid { grid-template-columns: 1fr; }
   .settings-tabs { overflow-x: auto; }
   .st-tab { white-space: nowrap; }
-  .settings-gen-grid { grid-template-columns: 1fr; }
   .ui-theme-preset-info { align-items: stretch; flex-direction: column; }
   .theme-color-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .cm-list, .wi-list, .pg-prompts, .lb-list { max-height: 30vh; }

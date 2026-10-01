@@ -9072,18 +9072,6 @@ function renderBindSelects() {
   }
 }
 
-const CHAR_FIELD_FORM = {
-  name: 'cm-name', race: 'cm-race', role: 'cm-role', persona: 'cm-persona',
-  personality: 'cm-personality', scenario: 'cm-scenario', firstMes: 'cm-first-mes', tags: 'cm-tags',
-};
-
-function charFieldDefs() {
-  const fields = genSettings && genSettings.charFields;
-  return Array.isArray(fields) ? fields.filter(f => f && typeof f === 'object' && !Array.isArray(f)
-    && /^[A-Za-z][A-Za-z0-9_-]{0,48}$/.test(String(f.key || ''))
-    && typeof f.label === 'string' && f.label.trim().length > 0 && f.label.trim().length <= 120) : [];
-}
-
 function normalizeCharProfileFields(fields) {
   if (!Array.isArray(fields)) return [];
   return fields.filter(f => f && f.key && f.label).map(f => ({
@@ -14025,10 +14013,7 @@ function fillSettingsForm() {
   $('s-cot').checked = !!prefs.cotEnabled;
   $('s-cot-effort').value = prefs.cotEffort || 'medium';
   const g = genSettings || {};
-  if ($('g-char-basic')) $('g-char-basic').value = g.charBasicPrompt || '';
-  if ($('g-char-full')) $('g-char-full').value = g.charFullPrompt || '';
   if ($('g-lore')) $('g-lore').value = g.lorePrompt || '';
-  if ($('g-char-fields')) $('g-char-fields').value = JSON.stringify(Array.isArray(g.charFields) ? g.charFields : [], null, 2);
   // 文生图（测试）
   const ig = s.imageGen || {};
   $('ig-enabled').checked = !!ig.enabled;
@@ -14107,32 +14092,16 @@ function readSettingsForm() {
 }
 
 function readGenerationForm() {
-  if (!$('g-char-fields')) return true;
-  let fields;
-  try { fields = JSON.parse($('g-char-fields').value || '[]'); }
-  catch {
-    notify('字段定义不是有效 JSON，尚未保存。', { slot: 'g-gen-status', slotClass: 'hint err', level: 'error' });
-    return false;
-  }
-  const valid = Array.isArray(fields) && fields.length <= 64 && fields.every(field => field && typeof field === 'object' && !Array.isArray(field) && /^[A-Za-z][A-Za-z0-9_-]{0,48}$/.test(String(field.key || '')) && String(field.label || '').trim());
-  if (!valid) {
-    notify('字段定义必须是最多 64 项的 JSON 数组，每项至少包含安全 key 与 label。', { slot: 'g-gen-status', slotClass: 'hint err', level: 'error' });
-    return false;
-  }
-  genSettings = {
-    ...genSettings,
-    charBasicPrompt: $('g-char-basic').value,
-    charFullPrompt: $('g-char-full').value,
-    lorePrompt: $('g-lore').value,
-    charFields: fields.map(field => ({ ...field, key: String(field.key), label: String(field.label).trim() })),
-  };
+  if (!$('g-lore')) return true;
+  // 只写已知键：避免已删除的旧配置（ST 一键写卡遗留）随对象展开被写回存储。
+  genSettings = { lorePrompt: $('g-lore').value };
   saveGenerationSettings();
-  notify('AI 工坊配置已保存。', { slot: 'g-gen-status', slotClass: 'hint ok', level: 'success' });
+  notify('生成提示词已保存。', { slot: 'g-gen-status', slotClass: 'hint ok', level: 'success' });
   return true;
 }
 
 async function resetGenerationForm() {
-  if (!defaults?.gen || !(await showAppConfirm('恢复内置的一键写卡提示词和角色字段？当前自定义内容会被覆盖。'))) return;
+  if (!defaults?.gen || !(await showAppConfirm('恢复内置的生成提示词？当前自定义内容会被覆盖。'))) return;
   genSettings = cloneValue(defaults.gen);
   fillSettingsForm();
   saveGenerationSettings();

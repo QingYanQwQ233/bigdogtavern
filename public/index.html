@@ -7,7 +7,7 @@
   <link rel="manifest" href="manifest.json" />
   <title>Tavern · AI RP 框架演示</title>
   <link rel="icon" type="image/png" href="favicon.png" />
-  <link rel="stylesheet" href="styles.css?v=fadb1aa0" />
+  <link rel="stylesheet" href="styles.css?v=02cfc81d" />
 </head>
 <body data-theme="vibrancy" data-layout="classic">
   <canvas id="bg-fx" aria-hidden="true"></canvas>
@@ -1061,17 +1061,12 @@
         <!-- ── Tab AI 工坊 ── -->
         <div id="st-panel-gen" class="hidden" role="tabpanel" aria-labelledby="st-tab-gen">
           <div class="settings-gen-intro">
-            <strong>一键写卡提示词</strong>
-            <span>角色工坊与世界书生成会读取这里的配置；字段定义由 JSON 驱动，不在前端写死。</span>
+            <strong>生成提示词</strong>
+            <span>世界书条目生成会读取这里的指令；留空则用内置默认。</span>
           </div>
-          <div class="settings-gen-grid">
-            <label class="field"><span>角色基本信息（第二步）</span><textarea id="g-char-basic" rows="8" spellcheck="false"></textarea></label>
-            <label class="field"><span>完整角色卡（第三步）</span><textarea id="g-char-full" rows="8" spellcheck="false"></textarea></label>
-          </div>
-          <label class="field"><span>世界书条目生成</span><textarea id="g-lore" rows="6" spellcheck="false"></textarea></label>
-          <label class="field"><span>角色字段定义（JSON 数组）</span><textarea id="g-char-fields" rows="10" spellcheck="false" placeholder='[{"key":"name","label":"角色名"}]'></textarea></label>
+          <label class="field"><span>世界书条目生成</span><textarea id="g-lore" rows="10" spellcheck="false"></textarea></label>
           <div class="modal-actions settings-gen-actions">
-            <button class="btn gold" id="g-gen-save" type="button">保存 AI 工坊</button>
+            <button class="btn gold" id="g-gen-save" type="button">保存提示词</button>
             <button class="ghost-btn" id="g-gen-reset" type="button">恢复内置提示词</button>
           </div>
           <p class="hint" id="g-gen-status" aria-live="polite">修改后会随设置自动保存。</p>
@@ -1733,13 +1728,13 @@
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
   <script src="vendor/mapgen2.bundle.js"></script>
-  <script src="mapgen.js?v=fadb1aa0"></script>
-  <script src="app.js?v=fadb1aa0"></script>
+  <script src="mapgen.js?v=02cfc81d"></script>
+  <script src="app.js?v=02cfc81d"></script>
   <script>
     // PWA：注册 service worker（仅 HTTPS / localhost 生效，套壳 APK 可用）
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js?v=fadb1aa0').catch(() => {});
+    navigator.serviceWorker.register('sw.js?v=02cfc81d').catch(() => {});
       });
     }
   </script>
