@@ -3549,7 +3549,7 @@ body[data-mode="rpg"] .composer {
   background: rgba(28, 28, 30, 0.92);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.26);
   color: var(--text);
   font-size: 13px;
   line-height: 1.5;
