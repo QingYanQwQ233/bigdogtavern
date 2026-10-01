@@ -13351,17 +13351,25 @@ function typingLooksLikeToolStage(text) {
 function renderTypingContentFrame() {
   if (typeof document?.getElementById !== 'function') return;
   if (mode === 'rpg' && typingLooksLikeToolStage(typingText)) return;
-  const t = $('typing-msg');
+  let t = $('typing-msg');
   if (!t) {
     // typing 气泡不在消息列表里，renderMessages() 重建列表时会被清掉。
-    // 这时必须走 responsePreview 这条官方预览路径：渲染端读的是 content / rawContent，
-    // 写别的字段等于没写（正文就会等流结束才一次性出现）。
+    // 兜底是重建这个局部容器，而不是每帧走 setResponsePreview ——
+    // 那条路会 renderMessages() 全量重建列表（chat.innerHTML 清空），
+    // 每帧重建就会不断丢掉滚动位置，看起来就是「生成时抽搐」。
     if (mode === 'rpg' && typingText) {
-      setResponsePreview(typingText, null, activeConversationKey(), rpgCheckAnimation?.checkpoints, typingCot);
+      addTyping();
+      t = $('typing-msg');
     }
-    return;
+    if (!t) {
+      // 连容器都建不出来（例如非 RPG 模式）时，才退回预览路径。
+      if (mode === 'rpg' && typingText) {
+        setResponsePreview(typingText, null, activeConversationKey(), rpgCheckAnimation?.checkpoints, typingCot);
+      }
+      return;
+    }
   }
-  renderTypingCot(typingCot);
+  renderTypingCot(typingPreviewCot());
   const preview = mode === 'rpg' ? parseRpgOutput(typingText).narrative : typingText;
   const target = t.querySelector(mode === 'rpg' ? '.rpg-prose' : '.bubble');
   if (!target) return;
@@ -13373,8 +13381,23 @@ function renderTypingContentFrame() {
   target.innerHTML = rendered.html;
   target.classList.toggle('md', rendered.md);
   const chat = $('chat');
-  if (chat) chat.scrollTop = chat.scrollHeight;
+  // 只在用户本来就在底部附近时才跟随：否则每帧强制拉到底会和用户滚动打架，
+  // 正文生成完、预览换成正式消息时又会跳一次，看起来就是「抽搐」。
+  if (chat && chat.scrollHeight - chat.scrollTop - chat.clientHeight < 120) {
+    chat.scrollTop = chat.scrollHeight;
+  }
 }
+/* 流式期间的思维链：callAPIStream 里的 cot 是「当前这一步」的局部累积，
+   只显示它就会出现「每次只看到一段、生成完才补齐」的现象。
+   这里把已完成的步骤（session.cot）与正在生成的这段拼起来。 */
+function typingPreviewCot() {
+  const session = typeof rpgAgentSession === 'object' && rpgAgentSession ? rpgAgentSession : null;
+  const done = String(session?.cot || '');
+  if (!done) return typingCot;
+  if (!typingCot) return done;
+  return appendRpgAgentCot(done, { label: '进行中', cot: typingCot });
+}
+
 /* 实时思维链：生成中就存在，但默认折叠，只有用户点开才看到推理内容。 */
 function renderTypingCot(cot) {
   const typing = $('typing-msg');

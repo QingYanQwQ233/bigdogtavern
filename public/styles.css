@@ -1156,6 +1156,10 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   border: 0;
   border-left: 2px solid var(--line);
   padding-left: 6px;
+  /* .rpg-prose 自带 4px 上、16px 下内边距；竖线是画在整块上的，
+     带着这两段就会比文字长出一截 —— 收掉，让线只比文字略长。 */
+  padding-top: 0;
+  padding-bottom: 0;
   background: transparent;
 }
 /* 区块标签：12px / 600 / 字距（typography.md 字体角色表） */
