@@ -93,15 +93,10 @@ class MainActivity : Activity() {
                 return false
             }
 
-            override fun onPageFinished(view: WebView, url: String) {
-                // 页面重载后 :root 上的变量会丢失，需要重新注入一次
-                injectBottomInset()
-            }
         }
-        // 全屏（edge-to-edge）：窗口铺到状态栏 / 导航栏之下。
-        // 顶部：内容用容器内边距避开状态栏（那条区域露出窗口底色，与页面同色）。
-        // 底部：容器不留内边距，改由页面底栏自己避让 —— 这样底栏背景能一直铺到
-        // 屏幕底部，而不是在导航栏位置留一条同色的空带。
+        // 全屏（edge-to-edge）：窗口铺到状态栏 / 导航栏之下；内容不能跟着顶上去
+        // （否则会和状态栏图标叠在一起），所以用容器内边距避开系统栏。
+        // 内边距必须加在容器上：WebView 自身会处理 insets 并覆盖掉外部设置的 padding。
         val rootView = FrameLayout(this)
         rootView.addView(
             webView,
@@ -113,18 +108,15 @@ class MainActivity : Activity() {
         rootView.setOnApplyWindowInsetsListener { view, insets ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val bars = insets.getInsets(WindowInsets.Type.systemBars())
-                view.setPadding(bars.left, bars.top, bars.right, 0)
-                updateBottomInset(bars.bottom)
+                view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
             } else {
                 @Suppress("DEPRECATION")
                 view.setPadding(
                     insets.systemWindowInsetLeft,
                     insets.systemWindowInsetTop,
                     insets.systemWindowInsetRight,
-                    0
+                    insets.systemWindowInsetBottom
                 )
-                @Suppress("DEPRECATION")
-                updateBottomInset(insets.systemWindowInsetBottom)
             }
             insets
         }
@@ -134,33 +126,12 @@ class MainActivity : Activity() {
         bootNode()
     }
 
-    /** 底部安全区（CSS 像素）：页面底栏用它避让导航栏，而不是由容器留白 */
-    private var bottomInsetCss = 0
-
-    /** 导航栏高度（物理像素）换算为 CSS 像素并注入页面 */
-    private fun updateBottomInset(bottomPx: Int) {
-        val d = resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
-        bottomInsetCss = (bottomPx / d).toInt()
-        injectBottomInset()
-    }
-
     /**
-     * 把底部安全区写进 :root 的 --safe-bottom 供页面读取。
+     * 全屏（edge-to-edge）：让窗口铺满整屏，状态栏 / 导航栏区域露出窗口底色
+     * （与页面底色一致，看起来就是「同色的一条」，不会和状态栏图标重叠）。
      *
-     * 为什么不直接由容器留内边距：那样底栏背景会被一起顶上去，导航栏位置就会留下
-     * 一条同色的空带。交给页面自己避让，底栏背景才能一直铺到屏幕底部。
-     */
-    private fun injectBottomInset() {
-        val js = "(function(){document.documentElement.style.setProperty(" +
-            "'--safe-bottom','${bottomInsetCss}px');})()"
-        webView.post { runCatching { webView.evaluateJavascript(js, null) } }
-    }
-
-    /**
-     * 全屏（edge-to-edge）：窗口铺满整屏，系统栏透明，状态栏 / 导航栏区域露出窗口底色。
-     *
-     * 顶部避让由 rootView 内边距负责（状态栏区域是一条与页面同色的带，不与图标重叠）；
-     * 底部避让由页面的 --safe-bottom 负责（底栏背景可以铺到底）。
+     * 内容避让由 rootView 的内边距完成（见 onCreate），不依赖 CSS env()：
+     * WebView 基本不上报 env(safe-area-inset-*)，那套在套壳里恒为 0。
      */
     private fun applyEdgeToEdge() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
