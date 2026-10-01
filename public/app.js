@@ -13400,7 +13400,11 @@ function typingPreviewCot() {
   const session = activeRpgStreamSession
     || (typeof rpgAgentSession === 'object' && rpgAgentSession ? rpgAgentSession : null);
   const done = String(session?.cot || '');
-  if (!done) return typingCot;
+  if (!done) {
+    // 第一步还没跑完时 session.cot 是空的，但它照样是「步骤 1」——
+    // 之前这里直接返回裸内容，于是第一段看不到标题。
+    return typingCot ? appendRpgAgentCot('', { label: '步骤 1', cot: typingCot }) : '';
+  }
   if (!typingCot) return done;
   return appendRpgAgentCot(done, { label: '进行中', cot: typingCot });
 }
