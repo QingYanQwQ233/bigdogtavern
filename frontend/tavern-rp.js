@@ -511,7 +511,7 @@ function importCharOrLorebookFromBuffer(buffer, fileName = '') {
 
 async function exportCurrentChar() {
   const c = currentChar();
-  if (!c) return showAppAlert('请先创建 / 选择一个角色');
+  if (!c) return notify('请先创建 / 选择一个角色', { level: 'error' });
   await downloadBlob(new Blob([JSON.stringify(charToV3(c), null, 2)], { type: 'application/json' }), (c.name || 'character').replace(/[\\/:*?"<>|]/g, '_') + '.card.json');
 }
 
@@ -711,7 +711,7 @@ function readUserForm() {
 function saveUserForm() {
   readUserForm();
   saveUserData();
-  showAppAlert('✅ 玩家设定已保存');
+  notify('✅ 玩家设定已保存', { level: 'success' });
 }
 async function saveUserAsNew() {
   readUserForm();
@@ -724,7 +724,7 @@ async function saveUserAsNew() {
 }
 async function deleteUserPreset() {
   const name = userData.currentPreset;
-  if (!name || name === 'default') { showAppAlert('默认预设不可删除'); return; }
+  if (!name || name === 'default') { notify('默认预设不可删除', { level: 'error' }); return; }
   if (!(await showAppConfirm(`删除预设「${name}」？`))) return;
   delete userData.presets[name];
   userData.currentPreset = 'default';
@@ -1926,7 +1926,7 @@ async function pgNew() {
   setMobileManagerPanel('prompt-mgr', 'detail');
   const name = await showAppPrompt('新预设名称：', '预设 ' + (Object.keys(promptPresets).length + 1));
   if (!name || !name.trim()) return;
-  if (promptPresets[name.trim()]) { showAppAlert('已存在同名预设。'); return; }
+  if (promptPresets[name.trim()]) { notify('已存在同名预设。', { level: 'error' }); return; }
   promptPresets[name.trim()] = normalizePromptPreset(name.trim(), { mode, firstMes: '' });
   savePresets();
   selectPresetForEdit(name.trim());
@@ -2343,14 +2343,14 @@ function saveRegexEditor() {
     enabled: $('regex-enabled').checked,
   }, 0, 'custom');
   if (!buildOutputRegex(candidate)) {
-    showAppAlert('匹配表达式为空或不是有效正则。');
+    notify('匹配表达式为空或不是有效正则。', { level: 'error' });
     $('regex-find').focus();
     return;
   }
   if (regexEditingSource === 'preset') {
     const updated = savePresetRegexRule(regexEditingId, candidate);
     if (!updated) {
-      showAppAlert('当前预设正则已不存在，请重新打开正则列表。');
+      notify('当前预设正则已不存在，请重新打开正则列表。', { level: 'error' });
       resetRegexEditor();
       return;
     }
@@ -3036,7 +3036,7 @@ function serializeSTWorldInfoEntry(entry, index = 0) {
 
 async function exportCurrentLorebook() {
   const book = currentLB();
-  if (!book) return showAppAlert('请先选择世界书');
+  if (!book) return notify('请先选择世界书', { level: 'error' });
   const bookSettings = normalizeLorebookSettings(book);
   const entries = {};
   currentLBEntries().forEach((entry, index) => { entries[String(entry.uid ?? index)] = serializeSTWorldInfoEntry(entry, index); });

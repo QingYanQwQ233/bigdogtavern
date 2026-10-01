@@ -443,11 +443,9 @@ async function completeLastTurnOptions() {
     currentWorldSave.turns[idx].options = options;
     renderMessages();
     await queueWorldSave(currentWorldSave);
-    const status = $('world-open-status');
-    if (status) status.textContent = `已补全行动选项（${options.length} 条）。`;
+    notify(`已补全行动选项（${options.length} 条）。`, { slot: 'world-open-status', level: 'success' });
   } catch (err) {
-    const status = $('world-open-status');
-    if (status) status.textContent = `⚠️ 补全选项失败：${err.message}`;
+    notify(`⚠️ 补全选项失败：${err.message}`, { slot: 'world-open-status', level: 'error' });
   } finally {
     worldOptionsCompletionBusy = false;
     renderQuickActions();
@@ -585,8 +583,7 @@ function queueWorldSave(save = currentWorldSave) {
   };
   worldSaveWriteChain = worldSaveWriteChain.catch(() => {}).then(() => flushWorldSaveWrites()).catch(err => {
     console.error('[Tavern] 世界存档保存失败:', err.message);
-    const status = $('world-open-status');
-    if (status && worldModeActive()) status.textContent = `⚠️ 存档尚未保存：${err.message}（可继续操作，稍后重试）`;
+    notify(`⚠️ 存档尚未保存：${err.message}（可继续操作，稍后重试）`, { slot: 'world-open-status', level: 'error' });
   });
   return worldSaveWriteChain;
 }
@@ -623,10 +620,13 @@ async function loadWorldCardVersion(worldId, version) {
   return data;
 }
 function setWorldDraftStatus(message, kind = '') {
-  const el = $('world-draft-status');
-  if (!el) return;
-  el.textContent = message || '';
-  el.className = 'world-draft-status' + (kind ? ' ' + kind : '');
+  // 统一出口：写槽 + 由灵动岛接管提示（无 kind 的常态文案只留痕）
+  notify(message || '', {
+    slot: 'world-draft-status',
+    slotClass: 'world-draft-status' + (kind ? ' ' + kind : ''),
+    level: kind === 'err' ? 'error' : (kind === 'ok' ? 'success' : 'info'),
+    silent: !kind,
+  });
 }
 function clearWorldDraftCheckReport() {
   const report = $('world-draft-check-report');
@@ -2413,8 +2413,7 @@ async function publishWorldDraft() {
       localStorage.setItem(LS_CURRENT_WORLD, currentWorldId);
     }
     await loadWorldLibraryData();
-    const status = $('world-open-status');
-    if (status) status.textContent = `已发布“${published.title}” v${published.version}；旧存档仍固定在各自世界版本。`;
+    notify(`已发布“${published.title}” v${published.version}；旧存档仍固定在各自世界版本。`, { slot: 'world-open-status', level: 'success' });
     $('world-edit-draft')?.focus();
   } catch (err) {
     const recovery = err.status === 409 ? '；草稿已保留，请先处理版本冲突。' : '；可直接重试发布。';
@@ -2490,8 +2489,12 @@ function restoreWorldAgentPending(save) {
   return true;
 }
 function setWorldPlayerStatus(message, kind = '') {
-  const el = $('world-player-status');
-  if (el) { el.textContent = message || ''; el.className = `world-draft-status${kind ? ' ' + kind : ''}`; }
+  notify(message || '', {
+    slot: 'world-player-status',
+    slotClass: `world-draft-status${kind ? ' ' + kind : ''}`,
+    level: kind === 'err' ? 'error' : (kind === 'ok' ? 'success' : 'info'),
+    silent: !kind,
+  });
 }
 function playerFieldInput(field, value = '') {
   const id = String(field.id);
@@ -2786,8 +2789,7 @@ function confirmWorldEntryGate() {
   $('world-save-form')?.requestSubmit?.();
   fullscreen.then(ok => {
     if (!ok && pending.gate.fullscreen === true) {
-      const status = $('world-open-status');
-      if (status) status.textContent = '已继续进入世界；浏览器未授予全屏权限，可按浏览器全屏按钮重试。';
+      notify('已继续进入世界；浏览器未授予全屏权限，可按浏览器全屏按钮重试。', { slot: 'world-open-status', level: 'info' });
     }
   });
 }
@@ -2932,7 +2934,11 @@ function renderWorldOpeningDialog(save = currentWorldSave) {
   $('world-opening-save').hidden = !!candidate;
   $('world-opening-narrative').value = candidate?.narrative || '';
   document.querySelectorAll('[data-opening-option]').forEach(input => { input.value = candidate?.options?.[Number(input.dataset.openingOption)] || ''; });
-  $('world-opening-status').textContent = candidate ? '候选已保存到当前存档；你可以编辑后确认。' : '先保存规划，AI 才会生成独立开场候选。';
+  notify(candidate ? '候选已保存到当前存档；你可以编辑后确认。' : '先保存规划，AI 才会生成独立开场候选。', {
+    slot: 'world-opening-status',
+    level: candidate ? 'success' : 'info',
+    silent: !candidate,
+  });
   renderWorldOpeningConfirmSummary(save, plan);
 }
 function openWorldOpeningDialog(save = currentWorldSave) {
@@ -2999,8 +3005,7 @@ function scheduleWorldSetupAutosave() {
       if (!response.ok) throw new Error(worldApiError(data, '草稿自动保存失败（HTTP ' + response.status + '）'));
       if (currentWorldSaveId === save.id) { hydrateWorldSave(data); currentWorldSave = data; renderWorldList(); }
     } catch (error) {
-      const status = $('world-opening-status');
-      if (status) status.textContent = error.message;
+      notify(error.message, { slot: 'world-opening-status', level: 'error' });
     }
   }, 900);
 }
@@ -3011,7 +3016,7 @@ async function saveWorldOpeningPlan() {
   worldSetupAutosaveTimer = null;
   const button = $('world-opening-save');
   button.disabled = true;
-  $('world-opening-status').textContent = '正在保存规划并生成候选…';
+  notifyProgress('正在保存规划并生成候选…');
   try {
     const setupResponse = await fetch('/api/world-saves/' + encodeURIComponent(save.id) + '/setup', {
       method: 'PUT', headers: { 'Content-Type': 'application/json; charset=utf-8' },
@@ -3029,22 +3034,18 @@ async function saveWorldOpeningPlan() {
 async function generateWorldOpening(save) {
   if (!save || !worldSavePlanning(save) || worldOpeningGeneration) return save;
   if (!settings.baseUrl) {
-    const status = $('world-opening-status');
-    if (status) status.textContent = '请先在设置中配置 AI API，再生成开场候选。规划已保存，可稍后继续。';
-    if (typeof showToast === 'function') {
-      showToast('还没有配置 AI API，无法生成开场候选。规划已保存。', {
-        kind: 'error',
-        duration: 0,
-        action: { label: '去设置', onClick: () => openSettings() },
-      });
-    }
+    notify('还没有配置 AI API，无法生成开场候选。规划已保存。', {
+      slot: 'world-opening-status',
+      level: 'error',
+      duration: 0,
+      action: { label: '去设置', onClick: () => openSettings() },
+    });
     return save;
   }
   const world = currentWorldCard();
   if (!world || !currentWorldSave || currentWorldSave.id !== save.id) return save;
   worldOpeningGeneration = save.id;
-  const status = $('world-opening-status');
-  if (status) status.textContent = '正在根据规划、玩家与世界卡生成独立候选…';
+  notifyProgress('正在根据规划、玩家与世界卡生成独立候选…');
   try {
     const payload = buildPayload();
     const traceCommandId = 'opening-candidate-' + uid();
@@ -3108,12 +3109,12 @@ async function confirmWorldOpeningCandidate() {
   const narrative = $('world-opening-narrative').value.trim();
   const options = [...document.querySelectorAll('[data-opening-option]')].map(input => input.value.trim());
   if (!narrative || options.length !== 4 || options.some((value, index) => !value || options.indexOf(value) !== index)) {
-    $('world-opening-status').textContent = '请填写开场正文，并保证 4 个选项均非空且不重复。';
+    notify('请填写开场正文，并保证 4 个选项均非空且不重复。', { slot: 'world-opening-status', level: 'error' });
     return;
   }
   const button = $('world-opening-confirm');
   button.disabled = true;
-  $('world-opening-status').textContent = '正在确认开场并进入正式世界线…';
+  notifyProgress('正在确认开场并进入正式世界线…');
   try {
     const response = await fetch('/api/world-saves/' + encodeURIComponent(save.id) + '/opening', {
       method: 'POST', headers: { 'Content-Type': 'application/json; charset=utf-8' },
@@ -3129,7 +3130,7 @@ async function confirmWorldOpeningCandidate() {
     renderMessages();
     enterWorldWorkspace();
   } catch (err) {
-    $('world-opening-status').textContent = err.message;
+    notify(err.message, { slot: 'world-opening-status', level: 'error' });
   } finally {
     button.disabled = false;
   }
@@ -3150,8 +3151,7 @@ async function exportCurrentWorldPackage() {
     if (!res.ok || !data) throw new Error(worldApiError(data, '世界包导出失败（HTTP ' + res.status + '）'));
     await downloadBlob(new Blob([text], { type: 'application/json' }), `${String(world.title || world.id).replace(/[\\/:*?"<>|]/g, '_')}-v${world.version}.tavern-world.json`);
     const warnings = data.manifest?.warnings?.length || 0;
-    const status = $('world-open-status');
-    if (status) status.textContent = `已导出世界 v${world.version}；SHA-256 ${String(data.manifest?.contentHash || '').replace(/^sha256:/, '').slice(0, 12)}${warnings ? `；${warnings} 项引用警告已写入清单` : ''}。`;
+    notify(`已导出世界 v${world.version}；SHA-256 ${String(data.manifest?.contentHash || '').replace(/^sha256:/, '').slice(0, 12)}${warnings ? `；${warnings} 项引用警告已写入清单` : ''}。`, { slot: 'world-open-status', level: 'success' });
   } catch (err) {
     showWorldError(err.message);
   } finally {
@@ -3160,9 +3160,12 @@ async function exportCurrentWorldPackage() {
   }
 }
 function setWorldImportStatus(message, kind = '') {
-  const el = $('world-import-status');
-  el.textContent = message || '';
-  el.className = 'world-draft-status' + (kind ? ' ' + kind : '');
+  notify(message || '', {
+    slot: 'world-import-status',
+    slotClass: 'world-draft-status' + (kind ? ' ' + kind : ''),
+    level: kind === 'err' ? 'error' : (kind === 'ok' ? 'success' : 'info'),
+    silent: !kind,
+  });
 }
 function renderWorldImportReport(imported) {
   const root = $('world-import-report');
@@ -3243,8 +3246,7 @@ async function commitWorldPackageImport() {
     worldImport = null;
     worldImportOpener = null;
     await loadWorldLibraryData();
-    const status = $('world-open-status');
-    if (status) status.textContent = `已导入“${data.world.title}” v${data.world.version}；新世界及其世界书、预设均使用独立 ID。`;
+    notify(`已导入“${data.world.title}” v${data.world.version}；新世界及其世界书、预设均使用独立 ID。`, { slot: 'world-open-status', level: 'success' });
     $('world-save-name')?.focus();
   } catch (err) {
     setWorldImportStatus(err.message, 'error');
@@ -3254,9 +3256,12 @@ async function commitWorldPackageImport() {
   }
 }
 function setWorldUpgradeStatus(message, kind = '') {
-  const el = $('world-upgrade-status');
-  el.textContent = message || '';
-  el.className = 'world-draft-status' + (kind ? ' ' + kind : '');
+  notify(message || '', {
+    slot: 'world-upgrade-status',
+    slotClass: 'world-draft-status' + (kind ? ' ' + kind : ''),
+    level: kind === 'err' ? 'error' : (kind === 'ok' ? 'success' : 'info'),
+    silent: !kind,
+  });
 }
 function renderWorldUpgradeReport(report) {
   const root = $('world-upgrade-report');
@@ -3379,8 +3384,7 @@ async function commitWorldSaveUpgrade() {
     }
     await loadWorldSaves(upgraded.worldId);
     renderWorldDetail();
-    const status = $('world-open-status');
-    if (status) status.textContent = `已将“${upgraded.name}”升级到世界 v${upgraded.worldVersion}；迁移记录已写入当前存档。`;
+    notify(`已将“${upgraded.name}”升级到世界 v${upgraded.worldVersion}；迁移记录已写入当前存档。`, { slot: 'world-open-status', level: 'success' });
     document.querySelector(`[data-open-save="${CSS.escape(upgraded.id)}"]`)?.focus();
   } catch (err) {
     if (worldUpgrade !== upgrade) return;
@@ -3439,10 +3443,7 @@ function renderWorldList() {
   }));
 }
 function showWorldError(message) {
-  const el = $('world-error');
-  if (el) el.textContent = message || '';
-  // 内联文字保留（可在页面内回看），同时给一个醒目的浮层提示
-  if (message && typeof showToast === 'function') showToast(message, { kind: 'error' });
+  notify(message || '', { slot: 'world-error', level: 'error' });
 }
 /* 恢复内置世界卡：把本地世界库重置为随应用内置的版本（不触碰设置与存档）。 */
 async function resetBuiltinWorlds(button) {
@@ -3464,7 +3465,7 @@ async function resetBuiltinWorlds(button) {
     const lines = [`已恢复内置世界卡：${data?.worlds ?? 0} 张。`];
     if (Array.isArray(data?.removedWorlds) && data.removedWorlds.length) lines.push(`移除了 ${data.removedWorlds.length} 张本地世界卡。`);
     if (orphan.length) lines.push(`\n注意：${orphan.length} 份存档引用了已被移除的世界卡，需要删除后重新开始。`);
-    showAppAlert(lines.join('\n'));
+    notify(lines.join('\n'), { level: 'info' });
   } catch (err) {
     showWorldError(err.message);
   } finally {
@@ -3539,8 +3540,7 @@ async function exportWorldSave(saveId, button) {
     }
     const blob = await res.blob();
     await downloadBlob(blob, `${saveId}.tavern-save.json`);
-    const status = $('world-open-status');
-    if (status) status.textContent = '已导出脱敏存档包；不包含 API key、设置或其他存档。';
+    notify('已导出脱敏存档包；不包含 API key、设置或其他存档。', { slot: 'world-open-status', level: 'success' });
   } catch (err) {
     showWorldError(err.message);
   } finally {
@@ -3565,8 +3565,7 @@ async function copyWorldSave(saveId, button) {
     await loadWorldSaves(save.worldId || currentWorldId);
     const opened = await openWorldSave(data.save.id);
     renderWorldList(); renderWorldDetail();
-    const status = $('world-open-status');
-    if (status) status.textContent = `已创建「${data.save.name}」；它与源存档的状态、回合和账本独立。`;
+    notify(`已创建「${data.save.name}」；它与源存档的状态、回合和账本独立。`, { slot: 'world-open-status', level: 'success' });
     if (opened?.setup?.status === 'planning') resumeWorldSaveSetup(opened);
     else enterWorldWorkspace();
   } catch (err) {
@@ -3691,15 +3690,14 @@ function renderWorldDetail() {
       if (currentWorldSave.setup?.status === 'planning') {
         resumeWorldSaveSetup(currentWorldSave);
       } else {
-        if (status) status.textContent = worldOpenStatusText();
+        notify(worldOpenStatusText(), { slot: 'world-open-status', silent: true });
         enterWorldWorkspace();
       }
     } catch (err) { showWorldError(err.message); }
     finally { btn.disabled = false; btn.textContent = old; }
   }));
   if (currentWorldSave && currentWorldSave.worldId === world.id) {
-    const status = $('world-open-status');
-    if (status) status.textContent = worldOpenStatusText();
+    notify(worldOpenStatusText(), { slot: 'world-open-status', silent: true });
   }
 }
 async function loadWorldLibraryData(restoreWorkspace = false) {
@@ -4069,8 +4067,7 @@ async function decideGrowthCandidate(candidateId, decision) {
   } catch (err) {
     console.error('[Tavern] 成长处理失败:', err.message);
     buttons.forEach(item => { item.disabled = false; });
-    const status = $('world-open-status');
-    if (status) status.textContent = `成长处理失败：${err.message}`;
+    notify(`成长处理失败：${err.message}`, { slot: 'world-open-status', level: 'error' });
   }
 }
 

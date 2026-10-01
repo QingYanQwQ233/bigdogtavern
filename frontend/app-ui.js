@@ -195,8 +195,7 @@ function applyUiThemePreset(id) {
   fillUiThemeForm();
   applyUiTheme(prefs.uiTheme);
   saveJSON(LS_PREFS, prefs);
-  $('ui-theme-status').textContent = `已套用「${String(preset.label || id)}」。还可以继续手动微调。`;
-  $('ui-theme-status').className = 'hint ok';
+  notify(`已套用「${String(preset.label || id)}」。还可以继续手动微调。`, { slot: 'ui-theme-status', slotClass: 'hint ok', level: 'success' });
   return true;
 }
 
@@ -337,8 +336,7 @@ function readUiThemeForm({ parseCustom = true, save = false } = {}) {
       customVars = validCustomThemeVars(parsed);
       if (!customVars) throw new Error('变量名必须是 --name，最多 64 项，每项值不超过 300 字符。');
     } catch (error) {
-      $('ui-theme-status').textContent = `高级变量未保存：${error.message}`;
-      $('ui-theme-status').className = 'hint err';
+      notify(`高级变量未保存：${error.message}`, { slot: 'ui-theme-status', slotClass: 'hint err', level: 'error' });
       return false;
     }
   }
@@ -359,8 +357,12 @@ function readUiThemeForm({ parseCustom = true, save = false } = {}) {
   updateUiThemePresetDescription('custom');
   applyUiTheme(prefs.uiTheme);
   updateUiThemeLabels(prefs.uiTheme);
-  $('ui-theme-status').textContent = save ? '界面设置已保存。' : '预览中；松开滑块或离开输入框后自动保存。';
-  $('ui-theme-status').className = 'hint ok';
+  notify(save ? '界面设置已保存。' : '预览中；松开滑块或离开输入框后自动保存。', {
+    slot: 'ui-theme-status',
+    slotClass: 'hint ok',
+    level: save ? 'success' : 'info',
+    silent: !save,
+  });
   if (save) saveJSON(LS_PREFS, prefs);
   return true;
 }
@@ -387,13 +389,13 @@ function initIslandLab() {
     setTimeout(() => notifyResult('处理完成，共 3 项', true), 1400);
   });
   bind('lab-stack', () => {
-    showToast('上面这条会先收起', { duration: 900 });
-    showToast('下面这条会平滑上移', { duration: 2600 });
+    notify('上面这条会先收起', { duration: 900 });
+    notify('下面这条会平滑上移', { duration: 2600 });
   });
   bind('lab-rapid', () => {
-    for (let i = 0; i < 4; i += 1) setTimeout(() => showToast('快速连发 ' + (i + 1), { duration: 2500 }), i * 60);
+    for (let i = 0; i < 4; i += 1) setTimeout(() => notify('快速连发 ' + (i + 1), { duration: 2500 }), i * 60);
   });
-  bind('lab-long', () => showToast('上游返回的错误详情：' + '连接被拒绝，请检查 Base URL 与网络后再试。'.repeat(6), { kind: 'error', duration: 5000 }));
+  bind('lab-long', () => notify('上游返回的错误详情：' + '连接被拒绝，请检查 Base URL 与网络后再试。'.repeat(6), { level: 'error', duration: 5000 }));
   bind('lab-clear', () => {
     const host = $('toast-host');
     if (host) while (host.firstElementChild) host.firstElementChild.remove();
@@ -406,8 +408,7 @@ function resetUiTheme() {
   fillUiThemeForm();
   applyUiTheme(prefs.uiTheme);
   saveJSON(LS_PREFS, prefs);
-  $('ui-theme-status').textContent = '已恢复界面默认值。';
-  $('ui-theme-status').className = 'hint ok';
+  notify('已恢复界面默认值。', { slot: 'ui-theme-status', slotClass: 'hint ok', level: 'success' });
 }
 
 /* ─────────── 自定义聊天背景 ───────────
@@ -466,8 +467,11 @@ async function saveUiTransparencySettings() {
   if (token !== uiTransparencySaveToken) return;
   const status = $('ui-transparency-status');
   if (status) {
-    status.textContent = saved ? '透明 UI 设置已保存。' : '透明 UI 已应用，但设置保存失败，请点击重试。';
-    status.className = saved ? 'hint' : 'hint err';
+    notify(saved ? '透明 UI 设置已保存。' : '透明 UI 已应用，但设置保存失败，请点击重试。', {
+      slot: 'ui-transparency-status',
+      slotClass: saved ? 'hint' : 'hint err',
+      level: saved ? 'success' : 'error',
+    });
   }
   if ($('btn-ui-transparency-retry')) $('btn-ui-transparency-retry').hidden = !!saved;
 }
@@ -485,8 +489,12 @@ function readUiTransparencyForm(save = false) {
 }
 
 function setChatBackgroundStatus(text, error = false) {
-  const status = $('chat-background-status');
-  if (status) { status.textContent = text; status.className = error ? 'hint err' : 'hint'; }
+  notify(text, {
+    slot: 'chat-background-status',
+    slotClass: error ? 'hint err' : 'hint',
+    level: error ? 'error' : 'success',
+    silent: !error,
+  });
 }
 
 function renderChatBackground() {
@@ -763,14 +771,12 @@ function readGenerationForm() {
   let fields;
   try { fields = JSON.parse($('g-char-fields').value || '[]'); }
   catch {
-    $('g-gen-status').textContent = '字段定义不是有效 JSON，尚未保存。';
-    $('g-gen-status').className = 'hint err';
+    notify('字段定义不是有效 JSON，尚未保存。', { slot: 'g-gen-status', slotClass: 'hint err', level: 'error' });
     return false;
   }
   const valid = Array.isArray(fields) && fields.length <= 64 && fields.every(field => field && typeof field === 'object' && !Array.isArray(field) && /^[A-Za-z][A-Za-z0-9_-]{0,48}$/.test(String(field.key || '')) && String(field.label || '').trim());
   if (!valid) {
-    $('g-gen-status').textContent = '字段定义必须是最多 64 项的 JSON 数组，每项至少包含安全 key 与 label。';
-    $('g-gen-status').className = 'hint err';
+    notify('字段定义必须是最多 64 项的 JSON 数组，每项至少包含安全 key 与 label。', { slot: 'g-gen-status', slotClass: 'hint err', level: 'error' });
     return false;
   }
   genSettings = {
@@ -781,8 +787,7 @@ function readGenerationForm() {
     charFields: fields.map(field => ({ ...field, key: String(field.key), label: String(field.label).trim() })),
   };
   saveGenerationSettings();
-  $('g-gen-status').textContent = 'AI 工坊配置已保存。';
-  $('g-gen-status').className = 'hint ok';
+  notify('AI 工坊配置已保存。', { slot: 'g-gen-status', slotClass: 'hint ok', level: 'success' });
   return true;
 }
 
@@ -791,8 +796,7 @@ async function resetGenerationForm() {
   genSettings = cloneValue(defaults.gen);
   fillSettingsForm();
   saveGenerationSettings();
-  $('g-gen-status').textContent = '已恢复内置提示词。';
-  $('g-gen-status').className = 'hint ok';
+  notify('已恢复内置提示词。', { slot: 'g-gen-status', slotClass: 'hint ok', level: 'success' });
 }
 
 function setApiStatus(text, isErr = false) {
@@ -2200,8 +2204,8 @@ function copyMapJson() {
   const txt = data ? JSON.stringify(data, null, 2) : lastMapJson;
   if (!txt) return;
   navigator.clipboard.writeText(txt).then(
-    () => showAppAlert('✅ 地图数据 JSON 已复制'),
-    () => showAppAlert('复制失败（浏览器剪贴板权限）')
+    () => notify('✅ 地图数据 JSON 已复制', { level: 'success' }),
+    () => notify('复制失败（浏览器剪贴板权限）', { level: 'error' })
   );
 }
 
@@ -2212,7 +2216,7 @@ async function generateImageFor(story) {
   const targetKey = activeConversationKey();
   const targetTurnEpoch = worldModeActive() ? worldTurnEpoch : null;
   const status = $('ig-test-result');
-  if (status) status.textContent = '⏳ 正在生成图片…';
+  notifyProgress('正在生成图片…');
   addImagePending(); // 聊天栏占位提示：开始生图
   try {
     const char = worldModeActive() ? (currentWorldSave.player?.snapshot || null) : currentChar();
@@ -2241,11 +2245,11 @@ async function generateImageFor(story) {
     catch (e) { console.warn('[Tavern] 图片本地保存失败，本轮仍显示:', e.message); }
     if (activeConversationKey() !== targetKey || (worldModeActive() && targetTurnEpoch !== worldTurnEpoch)) return;
     pushMessage('image', local, { imgPrompt: prompt }); // 记住提示词，供「重新生成」复用
-    if (status) status.textContent = '✅ 图片已生成并显示在聊天栏';
+    notify('✅ 图片已生成并显示在聊天栏', { slot: 'ig-test-result', level: 'success' });
   } catch (err) {
     console.error('[Tavern] 文生图失败:', err.message);
     removeImagePending();
-    if (status) status.textContent = '❌ ' + err.message;
+    notify('❌ ' + err.message, { slot: 'ig-test-result', level: 'error' });
     if (activeConversationKey() === targetKey && (!worldModeActive() || targetTurnEpoch === worldTurnEpoch)) pushMessage('system', `⚠️ 文生图失败：${err.message}`);
   }
 }
@@ -2256,7 +2260,7 @@ async function testImageGen() {
   const prompt = ($('ig-test-prompt').value || '').trim() || 'a fox knight in a tavern, anime style';
   const status = $('ig-test-result');
   const targetKey = activeConversationKey();
-  if (status) status.textContent = '⏳ 正在生成测试图…';
+  notifyProgress('正在生成测试图…');
   addImagePending();
   try {
     const char = worldModeActive() ? (currentWorldSave.player?.snapshot || null) : currentChar();
@@ -2269,7 +2273,7 @@ async function testImageGen() {
     }
     const src = await callImageAPI(ig, p, refImage);
     removeImagePending();
-    if (status) status.textContent = '✅ 成功（见聊天栏）';
+    notify('✅ 成功（见聊天栏）', { slot: 'ig-test-result', level: 'success' });
     let local = src;
     try { local = await saveImageLocally(src); }
     catch (e) { console.warn('[Tavern] 图片本地保存失败，本轮仍显示:', e.message); }
@@ -2278,7 +2282,7 @@ async function testImageGen() {
   } catch (err) {
     console.error('[Tavern] 文生图测试失败:', err.message);
     removeImagePending();
-    if (status) status.textContent = '❌ ' + err.message;
+    notify('❌ ' + err.message, { slot: 'ig-test-result', level: 'error' });
   }
 }
 
@@ -3070,9 +3074,9 @@ function parseLLMJson(text) {
 /* 生成世界书条目 → 填入条目编辑器（用户确认后保存） */
 async function aiGenWI() {
   const desc = $('wi-ai-desc').value.trim();
-  if (!desc) { showAppAlert('先描述要生成的设定，例如：北方沉睡古龙的龙之谷'); return; }
+  if (!desc) { notify('先描述要生成的设定，例如：北方沉睡古龙的龙之谷', { level: 'error' }); return; }
   const gen = genSettings || {};
-  if (!gen.lorePrompt) { showAppAlert('未配置生成指令（_defaults.json → gen.lorePrompt）'); return; }
+  if (!gen.lorePrompt) { notify('未配置生成指令（_defaults.json → gen.lorePrompt）', { level: 'error' }); return; }
   const btn = $('btn-ai-wi');
   btn.disabled = true; btn.textContent = '生成中…';
   try {
@@ -3082,10 +3086,10 @@ async function aiGenWI() {
     $('wi-content').value = obj.content || '';
     $('wi-order').value = 100;
     $('wi-constant').checked = !!obj.constant;
-    showAppAlert('✅ 已生成并填入 —— 检查后点「保存条目」');
+    notify('✅ 已生成并填入 —— 检查后点「保存条目」', { level: 'success' });
   } catch (err) {
     console.error('[Tavern] AI 生成世界书失败:', err.message);
-    showAppAlert('❌ ' + err.message);
+    notify('❌ ' + err.message, { level: 'error' });
   } finally {
     btn.disabled = false; btn.textContent = '✨ 生成';
   }
@@ -3095,7 +3099,7 @@ async function aiGenWI() {
 
 async function addRpgItem() {
   const rs = curRpgState();
-  if (!rs) { showAppAlert('当前不是 RPG 会话'); return; }
+  if (!rs) { notify('当前不是 RPG 会话', { level: 'error' }); return; }
   const name = (await showAppPrompt('道具名称：') || '').trim();
   if (!name) return;
   const n = parseInt(await showAppPrompt('数量（默认 1）：', '1'), 10);
@@ -3109,7 +3113,7 @@ async function addRpgItem() {
 
 async function addRpgQuest() {
   const rs = curRpgState();
-  if (!rs) { showAppAlert('当前不是 RPG 会话'); return; }
+  if (!rs) { notify('当前不是 RPG 会话', { level: 'error' }); return; }
   const title = (await showAppPrompt('任务标题：') || '').trim();
   if (!title) return;
   const desc = (await showAppPrompt('任务内容（可留空）：') || '').trim();
@@ -3320,7 +3324,7 @@ async function mapBeautify() {
   if (!map) return;
   const ig = (settings && settings.imageGen) || {};
   if (!ig.baseUrl) {
-    showAppAlert('请先在 设置 → 文生图 中配置 Base URL（gpt-image 反代）');
+    notify('请先在 设置 → 文生图 中配置 Base URL（gpt-image 反代）', { level: 'error' });
     return;
   }
   const status = $('mm-info');
@@ -3716,7 +3720,7 @@ function bindEvents() {
   $('pg-params-save').addEventListener('click', () => {
     pgSave();
     const active = resolvePromptPreset().name || GLOBAL_PRESET_KEY;
-    $('pg-params-status').textContent = active === pgEditingName ? '已保存，下一次聊天请求使用这些参数。' : '已保存。当前聊天使用另一预设；请在预设列表选择使用，或修改角色卡绑定。';
+    notify(active === pgEditingName ? '已保存，下一次聊天请求使用这些参数。' : '已保存。当前聊天使用另一预设；请在预设列表选择使用，或修改角色卡绑定。', { slot: 'pg-params-status', level: 'success' });
   });
   $('pg-mode').addEventListener('change', () => { syncPGReplyOptionsEditor(); renderPGRegexBindings(); });
   $('pg-reply-options-enabled').addEventListener('change', markPGReplyOptionsCustomized);
@@ -3737,9 +3741,9 @@ function bindEvents() {
     try {
       if (file.size > 5 * 1024 * 1024) throw new Error('文件超过 5 MB，拒绝导入');
       const report = importSTPreset(JSON.parse(await file.text()), file.name);
-      showAppAlert(`已导入「${report.name}」：素材 ${report.prompts} 条，当前顺序 ${report.ordered} 条。${report.regexes ? `已识别并启用 ${report.regexes} 条输出正则。` : ''}`);
+      notify(`已导入「${report.name}」：素材 ${report.prompts} 条，当前顺序 ${report.ordered} 条。${report.regexes ? `已识别并启用 ${report.regexes} 条输出正则。` : ''}`, { level: 'success' });
     } catch (err) {
-      showAppAlert('导入失败：' + err.message);
+      notify('导入失败：' + err.message, { level: 'error' });
     } finally {
       e.target.value = '';
     }
@@ -3765,9 +3769,9 @@ function bindEvents() {
     try {
       if (file.size > 10 * 1024 * 1024) throw new Error('世界书文件超过 10 MB，拒绝导入');
       const report = importSTLorebookText(await file.text(), file.name);
-      showAppAlert(`✅ 世界书已导入：「${report.name}」· ${report.entries} 条目`);
+      notify(`✅ 世界书已导入：「${report.name}」· ${report.entries} 条目`, { level: 'success' });
     } catch (error) {
-      showAppAlert('❌ 世界书导入失败：' + error.message);
+      notify('❌ 世界书导入失败：' + error.message, { level: 'error' });
     } finally {
       event.target.value = '';
     }
@@ -3931,8 +3935,7 @@ function bindEvents() {
         const input = $('world-save-name');
         if (input) input.value = '';
         closeWorldPlayerDialog('created');
-        const status = $('world-open-status');
-        if (status) status.textContent = `已创建存档「${currentWorldSave.name}」；完成开局配置并确认后才会开始 RPG。`;
+        notify(`已创建存档「${currentWorldSave.name}」；完成开局配置并确认后才会开始 RPG。`, { slot: 'world-open-status', level: 'success' });
         enterWorldWorkspace();
         if (worldSavePlanning()) resumeWorldSaveSetup(currentWorldSave);
       }
@@ -3954,7 +3957,7 @@ function bindEvents() {
   $('world-opening-form').addEventListener('submit', async e => {
     e.preventDefault();
     try { await saveWorldOpeningPlan(); }
-    catch (err) { $('world-opening-status').textContent = err.message; }
+    catch (err) { notify(err.message, { slot: 'world-opening-status', level: 'error' }); }
   });
   $('world-player-ai-basic').addEventListener('click', aiFillWorldPlayerBasic);
   $('world-player-ai-full').addEventListener('click', aiFillWorldPlayerFull);
@@ -3973,7 +3976,7 @@ function bindEvents() {
     currentWorldSave.setup.candidate = null;
     renderWorldOpeningDialog(currentWorldSave);
     try { await saveWorldOpeningPlan(); }
-    catch (err) { $('world-opening-status').textContent = err.message; }
+    catch (err) { notify(err.message, { slot: 'world-opening-status', level: 'error' }); }
   });
   $('world-opening-npcs').addEventListener('change', () => { const plan = collectWorldOpeningPlan(); renderWorldOpeningNpcContexts(plan); });
   $('world-opening-close').addEventListener('click', closeWorldOpeningDialog);
@@ -4009,8 +4012,7 @@ function bindEvents() {
       const created = await openWorldPlayerCreation(name, btn);
       if (created) {
         input.value = '';
-        const status = $('world-open-status');
-        if (status) status.textContent = `已创建并打开「${currentWorldSave.name}」——世界状态、地图和叙事已绑定当前存档；当前存档 ID：${currentWorldSave.id}`;
+        notify(`已创建并打开「${currentWorldSave.name}」——世界状态、地图和叙事已绑定当前存档；当前存档 ID：${currentWorldSave.id}`, { slot: 'world-open-status', level: 'success' });
         enterWorldWorkspace();
         if (worldSavePlanning()) resumeWorldSaveSetup(currentWorldSave);
       }
@@ -4175,8 +4177,7 @@ function bindEvents() {
     else {
       prefs.uiThemePreset = 'custom';
       saveJSON(LS_PREFS, prefs);
-      $('ui-theme-status').textContent = '已切换到自定义；当前颜色保持不变。';
-      $('ui-theme-status').className = 'hint ok';
+      notify('已切换到自定义；当前颜色保持不变。', { slot: 'ui-theme-status', slotClass: 'hint ok', level: 'success' });
     }
   });
   $('btn-ui-theme-preset-apply').addEventListener('click', () => {
@@ -4184,8 +4185,7 @@ function bindEvents() {
     if (id === 'custom') {
       prefs.uiThemePreset = 'custom';
       saveJSON(LS_PREFS, prefs);
-      $('ui-theme-status').textContent = '已切换到自定义；当前颜色保持不变。';
-      $('ui-theme-status').className = 'hint ok';
+      notify('已切换到自定义；当前颜色保持不变。', { slot: 'ui-theme-status', slotClass: 'hint ok', level: 'success' });
       return;
     }
     applyUiThemePreset(id);
@@ -4228,7 +4228,7 @@ function bindEvents() {
       const button = $('btn-clear-chat');
       if (button) { button.disabled = true; button.textContent = '重置中…'; }
       try { await resetCurrentWorldSave(); }
-      catch (err) { showAppAlert(err.message); }
+      catch (err) { notify(err.message, { level: 'error' }); }
       finally { if (button) button.disabled = false; syncConversationResetButton(); }
       return;
     }
@@ -4279,15 +4279,15 @@ function bindEvents() {
         const result = importCharOrLorebookFromBuffer(reader.result, fileName);
         if (result.kind === 'lorebook') {
           switchView('lore');
-          showAppAlert(`✅ 检测到这是 ST 世界书，已导入「${result.report.name}」· ${result.report.entries} 条目`);
+          notify(`✅ 检测到这是 ST 世界书，已导入「${result.report.name}」· ${result.report.entries} 条目`, { level: 'success' });
         } else {
           const report = result.report;
-          showAppAlert(report?.lorebook?.created
+          notify(report?.lorebook?.created
             ? `✅ 角色卡已导入；内嵌世界书已注册为「${report.lorebook.name}」`
-            : '✅ 角色卡已导入');
+            : '✅ 角色卡已导入', { level: 'success' });
         }
       }
-      catch (err) { showAppAlert('❌ 导入失败：' + err.message); }
+      catch (err) { notify('❌ 导入失败：' + err.message, { level: 'error' }); }
     };
     reader.readAsArrayBuffer(file);
     charFileInput.value = '';

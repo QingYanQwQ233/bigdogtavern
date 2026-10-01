@@ -68,7 +68,7 @@ const nrIdx = appCore.indexOf('function notifyResult(');
 assert.ok(nrIdx >= 0, 'app-core.js 必须提供 notifyResult');
 const nrEnd = appCore.indexOf('\n}', nrIdx);
 const nrBody = nrEnd > nrIdx ? appCore.slice(nrIdx, nrEnd) : appCore.slice(nrIdx, nrIdx + 600);
-assert.ok(/showToast\(/.test(nrBody), 'notifyResult 必须用 showToast（灵动岛）');
+assert.ok(/notify\(/.test(nrBody), 'notifyResult 必须走 notify()（统一出口，内部再落灵动岛）');
 assert.ok(!/showAppAlert\(/.test(nrBody), 'notifyResult 不得用模态弹窗（showAppAlert）');
 assert.ok(/notifyProgress\(/.test(sources['app-ui.js'] || ''), 'app-ui.js 的进行中提示必须用 notifyProgress');
 assert.ok(/notifyProgress\(/.test(sources['ai-runtime.js'] || ''), 'ai-runtime.js 的进行中提示必须用 notifyProgress');

@@ -465,26 +465,42 @@ function notifyProgress(message) {
   appBusyToast = showToast(message, { duration: 0 });
   return appBusyToast;
 }
-function notifyResult(message, ok, options = {}) {
+/* 全站唯一的通知出口。
+   以前通知散成三种形态：模态弹窗（showAppAlert）、直接写内联状态槽、零散 showToast，
+   结果就是“有些提示有灵动岛、有些只在页面某个角落”。现在统一走这里：
+   - slot：要留痕的内联状态槽 id（可空）；slotClass：该槽的 className
+   - level：'info' | 'success' | 'error'，决定图标 / 颜色 / 停留时长
+   - silent：只留痕不弹（常态文案，例如“修改即时预览并自动保存”）
+   有进行中的胶囊时原地变成结果，避免新旧两条互相挤。 */
+function notify(message, options = {}) {
   const text = stripResultIcon(message);
-  const out = $('test-result');
-  if (out) { out.textContent = text; out.className = ok ? 'ok' : 'err'; }
-  const kind = ok ? 'success' : 'error';
-  // 操作结果（模型列表 / 报错详情）往往不止一句，默认 3.2s 读不完
-  const duration = options.duration ?? (ok ? 5000 : 8000);
-  const busy = appBusyToast;
-  appBusyToast = null;
-  if (options.silent) {
-    if (busy) busy.dismiss();
+  const level = options.level || 'info';
+  const slot = options.slot ? $(options.slot) : null;
+  if (slot) {
+    slot.textContent = text;
+    if (options.slotClass !== undefined) slot.className = options.slotClass;
+  }
+  if (options.silent || !text) {
+    if (appBusyToast) { appBusyToast.dismiss(); appBusyToast = null; }
     return text;
   }
-  if (busy && busy.element && busy.element.isConnected) {
-    // 进行中的胶囊原地变成结果：不再“旧的淡出 + 新的入场”叠两条
-    busy.update(text, { kind, duration });
-  } else {
-    showToast(text, { kind, duration });
-  }
+  const kind = level === 'error' ? 'error' : (level === 'success' ? 'success' : '');
+  const duration = options.duration ?? (kind === 'error' ? 8000 : 5000);
+  const busy = appBusyToast;
+  appBusyToast = null;
+  if (busy && busy.element && busy.element.isConnected) busy.update(text, { kind, duration });
+  else showToast(text, { kind, duration });
   return text;
+}
+/* 兼容旧调用点：设置面板的结果播报（test-result 槽） */
+function notifyResult(message, ok, options = {}) {
+  return notify(message, {
+    slot: 'test-result',
+    slotClass: ok ? 'ok' : 'err',
+    level: ok ? 'success' : 'error',
+    silent: options.silent,
+    duration: options.duration,
+  });
 }
 /* ─────────── 自定义下拉（替代原生 <select>） ───────────
    部分 Android WebView 在 <dialog> / modal 内无法弹出原生选择器（点了没反应），

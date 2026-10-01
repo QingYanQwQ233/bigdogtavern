@@ -466,26 +466,42 @@ function notifyProgress(message) {
   appBusyToast = showToast(message, { duration: 0 });
   return appBusyToast;
 }
-function notifyResult(message, ok, options = {}) {
+/* 全站唯一的通知出口。
+   以前通知散成三种形态：模态弹窗（showAppAlert）、直接写内联状态槽、零散 showToast，
+   结果就是“有些提示有灵动岛、有些只在页面某个角落”。现在统一走这里：
+   - slot：要留痕的内联状态槽 id（可空）；slotClass：该槽的 className
+   - level：'info' | 'success' | 'error'，决定图标 / 颜色 / 停留时长
+   - silent：只留痕不弹（常态文案，例如“修改即时预览并自动保存”）
+   有进行中的胶囊时原地变成结果，避免新旧两条互相挤。 */
+function notify(message, options = {}) {
   const text = stripResultIcon(message);
-  const out = $('test-result');
-  if (out) { out.textContent = text; out.className = ok ? 'ok' : 'err'; }
-  const kind = ok ? 'success' : 'error';
-  // 操作结果（模型列表 / 报错详情）往往不止一句，默认 3.2s 读不完
-  const duration = options.duration ?? (ok ? 5000 : 8000);
-  const busy = appBusyToast;
-  appBusyToast = null;
-  if (options.silent) {
-    if (busy) busy.dismiss();
+  const level = options.level || 'info';
+  const slot = options.slot ? $(options.slot) : null;
+  if (slot) {
+    slot.textContent = text;
+    if (options.slotClass !== undefined) slot.className = options.slotClass;
+  }
+  if (options.silent || !text) {
+    if (appBusyToast) { appBusyToast.dismiss(); appBusyToast = null; }
     return text;
   }
-  if (busy && busy.element && busy.element.isConnected) {
-    // 进行中的胶囊原地变成结果：不再“旧的淡出 + 新的入场”叠两条
-    busy.update(text, { kind, duration });
-  } else {
-    showToast(text, { kind, duration });
-  }
+  const kind = level === 'error' ? 'error' : (level === 'success' ? 'success' : '');
+  const duration = options.duration ?? (kind === 'error' ? 8000 : 5000);
+  const busy = appBusyToast;
+  appBusyToast = null;
+  if (busy && busy.element && busy.element.isConnected) busy.update(text, { kind, duration });
+  else showToast(text, { kind, duration });
   return text;
+}
+/* 兼容旧调用点：设置面板的结果播报（test-result 槽） */
+function notifyResult(message, ok, options = {}) {
+  return notify(message, {
+    slot: 'test-result',
+    slotClass: ok ? 'ok' : 'err',
+    level: ok ? 'success' : 'error',
+    silent: options.silent,
+    duration: options.duration,
+  });
 }
 /* ─────────── 自定义下拉（替代原生 <select>） ───────────
    部分 Android WebView 在 <dialog> / modal 内无法弹出原生选择器（点了没反应），
@@ -1335,11 +1351,9 @@ async function completeLastTurnOptions() {
     currentWorldSave.turns[idx].options = options;
     renderMessages();
     await queueWorldSave(currentWorldSave);
-    const status = $('world-open-status');
-    if (status) status.textContent = `已补全行动选项（${options.length} 条）。`;
+    notify(`已补全行动选项（${options.length} 条）。`, { slot: 'world-open-status', level: 'success' });
   } catch (err) {
-    const status = $('world-open-status');
-    if (status) status.textContent = `⚠️ 补全选项失败：${err.message}`;
+    notify(`⚠️ 补全选项失败：${err.message}`, { slot: 'world-open-status', level: 'error' });
   } finally {
     worldOptionsCompletionBusy = false;
     renderQuickActions();
@@ -1477,8 +1491,7 @@ function queueWorldSave(save = currentWorldSave) {
   };
   worldSaveWriteChain = worldSaveWriteChain.catch(() => {}).then(() => flushWorldSaveWrites()).catch(err => {
     console.error('[Tavern] 世界存档保存失败:', err.message);
-    const status = $('world-open-status');
-    if (status && worldModeActive()) status.textContent = `⚠️ 存档尚未保存：${err.message}（可继续操作，稍后重试）`;
+    notify(`⚠️ 存档尚未保存：${err.message}（可继续操作，稍后重试）`, { slot: 'world-open-status', level: 'error' });
   });
   return worldSaveWriteChain;
 }
@@ -1515,10 +1528,13 @@ async function loadWorldCardVersion(worldId, version) {
   return data;
 }
 function setWorldDraftStatus(message, kind = '') {
-  const el = $('world-draft-status');
-  if (!el) return;
-  el.textContent = message || '';
-  el.className = 'world-draft-status' + (kind ? ' ' + kind : '');
+  // 统一出口：写槽 + 由灵动岛接管提示（无 kind 的常态文案只留痕）
+  notify(message || '', {
+    slot: 'world-draft-status',
+    slotClass: 'world-draft-status' + (kind ? ' ' + kind : ''),
+    level: kind === 'err' ? 'error' : (kind === 'ok' ? 'success' : 'info'),
+    silent: !kind,
+  });
 }
 function clearWorldDraftCheckReport() {
   const report = $('world-draft-check-report');
@@ -3305,8 +3321,7 @@ async function publishWorldDraft() {
       localStorage.setItem(LS_CURRENT_WORLD, currentWorldId);
     }
     await loadWorldLibraryData();
-    const status = $('world-open-status');
-    if (status) status.textContent = `已发布“${published.title}” v${published.version}；旧存档仍固定在各自世界版本。`;
+    notify(`已发布“${published.title}” v${published.version}；旧存档仍固定在各自世界版本。`, { slot: 'world-open-status', level: 'success' });
     $('world-edit-draft')?.focus();
   } catch (err) {
     const recovery = err.status === 409 ? '；草稿已保留，请先处理版本冲突。' : '；可直接重试发布。';
@@ -3382,8 +3397,12 @@ function restoreWorldAgentPending(save) {
   return true;
 }
 function setWorldPlayerStatus(message, kind = '') {
-  const el = $('world-player-status');
-  if (el) { el.textContent = message || ''; el.className = `world-draft-status${kind ? ' ' + kind : ''}`; }
+  notify(message || '', {
+    slot: 'world-player-status',
+    slotClass: `world-draft-status${kind ? ' ' + kind : ''}`,
+    level: kind === 'err' ? 'error' : (kind === 'ok' ? 'success' : 'info'),
+    silent: !kind,
+  });
 }
 function playerFieldInput(field, value = '') {
   const id = String(field.id);
@@ -3678,8 +3697,7 @@ function confirmWorldEntryGate() {
   $('world-save-form')?.requestSubmit?.();
   fullscreen.then(ok => {
     if (!ok && pending.gate.fullscreen === true) {
-      const status = $('world-open-status');
-      if (status) status.textContent = '已继续进入世界；浏览器未授予全屏权限，可按浏览器全屏按钮重试。';
+      notify('已继续进入世界；浏览器未授予全屏权限，可按浏览器全屏按钮重试。', { slot: 'world-open-status', level: 'info' });
     }
   });
 }
@@ -3824,7 +3842,11 @@ function renderWorldOpeningDialog(save = currentWorldSave) {
   $('world-opening-save').hidden = !!candidate;
   $('world-opening-narrative').value = candidate?.narrative || '';
   document.querySelectorAll('[data-opening-option]').forEach(input => { input.value = candidate?.options?.[Number(input.dataset.openingOption)] || ''; });
-  $('world-opening-status').textContent = candidate ? '候选已保存到当前存档；你可以编辑后确认。' : '先保存规划，AI 才会生成独立开场候选。';
+  notify(candidate ? '候选已保存到当前存档；你可以编辑后确认。' : '先保存规划，AI 才会生成独立开场候选。', {
+    slot: 'world-opening-status',
+    level: candidate ? 'success' : 'info',
+    silent: !candidate,
+  });
   renderWorldOpeningConfirmSummary(save, plan);
 }
 function openWorldOpeningDialog(save = currentWorldSave) {
@@ -3891,8 +3913,7 @@ function scheduleWorldSetupAutosave() {
       if (!response.ok) throw new Error(worldApiError(data, '草稿自动保存失败（HTTP ' + response.status + '）'));
       if (currentWorldSaveId === save.id) { hydrateWorldSave(data); currentWorldSave = data; renderWorldList(); }
     } catch (error) {
-      const status = $('world-opening-status');
-      if (status) status.textContent = error.message;
+      notify(error.message, { slot: 'world-opening-status', level: 'error' });
     }
   }, 900);
 }
@@ -3903,7 +3924,7 @@ async function saveWorldOpeningPlan() {
   worldSetupAutosaveTimer = null;
   const button = $('world-opening-save');
   button.disabled = true;
-  $('world-opening-status').textContent = '正在保存规划并生成候选…';
+  notifyProgress('正在保存规划并生成候选…');
   try {
     const setupResponse = await fetch('/api/world-saves/' + encodeURIComponent(save.id) + '/setup', {
       method: 'PUT', headers: { 'Content-Type': 'application/json; charset=utf-8' },
@@ -3921,22 +3942,18 @@ async function saveWorldOpeningPlan() {
 async function generateWorldOpening(save) {
   if (!save || !worldSavePlanning(save) || worldOpeningGeneration) return save;
   if (!settings.baseUrl) {
-    const status = $('world-opening-status');
-    if (status) status.textContent = '请先在设置中配置 AI API，再生成开场候选。规划已保存，可稍后继续。';
-    if (typeof showToast === 'function') {
-      showToast('还没有配置 AI API，无法生成开场候选。规划已保存。', {
-        kind: 'error',
-        duration: 0,
-        action: { label: '去设置', onClick: () => openSettings() },
-      });
-    }
+    notify('还没有配置 AI API，无法生成开场候选。规划已保存。', {
+      slot: 'world-opening-status',
+      level: 'error',
+      duration: 0,
+      action: { label: '去设置', onClick: () => openSettings() },
+    });
     return save;
   }
   const world = currentWorldCard();
   if (!world || !currentWorldSave || currentWorldSave.id !== save.id) return save;
   worldOpeningGeneration = save.id;
-  const status = $('world-opening-status');
-  if (status) status.textContent = '正在根据规划、玩家与世界卡生成独立候选…';
+  notifyProgress('正在根据规划、玩家与世界卡生成独立候选…');
   try {
     const payload = buildPayload();
     const traceCommandId = 'opening-candidate-' + uid();
@@ -4000,12 +4017,12 @@ async function confirmWorldOpeningCandidate() {
   const narrative = $('world-opening-narrative').value.trim();
   const options = [...document.querySelectorAll('[data-opening-option]')].map(input => input.value.trim());
   if (!narrative || options.length !== 4 || options.some((value, index) => !value || options.indexOf(value) !== index)) {
-    $('world-opening-status').textContent = '请填写开场正文，并保证 4 个选项均非空且不重复。';
+    notify('请填写开场正文，并保证 4 个选项均非空且不重复。', { slot: 'world-opening-status', level: 'error' });
     return;
   }
   const button = $('world-opening-confirm');
   button.disabled = true;
-  $('world-opening-status').textContent = '正在确认开场并进入正式世界线…';
+  notifyProgress('正在确认开场并进入正式世界线…');
   try {
     const response = await fetch('/api/world-saves/' + encodeURIComponent(save.id) + '/opening', {
       method: 'POST', headers: { 'Content-Type': 'application/json; charset=utf-8' },
@@ -4021,7 +4038,7 @@ async function confirmWorldOpeningCandidate() {
     renderMessages();
     enterWorldWorkspace();
   } catch (err) {
-    $('world-opening-status').textContent = err.message;
+    notify(err.message, { slot: 'world-opening-status', level: 'error' });
   } finally {
     button.disabled = false;
   }
@@ -4042,8 +4059,7 @@ async function exportCurrentWorldPackage() {
     if (!res.ok || !data) throw new Error(worldApiError(data, '世界包导出失败（HTTP ' + res.status + '）'));
     await downloadBlob(new Blob([text], { type: 'application/json' }), `${String(world.title || world.id).replace(/[\\/:*?"<>|]/g, '_')}-v${world.version}.tavern-world.json`);
     const warnings = data.manifest?.warnings?.length || 0;
-    const status = $('world-open-status');
-    if (status) status.textContent = `已导出世界 v${world.version}；SHA-256 ${String(data.manifest?.contentHash || '').replace(/^sha256:/, '').slice(0, 12)}${warnings ? `；${warnings} 项引用警告已写入清单` : ''}。`;
+    notify(`已导出世界 v${world.version}；SHA-256 ${String(data.manifest?.contentHash || '').replace(/^sha256:/, '').slice(0, 12)}${warnings ? `；${warnings} 项引用警告已写入清单` : ''}。`, { slot: 'world-open-status', level: 'success' });
   } catch (err) {
     showWorldError(err.message);
   } finally {
@@ -4052,9 +4068,12 @@ async function exportCurrentWorldPackage() {
   }
 }
 function setWorldImportStatus(message, kind = '') {
-  const el = $('world-import-status');
-  el.textContent = message || '';
-  el.className = 'world-draft-status' + (kind ? ' ' + kind : '');
+  notify(message || '', {
+    slot: 'world-import-status',
+    slotClass: 'world-draft-status' + (kind ? ' ' + kind : ''),
+    level: kind === 'err' ? 'error' : (kind === 'ok' ? 'success' : 'info'),
+    silent: !kind,
+  });
 }
 function renderWorldImportReport(imported) {
   const root = $('world-import-report');
@@ -4135,8 +4154,7 @@ async function commitWorldPackageImport() {
     worldImport = null;
     worldImportOpener = null;
     await loadWorldLibraryData();
-    const status = $('world-open-status');
-    if (status) status.textContent = `已导入“${data.world.title}” v${data.world.version}；新世界及其世界书、预设均使用独立 ID。`;
+    notify(`已导入“${data.world.title}” v${data.world.version}；新世界及其世界书、预设均使用独立 ID。`, { slot: 'world-open-status', level: 'success' });
     $('world-save-name')?.focus();
   } catch (err) {
     setWorldImportStatus(err.message, 'error');
@@ -4146,9 +4164,12 @@ async function commitWorldPackageImport() {
   }
 }
 function setWorldUpgradeStatus(message, kind = '') {
-  const el = $('world-upgrade-status');
-  el.textContent = message || '';
-  el.className = 'world-draft-status' + (kind ? ' ' + kind : '');
+  notify(message || '', {
+    slot: 'world-upgrade-status',
+    slotClass: 'world-draft-status' + (kind ? ' ' + kind : ''),
+    level: kind === 'err' ? 'error' : (kind === 'ok' ? 'success' : 'info'),
+    silent: !kind,
+  });
 }
 function renderWorldUpgradeReport(report) {
   const root = $('world-upgrade-report');
@@ -4271,8 +4292,7 @@ async function commitWorldSaveUpgrade() {
     }
     await loadWorldSaves(upgraded.worldId);
     renderWorldDetail();
-    const status = $('world-open-status');
-    if (status) status.textContent = `已将“${upgraded.name}”升级到世界 v${upgraded.worldVersion}；迁移记录已写入当前存档。`;
+    notify(`已将“${upgraded.name}”升级到世界 v${upgraded.worldVersion}；迁移记录已写入当前存档。`, { slot: 'world-open-status', level: 'success' });
     document.querySelector(`[data-open-save="${CSS.escape(upgraded.id)}"]`)?.focus();
   } catch (err) {
     if (worldUpgrade !== upgrade) return;
@@ -4331,10 +4351,7 @@ function renderWorldList() {
   }));
 }
 function showWorldError(message) {
-  const el = $('world-error');
-  if (el) el.textContent = message || '';
-  // 内联文字保留（可在页面内回看），同时给一个醒目的浮层提示
-  if (message && typeof showToast === 'function') showToast(message, { kind: 'error' });
+  notify(message || '', { slot: 'world-error', level: 'error' });
 }
 /* 恢复内置世界卡：把本地世界库重置为随应用内置的版本（不触碰设置与存档）。 */
 async function resetBuiltinWorlds(button) {
@@ -4356,7 +4373,7 @@ async function resetBuiltinWorlds(button) {
     const lines = [`已恢复内置世界卡：${data?.worlds ?? 0} 张。`];
     if (Array.isArray(data?.removedWorlds) && data.removedWorlds.length) lines.push(`移除了 ${data.removedWorlds.length} 张本地世界卡。`);
     if (orphan.length) lines.push(`\n注意：${orphan.length} 份存档引用了已被移除的世界卡，需要删除后重新开始。`);
-    showAppAlert(lines.join('\n'));
+    notify(lines.join('\n'), { level: 'info' });
   } catch (err) {
     showWorldError(err.message);
   } finally {
@@ -4431,8 +4448,7 @@ async function exportWorldSave(saveId, button) {
     }
     const blob = await res.blob();
     await downloadBlob(blob, `${saveId}.tavern-save.json`);
-    const status = $('world-open-status');
-    if (status) status.textContent = '已导出脱敏存档包；不包含 API key、设置或其他存档。';
+    notify('已导出脱敏存档包；不包含 API key、设置或其他存档。', { slot: 'world-open-status', level: 'success' });
   } catch (err) {
     showWorldError(err.message);
   } finally {
@@ -4457,8 +4473,7 @@ async function copyWorldSave(saveId, button) {
     await loadWorldSaves(save.worldId || currentWorldId);
     const opened = await openWorldSave(data.save.id);
     renderWorldList(); renderWorldDetail();
-    const status = $('world-open-status');
-    if (status) status.textContent = `已创建「${data.save.name}」；它与源存档的状态、回合和账本独立。`;
+    notify(`已创建「${data.save.name}」；它与源存档的状态、回合和账本独立。`, { slot: 'world-open-status', level: 'success' });
     if (opened?.setup?.status === 'planning') resumeWorldSaveSetup(opened);
     else enterWorldWorkspace();
   } catch (err) {
@@ -4583,15 +4598,14 @@ function renderWorldDetail() {
       if (currentWorldSave.setup?.status === 'planning') {
         resumeWorldSaveSetup(currentWorldSave);
       } else {
-        if (status) status.textContent = worldOpenStatusText();
+        notify(worldOpenStatusText(), { slot: 'world-open-status', silent: true });
         enterWorldWorkspace();
       }
     } catch (err) { showWorldError(err.message); }
     finally { btn.disabled = false; btn.textContent = old; }
   }));
   if (currentWorldSave && currentWorldSave.worldId === world.id) {
-    const status = $('world-open-status');
-    if (status) status.textContent = worldOpenStatusText();
+    notify(worldOpenStatusText(), { slot: 'world-open-status', silent: true });
   }
 }
 async function loadWorldLibraryData(restoreWorkspace = false) {
@@ -4961,8 +4975,7 @@ async function decideGrowthCandidate(candidateId, decision) {
   } catch (err) {
     console.error('[Tavern] 成长处理失败:', err.message);
     buttons.forEach(item => { item.disabled = false; });
-    const status = $('world-open-status');
-    if (status) status.textContent = `成长处理失败：${err.message}`;
+    notify(`成长处理失败：${err.message}`, { slot: 'world-open-status', level: 'error' });
   }
 }
 
@@ -9284,7 +9297,7 @@ function importCharOrLorebookFromBuffer(buffer, fileName = '') {
 
 async function exportCurrentChar() {
   const c = currentChar();
-  if (!c) return showAppAlert('请先创建 / 选择一个角色');
+  if (!c) return notify('请先创建 / 选择一个角色', { level: 'error' });
   await downloadBlob(new Blob([JSON.stringify(charToV3(c), null, 2)], { type: 'application/json' }), (c.name || 'character').replace(/[\\/:*?"<>|]/g, '_') + '.card.json');
 }
 
@@ -9484,7 +9497,7 @@ function readUserForm() {
 function saveUserForm() {
   readUserForm();
   saveUserData();
-  showAppAlert('✅ 玩家设定已保存');
+  notify('✅ 玩家设定已保存', { level: 'success' });
 }
 async function saveUserAsNew() {
   readUserForm();
@@ -9497,7 +9510,7 @@ async function saveUserAsNew() {
 }
 async function deleteUserPreset() {
   const name = userData.currentPreset;
-  if (!name || name === 'default') { showAppAlert('默认预设不可删除'); return; }
+  if (!name || name === 'default') { notify('默认预设不可删除', { level: 'error' }); return; }
   if (!(await showAppConfirm(`删除预设「${name}」？`))) return;
   delete userData.presets[name];
   userData.currentPreset = 'default';
@@ -10699,7 +10712,7 @@ async function pgNew() {
   setMobileManagerPanel('prompt-mgr', 'detail');
   const name = await showAppPrompt('新预设名称：', '预设 ' + (Object.keys(promptPresets).length + 1));
   if (!name || !name.trim()) return;
-  if (promptPresets[name.trim()]) { showAppAlert('已存在同名预设。'); return; }
+  if (promptPresets[name.trim()]) { notify('已存在同名预设。', { level: 'error' }); return; }
   promptPresets[name.trim()] = normalizePromptPreset(name.trim(), { mode, firstMes: '' });
   savePresets();
   selectPresetForEdit(name.trim());
@@ -11116,14 +11129,14 @@ function saveRegexEditor() {
     enabled: $('regex-enabled').checked,
   }, 0, 'custom');
   if (!buildOutputRegex(candidate)) {
-    showAppAlert('匹配表达式为空或不是有效正则。');
+    notify('匹配表达式为空或不是有效正则。', { level: 'error' });
     $('regex-find').focus();
     return;
   }
   if (regexEditingSource === 'preset') {
     const updated = savePresetRegexRule(regexEditingId, candidate);
     if (!updated) {
-      showAppAlert('当前预设正则已不存在，请重新打开正则列表。');
+      notify('当前预设正则已不存在，请重新打开正则列表。', { level: 'error' });
       resetRegexEditor();
       return;
     }
@@ -11809,7 +11822,7 @@ function serializeSTWorldInfoEntry(entry, index = 0) {
 
 async function exportCurrentLorebook() {
   const book = currentLB();
-  if (!book) return showAppAlert('请先选择世界书');
+  if (!book) return notify('请先选择世界书', { level: 'error' });
   const bookSettings = normalizeLorebookSettings(book);
   const entries = {};
   currentLBEntries().forEach((entry, index) => { entries[String(entry.uid ?? index)] = serializeSTWorldInfoEntry(entry, index); });
@@ -13461,8 +13474,7 @@ function applyUiThemePreset(id) {
   fillUiThemeForm();
   applyUiTheme(prefs.uiTheme);
   saveJSON(LS_PREFS, prefs);
-  $('ui-theme-status').textContent = `已套用「${String(preset.label || id)}」。还可以继续手动微调。`;
-  $('ui-theme-status').className = 'hint ok';
+  notify(`已套用「${String(preset.label || id)}」。还可以继续手动微调。`, { slot: 'ui-theme-status', slotClass: 'hint ok', level: 'success' });
   return true;
 }
 
@@ -13603,8 +13615,7 @@ function readUiThemeForm({ parseCustom = true, save = false } = {}) {
       customVars = validCustomThemeVars(parsed);
       if (!customVars) throw new Error('变量名必须是 --name，最多 64 项，每项值不超过 300 字符。');
     } catch (error) {
-      $('ui-theme-status').textContent = `高级变量未保存：${error.message}`;
-      $('ui-theme-status').className = 'hint err';
+      notify(`高级变量未保存：${error.message}`, { slot: 'ui-theme-status', slotClass: 'hint err', level: 'error' });
       return false;
     }
   }
@@ -13625,8 +13636,12 @@ function readUiThemeForm({ parseCustom = true, save = false } = {}) {
   updateUiThemePresetDescription('custom');
   applyUiTheme(prefs.uiTheme);
   updateUiThemeLabels(prefs.uiTheme);
-  $('ui-theme-status').textContent = save ? '界面设置已保存。' : '预览中；松开滑块或离开输入框后自动保存。';
-  $('ui-theme-status').className = 'hint ok';
+  notify(save ? '界面设置已保存。' : '预览中；松开滑块或离开输入框后自动保存。', {
+    slot: 'ui-theme-status',
+    slotClass: 'hint ok',
+    level: save ? 'success' : 'info',
+    silent: !save,
+  });
   if (save) saveJSON(LS_PREFS, prefs);
   return true;
 }
@@ -13653,13 +13668,13 @@ function initIslandLab() {
     setTimeout(() => notifyResult('处理完成，共 3 项', true), 1400);
   });
   bind('lab-stack', () => {
-    showToast('上面这条会先收起', { duration: 900 });
-    showToast('下面这条会平滑上移', { duration: 2600 });
+    notify('上面这条会先收起', { duration: 900 });
+    notify('下面这条会平滑上移', { duration: 2600 });
   });
   bind('lab-rapid', () => {
-    for (let i = 0; i < 4; i += 1) setTimeout(() => showToast('快速连发 ' + (i + 1), { duration: 2500 }), i * 60);
+    for (let i = 0; i < 4; i += 1) setTimeout(() => notify('快速连发 ' + (i + 1), { duration: 2500 }), i * 60);
   });
-  bind('lab-long', () => showToast('上游返回的错误详情：' + '连接被拒绝，请检查 Base URL 与网络后再试。'.repeat(6), { kind: 'error', duration: 5000 }));
+  bind('lab-long', () => notify('上游返回的错误详情：' + '连接被拒绝，请检查 Base URL 与网络后再试。'.repeat(6), { level: 'error', duration: 5000 }));
   bind('lab-clear', () => {
     const host = $('toast-host');
     if (host) while (host.firstElementChild) host.firstElementChild.remove();
@@ -13672,8 +13687,7 @@ function resetUiTheme() {
   fillUiThemeForm();
   applyUiTheme(prefs.uiTheme);
   saveJSON(LS_PREFS, prefs);
-  $('ui-theme-status').textContent = '已恢复界面默认值。';
-  $('ui-theme-status').className = 'hint ok';
+  notify('已恢复界面默认值。', { slot: 'ui-theme-status', slotClass: 'hint ok', level: 'success' });
 }
 
 /* ─────────── 自定义聊天背景 ───────────
@@ -13732,8 +13746,11 @@ async function saveUiTransparencySettings() {
   if (token !== uiTransparencySaveToken) return;
   const status = $('ui-transparency-status');
   if (status) {
-    status.textContent = saved ? '透明 UI 设置已保存。' : '透明 UI 已应用，但设置保存失败，请点击重试。';
-    status.className = saved ? 'hint' : 'hint err';
+    notify(saved ? '透明 UI 设置已保存。' : '透明 UI 已应用，但设置保存失败，请点击重试。', {
+      slot: 'ui-transparency-status',
+      slotClass: saved ? 'hint' : 'hint err',
+      level: saved ? 'success' : 'error',
+    });
   }
   if ($('btn-ui-transparency-retry')) $('btn-ui-transparency-retry').hidden = !!saved;
 }
@@ -13751,8 +13768,12 @@ function readUiTransparencyForm(save = false) {
 }
 
 function setChatBackgroundStatus(text, error = false) {
-  const status = $('chat-background-status');
-  if (status) { status.textContent = text; status.className = error ? 'hint err' : 'hint'; }
+  notify(text, {
+    slot: 'chat-background-status',
+    slotClass: error ? 'hint err' : 'hint',
+    level: error ? 'error' : 'success',
+    silent: !error,
+  });
 }
 
 function renderChatBackground() {
@@ -14029,14 +14050,12 @@ function readGenerationForm() {
   let fields;
   try { fields = JSON.parse($('g-char-fields').value || '[]'); }
   catch {
-    $('g-gen-status').textContent = '字段定义不是有效 JSON，尚未保存。';
-    $('g-gen-status').className = 'hint err';
+    notify('字段定义不是有效 JSON，尚未保存。', { slot: 'g-gen-status', slotClass: 'hint err', level: 'error' });
     return false;
   }
   const valid = Array.isArray(fields) && fields.length <= 64 && fields.every(field => field && typeof field === 'object' && !Array.isArray(field) && /^[A-Za-z][A-Za-z0-9_-]{0,48}$/.test(String(field.key || '')) && String(field.label || '').trim());
   if (!valid) {
-    $('g-gen-status').textContent = '字段定义必须是最多 64 项的 JSON 数组，每项至少包含安全 key 与 label。';
-    $('g-gen-status').className = 'hint err';
+    notify('字段定义必须是最多 64 项的 JSON 数组，每项至少包含安全 key 与 label。', { slot: 'g-gen-status', slotClass: 'hint err', level: 'error' });
     return false;
   }
   genSettings = {
@@ -14047,8 +14066,7 @@ function readGenerationForm() {
     charFields: fields.map(field => ({ ...field, key: String(field.key), label: String(field.label).trim() })),
   };
   saveGenerationSettings();
-  $('g-gen-status').textContent = 'AI 工坊配置已保存。';
-  $('g-gen-status').className = 'hint ok';
+  notify('AI 工坊配置已保存。', { slot: 'g-gen-status', slotClass: 'hint ok', level: 'success' });
   return true;
 }
 
@@ -14057,8 +14075,7 @@ async function resetGenerationForm() {
   genSettings = cloneValue(defaults.gen);
   fillSettingsForm();
   saveGenerationSettings();
-  $('g-gen-status').textContent = '已恢复内置提示词。';
-  $('g-gen-status').className = 'hint ok';
+  notify('已恢复内置提示词。', { slot: 'g-gen-status', slotClass: 'hint ok', level: 'success' });
 }
 
 function setApiStatus(text, isErr = false) {
@@ -15466,8 +15483,8 @@ function copyMapJson() {
   const txt = data ? JSON.stringify(data, null, 2) : lastMapJson;
   if (!txt) return;
   navigator.clipboard.writeText(txt).then(
-    () => showAppAlert('✅ 地图数据 JSON 已复制'),
-    () => showAppAlert('复制失败（浏览器剪贴板权限）')
+    () => notify('✅ 地图数据 JSON 已复制', { level: 'success' }),
+    () => notify('复制失败（浏览器剪贴板权限）', { level: 'error' })
   );
 }
 
@@ -15478,7 +15495,7 @@ async function generateImageFor(story) {
   const targetKey = activeConversationKey();
   const targetTurnEpoch = worldModeActive() ? worldTurnEpoch : null;
   const status = $('ig-test-result');
-  if (status) status.textContent = '⏳ 正在生成图片…';
+  notifyProgress('正在生成图片…');
   addImagePending(); // 聊天栏占位提示：开始生图
   try {
     const char = worldModeActive() ? (currentWorldSave.player?.snapshot || null) : currentChar();
@@ -15507,11 +15524,11 @@ async function generateImageFor(story) {
     catch (e) { console.warn('[Tavern] 图片本地保存失败，本轮仍显示:', e.message); }
     if (activeConversationKey() !== targetKey || (worldModeActive() && targetTurnEpoch !== worldTurnEpoch)) return;
     pushMessage('image', local, { imgPrompt: prompt }); // 记住提示词，供「重新生成」复用
-    if (status) status.textContent = '✅ 图片已生成并显示在聊天栏';
+    notify('✅ 图片已生成并显示在聊天栏', { slot: 'ig-test-result', level: 'success' });
   } catch (err) {
     console.error('[Tavern] 文生图失败:', err.message);
     removeImagePending();
-    if (status) status.textContent = '❌ ' + err.message;
+    notify('❌ ' + err.message, { slot: 'ig-test-result', level: 'error' });
     if (activeConversationKey() === targetKey && (!worldModeActive() || targetTurnEpoch === worldTurnEpoch)) pushMessage('system', `⚠️ 文生图失败：${err.message}`);
   }
 }
@@ -15522,7 +15539,7 @@ async function testImageGen() {
   const prompt = ($('ig-test-prompt').value || '').trim() || 'a fox knight in a tavern, anime style';
   const status = $('ig-test-result');
   const targetKey = activeConversationKey();
-  if (status) status.textContent = '⏳ 正在生成测试图…';
+  notifyProgress('正在生成测试图…');
   addImagePending();
   try {
     const char = worldModeActive() ? (currentWorldSave.player?.snapshot || null) : currentChar();
@@ -15535,7 +15552,7 @@ async function testImageGen() {
     }
     const src = await callImageAPI(ig, p, refImage);
     removeImagePending();
-    if (status) status.textContent = '✅ 成功（见聊天栏）';
+    notify('✅ 成功（见聊天栏）', { slot: 'ig-test-result', level: 'success' });
     let local = src;
     try { local = await saveImageLocally(src); }
     catch (e) { console.warn('[Tavern] 图片本地保存失败，本轮仍显示:', e.message); }
@@ -15544,7 +15561,7 @@ async function testImageGen() {
   } catch (err) {
     console.error('[Tavern] 文生图测试失败:', err.message);
     removeImagePending();
-    if (status) status.textContent = '❌ ' + err.message;
+    notify('❌ ' + err.message, { slot: 'ig-test-result', level: 'error' });
   }
 }
 
@@ -16336,9 +16353,9 @@ function parseLLMJson(text) {
 /* 生成世界书条目 → 填入条目编辑器（用户确认后保存） */
 async function aiGenWI() {
   const desc = $('wi-ai-desc').value.trim();
-  if (!desc) { showAppAlert('先描述要生成的设定，例如：北方沉睡古龙的龙之谷'); return; }
+  if (!desc) { notify('先描述要生成的设定，例如：北方沉睡古龙的龙之谷', { level: 'error' }); return; }
   const gen = genSettings || {};
-  if (!gen.lorePrompt) { showAppAlert('未配置生成指令（_defaults.json → gen.lorePrompt）'); return; }
+  if (!gen.lorePrompt) { notify('未配置生成指令（_defaults.json → gen.lorePrompt）', { level: 'error' }); return; }
   const btn = $('btn-ai-wi');
   btn.disabled = true; btn.textContent = '生成中…';
   try {
@@ -16348,10 +16365,10 @@ async function aiGenWI() {
     $('wi-content').value = obj.content || '';
     $('wi-order').value = 100;
     $('wi-constant').checked = !!obj.constant;
-    showAppAlert('✅ 已生成并填入 —— 检查后点「保存条目」');
+    notify('✅ 已生成并填入 —— 检查后点「保存条目」', { level: 'success' });
   } catch (err) {
     console.error('[Tavern] AI 生成世界书失败:', err.message);
-    showAppAlert('❌ ' + err.message);
+    notify('❌ ' + err.message, { level: 'error' });
   } finally {
     btn.disabled = false; btn.textContent = '✨ 生成';
   }
@@ -16361,7 +16378,7 @@ async function aiGenWI() {
 
 async function addRpgItem() {
   const rs = curRpgState();
-  if (!rs) { showAppAlert('当前不是 RPG 会话'); return; }
+  if (!rs) { notify('当前不是 RPG 会话', { level: 'error' }); return; }
   const name = (await showAppPrompt('道具名称：') || '').trim();
   if (!name) return;
   const n = parseInt(await showAppPrompt('数量（默认 1）：', '1'), 10);
@@ -16375,7 +16392,7 @@ async function addRpgItem() {
 
 async function addRpgQuest() {
   const rs = curRpgState();
-  if (!rs) { showAppAlert('当前不是 RPG 会话'); return; }
+  if (!rs) { notify('当前不是 RPG 会话', { level: 'error' }); return; }
   const title = (await showAppPrompt('任务标题：') || '').trim();
   if (!title) return;
   const desc = (await showAppPrompt('任务内容（可留空）：') || '').trim();
@@ -16586,7 +16603,7 @@ async function mapBeautify() {
   if (!map) return;
   const ig = (settings && settings.imageGen) || {};
   if (!ig.baseUrl) {
-    showAppAlert('请先在 设置 → 文生图 中配置 Base URL（gpt-image 反代）');
+    notify('请先在 设置 → 文生图 中配置 Base URL（gpt-image 反代）', { level: 'error' });
     return;
   }
   const status = $('mm-info');
@@ -16982,7 +16999,7 @@ function bindEvents() {
   $('pg-params-save').addEventListener('click', () => {
     pgSave();
     const active = resolvePromptPreset().name || GLOBAL_PRESET_KEY;
-    $('pg-params-status').textContent = active === pgEditingName ? '已保存，下一次聊天请求使用这些参数。' : '已保存。当前聊天使用另一预设；请在预设列表选择使用，或修改角色卡绑定。';
+    notify(active === pgEditingName ? '已保存，下一次聊天请求使用这些参数。' : '已保存。当前聊天使用另一预设；请在预设列表选择使用，或修改角色卡绑定。', { slot: 'pg-params-status', level: 'success' });
   });
   $('pg-mode').addEventListener('change', () => { syncPGReplyOptionsEditor(); renderPGRegexBindings(); });
   $('pg-reply-options-enabled').addEventListener('change', markPGReplyOptionsCustomized);
@@ -17003,9 +17020,9 @@ function bindEvents() {
     try {
       if (file.size > 5 * 1024 * 1024) throw new Error('文件超过 5 MB，拒绝导入');
       const report = importSTPreset(JSON.parse(await file.text()), file.name);
-      showAppAlert(`已导入「${report.name}」：素材 ${report.prompts} 条，当前顺序 ${report.ordered} 条。${report.regexes ? `已识别并启用 ${report.regexes} 条输出正则。` : ''}`);
+      notify(`已导入「${report.name}」：素材 ${report.prompts} 条，当前顺序 ${report.ordered} 条。${report.regexes ? `已识别并启用 ${report.regexes} 条输出正则。` : ''}`, { level: 'success' });
     } catch (err) {
-      showAppAlert('导入失败：' + err.message);
+      notify('导入失败：' + err.message, { level: 'error' });
     } finally {
       e.target.value = '';
     }
@@ -17031,9 +17048,9 @@ function bindEvents() {
     try {
       if (file.size > 10 * 1024 * 1024) throw new Error('世界书文件超过 10 MB，拒绝导入');
       const report = importSTLorebookText(await file.text(), file.name);
-      showAppAlert(`✅ 世界书已导入：「${report.name}」· ${report.entries} 条目`);
+      notify(`✅ 世界书已导入：「${report.name}」· ${report.entries} 条目`, { level: 'success' });
     } catch (error) {
-      showAppAlert('❌ 世界书导入失败：' + error.message);
+      notify('❌ 世界书导入失败：' + error.message, { level: 'error' });
     } finally {
       event.target.value = '';
     }
@@ -17197,8 +17214,7 @@ function bindEvents() {
         const input = $('world-save-name');
         if (input) input.value = '';
         closeWorldPlayerDialog('created');
-        const status = $('world-open-status');
-        if (status) status.textContent = `已创建存档「${currentWorldSave.name}」；完成开局配置并确认后才会开始 RPG。`;
+        notify(`已创建存档「${currentWorldSave.name}」；完成开局配置并确认后才会开始 RPG。`, { slot: 'world-open-status', level: 'success' });
         enterWorldWorkspace();
         if (worldSavePlanning()) resumeWorldSaveSetup(currentWorldSave);
       }
@@ -17220,7 +17236,7 @@ function bindEvents() {
   $('world-opening-form').addEventListener('submit', async e => {
     e.preventDefault();
     try { await saveWorldOpeningPlan(); }
-    catch (err) { $('world-opening-status').textContent = err.message; }
+    catch (err) { notify(err.message, { slot: 'world-opening-status', level: 'error' }); }
   });
   $('world-player-ai-basic').addEventListener('click', aiFillWorldPlayerBasic);
   $('world-player-ai-full').addEventListener('click', aiFillWorldPlayerFull);
@@ -17239,7 +17255,7 @@ function bindEvents() {
     currentWorldSave.setup.candidate = null;
     renderWorldOpeningDialog(currentWorldSave);
     try { await saveWorldOpeningPlan(); }
-    catch (err) { $('world-opening-status').textContent = err.message; }
+    catch (err) { notify(err.message, { slot: 'world-opening-status', level: 'error' }); }
   });
   $('world-opening-npcs').addEventListener('change', () => { const plan = collectWorldOpeningPlan(); renderWorldOpeningNpcContexts(plan); });
   $('world-opening-close').addEventListener('click', closeWorldOpeningDialog);
@@ -17275,8 +17291,7 @@ function bindEvents() {
       const created = await openWorldPlayerCreation(name, btn);
       if (created) {
         input.value = '';
-        const status = $('world-open-status');
-        if (status) status.textContent = `已创建并打开「${currentWorldSave.name}」——世界状态、地图和叙事已绑定当前存档；当前存档 ID：${currentWorldSave.id}`;
+        notify(`已创建并打开「${currentWorldSave.name}」——世界状态、地图和叙事已绑定当前存档；当前存档 ID：${currentWorldSave.id}`, { slot: 'world-open-status', level: 'success' });
         enterWorldWorkspace();
         if (worldSavePlanning()) resumeWorldSaveSetup(currentWorldSave);
       }
@@ -17441,8 +17456,7 @@ function bindEvents() {
     else {
       prefs.uiThemePreset = 'custom';
       saveJSON(LS_PREFS, prefs);
-      $('ui-theme-status').textContent = '已切换到自定义；当前颜色保持不变。';
-      $('ui-theme-status').className = 'hint ok';
+      notify('已切换到自定义；当前颜色保持不变。', { slot: 'ui-theme-status', slotClass: 'hint ok', level: 'success' });
     }
   });
   $('btn-ui-theme-preset-apply').addEventListener('click', () => {
@@ -17450,8 +17464,7 @@ function bindEvents() {
     if (id === 'custom') {
       prefs.uiThemePreset = 'custom';
       saveJSON(LS_PREFS, prefs);
-      $('ui-theme-status').textContent = '已切换到自定义；当前颜色保持不变。';
-      $('ui-theme-status').className = 'hint ok';
+      notify('已切换到自定义；当前颜色保持不变。', { slot: 'ui-theme-status', slotClass: 'hint ok', level: 'success' });
       return;
     }
     applyUiThemePreset(id);
@@ -17494,7 +17507,7 @@ function bindEvents() {
       const button = $('btn-clear-chat');
       if (button) { button.disabled = true; button.textContent = '重置中…'; }
       try { await resetCurrentWorldSave(); }
-      catch (err) { showAppAlert(err.message); }
+      catch (err) { notify(err.message, { level: 'error' }); }
       finally { if (button) button.disabled = false; syncConversationResetButton(); }
       return;
     }
@@ -17545,15 +17558,15 @@ function bindEvents() {
         const result = importCharOrLorebookFromBuffer(reader.result, fileName);
         if (result.kind === 'lorebook') {
           switchView('lore');
-          showAppAlert(`✅ 检测到这是 ST 世界书，已导入「${result.report.name}」· ${result.report.entries} 条目`);
+          notify(`✅ 检测到这是 ST 世界书，已导入「${result.report.name}」· ${result.report.entries} 条目`, { level: 'success' });
         } else {
           const report = result.report;
-          showAppAlert(report?.lorebook?.created
+          notify(report?.lorebook?.created
             ? `✅ 角色卡已导入；内嵌世界书已注册为「${report.lorebook.name}」`
-            : '✅ 角色卡已导入');
+            : '✅ 角色卡已导入', { level: 'success' });
         }
       }
-      catch (err) { showAppAlert('❌ 导入失败：' + err.message); }
+      catch (err) { notify('❌ 导入失败：' + err.message, { level: 'error' }); }
     };
     reader.readAsArrayBuffer(file);
     charFileInput.value = '';
