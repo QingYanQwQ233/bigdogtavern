@@ -33,6 +33,8 @@
   --radius: 10px;
   --motion-out: cubic-bezier(0.23, 1, 0.32, 1);
   --motion-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  /* 收起专用：起步快、末端极缓，塌陷时才不会“啪”地停住 */
+  --motion-collapse: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 /* ═══════════════════ 基础 ═══════════════════ */
@@ -3538,12 +3540,12 @@ body[data-mode="rpg"] .composer {
   /* 宽度平滑伸缩、退场时高度与占位一起收敛（否则移除的瞬间下方的胶囊会跳） */
   transition:
     width 250ms var(--motion-out),
-    height 200ms var(--motion-in-out),
-    margin-bottom 200ms var(--motion-in-out),
-    padding-top 200ms var(--motion-in-out),
-    padding-bottom 200ms var(--motion-in-out),
-    border-top-width 200ms var(--motion-in-out),
-    border-bottom-width 200ms var(--motion-in-out);
+    height 300ms var(--motion-collapse),
+    margin-bottom 300ms var(--motion-collapse),
+    padding-top 300ms var(--motion-collapse),
+    padding-bottom 300ms var(--motion-collapse),
+    border-top-width 300ms var(--motion-collapse),
+    border-bottom-width 300ms var(--motion-collapse);
 }
 .toast-icon { flex: none; font-size: 14px; }
 .toast-msg { min-width: 0; overflow: hidden; text-overflow: ellipsis; transition: opacity 150ms var(--motion-out); }
@@ -3575,7 +3577,7 @@ body[data-mode="rpg"] .composer {
 .toast-error .toast-icon { color: var(--danger); }
 .toast-success { border-color: rgba(48, 209, 88, 0.45); }
 .toast.toast-out {
-  animation: toast-out 200ms var(--motion-in-out) forwards;
+  animation: toast-out 300ms var(--motion-collapse) forwards;
   /* 与 height 一起收到 0：边距 / 内边距 / 上下边框都占高度，不收干净还是会跳 */
   padding-top: 0;
   padding-bottom: 0;
@@ -3586,7 +3588,10 @@ body[data-mode="rpg"] .composer {
   from { opacity: 0; transform: translateY(-12px) scale(0.96); }
 }
 @keyframes toast-out {
-  to { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  0% { opacity: 1; transform: translateY(0) scale(1); }
+  /* 先让高度收完再消失：一上来就淡掉会显得“闪一下就没了” */
+  40% { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-6px) scale(0.99); }
 }
 @keyframes toast-msg-in {
   from { opacity: 0; transform: translateY(2px); }

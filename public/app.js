@@ -177,6 +177,9 @@ function showToast(message, options = {}) {
   const host = $('toast-host');
   if (!host || !message) return null;
   // 同屏最多两条。超量的旧胶囊走正规退场（有高度过渡），直接 remove 会让下面那条跳一下
+  Array.prototype.slice.call(host.children).forEach(k => {
+    if (k.classList.contains('toast-out')) k.remove(); // 已退场中的：直接清掉，避免和新胶囊抢位置
+  });
   if (host.children.length >= 2) {
     const oldest = host.firstElementChild;
     if (typeof oldest._dismiss === 'function') oldest._dismiss();
@@ -188,21 +191,27 @@ function showToast(message, options = {}) {
   toast.appendChild(body);
   let iconEl = null;
   let timer = null;
+  let sizeClearTimer = null;
   let kind = '';
   const dismiss = () => {
     if (timer) { clearTimeout(timer); timer = null; }
     if (toast.classList.contains('toast-out')) return;
+    if (sizeClearTimer) { clearTimeout(sizeClearTimer); sizeClearTimer = null; }
+    const h = toast.offsetHeight;
+    if (!h) { toast.remove(); return; } // 还没布局就被收起，直接清掉
     // 先把高度与间距锁成像素值，再过渡到 0/-gap：直接 remove 的话，
     // 下方那条胶囊会“瞬移”上去（上方卡片收起时看着很鬼畜）。
     const gap = parseFloat(getComputedStyle(host).rowGap) || 0;
-    toast.style.height = toast.offsetHeight + 'px';
+    toast.style.width = '';
+    toast.style.height = h + 'px';
     toast.style.marginBottom = '0px';
     toast.classList.add('toast-out');
     requestAnimationFrame(() => {
       toast.style.height = '0px';
       toast.style.marginBottom = (-gap) + 'px';
     });
-    setTimeout(() => toast.remove(), 300);
+    // 要比退场动画（300ms）晚一步，确保动画播完再摘
+    setTimeout(() => toast.remove(), 400);
   };
   // 按内容重绘图标 / 语义 / 计时。切换内容时复用同一个元素：
   // 否则「旧的还在淡出、新的已入场」两条胶囊会互相挤，看起来像抽搐。
@@ -243,8 +252,10 @@ function showToast(message, options = {}) {
     // 量旧尺寸 -> 文字隐去 -> 换内容并量新尺寸 -> 从旧尺寸过渡到新尺寸。
     // 重排发生在文字不可见的那一瞬间，所以既拿得到平滑的伸缩/长高，
     // 也不会看到文字在中间宽度里反复换行（那才是“抽”的来源）。
+    if (sizeClearTimer) { clearTimeout(sizeClearTimer); sizeClearTimer = null; }
     toast.style.width = '';
     toast.style.height = '';
+    const prevText = body.textContent;
     const firstW = toast.offsetWidth;
     const firstH = toast.offsetHeight;
     body.style.opacity = '0';
@@ -258,13 +269,20 @@ function showToast(message, options = {}) {
       void toast.offsetWidth; // 强制一次布局，让尺寸过渡有起点
       toast.style.width = lastW + 'px';
       toast.style.height = lastH + 'px';
-      setTimeout(() => { toast.style.width = ''; toast.style.height = ''; }, 300);
+      sizeClearTimer = setTimeout(() => {
+        toast.style.width = '';
+        toast.style.height = '';
+        sizeClearTimer = null;
+      }, 320);
     }
     body.style.opacity = ''; // .toast-msg 的 transition 会把它淡回来
-    toast.classList.remove('is-updating');
-    void toast.offsetWidth;
-    toast.classList.add('is-updating');
-    setTimeout(() => toast.classList.remove('is-updating'), 250);
+    // 文字没变就不放脉冲：快速连发同一条提示时，反复动一下反而像在抽
+    if (prevText !== String(text)) {
+      toast.classList.remove('is-updating');
+      void toast.offsetWidth;
+      toast.classList.add('is-updating');
+      setTimeout(() => toast.classList.remove('is-updating'), 250);
+    }
     return handle;
   };
   const handle = { dismiss, update, element: toast };
