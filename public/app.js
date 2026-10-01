@@ -15985,8 +15985,9 @@ async function requestReply() {
     syncSendButton();
     $('btn-send').disabled = mode === 'rpg' && worldSavePlanning();
     renderQuickActions();
+    // 只有发送前焦点就在输入框时才把焦点还回去（否则点选项会自动唤出输入法）
     const input = $('input');
-    if (input) input.focus();
+    if (input && inputWasFocused) input.focus();
   }
 }
 
@@ -16060,6 +16061,8 @@ async function submitWorldActionText(text, { throwOnError = false, kind = 'text'
 }
 
 async function sendMessage() {
+  // 发送前的焦点状态：点选项 / 按钮发起的回合不该顺手把输入法弹出来
+  const inputWasFocused = document.activeElement === $('input');
   if (sending || worldTurnPreparing || worldTurnPending || (worldModeActive() && (worldSavePlanning() || currentWorldSave?.state?.ending?.status === 'ended' || currentWorldSave?.state?.failure?.status === 'terminal'))) return;
   if (mode === 'rpg' && !worldModeActive()) { openWorldLibrary(); return; }
   const input = $('input');

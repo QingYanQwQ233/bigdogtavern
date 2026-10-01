@@ -1197,6 +1197,7 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   display: flex;
   gap: 8px;
   width: 100%;
+  flex: 0 0 100%; /* 占满一行：不被 .quick-actions 的横滚容器挤压 */
 }
 .world-turn-actions > .btn {
   flex: 1 1 0;
@@ -3300,7 +3301,8 @@ body.world-setup-extension-mode .rpg-extension-head {
   .seal { min-width: 76px; padding-inline: 14px; }
   /* 快捷行动单行横滚，不再换行挤压输入区 */
   .quick-actions { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; margin-bottom: 6px; }
-  .quick-actions:not(:has(.world-turn-error)) { mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent); -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent); }
+  /* 有按钮行时不做右侧渐隐：mask 会把右侧按钮切掉一截 */
+  .quick-actions:not(:has(.world-turn-error)):not(:has(.world-turn-actions)) { mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent); -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent); }
   .quick-actions::-webkit-scrollbar { display: none; }
   .world-turn-error { align-items: flex-start; flex-direction: column; gap: 6px; }
   .world-turn-error-actions { width: 100%; }
