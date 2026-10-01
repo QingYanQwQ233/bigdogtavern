@@ -1012,23 +1012,16 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   border-radius: var(--radius);
   padding: 10px;
 }
-/* 思维链独立行（旁白样式，非角色气泡） */
+/* 思维链：可查阅的旁注。层级必须低于对话正文（设计宪法 §12：记忆/事件/世界书不抢正文）。 */
 .msg.cot-msg {
-  align-self: center;
-  max-width: 92%;
-}
-.msg.cot-msg .nar-icon {
-  flex: none;
-  color: var(--accent-2);
-  font-size: 11px;
-  align-self: center;
-  opacity: 0.7;
+  align-self: stretch;
+  max-width: 100%;
 }
 .msg.cot-msg .bubble {
   background: transparent;
   border: none;
   box-shadow: none;
-  padding: 0 8px;
+  padding: 0;
   white-space: normal;
   min-width: 260px;
   text-align: left;
@@ -1136,25 +1129,40 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
 :is(.bubble, .rpg-prose).md input[type="checkbox"] { accent-color: var(--accent); margin-right: 6px; vertical-align: -1px; }
 /* 思维链折叠块（回复气泡内） */
 .bubble .cot {
-  margin-bottom: 8px;
-  border: 1px solid var(--line-soft);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.03);
+  margin: 0 0 8px;
+  border: 0;
+  background: transparent;
 }
+/* 区块标签：12px / 600 / 字距（typography.md 字体角色表） */
 .bubble .cot summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   cursor: pointer;
-  padding: 4px 10px;
-  font-size: 11px;
+  padding: 2px 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
   color: var(--muted);
-  letter-spacing: 1px;
   user-select: none;
 }
+.bubble .cot summary::before {
+  content: '▸';
+  font-size: 10px;
+  line-height: 1;
+}
+.bubble .cot[open] summary::before { content: '▾'; }
+.bubble .cot summary::-webkit-details-marker { display: none; }
 .bubble .cot summary:hover { color: var(--text); }
+/* 分组只用一种手段（左侧竖线），不加背景/边框/阴影（visual-hierarchy 闭合性） */
 .bubble .cot .cot-body {
-  margin: 0;
+  margin: 6px 0 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--line);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font: 12.5px/1.65 var(--font-body);
+  font-size: 12px;
+  line-height: 1.6;
   color: var(--muted);
 }
 
