@@ -12,6 +12,8 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.util.Base64
 import android.util.Log
+import android.view.View
+import android.view.WindowInsetsController
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
@@ -44,6 +46,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        applyEdgeToEdge()
 
         webView = WebView(this)
         webView.settings.javaScriptEnabled = true
@@ -55,6 +58,8 @@ class MainActivity : Activity() {
         // → 会导致 ≥961px 判定成立、侧栏误显示
         webView.settings.useWideViewPort = true
         webView.settings.loadWithOverviewMode = true
+        // 全屏模式下 WebView 要透明，让页面自己的背景铺到状态栏 / 导航栏之下
+        webView.setBackgroundColor(android.graphics.Color.TRANSPARENT)
         webView.addJavascriptInterface(DownloadBridge(), "TavernAndroid")
         webView.webChromeClient = object : WebChromeClient() {
             // 文件选择器：<input type="file"> 必须实现此回调，否则点击无效（导入形象参考图依赖）
@@ -90,6 +95,46 @@ class MainActivity : Activity() {
         setContentView(webView)
         bootNode()
     }
+
+    /**
+     * 全屏（edge-to-edge）：让内容延伸到状态栏 / 导航栏之下。
+     *
+     * 不这样做时，系统会把窗口限制在状态栏下方 —— 顶部就会空出一条黑边。
+     * 避让由页面 CSS 的 env(safe-area-inset-*) 负责（styles.css 已就位），
+     * 所以页面 meta 必须带 viewport-fit=cover，否则这些 env() 恒为 0。
+     */
+    private fun applyEdgeToEdge() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(false)
+        } else {
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility =
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Android 10+ 默认给导航栏加一层对比度底色，不去掉就做不到真透明
+            @Suppress("DEPRECATION")
+            window.isNavigationBarContrastEnforced = false
+        }
+        if (Build.VERSION.SDK_INT < 35) {
+            // Android 15 (API 35) 起这两项已废弃且强制透明，无需再设
+            @Suppress("DEPRECATION")
+            window.statusBarColor = android.graphics.Color.TRANSPARENT
+            @Suppress("DEPRECATION")
+            window.navigationBarColor = android.graphics.Color.TRANSPARENT
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // 界面是深色的：清掉「浅色图标」标记，让系统栏图标转为浅色
+            window.insetsController?.setSystemBarsAppearance(
+                0,
+                WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+                    WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+            )
+        }
+    }
+
 
     /** 解包 assets → 应用私有目录，拉起内嵌 Node，等 server.js 开始监听后再加载页面 */
     private fun bootNode() {

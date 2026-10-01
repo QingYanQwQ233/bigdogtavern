@@ -1,4 +1,9 @@
 # 更新日志
+## 2026-10-01 · APK 全屏（edge-to-edge）
+
+- 顶部那条黑边的原因：MainActivity 没有开 edge-to-edge，系统会把窗口限制在状态栏下方。现在 onCreate 里调用 `applyEdgeToEdge()`：`setDecorFitsSystemWindows(false)`（API30+）/ `SYSTEM_UI_FLAG_LAYOUT_*`（API24–29），并把状态栏与导航栏设为透明、去掉导航栏对比度底色、系统栏图标转为浅色。
+- 网页侧补上 `viewport-fit=cover`（此前缺失，导致 CSS 的 `env(safe-area-inset-*)` 恒为 0）；WebView 背景设为透明，让页面自己的深色背景铺到状态栏 / 导航栏之下。避让本就由 styles.css 里已有的 10 处 `env(safe-area-inset-*)` 负责，无需改布局。
+
 ## 2026-10-01 · 产品契约 v1 冻结（M0 收口）
 
 - 新增 `docs/product-contract-v1.md`（v1.0 冻结）：产品定义、数据所有权、**10 条不可违反的不变量（INV-1…INV-10，编号永久稳定）**、模块清单、变更流程与版本语义（MINOR / MAJOR / PATCH）。
