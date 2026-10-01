@@ -79,10 +79,17 @@ body {
 
 /* ═══════════════════ 布局系统 ═══════════════════ */
 
+/* 全屏对话框：上下避让系统栏（--safe-* 由 Android 壳注入）。
+   这些元素在 top layer，不在 #app 内，所以必须自己避让。 */
+dialog[open] {
+  padding-top: var(--safe-top, env(safe-area-inset-top));
+  padding-bottom: var(--safe-bottom, env(safe-area-inset-bottom));
+  box-sizing: border-box;
+}
+
 #app {
   /* 系统栏避让：--safe-* 由 Android 壳注入（WebView 不上报 env()） */
   padding-top: var(--safe-top, env(safe-area-inset-top));
-  padding-bottom: var(--safe-bottom, env(safe-area-inset-bottom));
   box-sizing: border-box;
   /* 留白区显示页面底色，与内容融为一体 */
   background: var(--bg-0);
@@ -1316,7 +1323,7 @@ textarea#input::-webkit-scrollbar { display: none; }
   justify-content: space-between;
   gap: 12px;
   flex: 0 0 auto;
-  padding: max(12px, var(--safe-top, env(safe-area-inset-top))) max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left));
+  padding: 12px 16px;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
@@ -1336,7 +1343,7 @@ textarea#input::-webkit-scrollbar { display: none; }
 .input-fullscreen-dialog textarea:focus { box-shadow: inset 0 0 0 2px rgba(var(--accent-rgb), 0.22); }
 .input-fullscreen-actions {
   padding-top: 10px;
-  padding-bottom: max(10px, var(--safe-bottom, env(safe-area-inset-bottom)));
+  padding-bottom: 10px;
   border-top: 1px solid var(--line);
   border-bottom: 0;
   color: var(--muted);
@@ -1786,7 +1793,7 @@ body[data-mode="rpg"] .composer {
     width: min(360px, 92vw);
     max-width: 92vw;
     padding-top: max(16px, var(--safe-top, env(safe-area-inset-top)));
-    padding-bottom: max(16px, var(--safe-bottom, env(safe-area-inset-bottom)));
+    padding-bottom: 16px;
     box-shadow: 0 18px 50px rgba(0, 0, 0, .45);
     transition: transform 250ms var(--motion-out);
   }
@@ -3389,7 +3396,7 @@ body.world-authoring-active .world-draft-body {
 }
 body.world-authoring-active .world-draft-actions {
   flex: 0 0 auto;
-  padding-bottom: max(16px, var(--safe-bottom, env(safe-area-inset-bottom)));
+  padding-bottom: 16px;
 }
 
 .world-draft-runtime {
@@ -3487,7 +3494,7 @@ body.world-authoring-active .world-draft-actions {
 @media (max-width: 640px) {
   body.world-authoring-active .world-draft-dialog { border: 0; }
   body.world-authoring-active .world-draft-head {
-    padding-top: max(14px, var(--safe-top, env(safe-area-inset-top)));
+    padding-top: 14px;
     padding-bottom: 12px;
   }
   body.world-authoring-active .world-draft-body { padding: 14px 14px 8px; }
