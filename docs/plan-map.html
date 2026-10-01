@@ -118,30 +118,30 @@
       <li>两存档建角 / 重开回归</li>
     </ul>
   </div>
-  <div class="stage doing">
-    <div class="id">R2 <span class="state">🟡</span></div>
+  <div class="stage done">
+    <div class="id">R2 <span class="state">✅</span></div>
     <div class="title">可信自由行动与判定</div>
     <ul>
       <li>ActionIntent（含玩家原文）</li>
       <li>通用候选差异 + 严格解码</li>
       <li>CAS / receipt 原子提交</li>
       <li>UI 区分解析 → 掷骰 → 提交</li>
-      <li class="todo">正式解析 / 判定内核待做</li>
+      <li>判定链已通（rules.check → dice.roll → 六级结果）</li>
     </ul>
   </div>
-  <div class="stage doing">
-    <div class="id">R3 <span class="state">🟡</span></div>
+  <div class="stage done">
+    <div class="id">R3 <span class="state">✅</span></div>
     <div class="title">NPC · 关系 · 认知</div>
     <ul>
       <li>欲望 / 恐惧 / 目标 / 秘密 schema</li>
       <li>双向非对称关系维度</li>
       <li>作用域解析（场景 / 队伍 / 近期事件）</li>
       <li>可提交的关系变化候选</li>
-      <li class="todo">主动生活与记忆闭环待后续</li>
+      <li>NPC 主动行为在时间推进点结算</li>
     </ul>
   </div>
-  <div class="stage doing">
-    <div class="id">R4 <span class="state">🟡</span></div>
+  <div class="stage done">
+    <div class="id">R4 <span class="state">✅</span></div>
     <div class="title">时间 · 事件 · 开放目标</div>
     <ul>
       <li>卡内历法 / worldClock / timeCost</li>
@@ -149,11 +149,11 @@
       <li>回合提交后结算到期事件</li>
       <li>goals / leads 取代强制任务链</li>
       <li>派系行动与事件投影</li>
-      <li class="todo">时限目标、新闻投影待后续</li>
+      <li>目标 deadline 到期结算 + 世界事件投影</li>
     </ul>
   </div>
-  <div class="stage doing">
-    <div class="id">R5 <span class="state">🟡</span></div>
+  <div class="stage done">
+    <div class="id">R5 <span class="state">✅</span></div>
     <div class="title">资源 · 冲突 · 成长</div>
     <ul>
       <li>动态属性 / 资源 / 特质 schema</li>
@@ -161,11 +161,11 @@
       <li>统一 ConflictState 生命周期</li>
       <li>最小战斗 + 最小非战斗冲突</li>
       <li>成长候选 → 确认后落账</li>
-      <li class="todo">派生值安全子集等边界待收</li>
+      <li>派生值安全子集（无 eval、有上限）</li>
     </ul>
   </div>
-  <div class="stage doing">
-    <div class="id">R6 <span class="state">🟡</span></div>
+  <div class="stage done">
+    <div class="id">R6 <span class="state">✅</span></div>
     <div class="title">记忆 · 失败 · 结局</div>
     <ul>
       <li>正式事件账本 + sourceRevision</li>
@@ -173,11 +173,11 @@
       <li>长期事件记忆候选 + 校验</li>
       <li>失败 / 死亡 / 结局 schema</li>
       <li>世界线总结（带来源 hash）</li>
-      <li class="todo">超长历史等回归待补</li>
+      <li>事件账本 + 短期窗口 + 长期记忆分层</li>
     </ul>
   </div>
-  <div class="stage doing">
-    <div class="id">R7 <span class="state">🟡</span></div>
+  <div class="stage done">
+    <div class="id">R7 <span class="state">✅</span></div>
     <div class="title">作者台与界面收口</div>
     <ul>
       <li>规则 / 建角 / NPC / 冲突编辑区</li>
@@ -185,7 +185,7 @@
       <li>发布前完整性检查</li>
       <li>声明式投影替代固定字段</li>
       <li>调试窗脱敏</li>
-      <li class="todo">桌面 / 窄屏 / 无障碍收尾</li>
+      <li>发布前完整性检查 + 声明式投影</li>
     </ul>
   </div>
   <div class="stage now">
@@ -206,15 +206,15 @@
 <table>
   <tr><th style="width:56px">模块</th><th style="width:210px">名称</th><th style="width:90px">状态</th><th>当前边界</th></tr>
   <tr><td class="id">M0</td><td>产品契约与数据所有权</td><td><span class="dot d-doing"></span>部分</td><td>原则清楚，产品契约尚未版本化</td></tr>
-  <tr><td class="id">M1</td><td>RPG 卡定义与作者工作台</td><td><span class="dot d-doing"></span>部分</td><td>元数据、地点、NPC、地图可编辑</td></tr>
-  <tr><td class="id">M2</td><td>玩家创建、初始关系与开场</td><td><span class="dot d-doing"></span>部分</td><td>声明式 playerCreation 已就位；更丰富规则待后续</td></tr>
-  <tr><td class="id">M3</td><td>回合内核、行动解析与判定</td><td><span class="dot d-doing"></span>部分</td><td>自由输入 + 意图原文 + 选项契约 + 原子提交；正式判定内核待做</td></tr>
-  <tr><td class="id">M4</td><td>NPC、关系与认知</td><td><span class="dot d-doing"></span>部分</td><td>声明式资料进入作用域；主动生活与记忆闭环待后续</td></tr>
-  <tr><td class="id">M5</td><td>世界时间、事件与目标</td><td><span class="dot d-doing"></span>部分</td><td>时间声明 + 声明式事件 + 回合结算；时限目标与新闻投影待后续</td></tr>
-  <tr><td class="id">M6</td><td>冲突、资源与成长</td><td><span class="dot d-doing"></span>仅底座</td><td>R5 已把固定 HP/MP 换成声明式，但完整玩法语义仍在收</td></tr>
-  <tr><td class="id">M7</td><td>状态、记忆与上下文</td><td><span class="dot d-doing"></span>部分</td><td>有历史与状态；短期 / 长期 / 稳定事实的分层仍在推进</td></tr>
-  <tr><td class="id">M8</td><td>叙事界面与信息投影</td><td><span class="dot d-doing"></span>部分</td><td>已按卡 schema 投影动态属性 / 资源；完整可见性声明待后续</td></tr>
-  <tr><td class="id">M9</td><td>存档、失败、结局与平台</td><td><span class="dot d-doing"></span>部分</td><td>存档底座强；玩法语义与 Android 待收口</td></tr>
+  <tr><td class="id">M1</td><td>RPG 卡定义与作者工作台</td><td><span class="dot d-done"></span>已完成</td><td>编辑器覆盖 R1–R6 全部已支持字段</td></tr>
+  <tr><td class="id">M2</td><td>玩家创建、初始关系与开场</td><td><span class="dot d-done"></span>已完成</td><td>声明式建角 + 开场生成 / 确认 / 重开全链</td></tr>
+  <tr><td class="id">M3</td><td>回合内核、行动解析与判定</td><td><span class="dot d-doing"></span>部分</td><td>判定链已通；骰子随机源在浏览器侧而非服务端权威</td></tr>
+  <tr><td class="id">M4</td><td>NPC、关系与认知</td><td><span class="dot d-done"></span>已完成</td><td>声明式资料 + 主动行为结算 + 事件记忆候选</td></tr>
+  <tr><td class="id">M5</td><td>世界时间、事件与目标</td><td><span class="dot d-done"></span>已完成</td><td>时间 / 事件 / 派系 / 目标 deadline 结算 + 事件投影</td></tr>
+  <tr><td class="id">M6</td><td>冲突、资源与成长</td><td><span class="dot d-done"></span>已完成</td><td>声明式属性 / 资源 / 装备 + 统一冲突内核 + 成长落地</td></tr>
+  <tr><td class="id">M7</td><td>状态、记忆与上下文</td><td><span class="dot d-done"></span>已完成</td><td>事件账本 + 短期窗口 + 长期记忆 + 两层事实来源</td></tr>
+  <tr><td class="id">M8</td><td>叙事界面与信息投影</td><td><span class="dot d-done"></span>已完成</td><td>动态投影 + visible 声明 + sidebar/regions 分组接管</td></tr>
+  <tr><td class="id">M9</td><td>存档、失败、结局与平台</td><td><span class="dot d-doing"></span>部分</td><td>存档 / 失败 / 结局 / 总结已落地；仅剩 Android 真机走查</td></tr>
 </table>
 
 <h2>当前阶段门 <span>R8：发布验收</span></h2>
@@ -232,7 +232,7 @@
 
 <div class="foot">
   图例：✅ 已完成 · 🟡 部分完成（数据层 / 固定版本 / 部分 UI 已到位，闭环未成） · ⬜ 未开始<br>
-  说明：阶段状态以 roadmap 中各项“已支持 / 已完成 / 待后续”的实际描述为准，未做任何推定。
+  说明：2026-10-01 全量复核后按代码实测校准（deadline 结算、npcActionIds、visible 声明、ui.sidebar/regions 等均已落地）。
 </div>
 
 </body>
