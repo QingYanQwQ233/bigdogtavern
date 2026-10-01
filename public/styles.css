@@ -1061,6 +1061,16 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   }
 }
 .msg.typing .bubble::after { content: "…"; animation: blink 1000ms infinite; }
+/* 生成中占位：轻微呼吸，让玩家知道正在输出（只动 opacity，不动布局）。
+   注意只覆盖 RPG 的占位（.rpg-prose 走的是这里，原先拿不到上面那条省略号动画）。 */
+.typing-hint { animation: typing-hint-pulse 1400ms ease-in-out infinite; }
+@keyframes typing-hint-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .typing-hint { animation: none; }
+}
 @keyframes blink { 50% { opacity: 0.2; } }
 
 /* ── Markdown 渲染样式（消息容器启用 .md 时） ── */

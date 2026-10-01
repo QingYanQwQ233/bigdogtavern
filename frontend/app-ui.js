@@ -1730,7 +1730,8 @@ function addTyping() {
   el.className = mode === 'rpg' ? 'msg rpg-narrative typing' : 'msg assistant typing';
   el.id = 'typing-msg';
   el.innerHTML = mode === 'rpg'
-    ? '<div class="rpg-prose" data-tavern-rendered>世界正在回应…</div>'
+    // 占位单独包一层：正文一开始流式渲染就会被整块替换，呼吸效果随之停止。
+    ? '<div class="rpg-prose" data-tavern-rendered><span class="typing-hint">世界正在回应…</span></div>'
     : '<div class="bubble" data-tavern-rendered>正在思索…</div>';
   chat.appendChild(el);
   chat.scrollTop = chat.scrollHeight;
