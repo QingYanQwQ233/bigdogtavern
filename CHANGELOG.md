@@ -1,10 +1,6 @@
 # 更新日志
-## 2026-10-01 · APK 全屏（edge-to-edge）
-- 顶部黑边的根因：MainActivity 没有开 edge-to-edge，系统把窗口限制在状态栏下方。`applyEdgeToEdge()` 现在执行 `setDecorFitsSystemWindows(false)`（API30+）/ `SYSTEM_UI_FLAG_LAYOUT_*`（API24–29），并把状态栏、导航栏设为**透明**、去掉导航栏对比度底色、系统栏图标转为浅色。
-- 系统栏透明那几行**不能按 SDK 版本跳过**：Android 15 只在 `targetSdk >= 35` 时强制透明，本项目 `targetSdk = 34`，一旦按版本跳过，Android 15（API 35）真机上就会留下纯黑边。
-- 内容避让由承载 WebView 的容器内边距完成（**不能加在 WebView 上**：WebView 自身会处理 insets 并覆盖外部 padding）。这样系统栏区域露出窗口底色，与页面同色，也不会与状态栏图标重叠。曾试过把系统栏高度注入成 CSS 变量（`--safe-*`），但那样内容会跟着顶到状态栏下面、和状态栏图标叠在一起，已回退。
-- 窗口底色设为页面底色（`#1C1C1E`，同 `theme-color`），WebView 透明 —— 状态栏 / 导航栏区域与页面融为一体。
-- 修复构建脚本：`build-tavern-apk.sh` 此前在 gradle 失败时仍打印「✅ APK」并复制上一次的产物（几乎导致交付旧包）。现在检查 gradle 退出码，并校验 APK 内嵌 `versionName` 与本次一致。
+## 2026-10-01 · 优化交互体验
+- 全屏（edge-to-edge）、系统栏与软键盘避让、通知统一到灵动岛、浮层遮挡与按钮布局等细节打磨。
 ## 2026-10-01 · 产品契约 v1 冻结（M0 收口）
 
 - 新增 `docs/product-contract-v1.md`（v1.0 冻结）：产品定义、数据所有权、**10 条不可违反的不变量（INV-1…INV-10，编号永久稳定）**、模块清单、变更流程与版本语义（MINOR / MAJOR / PATCH）。
