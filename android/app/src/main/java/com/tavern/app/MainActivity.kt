@@ -113,9 +113,13 @@ class MainActivity : Activity() {
         rootView.setOnApplyWindowInsetsListener { _, insets ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val bars = insets.getInsets(WindowInsets.Type.systemBars())
-                updateSafeArea(bars.top, bars.bottom)
+                // 键盘弹出时把键盘高度也算进底部避让：页面自己收叠（聊天区变矮），
+                // 而不是整个窗口被平移上去（adjustPan）。
+                val ime = insets.getInsets(WindowInsets.Type.ime())
+                updateSafeArea(bars.top, maxOf(bars.bottom, ime.bottom))
             } else {
                 @Suppress("DEPRECATION")
+                // API 30 以下：adjustResize 时 systemWindowInsetBottom 已包含键盘
                 updateSafeArea(insets.systemWindowInsetTop, insets.systemWindowInsetBottom)
             }
             insets
