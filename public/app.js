@@ -5811,6 +5811,17 @@ function worldExtensionApprovalKey(extension) {
   return `${currentWorldId || 'world'}@${currentWorldSave?.worldVersion ?? currentWorldCard()?.version ?? 0}:${lorebookHash(JSON.stringify({ html: extension?.html || '', css: extension?.css || '', js: extension?.js || '', mvu: extension?.mvu || null }))}`;
 }
 
+/* 扩展授权状态（只读）：渲染路径是同步的，没法等用户点确认，
+   所以要把“正在询问 / 已拒绝 / 已批准”区分开 —— 否则首次进入会先写一句
+   “脚本已阻止”，等用户点“启用”重渲染又被覆盖，看着就是一闪。 */
+function worldExtensionApprovalState(extension) {
+  if (!executableContentKinds(extension).length) return 'approved';
+  const key = worldExtensionApprovalKey(extension);
+  const approvals = prefs.extensionApprovals && typeof prefs.extensionApprovals === 'object' ? prefs.extensionApprovals : {};
+  if (approvals[key] === true) return 'approved';
+  if (worldExtensionDeniedApprovals.has(key)) return 'denied';
+  return 'pending';
+}
 function approveWorldExtensionCode(extension, onApproved) {
   const kinds = executableContentKinds(extension);
   if (!kinds.length) return true;
@@ -6451,6 +6462,7 @@ function renderWorldExtension(surface = 'play') {
   const extension = currentWorldCard()?.ui?.extension;
   const surfaces = Array.isArray(extension?.surfaces) && extension.surfaces.length ? extension.surfaces : ['play'];
   if (!extension || extension.enabled === false || !surfaces.includes(surface) || (!extension.html && !extension.css && !extension.js && extension.mvu == null)) { clearWorldExtension(); return; }
+  const approvalBefore = worldExtensionApprovalState(extension);
   if (!approveWorldExtensionCode(extension, () => renderWorldExtension(surface))) {
     clearWorldExtension();
     setWorldCustomLayout(false);
@@ -6463,7 +6475,13 @@ function renderWorldExtension(surface = 'play') {
     const title = $('rpg-extension-title');
     const status = $('rpg-extension-status');
     if (title) title.textContent = extension.title || '世界扩展';
-    if (status) status.textContent = '脚本已阻止；刷新或修改扩展内容后可重新授权。';
+    if (approvalBefore === 'denied') {
+      // 用户明确拒绝过：这时才真的是“已阻止”，要弹出来
+      notify('脚本已阻止；可在世界卡里修改扩展内容后重新授权。', { slot: 'rpg-extension-status', level: 'error' });
+    } else {
+      // 首次进来：询问框已经弹出，这里只留痕，别先喊“已阻止”再被覆盖（那一下闪）
+      notify('等待你确认是否启用世界扩展。', { slot: 'rpg-extension-status', silent: true });
+    }
     return;
   }
   const signature = JSON.stringify([currentWorldId, currentWorldSave?.worldVersion, extension]);
@@ -13697,40 +13715,6 @@ function readUiThemeForm({ parseCustom = true, save = false } = {}) {
   return true;
 }
 
-/* 灵动岛实验室（临时试玩）：默认隐藏，只有 URL 带 ?lab=1 时才出现，并在本机记住。
-   正式发布不要带这个参数，也就看不到这一块。 */
-function initIslandLab() {
-  const lab = $('island-lab');
-  if (!lab) return;
-  let on = false;
-  let fromUrl = false;
-  try { fromUrl = /[?&]lab=1(?:&|$)/.test(location.search); } catch { fromUrl = false; }
-  try {
-    if (fromUrl) localStorage.setItem('tavern.islandLab', '1');
-    on = fromUrl || localStorage.getItem('tavern.islandLab') === '1';
-  } catch { on = fromUrl; } // 隐私模式等场景 localStorage 可能不可用
-  if (!on) return;
-  lab.classList.remove('hidden');
-  const bind = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
-  bind('lab-toast-ok', () => notifyResult('已保存当前设置', true));
-  bind('lab-toast-err', () => notifyResult('连接失败：上游返回 401（Unauthorized）', false));
-  bind('lab-progress', () => {
-    notifyProgress('正在处理…');
-    setTimeout(() => notifyResult('处理完成，共 3 项', true), 1400);
-  });
-  bind('lab-stack', () => {
-    notify('上面这条会先收起', { duration: 900 });
-    notify('下面这条会平滑上移', { duration: 2600 });
-  });
-  bind('lab-rapid', () => {
-    for (let i = 0; i < 4; i += 1) setTimeout(() => notify('快速连发 ' + (i + 1), { duration: 2500 }), i * 60);
-  });
-  bind('lab-long', () => notify('上游返回的错误详情：' + '连接被拒绝，请检查 Base URL 与网络后再试。'.repeat(6), { level: 'error', duration: 5000 }));
-  bind('lab-clear', () => {
-    const host = $('toast-host');
-    if (host) while (host.firstElementChild) host.firstElementChild.remove();
-  });
-}
 
 function resetUiTheme() {
   prefs.uiTheme = { ...uiThemeDefaults(), colors: { ...uiThemeDefaults().colors }, customVars: {} };
@@ -17684,7 +17668,6 @@ async function init() {
 
   renderProviderOptions();
   // 所有下拉统一为应用内自定义控件（原生 select 在部分 WebView 的 dialog 内弹不出）
-  initIslandLab();
   autoEnhanceCustomSelects();
   // 模型候选：原生 datalist 会盖住输入框，换成应用内候选菜单
   const modelInput = $('s-model');

@@ -41,6 +41,7 @@ const SLOTS = [
   'world-player-status', 'world-import-status', 'world-upgrade-status',
   'ui-theme-status', 'ui-transparency-status', 'chat-background-status',
   'g-gen-status', 'pg-params-status', 'test-result', 'ig-test-result',
+  'rpg-extension-status',
 ];
 const slotOffenders = [];
 for (const f of files) {

@@ -1941,11 +1941,6 @@ body[data-mode="rpg"] .composer {
 /* 连接页动作区排成两列：导入 / 导出这类成对操作落在同一行，四个按钮也自然等宽。 */
 #st-panel-conn .modal-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 #st-panel-conn .modal-actions > button { min-width: 0; }
-/* ── 灵动岛实验室（临时）：默认隐藏，仅 ?lab=1 时显示 ── */
-.island-lab { margin-top: 12px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; }
-.island-lab > summary { cursor: pointer; color: var(--muted); font-size: 12px; }
-.island-lab > summary:hover { color: var(--text); }
-.island-lab-body { display: grid; gap: 8px; padding-top: 8px; }
 #test-result { margin-top: 12px; }
 #test-result.ok { color: var(--ok); }
 #test-result.err { color: var(--danger); }

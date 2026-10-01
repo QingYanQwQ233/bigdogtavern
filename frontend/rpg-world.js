@@ -4852,6 +4852,17 @@ function worldExtensionApprovalKey(extension) {
   return `${currentWorldId || 'world'}@${currentWorldSave?.worldVersion ?? currentWorldCard()?.version ?? 0}:${lorebookHash(JSON.stringify({ html: extension?.html || '', css: extension?.css || '', js: extension?.js || '', mvu: extension?.mvu || null }))}`;
 }
 
+/* 扩展授权状态（只读）：渲染路径是同步的，没法等用户点确认，
+   所以要把“正在询问 / 已拒绝 / 已批准”区分开 —— 否则首次进入会先写一句
+   “脚本已阻止”，等用户点“启用”重渲染又被覆盖，看着就是一闪。 */
+function worldExtensionApprovalState(extension) {
+  if (!executableContentKinds(extension).length) return 'approved';
+  const key = worldExtensionApprovalKey(extension);
+  const approvals = prefs.extensionApprovals && typeof prefs.extensionApprovals === 'object' ? prefs.extensionApprovals : {};
+  if (approvals[key] === true) return 'approved';
+  if (worldExtensionDeniedApprovals.has(key)) return 'denied';
+  return 'pending';
+}
 function approveWorldExtensionCode(extension, onApproved) {
   const kinds = executableContentKinds(extension);
   if (!kinds.length) return true;
@@ -5492,6 +5503,7 @@ function renderWorldExtension(surface = 'play') {
   const extension = currentWorldCard()?.ui?.extension;
   const surfaces = Array.isArray(extension?.surfaces) && extension.surfaces.length ? extension.surfaces : ['play'];
   if (!extension || extension.enabled === false || !surfaces.includes(surface) || (!extension.html && !extension.css && !extension.js && extension.mvu == null)) { clearWorldExtension(); return; }
+  const approvalBefore = worldExtensionApprovalState(extension);
   if (!approveWorldExtensionCode(extension, () => renderWorldExtension(surface))) {
     clearWorldExtension();
     setWorldCustomLayout(false);
@@ -5504,7 +5516,13 @@ function renderWorldExtension(surface = 'play') {
     const title = $('rpg-extension-title');
     const status = $('rpg-extension-status');
     if (title) title.textContent = extension.title || '世界扩展';
-    if (status) status.textContent = '脚本已阻止；刷新或修改扩展内容后可重新授权。';
+    if (approvalBefore === 'denied') {
+      // 用户明确拒绝过：这时才真的是“已阻止”，要弹出来
+      notify('脚本已阻止；可在世界卡里修改扩展内容后重新授权。', { slot: 'rpg-extension-status', level: 'error' });
+    } else {
+      // 首次进来：询问框已经弹出，这里只留痕，别先喊“已阻止”再被覆盖（那一下闪）
+      notify('等待你确认是否启用世界扩展。', { slot: 'rpg-extension-status', silent: true });
+    }
     return;
   }
   const signature = JSON.stringify([currentWorldId, currentWorldSave?.worldVersion, extension]);
