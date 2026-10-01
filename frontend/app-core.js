@@ -172,17 +172,34 @@ let requestAbortRequested = false;
 /* 应用内浮层提示（灵动岛式）：替代零散的内联状态文字与原生 alert。
  * kind: '' | 'success' | 'error'；action: { label, onClick }；duration: ms（0 = 不自动关闭）
  * 错误带 role=alert 并停留更久；支持手动关闭与 Esc。 */
-function raiseToastHost() {
-  const host = $('toast-host');
-  if (!host) return;
-  // <dialog> 用 showModal() 打开时整页会进浏览器的 top layer，普通层级（哪怕 z-index 上万）
-  // 都会被它整条盖住 —— 表现就是“通知弹了但看不见”。这里让 host 跟着打开的 dialog 走：
-  // 挪进它内部，与它同处 top layer 渲染；没有 dialog 时再挪回 body。
+/* 普通层浮层（灵动岛、应用内弹窗、设置面板）必须浮在模态 <dialog> 之上。
+   <dialog> 用 showModal() 打开时会进浏览器的 top layer，普通 fixed 层哪怕 z-index 上万也压不住它 ——
+   表现就是“点了没反应 / 提示被挡住”。统一策略：显示前把浮层容器挪进当前打开的 dialog（同处 top layer），
+   没有 dialog 时留在 body；dialog 关闭时再统一搬回 body，免得浮层跟着被一起隐藏。 */
+const OVERLAY_IDS = ['toast-host', 'dialog-host', 'settings-modal'];
+let overlayReturnBound = false;
+function bindOverlayReturn() {
+  if (overlayReturnBound) return;
+  overlayReturnBound = true;
+  // dialog 的 close 事件不冒泡，要在捕获阶段听
+  document.addEventListener('close', (event) => {
+    const target = event.target;
+    if (!target || target.tagName !== 'DIALOG') return;
+    OVERLAY_IDS.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el && el.parentElement && el.parentElement.tagName === 'DIALOG') document.body.appendChild(el);
+    });
+  }, true);
+}
+function raiseOverlay(el) {
+  if (!el) return el;
+  bindOverlayReturn();
   const target = document.querySelector('dialog[open]') || document.body;
-  if (host.parentElement !== target) target.appendChild(host);
+  if (el.parentElement !== target) target.appendChild(el);
+  return el;
 }
 function showToast(message, options = {}) {
-  raiseToastHost();
+  raiseOverlay($('toast-host'));
   const host = $('toast-host');
   if (!host || !message) return null;
   // 同屏最多两条。超量的旧胶囊走正规退场（有高度过渡），直接 remove 会让下面那条跳一下
@@ -361,6 +378,7 @@ function openAppDialog(options = {}) {
       if (typeof window.alert === 'function') window.alert(message);
       return resolve(true);
     }
+    raiseOverlay(host);
     const kind = options.kind || '';
     const titleId = 'dialog-title-' + (++appDialogSeq);
     const veil = document.createElement('div');

@@ -813,6 +813,7 @@ function openSettings() {
   fillSettingsForm();
   renderProfileSelect();
   settingsReturnFocus = document.activeElement;
+  raiseOverlay($('settings-modal'));
   $('settings-modal').classList.remove('hidden');
 }
 
