@@ -137,6 +137,15 @@ function appendRpgAgentPreview(session, reply) {
   session.previewNarrative = mergeRpgAgentNarrative(session.previewNarrative, next);
   return session.previewNarrative;
 }
+/* 思维链按 Agent 步骤分段：一个回合可能跑多步（夹杂工具调用），
+   合成一整段会让玩家看不出 loop 结构，也分不清哪段思考对应哪次工具调用。 */
+function appendRpgAgentCot(previous, { label = '', cot = '' } = {}) {
+  const head = label ? `── ${label} ──` : '';
+  const body = String(cot || '').trim();
+  if (!head && !body) return previous || '';
+  return `${previous ? `${previous}\n\n` : ''}${[head, body].filter(Boolean).join('\n')}`;
+}
+
 function publishRpgAgentStep(session, response, targetScope, status = 'Agent 步骤完成') {
   appendRpgAgentPreview(session, response?.content || '');
   appendRpgAgentEvent(session, 'assistant.message', {
@@ -300,8 +309,43 @@ function buildWorldRecentContext() {
 function worldTurnPendingActive() {
   return worldModeActive() && !!worldTurnPending && worldTurnPending.saveId === currentWorldSaveId;
 }
+/* 回合失败要能扛住重启：失败原因与它属于哪个存档要落盘，
+   否则退出重进后错误提示消失，回合却仍是未提交状态，玩家无从处理。 */
+function persistWorldTurnFailure(message) {
+  const session = typeof curSession === 'function' ? curSession() : null;
+  if (!session) return;
+  session.worldTurnFailure = {
+    saveId: currentWorldSaveId,
+    message: String(message || '本回合未提交'),
+    ts: Date.now(),
+  };
+  saveSessions(session);
+}
+function clearWorldTurnFailure() {
+  const session = typeof curSession === 'function' ? curSession() : null;
+  if (session && session.worldTurnFailure) {
+    delete session.worldTurnFailure;
+    saveSessions(session);
+  }
+}
+function restoredWorldTurnFailure() {
+  const session = typeof curSession === 'function' ? curSession() : null;
+  const record = session && session.worldTurnFailure;
+  if (!record || record.saveId !== currentWorldSaveId) return null;
+  return record;
+}
+/* 界面统一从这里取失败原因：内存里的最新，落盘里的用于重进后恢复。 */
+function currentWorldTurnFailureMessage() {
+  if (worldTurnError && worldTurnError.saveId === currentWorldSaveId) return worldTurnError.message;
+  const record = restoredWorldTurnFailure();
+  return record ? record.message : '';
+}
+
 function worldTurnErrorActive() {
-  return worldModeActive() && !!worldTurnError && worldTurnError.saveId === currentWorldSaveId;
+  if (!worldModeActive()) return false;
+  if (worldTurnError && worldTurnError.saveId === currentWorldSaveId) return true;
+  // 重进后内存状态没了，但落盘的失败记录还在 —— 仍要给出处理入口。
+  return !!restoredWorldTurnFailure();
 }
 function resetWorldTurnPending(pending) {
   if (!pending) return;
@@ -339,6 +383,7 @@ function discardWorldTurnPending() {
   clearResponsePreview();
   worldTurnPending = null;
   worldTurnError = null;
+  clearWorldTurnFailure();
   worldTurnEpoch++;
   resetWorldTurnPending(pending);
   renderMessages();
@@ -377,6 +422,7 @@ function failWorldTurnPending(message) {
     commandId: worldTurnPending.commandId,
     message: String(message || '本回合未提交'),
   };
+  persistWorldTurnFailure(message);
   scheduleWorldTurnAutoRetry(message);
   worldTurnEpoch++;
   renderMessages();
@@ -385,6 +431,7 @@ function failWorldTurnPending(message) {
 async function retryWorldTurn() {
   if (!worldTurnPendingActive() || !worldTurnErrorActive() || sending || worldTurnPreparing) return;
   worldTurnError = null;
+  clearWorldTurnFailure();
   const retryCommit = !!worldTurnPending.assistantMessage;
   const retryAgentNarration = !!worldTurnPending.agentExecution;
   const retryProtocol = !!worldTurnPending.protocolRepairDraft;
@@ -541,6 +588,7 @@ async function submitWorldTurn(pending) {
   clearResponsePreview();
   worldTurnPending = null;
   worldTurnError = null;
+  clearWorldTurnFailure();
   worldTurnEpoch++;
   renderRPG();
   renderSessions();

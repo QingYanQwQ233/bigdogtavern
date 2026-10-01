@@ -903,7 +903,10 @@ async function requestRpgAgentReply(payload, targetScope) {
       const message = data?.choices?.[0]?.message || {};
       response = { content: message.content || '', cot: message.reasoning_content || '', calls: normalizeNativeToolCalls(message).map(parseNativeToolArguments), rawMessage: message };
     }
-    session.cot += `${session.cot && response.cot ? '\n\n' : ''}${response.cot || ''}`;
+    session.cot = appendRpgAgentCot(session.cot, {
+      label: `${finalOnly ? '最终步骤' : `步骤 ${step + 1}`}${(response.calls || []).length ? `（${response.calls.map(call => call.name || '工具').join('、')}）` : ''}`,
+      cot: response.cot,
+    });
     const previousPreview = session.previewNarrative;
     publishRpgAgentStep(session, response, targetScope, finalOnly ? 'Agent 最终步骤已完成' : 'Agent 步骤已完成');
     if (finalOnly) {
@@ -1005,7 +1008,10 @@ async function requestRpgCompatReply(payload, targetScope, session = createRpgAg
       const content = message.content || '';
       response = { content, cot: message.reasoning_content || '', calls: normalizeCompatToolCalls(processAIOutput(content).agentCalls, step) };
     }
-    session.cot += `${session.cot && response.cot ? '\n\n' : ''}${response.cot || ''}`;
+    session.cot = appendRpgAgentCot(session.cot, {
+      label: `${finalOnly ? '最终步骤' : `步骤 ${step + 1}`}${(response.calls || []).length ? `（${response.calls.map(call => call.name || '工具').join('、')}）` : ''}`,
+      cot: response.cot,
+    });
     const previousPreview = session.previewNarrative;
     publishRpgAgentStep(session, response, targetScope, finalOnly ? '兼容 Agent 最终步骤已完成' : '兼容 Agent 步骤已完成');
     if (finalOnly) {
