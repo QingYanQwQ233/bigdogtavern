@@ -3376,6 +3376,19 @@ function buildMapContext() {
   return lines.join('\n');
 }
 
+/* 同一段错误文案只播报一次：renderQuickActions 会被反复调用，
+   不去重的话灵动岛会被同一条错误刷屏。错误消失后重置。 */
+let worldTurnErrorNotified = null;
+function syncWorldTurnErrorNotice(message) {
+  if (!message || message === worldTurnErrorNotified) return;
+  worldTurnErrorNotified = message;
+  notify(message, {
+    level: 'error',
+    duration: 0,
+    action: { label: '重试 AI', onClick: retryWorldTurn },
+  });
+}
+
 /* 快捷行动栏：RPG / 酒馆模式都读取最后一条 AI 回复的结构化 options（点击即发送）。 */
 function renderQuickActions() {
   const qa = $('quick-actions');
@@ -3389,17 +3402,11 @@ function renderQuickActions() {
     qa.appendChild(notice);
   }
   if (worldTurnErrorActive()) {
-    const box = document.createElement('div');
-    box.className = 'world-turn-error';
-    box.setAttribute('role', 'status');
-    box.setAttribute('aria-live', 'polite');
-    const text = document.createElement('span');
-    text.className = 'world-turn-error-text';
+    // 提示走灵动岛（全站唯一通知出口），页面上只留操作按钮，不再画红框横幅。
     const phase = worldTurnPendingActive() && worldTurnPending.agentPhase ? `（Agent ${worldTurnPending.agentPhase} 阶段）` : '';
-    text.textContent = `本回合未提交${phase}：${worldTurnError.message}`;
-    box.appendChild(text);
-    const actions = document.createElement('span');
-    actions.className = 'world-turn-error-actions';
+    syncWorldTurnErrorNotice(`本回合未提交${phase}：${worldTurnError.message}`);
+    const actions = document.createElement('div');
+    actions.className = 'world-turn-actions';
     const retry = document.createElement('button');
     retry.type = 'button';
     retry.className = 'btn gold small';
@@ -3411,10 +3418,10 @@ function renderQuickActions() {
     reset.textContent = '重置本回合';
     reset.addEventListener('click', discardWorldTurnPending);
     actions.append(retry, reset);
-    box.appendChild(actions);
-    qa.appendChild(box);
+    qa.appendChild(actions);
     return;
   }
+  worldTurnErrorNotified = null;
   if (responsePreview && responsePreview.targetKey === activeConversationKey()) {
     const pending = document.createElement('span');
     pending.className = 'quick-hint';

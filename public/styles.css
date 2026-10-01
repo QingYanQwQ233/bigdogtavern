@@ -1192,6 +1192,16 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
 }
 .world-turn-error-text { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .world-turn-error-actions { display: flex; flex: none; gap: 6px; align-items: center; }
+/* 回合错误：提示已走灵动岛，页面上只剩操作按钮 —— 同级按钮等宽 */
+.world-turn-actions {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.world-turn-actions > .btn {
+  flex: 1 1 0;
+  min-width: 0;
+}
 .chip {
   padding: 4px 14px;
   border-radius: 999px;
