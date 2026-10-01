@@ -1150,14 +1150,12 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   user-select: none;
 }
 .bubble .cot summary:hover { color: var(--text); }
-.bubble .cot pre {
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-size: 11px;
-  color: var(--muted);
-  padding: 0 10px 8px;
-  line-height: 1.6;
+.bubble .cot .cot-body {
   margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 12.5px/1.65 var(--font-body);
+  color: var(--muted);
 }
 
 /* ── 输入区 ── */

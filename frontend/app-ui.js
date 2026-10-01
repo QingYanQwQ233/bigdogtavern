@@ -1637,7 +1637,7 @@ function renderMessages() {
       if (m.cot) {
         const cotEl = document.createElement('div');
         cotEl.className = 'msg cot-msg';
-        cotEl.innerHTML = `<div class="nar-icon">🧠</div><div class="bubble"><details class="cot"><summary>🧠 思维链</summary><pre>${esc(m.cot)}</pre></details></div>`;
+        cotEl.innerHTML = `<div class="nar-icon">🧠</div><div class="bubble"><details class="cot"><summary>🧠 思维链</summary><div class="cot-body">${esc(m.cot)}</div></details></div>`;
         chat.appendChild(cotEl);
       }
       if (mode === 'rpg') {

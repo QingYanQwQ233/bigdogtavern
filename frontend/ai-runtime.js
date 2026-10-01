@@ -1161,8 +1161,14 @@ function renderTypingContentFrame() {
   if (typeof document?.getElementById !== 'function') return;
   const t = $('typing-msg');
   if (!t) {
-    if (mode === 'rpg' && responsePreview?.targetKey === activeConversationKey() && rpgCheckAnimation?.checkpoints) {
-      responsePreview.checkpoints = serializeRpgCheckpoints(rpgCheckAnimation.checkpoints);
+    if (mode === 'rpg' && responsePreview?.targetKey === activeConversationKey()) {
+      // RPG 模式没有 typing-msg 气泡，正文走 responsePreview —— 这里也要跟着增量更新，
+      // 否则正文要等流结束才一次性出现（看着就不像流式）。
+      if (rpgCheckAnimation?.checkpoints) {
+        responsePreview.checkpoints = serializeRpgCheckpoints(rpgCheckAnimation.checkpoints);
+      }
+      const streamed = parseRpgOutput(stripRpgNarrativeOptions(typingText)).narrative;
+      if (streamed) responsePreview.previewNarrative = streamed;
       renderMessages();
     }
     return;
