@@ -1265,7 +1265,7 @@ textarea#input::-webkit-scrollbar { display: none; }
   min-height: 44px;
   padding: 0;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: rgba(var(--bg-0-rgb), 0.55);
   color: var(--muted);
   font-size: 18px;
@@ -1292,7 +1292,7 @@ textarea#input::-webkit-scrollbar { display: none; }
   box-sizing: border-box;
   padding: 10px 24px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: linear-gradient(160deg, var(--danger), var(--danger-2));
   color: #f7f0e3;
   font-family: var(--font-display);
@@ -2079,7 +2079,15 @@ body[data-theme="vibrancy"] .dropdown { box-shadow: none; }
 }
 /* 设置是完整页面，不是悬浮小窗：全屏铺满（内容再少也不在底下漏出聊天区）。
    头部与分类 tab 固定，只有正文滚动。 */
-#settings-modal .modal { background: var(--bg-0); backdrop-filter: none; -webkit-backdrop-filter: none; }
+/* 设置页是铺满整屏的普通 div（不是 dialog），必须自己避让系统栏，
+   否则头部会顶到状态栏下面（dialog[open] 那套规则覆盖不到它）。 */
+#settings-modal {
+  background: var(--bg-0);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  padding-top: var(--safe-top, env(safe-area-inset-top));
+  padding-bottom: var(--safe-bottom, env(safe-area-inset-bottom));
+}
 #settings-modal .modal-box {
   width: 100%;
   height: 100%;

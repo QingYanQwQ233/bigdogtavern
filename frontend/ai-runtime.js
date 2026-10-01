@@ -891,10 +891,11 @@ async function requestRpgAgentReply(payload, targetScope) {
     let response;
     if (request.body.stream) {
       const stream = await callAPIStream(request, {
-        // 最终步骤就是产出叙事正文的那一步：让它边生成边渲染。
-        // 前几步仍不渲染（那是工具调用阶段，没有可展示的正文）。
-        render: finalOnly,
-        previewPrefix: finalOnly ? String(session.previewNarrative || '') : '',
+        // 每一步都允许渲染：本回合可能在第一步就产出正文（纯叙述、无需工具），
+        // 那时 finalOnly 为 false，若按 finalOnly 渲染就等于整段不流式。
+        // 工具阶段的输出不含 narrative，渲染层会自行跳过（见 renderTypingContentFrame）。
+        render: true,
+        previewPrefix: String(session.previewNarrative || ''),
       });
       response = { content: stream.content, cot: stream.cot, calls: stream.toolCalls || [] };
     } else {
@@ -993,9 +994,9 @@ async function requestRpgCompatReply(payload, targetScope, session = createRpgAg
     let response;
     if (request.body.stream) {
       const stream = await callAPIStream(request, {
-        // 同原生路径：只有最终步骤渲染，前几步是工具阶段。
-        render: finalOnly,
-        previewPrefix: finalOnly ? String(session.previewNarrative || '') : '',
+        // 同原生路径：每步都可渲染，靠 narrative 过滤工具阶段。
+        render: true,
+        previewPrefix: String(session.previewNarrative || ''),
       });
       response = { content: stream.content, cot: stream.cot, calls: normalizeCompatToolCalls(processAIOutput(stream.content).agentCalls, step) };
     } else {
@@ -1170,8 +1171,21 @@ async function callAPIStream(payload, { previewPrefix = '', render = true } = {}
 let typingText = '';
 let typingCot = '';
 let typingRaf = 0;
+/* 工具阶段判定：那一步没有叙事正文，不能把工具协议块当正文渲染。
+   注意 parseRpgOutput 并不剥离协议块（实测其 narrative 会原样保留 JSON），
+   所以这里必须用工具解析器显式判断，否则流式会把 JSON 刷到聊天区。 */
+function typingLooksLikeToolStage(text) {
+  try {
+    const parsed = typeof processAIOutput === 'function' ? processAIOutput(String(text || '')) : null;
+    return !!(parsed && Array.isArray(parsed.agentCalls) && parsed.agentCalls.length);
+  } catch {
+    return false;
+  }
+}
+
 function renderTypingContentFrame() {
   if (typeof document?.getElementById !== 'function') return;
+  if (mode === 'rpg' && typingLooksLikeToolStage(typingText)) return;
   const t = $('typing-msg');
   if (!t) {
     // typing 气泡不在消息列表里，renderMessages() 重建列表时会被清掉。
@@ -1186,6 +1200,8 @@ function renderTypingContentFrame() {
   const preview = mode === 'rpg' ? parseRpgOutput(typingText).narrative : typingText;
   const target = t.querySelector(mode === 'rpg' ? '.rpg-prose' : '.bubble');
   if (!target) return;
+  // RPG 工具阶段还没有正文（协议块里没有 narrative）：保留占位，别把气泡清空。
+  if (mode === 'rpg' && !String(preview || '').trim()) return;
   const rendered = mode === 'rpg'
     ? renderRpgNarrativeWithCheckpoints(stripRpgNarrativeOptions(preview), rpgCheckAnimation?.checkpoints, { streaming: true })
     : renderBubble(applyOutputRegex(preview));
