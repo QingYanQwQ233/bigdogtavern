@@ -3596,6 +3596,11 @@ body[data-mode="rpg"] .composer {
 @keyframes toast-msg-in {
   from { opacity: 0; transform: translateY(2px); }
 }
+/* 紧跟在另一条后面的胶囊：不走回弹（叠加 overshoot 会“一下一下地跳”），改干净快速的淡入 */
+.toast.is-quick { animation: toast-in-quick 200ms var(--motion-out) both; }
+@keyframes toast-in-quick {
+  from { opacity: 0; transform: translateY(-6px); }
+}
 @media (prefers-reduced-motion: reduce) {
   .toast, .toast.toast-out { animation: none; }
   .toast { transition: none; }

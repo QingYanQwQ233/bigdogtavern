@@ -255,6 +255,7 @@ function showToast(message, options = {}) {
     if (sizeClearTimer) { clearTimeout(sizeClearTimer); sizeClearTimer = null; }
     toast.style.width = '';
     toast.style.height = '';
+    toast.style.marginBottom = '';
     const prevText = body.textContent;
     const firstW = toast.offsetWidth;
     const firstH = toast.offsetHeight;
@@ -306,6 +307,25 @@ function showToast(message, options = {}) {
   }
   host.appendChild(toast);
   paint(message, options.kind, options);
+  // 入场也要“长出来”：直接占满高度的话，新胶囊会把下面那条一帧推开（连发时最明显）
+  const enterH = toast.offsetHeight;
+  if (enterH) {
+    const enterGap = parseFloat(getComputedStyle(host).rowGap) || 0;
+    toast.style.height = '0px';
+    toast.style.marginBottom = (-enterGap) + 'px';
+    void toast.offsetHeight;
+    toast.style.height = enterH + 'px';
+    toast.style.marginBottom = '0px';
+    sizeClearTimer = setTimeout(() => {
+      toast.style.height = '';
+      toast.style.marginBottom = '';
+      sizeClearTimer = null;
+    }, 320);
+  }
+  // 紧跟着上一条出现时改用轻快的淡入（在 paint 之后加，否则会被 className 覆盖）
+  const now = Date.now();
+  if (now - lastToastEnterAt < 250) toast.classList.add('is-quick');
+  lastToastEnterAt = now;
   return handle;
 }
 /* ─────────── 应用内对话框（替代原生 alert / confirm / prompt） ───────────
@@ -428,6 +448,8 @@ function stripResultIcon(message) {
   return text;
 }
 let appBusyToast = null;
+// 上一次胶囊入场的时间：隔着太近就不走回弹，避免连续弹出时“一下一下地跳”
+let lastToastEnterAt = 0;
 function dismissProgress() {
   if (!appBusyToast) return;
   try { appBusyToast.dismiss(); } catch { /* 已被关闭的 toast 再 dismiss 无副作用 */ }
