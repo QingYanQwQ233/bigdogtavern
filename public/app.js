@@ -175,27 +175,42 @@ let requestAbortRequested = false;
  * 错误带 role=alert 并停留更久；支持手动关闭与 Esc。 */
 /* 普通层浮层（灵动岛、应用内弹窗、设置面板）必须浮在模态 <dialog> 之上。
    <dialog> 用 showModal() 打开时会进浏览器的 top layer，普通 fixed 层哪怕 z-index 上万也压不住它 ——
-   表现就是“点了没反应 / 提示被挡住”。统一策略：显示前把浮层容器挪进当前打开的 dialog（同处 top layer），
-   没有 dialog 时留在 body；dialog 关闭时再统一搬回 body，免得浮层跟着被一起隐藏。 */
+   表现就是“点了没反应 / 提示被挡住”。统一策略：显示前把浮层容器挪进【最后打开】那个 dialog（同处 top layer），
+   dialog 关闭时再挪到下一个还开着的 dialog（没有就回 body）。 */
 const OVERLAY_IDS = ['toast-host', 'dialog-host', 'settings-modal'];
 let overlayReturnBound = false;
+let activeOverlayDialog = null;
+function topMostDialog() {
+  const list = document.querySelectorAll('dialog[open]');
+  if (!list.length) return null;
+  // 最近打开的那个还开着的话，它就在 top layer 最上面
+  if (activeOverlayDialog && activeOverlayDialog.open) return activeOverlayDialog;
+  return list[list.length - 1];
+}
 function bindOverlayReturn() {
   if (overlayReturnBound) return;
   overlayReturnBound = true;
-  // dialog 的 close 事件不冒泡，要在捕获阶段听
+  // dialog 的 open / close 都不冒泡，要在捕获阶段听
+  document.addEventListener('open', (event) => {
+    if (event.target && event.target.tagName === 'DIALOG') activeOverlayDialog = event.target;
+  }, true);
   document.addEventListener('close', (event) => {
     const target = event.target;
     if (!target || target.tagName !== 'DIALOG') return;
+    if (activeOverlayDialog === target) activeOverlayDialog = null;
+    const list = document.querySelectorAll('dialog[open]');
+    activeOverlayDialog = list.length ? list[list.length - 1] : null;
+    const dest = activeOverlayDialog || document.body;
     OVERLAY_IDS.forEach((id) => {
       const el = document.getElementById(id);
-      if (el && el.parentElement && el.parentElement.tagName === 'DIALOG') document.body.appendChild(el);
+      if (el && el.parentElement && el.parentElement.tagName === 'DIALOG') dest.appendChild(el);
     });
   }, true);
 }
 function raiseOverlay(el) {
   if (!el) return el;
   bindOverlayReturn();
-  const target = document.querySelector('dialog[open]') || document.body;
+  const target = topMostDialog() || document.body;
   if (el.parentElement !== target) target.appendChild(el);
   return el;
 }

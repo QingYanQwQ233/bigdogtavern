@@ -4,6 +4,7 @@
 - 设置面板（`#settings-modal`）、应用内弹窗（`#dialog-host`，即 alert / confirm / prompt）与灵动岛一样，显示前会挪进当前打开的 `<dialog>`（同处 top layer），dialog 关闭时统一搬回 body。修掉「在世界流程里点『去设置』看着没反应，其实是被对话框压在下面」以及「确认框被遮挡导致流程卡住」这类问题。
 
 
+- 多个 `<dialog>` 叠开时，浮层跟随【最后打开】的那个；关掉上层后自动落到下一个仍开着的 dialog，全部关完回 body。
 ## 2026-10-01 · 灵动岛浮在模态对话框之上
 
 - `<dialog>` 用 `showModal()` 会进入浏览器 top layer，普通固定层（哪怕 z-index 上万）会被整条盖住 —— 之前的现象就是「对话框开着时发的通知其实弹了，却看不见」。现在 `showToast` 之前先把 `#toast-host` 挪进当前打开的 `<dialog>`（与它同处 top layer），dialog 关闭后自动挪回 body；`.toast-host` 的 z-index 提到 15000 以盖过 dialog 内部层级。
