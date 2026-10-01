@@ -93,10 +93,15 @@ class MainActivity : Activity() {
                 return false
             }
 
+            override fun onPageFinished(view: WebView, url: String) {
+                // 页面重载后 :root 上的变量会丢失，需要重新注入一次
+                injectSafeArea()
+            }
         }
-        // 全屏（edge-to-edge）：窗口铺到状态栏 / 导航栏之下；内容不能跟着顶上去
-        // （否则会和状态栏图标叠在一起），所以用容器内边距避开系统栏。
-        // 内边距必须加在容器上：WebView 自身会处理 insets 并覆盖掉外部设置的 padding。
+        // 全屏（edge-to-edge）：窗口铺满整屏，内容一直铺到状态栏 / 导航栏之下，
+        // 系统栏透明。避让交给页面自己：把系统栏高度注入 --safe-top / --safe-bottom，
+        // 由 styles.css 的 #app 与各全屏面板使用 —— 谁在显示就带谁的颜色，
+        // 不会出现一条固定的「同色带」跟当前界面颜色对不上。
         val rootView = FrameLayout(this)
         rootView.addView(
             webView,
@@ -105,18 +110,13 @@ class MainActivity : Activity() {
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
         )
-        rootView.setOnApplyWindowInsetsListener { view, insets ->
+        rootView.setOnApplyWindowInsetsListener { _, insets ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val bars = insets.getInsets(WindowInsets.Type.systemBars())
-                view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+                updateSafeArea(bars.top, bars.bottom)
             } else {
                 @Suppress("DEPRECATION")
-                view.setPadding(
-                    insets.systemWindowInsetLeft,
-                    insets.systemWindowInsetTop,
-                    insets.systemWindowInsetRight,
-                    insets.systemWindowInsetBottom
-                )
+                updateSafeArea(insets.systemWindowInsetTop, insets.systemWindowInsetBottom)
             }
             insets
         }
@@ -126,12 +126,36 @@ class MainActivity : Activity() {
         bootNode()
     }
 
+    /** 系统栏留白（CSS 像素）：top / bottom，页面重载后要重新注入 */
+    private var safeTopCss = 0
+    private var safeBottomCss = 0
+
+    /** 系统栏高度（物理像素）换算成 CSS 像素后注入页面变量 */
+    private fun updateSafeArea(topPx: Int, bottomPx: Int) {
+        val d = resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
+        safeTopCss = (topPx / d).toInt()
+        safeBottomCss = (bottomPx / d).toInt()
+        injectSafeArea()
+    }
+
     /**
-     * 全屏（edge-to-edge）：让窗口铺满整屏，状态栏 / 导航栏区域露出窗口底色
-     * （与页面底色一致，看起来就是「同色的一条」，不会和状态栏图标重叠）。
+     * 把系统栏留白写进 :root 的 --safe-top / --safe-bottom。
      *
-     * 内容避让由 rootView 的内边距完成（见 onCreate），不依赖 CSS env()：
-     * WebView 基本不上报 env(safe-area-inset-*)，那套在套壳里恒为 0。
+     * 页面（styles.css）用 var(--safe-*, env(safe-area-inset-*)) 读取：
+     * 套壳里走注入值，浏览器 / iOS PWA 里 env() 本来就有效，作为回退。
+     */
+    private fun injectSafeArea() {
+        val js = "(function(){var s=document.documentElement.style;" +
+            "s.setProperty('--safe-top','${safeTopCss}px');" +
+            "s.setProperty('--safe-bottom','${safeBottomCss}px');})()"
+        webView.post { runCatching { webView.evaluateJavascript(js, null) } }
+    }
+
+    /**
+     * 全屏（edge-to-edge）：窗口铺满整屏，系统栏透明，内容一直铺到栏下。
+     *
+     * 避让由页面自己负责（--safe-top / --safe-bottom），这样状态栏 / 导航栏
+     * 区域永远显示「当前界面自己的颜色」，不会出现一条对不上的底色带。
      */
     private fun applyEdgeToEdge() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
