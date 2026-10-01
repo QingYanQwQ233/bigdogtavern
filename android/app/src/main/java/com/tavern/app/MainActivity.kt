@@ -92,9 +92,15 @@ class MainActivity : Activity() {
                 }
                 return false
             }
+
+            override fun onPageFinished(view: WebView, url: String) {
+                // 页面重载后 :root 上的 CSS 变量会丢失，需要重新注入一次
+                injectSafeArea()
+            }
         }
-        // WebView 自身会处理 window insets 并覆盖外部设置的 padding，
-        // 因此避让必须加在承载它的容器上，而不是 WebView 自己。
+        // 全屏（edge-to-edge）：窗口铺到状态栏 / 导航栏之下，WebView 随之铺满。
+        // 避让由页面 CSS 负责（styles.css 用 env(safe-area-inset-*)），
+        // 但 WebView 不上报这些值（恒为 0），所以由原生把系统栏高度注入成 CSS 变量。
         val rootView = FrameLayout(this)
         rootView.addView(
             webView,
@@ -103,17 +109,17 @@ class MainActivity : Activity() {
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
         )
-        rootView.setOnApplyWindowInsetsListener { view, insets ->
+        rootView.setOnApplyWindowInsetsListener { _, insets ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val bars = insets.getInsets(WindowInsets.Type.systemBars())
-                view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+                updateSafeArea(bars.top, bars.right, bars.bottom, bars.left)
             } else {
                 @Suppress("DEPRECATION")
-                view.setPadding(
-                    insets.systemWindowInsetLeft,
+                updateSafeArea(
                     insets.systemWindowInsetTop,
                     insets.systemWindowInsetRight,
-                    insets.systemWindowInsetBottom
+                    insets.systemWindowInsetBottom,
+                    insets.systemWindowInsetLeft
                 )
             }
             insets
@@ -131,6 +137,32 @@ class MainActivity : Activity() {
      * 避让由页面 CSS 的 env(safe-area-inset-*) 负责（styles.css 已就位），
      * 所以页面 meta 必须带 viewport-fit=cover，否则这些 env() 恒为 0。
      */
+    /** 系统栏留白（CSS 像素），顺序 top/right/bottom/left —— 页面重载后要重新注入 */
+    private var safeArea = intArrayOf(0, 0, 0, 0)
+
+    /** 系统栏高度（物理像素）换算为 CSS 像素，再注入页面变量 */
+    private fun updateSafeArea(top: Int, right: Int, bottom: Int, left: Int) {
+        val d = resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
+        safeArea = intArrayOf(
+            (top / d).toInt(),
+            (right / d).toInt(),
+            (bottom / d).toInt(),
+            (left / d).toInt()
+        )
+        injectSafeArea()
+    }
+
+    /** 把系统栏留白写进 :root 的 CSS 变量，页面用 var(--safe-*, env(...)) 读取 */
+    private fun injectSafeArea() {
+        val v = safeArea
+        val js = "(function(){var s=document.documentElement.style;" +
+            "s.setProperty('--safe-top','${v[0]}px');" +
+            "s.setProperty('--safe-right','${v[1]}px');" +
+            "s.setProperty('--safe-bottom','${v[2]}px');" +
+            "s.setProperty('--safe-left','${v[3]}px');})()"
+        webView.post { runCatching { webView.evaluateJavascript(js, null) } }
+    }
+
     private fun applyEdgeToEdge() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.setDecorFitsSystemWindows(false)
@@ -148,13 +180,13 @@ class MainActivity : Activity() {
             @Suppress("DEPRECATION")
             window.isNavigationBarContrastEnforced = false
         }
-        if (Build.VERSION.SDK_INT < 35) {
-            // Android 15 (API 35) 起这两项已废弃且强制透明，无需再设
-            @Suppress("DEPRECATION")
-            window.statusBarColor = android.graphics.Color.TRANSPARENT
-            @Suppress("DEPRECATION")
-            window.navigationBarColor = android.graphics.Color.TRANSPARENT
-        }
+        // 系统栏必须透明，否则会盖住已经延伸到栏下的内容（表现就是顶部 / 底部黑边）。
+        // 注意：Android 15 只在 targetSdk >= 35 时才强制透明；本项目 targetSdk = 34，
+        // 所以这两行在 Android 15（API 35）上仍然必需，不能按 SDK 版本跳过。
+        @Suppress("DEPRECATION")
+        window.statusBarColor = android.graphics.Color.TRANSPARENT
+        @Suppress("DEPRECATION")
+        window.navigationBarColor = android.graphics.Color.TRANSPARENT
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             // 界面是深色的：清掉「浅色图标」标记，让系统栏图标转为浅色
             window.insetsController?.setSystemBarsAppearance(

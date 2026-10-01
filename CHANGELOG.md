@@ -1,10 +1,10 @@
 # 更新日志
 ## 2026-10-01 · APK 全屏（edge-to-edge）
-
-- 顶部那条黑边的原因：MainActivity 没有开 edge-to-edge，系统会把窗口限制在状态栏下方。现在 onCreate 里调用 `applyEdgeToEdge()`：`setDecorFitsSystemWindows(false)`（API30+）/ `SYSTEM_UI_FLAG_LAYOUT_*`（API24–29），并把状态栏与导航栏设为透明、去掉导航栏对比度底色、系统栏图标转为浅色。
-- 避让不走 CSS：**原生把系统栏高度作为 WebView 内边距传下去**（`setOnApplyWindowInsetsListener`，API30+ 用 `WindowInsets.Type.systemBars()`，24–29 用旧字段）。第一版试过 `viewport-fit=cover` + CSS `env(safe-area-inset-*)`，但不少 WebView 版本不上报这些值（恒为 0），会变成「内容被状态栏压住」，已撤销。
-- 窗口底色设为页面底色（`#1C1C1E`，同 `theme-color`），WebView 透明 —— 状态栏 / 导航栏区域看起来与页面融为一体，不再有黑边。
-
+- 顶部黑边的根因：MainActivity 没有开 edge-to-edge，系统把窗口限制在状态栏下方。`applyEdgeToEdge()` 现在执行 `setDecorFitsSystemWindows(false)`（API30+）/ `SYSTEM_UI_FLAG_LAYOUT_*`（API24–29），并把状态栏、导航栏设为**透明**、去掉导航栏对比度底色、系统栏图标转为浅色。
+- 系统栏透明那几行**不能按 SDK 版本跳过**：Android 15 只在 `targetSdk >= 35` 时强制透明，本项目 `targetSdk = 34`，一旦按版本跳过，Android 15（API 35）真机上就会留下纯黑边。
+- 避让交给页面 CSS：WebView 不上报 `env(safe-area-inset-*)`（恒为 0），因此由原生把系统栏高度换算成 CSS 像素后注入 `:root` 的 `--safe-top/right/bottom/left`；`styles.css` 对应位置改为 `var(--safe-x, env(safe-area-inset-x))`，浏览器与 iOS PWA 仍走 `env()`。页面重载后由 `onPageFinished` 重新注入。
+- 窗口底色设为页面底色（`#1C1C1E`，同 `theme-color`），WebView 透明 —— 状态栏 / 导航栏区域与页面融为一体。
+- 修复构建脚本：`build-tavern-apk.sh` 此前在 gradle 失败时仍打印「✅ APK」并复制上一次的产物（几乎导致交付旧包）。现在检查 gradle 退出码，并校验 APK 内嵌 `versionName` 与本次一致。
 ## 2026-10-01 · 产品契约 v1 冻结（M0 收口）
 
 - 新增 `docs/product-contract-v1.md`（v1.0 冻结）：产品定义、数据所有权、**10 条不可违反的不变量（INV-1…INV-10，编号永久稳定）**、模块清单、变更流程与版本语义（MINOR / MAJOR / PATCH）。
