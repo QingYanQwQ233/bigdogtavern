@@ -12998,7 +12998,12 @@ async function requestRpgAgentReply(payload, targetScope) {
     if (step > 0) beginDebugRequest(targetScope, request, { label: finalOnly ? 'Agent 最终步骤' : `Agent 步骤 ${step + 1}` });
     let response;
     if (request.body.stream) {
-      const stream = await callAPIStream(request, { render: false });
+      const stream = await callAPIStream(request, {
+        // 最终步骤就是产出叙事正文的那一步：让它边生成边渲染。
+        // 前几步仍不渲染（那是工具调用阶段，没有可展示的正文）。
+        render: finalOnly,
+        previewPrefix: finalOnly ? String(session.previewNarrative || '') : '',
+      });
       response = { content: stream.content, cot: stream.cot, calls: stream.toolCalls || [] };
     } else {
       const data = await callAPI(request);
@@ -13095,7 +13100,11 @@ async function requestRpgCompatReply(payload, targetScope, session = createRpgAg
     if (step > 0) beginDebugRequest(targetScope, request, { label: finalOnly ? '兼容 Agent 最终步骤' : `兼容 Agent 步骤 ${step + 1}` });
     let response;
     if (request.body.stream) {
-      const stream = await callAPIStream(request, { render: false });
+      const stream = await callAPIStream(request, {
+        // 同原生路径：只有最终步骤渲染，前几步是工具阶段。
+        render: finalOnly,
+        previewPrefix: finalOnly ? String(session.previewNarrative || '') : '',
+      });
       response = { content: stream.content, cot: stream.cot, calls: normalizeCompatToolCalls(processAIOutput(stream.content).agentCalls, step) };
     } else {
       const data = await callAPI(request);
