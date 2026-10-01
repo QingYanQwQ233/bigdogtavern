@@ -46,7 +46,6 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        applyEdgeToEdge()
 
         webView = WebView(this)
         webView.settings.javaScriptEnabled = true
@@ -93,6 +92,25 @@ class MainActivity : Activity() {
             }
         }
         setContentView(webView)
+        // 全屏后内容会顶到状态栏 / 导航栏下面：由原生把系统栏高度作为内边距交给 WebView。
+        // 不依赖 CSS 的 env(safe-area-inset-*)，因为不少 WebView 版本并不上报这些值（恒为 0）。
+        webView.setOnApplyWindowInsetsListener { view, insets ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val bars = insets.getInsets(WindowInsets.Type.systemBars())
+                view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            } else {
+                @Suppress("DEPRECATION")
+                view.setPadding(
+                    insets.systemWindowInsetLeft,
+                    insets.systemWindowInsetTop,
+                    insets.systemWindowInsetRight,
+                    insets.systemWindowInsetBottom
+                )
+            }
+            insets
+        }
+
+        applyEdgeToEdge()
         bootNode()
     }
 
@@ -106,6 +124,8 @@ class MainActivity : Activity() {
     private fun applyEdgeToEdge() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.setDecorFitsSystemWindows(false)
+            // 状态栏 / 导航栏区域显示为页面底色，避免露出黑边（底色与 index.html 的 theme-color 一致）
+            window.decorView.setBackgroundColor(PAGE_BACKGROUND)
         } else {
             @Suppress("DEPRECATION")
             window.decorView.systemUiVisibility =
@@ -261,6 +281,7 @@ class MainActivity : Activity() {
     }
 
     private companion object {
+        private const val PAGE_BACKGROUND = 0xFF1C1C1E.toInt() // 同 index.html 的 theme-color
         const val TAG = "TavernAndroid"
     }
 }

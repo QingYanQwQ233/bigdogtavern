@@ -2,7 +2,8 @@
 ## 2026-10-01 · APK 全屏（edge-to-edge）
 
 - 顶部那条黑边的原因：MainActivity 没有开 edge-to-edge，系统会把窗口限制在状态栏下方。现在 onCreate 里调用 `applyEdgeToEdge()`：`setDecorFitsSystemWindows(false)`（API30+）/ `SYSTEM_UI_FLAG_LAYOUT_*`（API24–29），并把状态栏与导航栏设为透明、去掉导航栏对比度底色、系统栏图标转为浅色。
-- 网页侧补上 `viewport-fit=cover`（此前缺失，导致 CSS 的 `env(safe-area-inset-*)` 恒为 0）；WebView 背景设为透明，让页面自己的深色背景铺到状态栏 / 导航栏之下。避让本就由 styles.css 里已有的 10 处 `env(safe-area-inset-*)` 负责，无需改布局。
+- 避让不走 CSS：**原生把系统栏高度作为 WebView 内边距传下去**（`setOnApplyWindowInsetsListener`，API30+ 用 `WindowInsets.Type.systemBars()`，24–29 用旧字段）。第一版试过 `viewport-fit=cover` + CSS `env(safe-area-inset-*)`，但不少 WebView 版本不上报这些值（恒为 0），会变成「内容被状态栏压住」，已撤销。
+- 窗口底色设为页面底色（`#1C1C1E`，同 `theme-color`），WebView 透明 —— 状态栏 / 导航栏区域看起来与页面融为一体，不再有黑边。
 
 ## 2026-10-01 · 产品契约 v1 冻结（M0 收口）
 
