@@ -93,14 +93,10 @@ class MainActivity : Activity() {
                 return false
             }
 
-            override fun onPageFinished(view: WebView, url: String) {
-                // 页面重载后 :root 上的 CSS 变量会丢失，需要重新注入一次
-                injectSafeArea()
-            }
         }
-        // 全屏（edge-to-edge）：窗口铺到状态栏 / 导航栏之下，WebView 随之铺满。
-        // 避让由页面 CSS 负责（styles.css 用 env(safe-area-inset-*)），
-        // 但 WebView 不上报这些值（恒为 0），所以由原生把系统栏高度注入成 CSS 变量。
+        // 全屏（edge-to-edge）：窗口铺到状态栏 / 导航栏之下；内容不能跟着顶上去
+        // （否则会和状态栏图标叠在一起），所以用容器内边距避开系统栏。
+        // 内边距必须加在容器上：WebView 自身会处理 insets 并覆盖掉外部设置的 padding。
         val rootView = FrameLayout(this)
         rootView.addView(
             webView,
@@ -109,17 +105,17 @@ class MainActivity : Activity() {
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
         )
-        rootView.setOnApplyWindowInsetsListener { _, insets ->
+        rootView.setOnApplyWindowInsetsListener { view, insets ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val bars = insets.getInsets(WindowInsets.Type.systemBars())
-                updateSafeArea(bars.top, bars.right, bars.bottom, bars.left)
+                view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
             } else {
                 @Suppress("DEPRECATION")
-                updateSafeArea(
+                view.setPadding(
+                    insets.systemWindowInsetLeft,
                     insets.systemWindowInsetTop,
                     insets.systemWindowInsetRight,
-                    insets.systemWindowInsetBottom,
-                    insets.systemWindowInsetLeft
+                    insets.systemWindowInsetBottom
                 )
             }
             insets
@@ -131,38 +127,12 @@ class MainActivity : Activity() {
     }
 
     /**
-     * 全屏（edge-to-edge）：让内容延伸到状态栏 / 导航栏之下。
+     * 全屏（edge-to-edge）：让窗口铺满整屏，状态栏 / 导航栏区域露出窗口底色
+     * （与页面底色一致，看起来就是「同色的一条」，不会和状态栏图标重叠）。
      *
-     * 不这样做时，系统会把窗口限制在状态栏下方 —— 顶部就会空出一条黑边。
-     * 避让由页面 CSS 的 env(safe-area-inset-*) 负责（styles.css 已就位），
-     * 所以页面 meta 必须带 viewport-fit=cover，否则这些 env() 恒为 0。
+     * 内容避让由 rootView 的内边距完成（见 onCreate），不依赖 CSS env()：
+     * WebView 基本不上报 env(safe-area-inset-*)，那套在套壳里恒为 0。
      */
-    /** 系统栏留白（CSS 像素），顺序 top/right/bottom/left —— 页面重载后要重新注入 */
-    private var safeArea = intArrayOf(0, 0, 0, 0)
-
-    /** 系统栏高度（物理像素）换算为 CSS 像素，再注入页面变量 */
-    private fun updateSafeArea(top: Int, right: Int, bottom: Int, left: Int) {
-        val d = resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
-        safeArea = intArrayOf(
-            (top / d).toInt(),
-            (right / d).toInt(),
-            (bottom / d).toInt(),
-            (left / d).toInt()
-        )
-        injectSafeArea()
-    }
-
-    /** 把系统栏留白写进 :root 的 CSS 变量，页面用 var(--safe-*, env(...)) 读取 */
-    private fun injectSafeArea() {
-        val v = safeArea
-        val js = "(function(){var s=document.documentElement.style;" +
-            "s.setProperty('--safe-top','${v[0]}px');" +
-            "s.setProperty('--safe-right','${v[1]}px');" +
-            "s.setProperty('--safe-bottom','${v[2]}px');" +
-            "s.setProperty('--safe-left','${v[3]}px');})()"
-        webView.post { runCatching { webView.evaluateJavascript(js, null) } }
-    }
-
     private fun applyEdgeToEdge() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.setDecorFitsSystemWindows(false)
