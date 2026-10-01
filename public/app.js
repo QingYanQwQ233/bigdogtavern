@@ -13003,6 +13003,7 @@ async function requestRpgAgentReply(payload, targetScope) {
   const profile = payload.agentProfile;
   const nativeTools = Array.isArray(payload.nativeTools) ? payload.nativeTools : [];
   const session = createRpgAgentSession(payload, targetScope);
+  activeRpgStreamSession = session;
   if (profile && profile.mode !== 'native' && nativeTools.length) {
     return requestRpgCompatReply(payload, targetScope, session);
   }
@@ -13335,6 +13336,9 @@ async function callAPIStream(payload, { previewPrefix = '', render = true } = {}
 /* 流式刷新：每帧最多渲染一次，避免逐 token 全量解析 */
 let typingText = '';
 let typingCot = '';
+/* 当前正在跑的 RPG agent 会话：app-ui 的 rpgAgentSession 要到回合结束才赋值，
+   流式期间只有这里能拿到「已完成步骤」的思维链。 */
+let activeRpgStreamSession = null;
 let typingRaf = 0;
 /* 工具阶段判定：那一步没有叙事正文，不能把工具协议块当正文渲染。
    注意 parseRpgOutput 并不剥离协议块（实测其 narrative 会原样保留 JSON），
@@ -13384,14 +13388,17 @@ function renderTypingContentFrame() {
   // 只在用户本来就在底部附近时才跟随：否则每帧强制拉到底会和用户滚动打架，
   // 正文生成完、预览换成正式消息时又会跳一次，看起来就是「抽搐」。
   if (chat && chat.scrollHeight - chat.scrollTop - chat.clientHeight < 120) {
-    chat.scrollTop = chat.scrollHeight;
+    // 必须 instant：样式里有 scroll-behavior: smooth，直接赋 scrollTop 会启动平滑动画，
+    // 下一帧又被打断，来回看就是「抽搐」。
+    chat.scrollTo({ top: chat.scrollHeight, behavior: 'instant' });
   }
 }
 /* 流式期间的思维链：callAPIStream 里的 cot 是「当前这一步」的局部累积，
    只显示它就会出现「每次只看到一段、生成完才补齐」的现象。
    这里把已完成的步骤（session.cot）与正在生成的这段拼起来。 */
 function typingPreviewCot() {
-  const session = typeof rpgAgentSession === 'object' && rpgAgentSession ? rpgAgentSession : null;
+  const session = activeRpgStreamSession
+    || (typeof rpgAgentSession === 'object' && rpgAgentSession ? rpgAgentSession : null);
   const done = String(session?.cot || '');
   if (!done) return typingCot;
   if (!typingCot) return done;
@@ -13401,7 +13408,7 @@ function typingPreviewCot() {
 /* 实时思维链：生成中就存在，但默认折叠，只有用户点开才看到推理内容。 */
 function renderTypingCot(cot) {
   const typing = $('typing-msg');
-  const el = $('typing-cot');
+  let el = $('typing-cot');
   if (!typing || !cot) { if (el) el.remove(); return; }
   if (!el) {
     const wrap = document.createElement('div');
@@ -13409,7 +13416,9 @@ function renderTypingCot(cot) {
     wrap.id = 'typing-cot';
     wrap.innerHTML = '<div class="bubble"><details class="cot rpg-prose"><summary>思维链</summary><div class="cot-body"></div></details></div>';
     typing.parentNode.insertBefore(wrap, typing);
-    return;
+    // 注意：创建后必须继续往下填内容（并让 el 指向新节点）。
+    // 之前这里既 return 了、el 又还是 null，结果这个块永远停在空状态还抛错。
+    el = wrap;
   }
   let body = el.querySelector('.cot-body');
   if (!body) body = el.querySelector('.bubble');
