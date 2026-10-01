@@ -246,6 +246,9 @@ function worldPromptPriority(part) {
   if (!heading) return null;
   return {
     '回合契约': 115,
+    // 这一段带「可用变量/集合/动作 ID 清单」；丢了它模型只能自己编 ID，
+    // 结果是整回合被服务端拒绝（实测过：编出未声明的 cave_goblin_alertness）。
+    '世界卡 Runtime 契约': 116,
     '当前不可用 Runtime 动作': 114,
     '世界时间': 112,
     '当前玩家动态状态': 110,

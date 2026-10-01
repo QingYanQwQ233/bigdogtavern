@@ -115,6 +115,14 @@ dialog[open] {
 
 /* 管理页（角色/提示词/世界书/记忆）：fixed 覆盖层，left 随侧栏联动 */
 .char-mgr { position: fixed; top: 0; bottom: 0; left: var(--sidebar-width); right: 0; transition: left 250ms var(--motion-in-out); }
+/* 全屏管理器（角色 / 世界库）与导航抽屉：自己避让系统栏，
+   否则侧栏与内容会顶到状态栏下面（settings-modal 之外的另一处遗漏）。 */
+body .char-mgr,
+body #nav-drawer .nd-panel {
+  /* 用 body 前缀提高特异性：抽屉面板自身在后面另有 padding 规则，否则会被覆盖。 */
+  padding-top: var(--safe-top, env(safe-area-inset-top));
+  padding-bottom: var(--safe-bottom, env(safe-area-inset-bottom));
+}
 @media (max-width: 960px) { .char-mgr { left: 0; } }
 
 /* ═══════════════════ RPG 模式布局 ═══════════════════ */
@@ -1222,9 +1230,18 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   width: 100%;
   flex: 0 0 100%; /* 占满一行：不被 .quick-actions 的横滚容器挤压 */
 }
-.world-turn-actions > .btn {
+.world-turn-actions > .btn,
+.world-turn-actions > .ghost-btn {
   flex: 1 1 0;
   min-width: 0;
+  /* .btn 与 .ghost-btn 原本 padding / font-size 不同（8px16px·13px vs 6px12px·12px），
+     并排看就是「大小不一致」。同级按钮统一几何尺寸，主次只靠配色区分。 */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  font-size: 13px;
+  min-height: 44px;
 }
 .chip {
   padding: 4px 14px;
@@ -1388,7 +1405,7 @@ textarea#input::-webkit-scrollbar { display: none; }
 
 .btn {
   padding: 8px 16px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   border: 1px solid transparent;
   font-family: var(--font-body);
   font-size: 13px;
@@ -1409,7 +1426,7 @@ textarea#input::-webkit-scrollbar { display: none; }
 .ghost-btn {
   padding: 6px 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--muted);
   font-family: var(--font-body);
