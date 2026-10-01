@@ -3393,20 +3393,30 @@ function renderQuickActions() {
   if (worldTurnErrorActive()) {
     // 提示走灵动岛（全站唯一通知出口），页面上只留操作按钮，不再画红框横幅。
     const phase = worldTurnPendingActive() && worldTurnPending.agentPhase ? `（Agent ${worldTurnPending.agentPhase} 阶段）` : '';
-    syncWorldTurnErrorNotice(`本回合未提交${phase}：${worldTurnError.message}`);
+    // 必须走 getter：重进后内存里的 worldTurnError 是 null，只有落盘记录，
+    // 直接读 worldTurnError.message 会抛 "Cannot read properties of null"。
+    syncWorldTurnErrorNotice(`本回合未提交${phase}：${currentWorldTurnFailureMessage()}`);
     const actions = document.createElement('div');
     actions.className = 'world-turn-actions';
-    const retry = document.createElement('button');
-    retry.type = 'button';
-    retry.className = 'btn gold small';
-    retry.textContent = '重试 AI';
-    retry.addEventListener('click', retryWorldTurn);
+    // 草稿只在内存里：退出重进后 pending 已丢，「重试 AI」没有草稿可发，给了也是死按钮。
+    // 按能力显示：有草稿才给重试，否则只留「重置本回合」。
+    if (worldTurnPendingActive()) {
+      const retry = document.createElement('button');
+      retry.type = 'button';
+      retry.className = 'btn gold';
+      retry.textContent = '重试 AI';
+      retry.addEventListener('click', retryWorldTurn);
+      actions.append(retry);
+    }
+    // 次要动作只用轻量描边：世界卡主题会把面板调亮，
+    // 之前套 .btn 会变成一块高对比实心，视觉上比主按钮「大」，主次颠倒。
     const reset = document.createElement('button');
     reset.type = 'button';
-    reset.className = 'btn ghost small';
+    reset.className = 'ghost-btn';
     reset.textContent = '重置本回合';
+    // 清理落盘失败记录在 discardWorldTurnPending 内部完成（守卫要求这个绑定形式保持不变）。
     reset.addEventListener('click', discardWorldTurnPending);
-    actions.append(retry, reset);
+    actions.append(reset);
     qa.appendChild(actions);
     return;
   }

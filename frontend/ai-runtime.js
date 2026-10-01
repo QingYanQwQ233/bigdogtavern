@@ -851,7 +851,7 @@ async function requestRpgAgentReply(payload, targetScope) {
     if (payload.body.stream) {
       appendRpgAgentEvent(session, 'step.request', { step: 1, messageCount: session.messages.length });
       const stream = await callAPIStream(payload);
-      session.cot = stream.cot || '';
+      session.cot = appendRpgAgentCot('', { label: '步骤 1', cot: stream.cot });
       appendRpgAgentPreview(session, stream.content);
       session.status = 'complete';
       appendRpgAgentEvent(session, 'turn.complete', { contentChars: String(stream.content || '').length });
