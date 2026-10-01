@@ -3510,7 +3510,7 @@ body[data-mode="rpg"] .composer {
   top: max(10px, env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
-  z-index: 12000;
+  z-index: 15000;
   display: flex;
   flex-direction: column;
   align-items: center;

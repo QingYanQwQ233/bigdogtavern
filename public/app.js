@@ -173,7 +173,17 @@ let requestAbortRequested = false;
 /* 应用内浮层提示（灵动岛式）：替代零散的内联状态文字与原生 alert。
  * kind: '' | 'success' | 'error'；action: { label, onClick }；duration: ms（0 = 不自动关闭）
  * 错误带 role=alert 并停留更久；支持手动关闭与 Esc。 */
+function raiseToastHost() {
+  const host = $('toast-host');
+  if (!host) return;
+  // <dialog> 用 showModal() 打开时整页会进浏览器的 top layer，普通层级（哪怕 z-index 上万）
+  // 都会被它整条盖住 —— 表现就是“通知弹了但看不见”。这里让 host 跟着打开的 dialog 走：
+  // 挪进它内部，与它同处 top layer 渲染；没有 dialog 时再挪回 body。
+  const target = document.querySelector('dialog[open]') || document.body;
+  if (host.parentElement !== target) target.appendChild(host);
+}
 function showToast(message, options = {}) {
+  raiseToastHost();
   const host = $('toast-host');
   if (!host || !message) return null;
   // 同屏最多两条。超量的旧胶囊走正规退场（有高度过渡），直接 remove 会让下面那条跳一下
@@ -193,6 +203,7 @@ function showToast(message, options = {}) {
   let timer = null;
   let sizeClearTimer = null;
   let kind = '';
+  let closeEl = null;
   const dismiss = () => {
     if (timer) { clearTimeout(timer); timer = null; }
     if (toast.classList.contains('toast-out')) return;
@@ -262,6 +273,7 @@ function showToast(message, options = {}) {
     body.style.opacity = '0';
     void body.offsetWidth; // 让“隐去”先落地，否则与下一步合并成同一帧
     paint(text, nextOptions.kind === undefined ? kind : nextOptions.kind, nextOptions);
+    setAction(nextOptions.action);
     const lastW = toast.offsetWidth;
     const lastH = toast.offsetHeight;
     if (Math.abs(lastW - firstW) > 1 || Math.abs(lastH - firstH) > 1) {
@@ -288,24 +300,30 @@ function showToast(message, options = {}) {
   };
   const handle = { dismiss, update, element: toast };
   toast._dismiss = dismiss; // 同屏超量时让外部也能走正规退场
-  if (options.action && options.action.label) {
-    const action = document.createElement('button');
-    action.type = 'button';
-    action.className = 'toast-action';
-    action.textContent = options.action.label;
-    action.addEventListener('click', () => { dismiss(); options.action.onClick?.(); });
-    toast.appendChild(action);
-  }
+  // 操作按钮（如“去设置”）：原地换内容时也要能补上 / 换掉，所以抽成函数
+  const setAction = (action) => {
+    const existing = toast.querySelector('.toast-action');
+    if (existing) existing.remove();
+    if (!action || !action.label) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'toast-action';
+    btn.textContent = action.label;
+    btn.addEventListener('click', () => { dismiss(); action.onClick?.(); });
+    if (closeEl && closeEl.parentElement === toast) toast.insertBefore(btn, closeEl);
+    else toast.appendChild(btn);
+  };
   if (options.closable !== false) {
-    const close = document.createElement('button');
-    close.type = 'button';
-    close.className = 'toast-close';
-    close.setAttribute('aria-label', '关闭提示');
-    close.textContent = '✕';
-    close.addEventListener('click', dismiss);
-    toast.appendChild(close);
+    closeEl = document.createElement('button');
+    closeEl.type = 'button';
+    closeEl.className = 'toast-close';
+    closeEl.setAttribute('aria-label', '关闭提示');
+    closeEl.textContent = '✕';
+    closeEl.addEventListener('click', dismiss);
+    toast.appendChild(closeEl);
   }
   host.appendChild(toast);
+  setAction(options.action);
   paint(message, options.kind, options);
   // 入场也要“长出来”：直接占满高度的话，新胶囊会把下面那条一帧推开（连发时最明显）
   const enterH = toast.offsetHeight;
@@ -489,8 +507,8 @@ function notify(message, options = {}) {
   const duration = options.duration ?? (kind === 'error' ? 8000 : 5000);
   const busy = appBusyToast;
   appBusyToast = null;
-  if (busy && busy.element && busy.element.isConnected) busy.update(text, { kind, duration });
-  else showToast(text, { kind, duration });
+  if (busy && busy.element && busy.element.isConnected) busy.update(text, { kind, duration, action: options.action });
+  else showToast(text, { kind, duration, action: options.action });
   return text;
 }
 /* 兼容旧调用点：设置面板的结果播报（test-result 槽） */
