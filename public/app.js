@@ -13240,7 +13240,10 @@ async function callAPIStream(payload, { previewPrefix = '', render = true } = {}
       if (json?.usage && typeof json.usage === 'object') usage = json.usage;
       else if (json?.usage_metadata && typeof json.usage_metadata === 'object') usage = json.usage_metadata;
       const cotDelta = json?.choices?.[0]?.delta?.reasoning_content ?? json?.choices?.[0]?.message?.reasoning_content;
-      if (cotDelta) cot += cotDelta;
+      if (cotDelta) {
+        cot += cotDelta;
+        if (render) updateTypingContent(previewPrefix ? `${previewPrefix}\n\n${content}` : content, cot);
+      }
       const delta = json?.choices?.[0]?.delta?.content ?? json?.choices?.[0]?.message?.content;
       if (delta) {
         content += delta;
@@ -13276,23 +13279,21 @@ async function callAPIStream(payload, { previewPrefix = '', render = true } = {}
 
 /* 流式刷新：每帧最多渲染一次，避免逐 token 全量解析 */
 let typingText = '';
+let typingCot = '';
 let typingRaf = 0;
 function renderTypingContentFrame() {
   if (typeof document?.getElementById !== 'function') return;
   const t = $('typing-msg');
   if (!t) {
-    if (mode === 'rpg' && responsePreview?.targetKey === activeConversationKey()) {
-      // RPG 模式没有 typing-msg 气泡，正文走 responsePreview —— 这里也要跟着增量更新，
-      // 否则正文要等流结束才一次性出现（看着就不像流式）。
-      if (rpgCheckAnimation?.checkpoints) {
-        responsePreview.checkpoints = serializeRpgCheckpoints(rpgCheckAnimation.checkpoints);
-      }
-      const streamed = parseRpgOutput(stripRpgNarrativeOptions(typingText)).narrative;
-      if (streamed) responsePreview.previewNarrative = streamed;
-      renderMessages();
+    // typing 气泡不在消息列表里，renderMessages() 重建列表时会被清掉。
+    // 这时必须走 responsePreview 这条官方预览路径：渲染端读的是 content / rawContent，
+    // 写别的字段等于没写（正文就会等流结束才一次性出现）。
+    if (mode === 'rpg' && typingText) {
+      setResponsePreview(typingText, null, activeConversationKey(), rpgCheckAnimation?.checkpoints, typingCot);
     }
     return;
   }
+  renderTypingCot(typingCot);
   const preview = mode === 'rpg' ? parseRpgOutput(typingText).narrative : typingText;
   const target = t.querySelector(mode === 'rpg' ? '.rpg-prose' : '.bubble');
   if (!target) return;
@@ -13304,8 +13305,27 @@ function renderTypingContentFrame() {
   const chat = $('chat');
   if (chat) chat.scrollTop = chat.scrollHeight;
 }
-function updateTypingContent(text) {
+/* 实时思维链：生成中就存在，但默认折叠，只有用户点开才看到推理内容。 */
+function renderTypingCot(cot) {
+  const typing = $('typing-msg');
+  const el = $('typing-cot');
+  if (!typing || !cot) { if (el) el.remove(); return; }
+  if (!el) {
+    const wrap = document.createElement('div');
+    wrap.className = 'msg cot-msg typing-cot';
+    wrap.id = 'typing-cot';
+    wrap.innerHTML = '<div class="bubble"><details class="cot rpg-prose"><summary>思维链</summary><div class="cot-body"></div></details></div>';
+    typing.parentNode.insertBefore(wrap, typing);
+    return;
+  }
+  let body = el.querySelector('.cot-body');
+  if (!body) body = el.querySelector('.bubble');
+  if (body) body.textContent = cot;
+}
+
+function updateTypingContent(text, cot) {
   typingText = text;
+  if (typeof cot === 'string') typingCot = cot;
   if (typingRaf) return;
   typingRaf = requestAnimationFrame(() => {
     typingRaf = 0;
@@ -15114,7 +15134,7 @@ function removeTyping() {
 }
 
 /* 保留已经生成的正文，但不提前应用 patch 或写入历史；协议收尾完成后由正式消息替换。 */
-function setResponsePreview(reply, resolution = null, targetKey = activeConversationKey(), checkpoints = null) {
+function setResponsePreview(reply, resolution = null, targetKey = activeConversationKey(), checkpoints = null, cot = '') {
   if (targetKey !== activeConversationKey()) return;
   const parsed = mode === 'rpg'
     ? parseRpgOutput(reply)
@@ -15131,6 +15151,7 @@ function setResponsePreview(reply, resolution = null, targetKey = activeConversa
     targetKey,
     ...(resolution ? { checkResolution: cloneValue(resolution) } : {}),
     ...(mode === 'rpg' && Array.isArray(checkpoints) && checkpoints.length ? { checkpoints: serializeRpgCheckpoints(checkpoints) } : {}),
+    ...(cot ? { cot: String(cot) } : {}),
   };
   removeTyping();
   renderMessages();

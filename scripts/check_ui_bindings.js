@@ -14,6 +14,7 @@ const ids = new Set([...html.matchAll(/id="([^"]+)"/g)].map(m => m[1]));
 const ALLOW = new Set([
   'edit-msg', // 消息编辑框：按需动态创建，引用点自带 null 守护
   'typing-msg', // 输入中指示器：动态创建
+  'typing-cot', // 生成中的思维链折叠块：动态创建，引用点自带 null 守护
   'img-pending-msg', // 生图占位：动态创建，引用点自带 null 守护
   'rpg-factions', // 由 renderRPG 按需动态创建
   'cm-preset', 'cm-lore', // 角色卡绑定下拉：父面板已移除，引用点自带 null 守护（待清理）

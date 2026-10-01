@@ -915,7 +915,7 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   font-size: var(--chat-font-size);
   line-height: var(--chat-line-height);
   font-family: var(--chat-font, var(--font-body));
-  padding: 4px 40px 16px 8px;
+  padding: 4px 40px 16px var(--prose-pad-x, 8px);
   white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere;
@@ -1131,11 +1131,14 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
 :is(.bubble, .rpg-prose).md input[type="checkbox"] { accent-color: var(--accent); margin-right: 6px; vertical-align: -1px; }
 /* 思维链折叠块（回复气泡内） */
 .bubble .cot {
-  /* 复用 .rpg-prose 的水平内边距与换行规则（含移动端覆盖），
-     文字列与叙事正文重合；数值不在这里抄第二份。 */
-  margin: 0;
-  background: transparent;
+  /* 复用 .rpg-prose（内边距 / 换行 / 溢出同源）。
+     竖线起点 = 正文第一个字所在列：整体右移一个 --prose-pad-x，
+     让 border 落在内容左缘上，而不是自己另抄一套数值。 */
+  margin: 0 0 0 var(--prose-pad-x, 8px);
   border: 0;
+  border-left: 2px solid var(--line);
+  padding-left: 6px;
+  background: transparent;
 }
 /* 区块标签：12px / 600 / 字距（typography.md 字体角色表） */
 .bubble .cot summary {
@@ -1166,7 +1169,7 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-size: 12px;
-  line-height: 1.6;
+  line-height: 1.5;
   color: var(--muted);
 }
 
@@ -3377,7 +3380,8 @@ body.world-setup-extension-mode .rpg-extension-head {
   .devtools-toolbar { align-items: stretch; flex-wrap: wrap; }
   .devtools-toolbar .field { flex-basis: 100%; }
   .msg.rpg-narrative { padding-bottom: 24px; }
-  .rpg-prose { padding-inline: 2px; }
+  :root { --prose-pad-x: 2px; }
+  .rpg-prose { padding-inline: var(--prose-pad-x, 2px); }
   .regen-btn { font-size: 11px; padding: 2px 8px; }
   .lightbox img { max-width: 96vw; max-height: 94vh; }
   /* 移动端无 hover：操作按钮仍独立占行，不遮挡消息内容。 */

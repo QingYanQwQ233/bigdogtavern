@@ -1760,7 +1760,7 @@ function removeTyping() {
 }
 
 /* 保留已经生成的正文，但不提前应用 patch 或写入历史；协议收尾完成后由正式消息替换。 */
-function setResponsePreview(reply, resolution = null, targetKey = activeConversationKey(), checkpoints = null) {
+function setResponsePreview(reply, resolution = null, targetKey = activeConversationKey(), checkpoints = null, cot = '') {
   if (targetKey !== activeConversationKey()) return;
   const parsed = mode === 'rpg'
     ? parseRpgOutput(reply)
@@ -1777,6 +1777,7 @@ function setResponsePreview(reply, resolution = null, targetKey = activeConversa
     targetKey,
     ...(resolution ? { checkResolution: cloneValue(resolution) } : {}),
     ...(mode === 'rpg' && Array.isArray(checkpoints) && checkpoints.length ? { checkpoints: serializeRpgCheckpoints(checkpoints) } : {}),
+    ...(cot ? { cot: String(cot) } : {}),
   };
   removeTyping();
   renderMessages();
