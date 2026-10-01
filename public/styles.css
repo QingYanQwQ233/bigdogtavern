@@ -1016,6 +1016,8 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
 .msg.cot-msg {
   align-self: stretch;
   max-width: 100%;
+  /* 与 .msg.rpg-narrative 用同一条 padding 链，文字列才能和叙事正文重合 */
+  padding: 0 clamp(2px, 1.5vw, 16px);
 }
 .msg.cot-msg .bubble {
   background: transparent;
@@ -1129,9 +1131,11 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
 :is(.bubble, .rpg-prose).md input[type="checkbox"] { accent-color: var(--accent); margin-right: 6px; vertical-align: -1px; }
 /* 思维链折叠块（回复气泡内） */
 .bubble .cot {
-  margin: 0 0 8px;
-  border: 0;
+  /* 复用 .rpg-prose 的水平内边距与换行规则（含移动端覆盖），
+     文字列与叙事正文重合；数值不在这里抄第二份。 */
+  margin: 0;
   background: transparent;
+  border: 0;
 }
 /* 区块标签：12px / 600 / 字距（typography.md 字体角色表） */
 .bubble .cot summary {
@@ -1157,8 +1161,8 @@ body[data-mode="rpg"] .sidebar-mode-nav[data-mode-nav="rpg"] { display: flex; }
 /* 分组只用一种手段（左侧竖线），不加背景/边框/阴影（visual-hierarchy 闭合性） */
 .bubble .cot .cot-body {
   margin: 6px 0 0;
-  padding-left: 10px;
-  border-left: 2px solid var(--line);
+  padding: 0;
+  border: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-size: 12px;
