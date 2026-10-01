@@ -7,7 +7,7 @@
   <link rel="manifest" href="manifest.json" />
   <title>Tavern · AI RP 框架演示</title>
   <link rel="icon" type="image/png" href="favicon.png" />
-  <link rel="stylesheet" href="styles.css?v=69cabce5" />
+  <link rel="stylesheet" href="styles.css?v=6c0f0d4d" />
 </head>
 <body data-theme="vibrancy" data-layout="classic">
   <canvas id="bg-fx" aria-hidden="true"></canvas>
@@ -951,6 +951,22 @@
             <button class="ghost-btn" id="btn-ui-theme-reset" type="button">恢复默认界面</button>
           </div>
           <p class="hint" id="ui-theme-status" aria-live="polite">界面设置会自动保存。</p>
+          <!-- ── 灵动岛实验室（临时试玩）：默认隐藏，仅 URL 带 ?lab=1 时显示。正式发布不要带这个参数。── -->
+          <details id="island-lab" class="island-lab hidden">
+            <summary>灵动岛实验室 <span class="hint-inline">临时 · 不进正式版</span></summary>
+            <div class="island-lab-body">
+              <div class="modal-actions">
+                <button class="ghost-btn" id="lab-toast-ok" type="button">成功提示</button>
+                <button class="ghost-btn" id="lab-toast-err" type="button">错误提示</button>
+                <button class="ghost-btn" id="lab-progress" type="button">进度 → 结果</button>
+                <button class="ghost-btn" id="lab-stack" type="button">叠两条</button>
+                <button class="ghost-btn" id="lab-rapid" type="button">快速连发 4 条</button>
+                <button class="ghost-btn" id="lab-long" type="button">超长文本</button>
+                <button class="ghost-btn" id="lab-clear" type="button">清空</button>
+              </div>
+              <p class="hint">只在 <code>?lab=1</code> 时出现；正式版不显示这一块。</p>
+            </div>
+          </details>
         </div>
 
         <!-- ── Tab 文生图（测试） ── -->
@@ -1733,13 +1749,13 @@
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
   <script src="vendor/mapgen2.bundle.js"></script>
-  <script src="mapgen.js?v=69cabce5"></script>
-  <script src="app.js?v=69cabce5"></script>
+  <script src="mapgen.js?v=6c0f0d4d"></script>
+  <script src="app.js?v=6c0f0d4d"></script>
   <script>
     // PWA：注册 service worker（仅 HTTPS / localhost 生效，套壳 APK 可用）
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js?v=69cabce5').catch(() => {});
+    navigator.serviceWorker.register('sw.js?v=6c0f0d4d').catch(() => {});
       });
     }
   </script>
