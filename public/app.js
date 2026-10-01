@@ -15669,6 +15669,9 @@ function closeInputFullscreen(send = false) {
 }
 
 async function requestReply() {
+  // 发送前的焦点状态：只有焦点原本就在输入框时，收尾才把焦点还回去
+  // （点选项 / 点按钮发起的回合不该顺手把输入法唤出来）
+  const inputWasFocused = document.activeElement === $('input');
   if (sending) return;
   const targetScope = activeConversationScope();
   if (!targetScope) return;
