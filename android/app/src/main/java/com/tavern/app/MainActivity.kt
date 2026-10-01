@@ -13,12 +13,14 @@ import android.provider.MediaStore
 import android.util.Base64
 import android.util.Log
 import android.view.View
+import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.JavascriptInterface
+import android.widget.FrameLayout
 import android.widget.Toast
 import java.io.File
 import java.io.FileOutputStream
@@ -91,10 +93,17 @@ class MainActivity : Activity() {
                 return false
             }
         }
-        setContentView(webView)
-        // 全屏后内容会顶到状态栏 / 导航栏下面：由原生把系统栏高度作为内边距交给 WebView。
-        // 不依赖 CSS 的 env(safe-area-inset-*)，因为不少 WebView 版本并不上报这些值（恒为 0）。
-        webView.setOnApplyWindowInsetsListener { view, insets ->
+        // WebView 自身会处理 window insets 并覆盖外部设置的 padding，
+        // 因此避让必须加在承载它的容器上，而不是 WebView 自己。
+        val rootView = FrameLayout(this)
+        rootView.addView(
+            webView,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+        rootView.setOnApplyWindowInsetsListener { view, insets ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val bars = insets.getInsets(WindowInsets.Type.systemBars())
                 view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
@@ -109,6 +118,7 @@ class MainActivity : Activity() {
             }
             insets
         }
+        setContentView(rootView)
 
         applyEdgeToEdge()
         bootNode()
