@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Tavern · RPG 卡项目总计划图</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --card: #171a21;
+    --card-2: #1d2028;
+    --line: #2a2f3a;
+    --text: #e8ebf0;
+    --muted: #98a1b0;
+    --done: #3fb950;
+    --doing: #d29922;
+    --todo: #6e7681;
+    --now: #58a6ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 28px 32px 40px;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.6 system-ui, -apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif;
+  }
+  h1 { margin: 0 0 6px; font-size: 22px; letter-spacing: 0.3px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 22px; }
+  .badge {
+    display: inline-block; margin-left: 10px; padding: 2px 10px; border-radius: 999px;
+    font-size: 12px; font-weight: 600; color: #0b1220; background: var(--now); vertical-align: 3px;
+  }
+  .legend { display: flex; gap: 18px; margin-bottom: 20px; font-size: 12px; color: var(--muted); }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+
+  h2 { font-size: 15px; margin: 26px 0 12px; color: var(--text); letter-spacing: 0.4px; }
+  h2 span { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 8px; }
+
+  .flow { display: flex; flex-wrap: wrap; gap: 10px; }
+  .stage {
+    width: 226px; padding: 12px 14px 14px; border-radius: 10px;
+    background: var(--card); border: 1px solid var(--line); border-top: 3px solid var(--todo);
+  }
+  .stage.done { border-top-color: var(--done); }
+  .stage.doing { border-top-color: var(--doing); }
+  .stage.now { border-color: var(--now); border-top-color: var(--now); box-shadow: 0 0 0 1px rgba(88,166,255,.35), 0 6px 22px rgba(0,0,0,.35); }
+  .stage .id { font-weight: 700; font-size: 13px; letter-spacing: .5px; }
+  .stage .state { float: right; font-size: 11px; color: var(--muted); }
+  .stage .title { margin: 4px 0 8px; font-size: 12px; color: var(--muted); }
+  .stage ul { margin: 0; padding-left: 15px; font-size: 12px; color: var(--text); }
+  .stage li { margin-bottom: 4px; }
+  .stage li.todo { color: var(--muted); }
+  .arrow { align-self: center; color: var(--line); font-size: 16px; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.id { white-space: nowrap; font-weight: 600; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; vertical-align: 0px; }
+  .d-done { background: var(--done); }
+  .d-doing { background: var(--doing); }
+  .d-todo { background: var(--todo); }
+
+  .gate {
+    margin-top: 8px; padding: 14px 16px; border-radius: 10px;
+    background: var(--card-2); border: 1px solid var(--line); border-left: 3px solid var(--now);
+  }
+  .gate ol { margin: 6px 0 0; padding-left: 20px; font-size: 13px; }
+  .gate li { margin-bottom: 5px; }
+  .gate li.done { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--done); }
+  .foot { margin-top: 22px; color: var(--muted); font-size: 11.5px; }
+</style>
+</head>
+<body>
+
+<h1>Tavern · RPG 卡项目总计划图<span class="badge">当前：R8 发布验收</span></h1>
+<div class="sub">来源：<code>docs/rpg-card-product-roadmap.md</code>（2026-10-01 复核） · 纵向可玩切片，每阶段都含数据 / 规则 / UI / 恢复验证</div>
+
+<div class="legend">
+  <span><i class="d-done"></i>已完成</span>
+  <span><i class="d-doing"></i>部分完成</span>
+  <span><i class="d-todo"></i>未开始 / 待后续</span>
+  <span><i style="background:var(--now)"></i>当前阶段</span>
+</div>
+
+<h2>阶段流 <span>B0 底座 → R0 契约 → R1..R8 逐步收口</span></h2>
+<div class="flow">
+  <div class="stage done">
+    <div class="id">B0 <span class="state">✅ 9/9</span></div>
+    <div class="title">已有底座盘点</div>
+    <ul>
+      <li>owner 边界 / 地图归属存档</li>
+      <li>revision + CAS + command receipt</li>
+      <li>不可变版本、草稿、升级、世界包</li>
+      <li>旧会话只读迁移、超时与损坏恢复</li>
+      <li>真实浏览器 + Android 闭环</li>
+    </ul>
+  </div>
+  <div class="stage done">
+    <div class="id">R0 <span class="state">✅</span></div>
+    <div class="title">冻结 RPG 卡 v2 契约</div>
+    <ul>
+      <li>需求 → M0–M9 唯一归属</li>
+      <li>单玩家角色 / 建议行动 0–4 条</li>
+      <li>schemaVersion 2 + v1 迁移</li>
+      <li>版本化 turnContract</li>
+      <li>字段 owner 清单、AI 行为契约</li>
+    </ul>
+  </div>
+  <div class="stage done">
+    <div class="id">R1 <span class="state">✅</span></div>
+    <div class="title">建档并进入世界</div>
+    <ul>
+      <li>声明式 playerCreation</li>
+      <li>JSON 驱动建角向导</li>
+      <li>服务端二次校验预算</li>
+      <li>开场候选 → 首个幂等命令</li>
+      <li>两存档建角 / 重开回归</li>
+    </ul>
+  </div>
+  <div class="stage doing">
+    <div class="id">R2 <span class="state">🟡</span></div>
+    <div class="title">可信自由行动与判定</div>
+    <ul>
+      <li>ActionIntent（含玩家原文）</li>
+      <li>通用候选差异 + 严格解码</li>
+      <li>CAS / receipt 原子提交</li>
+      <li>UI 区分解析 → 掷骰 → 提交</li>
+      <li class="todo">正式解析 / 判定内核待做</li>
+    </ul>
+  </div>
+  <div class="stage doing">
+    <div class="id">R3 <span class="state">🟡</span></div>
+    <div class="title">NPC · 关系 · 认知</div>
+    <ul>
+      <li>欲望 / 恐惧 / 目标 / 秘密 schema</li>
+      <li>双向非对称关系维度</li>
+      <li>作用域解析（场景 / 队伍 / 近期事件）</li>
+      <li>可提交的关系变化候选</li>
+      <li class="todo">主动生活与记忆闭环待后续</li>
+    </ul>
+  </div>
+  <div class="stage doing">
+    <div class="id">R4 <span class="state">🟡</span></div>
+    <div class="title">时间 · 事件 · 开放目标</div>
+    <ul>
+      <li>卡内历法 / worldClock / timeCost</li>
+      <li>声明式事件（at / afterTurns / locationId）</li>
+      <li>回合提交后结算到期事件</li>
+      <li>goals / leads 取代强制任务链</li>
+      <li>派系行动与事件投影</li>
+      <li class="todo">时限目标、新闻投影待后续</li>
+    </ul>
+  </div>
+  <div class="stage doing">
+    <div class="id">R5 <span class="state">🟡</span></div>
+    <div class="title">资源 · 冲突 · 成长</div>
+    <ul>
+      <li>动态属性 / 资源 / 特质 schema</li>
+      <li>物品、装备位、货币、负重</li>
+      <li>统一 ConflictState 生命周期</li>
+      <li>最小战斗 + 最小非战斗冲突</li>
+      <li>成长候选 → 确认后落账</li>
+      <li class="todo">派生值安全子集等边界待收</li>
+    </ul>
+  </div>
+  <div class="stage doing">
+    <div class="id">R6 <span class="state">🟡</span></div>
+    <div class="title">记忆 · 失败 · 结局</div>
+    <ul>
+      <li>正式事件账本 + sourceRevision</li>
+      <li>短期上下文窗口（不写第二份事实）</li>
+      <li>长期事件记忆候选 + 校验</li>
+      <li>失败 / 死亡 / 结局 schema</li>
+      <li>世界线总结（带来源 hash）</li>
+      <li class="todo">超长历史等回归待补</li>
+    </ul>
+  </div>
+  <div class="stage doing">
+    <div class="id">R7 <span class="state">🟡</span></div>
+    <div class="title">作者台与界面收口</div>
+    <ul>
+      <li>规则 / 建角 / NPC / 冲突编辑区</li>
+      <li>ID 冲突与引用阻断</li>
+      <li>发布前完整性检查</li>
+      <li>声明式投影替代固定字段</li>
+      <li>调试窗脱敏</li>
+      <li class="todo">桌面 / 窄屏 / 无障碍收尾</li>
+    </ul>
+  </div>
+  <div class="stage now">
+    <div class="id">R8 <span class="state">🟡 当前</span></div>
+    <div class="title">存档操作 · 平台 · 发布验收</div>
+    <ul>
+      <li>重命名 / 导出 / 复制 / 删除 ✅</li>
+      <li>v1↔v2 迁移 dry-run / 回退 ✅</li>
+      <li>浏览器全链路自动化 ✅</li>
+      <li>双世界双存档隔离回归 ✅</li>
+      <li>安全复核 + 文档同步 ✅</li>
+      <li class="todo">Android 真机走查（世界 / 回合 / 导入）</li>
+    </ul>
+  </div>
+</div>
+
+<h2>产品模块 <span>M0–M9：横向能力，跨阶段补齐</span></h2>
+<table>
+  <tr><th style="width:56px">模块</th><th style="width:210px">名称</th><th style="width:90px">状态</th><th>当前边界</th></tr>
+  <tr><td class="id">M0</td><td>产品契约与数据所有权</td><td><span class="dot d-doing"></span>部分</td><td>原则清楚，产品契约尚未版本化</td></tr>
+  <tr><td class="id">M1</td><td>RPG 卡定义与作者工作台</td><td><span class="dot d-doing"></span>部分</td><td>元数据、地点、NPC、地图可编辑</td></tr>
+  <tr><td class="id">M2</td><td>玩家创建、初始关系与开场</td><td><span class="dot d-doing"></span>部分</td><td>声明式 playerCreation 已就位；更丰富规则待后续</td></tr>
+  <tr><td class="id">M3</td><td>回合内核、行动解析与判定</td><td><span class="dot d-doing"></span>部分</td><td>自由输入 + 意图原文 + 选项契约 + 原子提交；正式判定内核待做</td></tr>
+  <tr><td class="id">M4</td><td>NPC、关系与认知</td><td><span class="dot d-doing"></span>部分</td><td>声明式资料进入作用域；主动生活与记忆闭环待后续</td></tr>
+  <tr><td class="id">M5</td><td>世界时间、事件与目标</td><td><span class="dot d-doing"></span>部分</td><td>时间声明 + 声明式事件 + 回合结算；时限目标与新闻投影待后续</td></tr>
+  <tr><td class="id">M6</td><td>冲突、资源与成长</td><td><span class="dot d-doing"></span>仅底座</td><td>R5 已把固定 HP/MP 换成声明式，但完整玩法语义仍在收</td></tr>
+  <tr><td class="id">M7</td><td>状态、记忆与上下文</td><td><span class="dot d-doing"></span>部分</td><td>有历史与状态；短期 / 长期 / 稳定事实的分层仍在推进</td></tr>
+  <tr><td class="id">M8</td><td>叙事界面与信息投影</td><td><span class="dot d-doing"></span>部分</td><td>已按卡 schema 投影动态属性 / 资源；完整可见性声明待后续</td></tr>
+  <tr><td class="id">M9</td><td>存档、失败、结局与平台</td><td><span class="dot d-doing"></span>部分</td><td>存档底座强；玩法语义与 Android 待收口</td></tr>
+</table>
+
+<h2>当前阶段门 <span>R8：发布验收</span></h2>
+<div class="gate">
+  <div style="font-size:13px;color:var(--muted)">收口清单（roadmap R8.7 / R8.8）</div>
+  <ol>
+    <li>Android 世界 / 存档 / 回合 / 导入 API 对齐 —— 已对齐，APK 已构建装机</li>
+    <li>真机走查：世界流程、回合提交、世界包导入</li>
+    <li class="done">断网壳（停掉 server 仍可加载，带降级提示）</li>
+    <li class="done">重启恢复（服务重启后世界卡与偏好恢复）</li>
+    <li>图片缺失、超时恢复的运行时实测（目前仅静态检查覆盖）</li>
+  </ol>
+</div>
+
+<div class="foot">
+  图例：✅ 已完成 · 🟡 部分完成（数据层 / 固定版本 / 部分 UI 已到位，闭环未成） · ⬜ 未开始<br>
+  说明：阶段状态以 roadmap 中各项“已支持 / 已完成 / 待后续”的实际描述为准，未做任何推定。
+</div>
+
+</body>
+</html>
