@@ -13656,9 +13656,12 @@ function renderTypingChain(blocks) {
     if (text) {
       const cotText = block.cot || '';
       if (!cotText) {
-        cot.classList.add('is-empty');
+        // 还有正文/工具：保留标题作为这一段的归属（不可展开，避免点开是空的）
+        cot.classList.toggle('is-flat', !!(block.body || block.tools.length));
+        if (!cot.classList.contains('is-flat')) cot.classList.add('is-empty');
       } else {
         cot.classList.remove('is-empty');
+        cot.classList.remove('is-flat');
         if (text.textContent !== cotText) text.textContent = cotText;
       }
     }
@@ -15750,15 +15753,19 @@ function rpgStepChainHtml(message) {
   const { segments } = parsed;
   return segments.map(seg => {
     const text = parsed.full.slice(seg.start, seg.end).trim();
-    const cot = seg.cot ? cotStepsHtml([{ label: seg.label || '这一步的思考', cot: seg.cot, tools: [] }], message.agentToolTrace) : '';
-    const body = text
+    const cot = seg.cot
+      ? cotStepsHtml([{ label: seg.label || '这一步的思考', cot: seg.cot, tools: [] }], message.agentToolTrace)
+      : (seg.label ? `<div class="cot-step-flat"><span class="cot-step-head">${esc(seg.label)}</span></div>` : '');
+    const bodyHtml = text
       ? renderRpgNarrativeWithCheckpoints(text, seg.checkpoints, { fromRaw: typeof message.rawContent === 'string' }).html
       : '';
+    const body = bodyHtml ? `<div class="step-body rpg-prose">${bodyHtml}</div>` : '';
     const tools = (seg.tools || []).length
       ? `<div class="cot-inline-tools">${seg.tools.map(tool => cotToolHtml(tool, message.agentToolTrace)).join('')}</div>`
       : '';
     if (!body && !cot && !tools) return '';
-    return `<div class="rpg-step-chain">${cot || ''}${body || ''}${tools || ''}</div>`;
+    const cls = `rpg-step-chain${body ? '' : ' is-tool-only'}`;
+    return `<div class="${cls}">${cot || ''}${body || ''}${tools || ''}</div>`;
   }).join('');
 }
 function cotStepsHtml(steps, trace) {
@@ -15769,6 +15776,11 @@ function cotStepsHtml(steps, trace) {
     const label = esc(step.label || '思维链步骤');
     const text = typeof cotDisplayText === 'function' ? cotDisplayText(step.cot) : String(step.cot || '');
     const body = text ? `<div class="cot-step-body">${esc(text)}</div>` : '';
+    // 没有推理内容的步骤（例如「最终步骤」）：不要整块隐藏 ——
+    // 它的正文需要一个归属标题，否则看起来「思维链和正文散开了」。
+    if (!text && !(step.tools || []).length) {
+      return `<div class="cot-step-flat"><span class="cot-step-head">${label}</span></div>`;
+    }
     const tools = (Array.isArray(step.tools) ? step.tools : []).map(tool => cotToolHtml(tool, trace)).join('');
     return `<details class="cot-step"><summary class="cot-step-head">${label}</summary><div class="cot-step-main">${body}${tools}</div></details>`;
   }).join('');

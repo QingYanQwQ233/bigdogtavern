@@ -1389,9 +1389,12 @@ function renderTypingChain(blocks) {
     if (text) {
       const cotText = block.cot || '';
       if (!cotText) {
-        cot.classList.add('is-empty');
+        // 还有正文/工具：保留标题作为这一段的归属（不可展开，避免点开是空的）
+        cot.classList.toggle('is-flat', !!(block.body || block.tools.length));
+        if (!cot.classList.contains('is-flat')) cot.classList.add('is-empty');
       } else {
         cot.classList.remove('is-empty');
+        cot.classList.remove('is-flat');
         if (text.textContent !== cotText) text.textContent = cotText;
       }
     }
