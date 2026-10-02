@@ -1180,12 +1180,12 @@ function appendRpgAgentStep(session, { label = '', cot = '', tools = [], narrati
   const clean = text => String(text || '').trim();
   const step = {
     label: clean(label).slice(0, 60),
-    cot: clean(cot).slice(0, 4000),
+    cot: clean(cot).slice(0, 12000),
     // 该步产出的叙事片段：渲染时按「片段 → 工具卡 → 片段」串起来，
     // 骰子这类工具结果就能出现在叙事中途，而不是全挤在末尾。
     // 必须走 rpgAgentNarrative：原始 content 里带 toolCalls / 状态 JSON，
     // 不剥掉就和最终正文对不上（自动插入会被安全阀挡下）。
-    narrative: clean(rpgAgentNarrative(narrative)).slice(0, 4000),
+    narrative: clean(rpgAgentNarrative(narrative)).slice(0, 12000),
     tools: (Array.isArray(tools) ? tools : [])
       .slice(0, 8)
       .map(tool => ({ name: clean(tool?.name).slice(0, 40), args: tool?.args && typeof tool.args === 'object' ? tool.args : null })),
@@ -1201,8 +1201,8 @@ function serializeRpgAgentSteps(steps) {
     .slice(0, 12)
     .map(step => ({
       label: String(step?.label || '').slice(0, 60),
-      cot: String(step?.cot || '').slice(0, 4000),
-      narrative: String(step?.narrative || '').slice(0, 4000),
+      cot: String(step?.cot || '').slice(0, 12000),
+      narrative: String(step?.narrative || '').slice(0, 12000),
       tools: (Array.isArray(step?.tools) ? step.tools : []).slice(0, 8).map(tool => ({ name: String(tool?.name || '').slice(0, 40) })),
     }))
     .filter(step => step.label || step.cot || step.narrative || step.tools.length);
@@ -13544,13 +13544,9 @@ function renderTypingContentFrame() {
 function cotDisplayText(text) {
   const raw = String(text || '');
   if (!raw) return '';
-  const trimmed = raw.replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trimEnd();
-  const limit = 6000;
-  if (trimmed.length <= limit) return trimmed;
-  // 保留首尾、裁中间：只留尾部会让前面的思考内容「凭空消失」（看着像坍缩）
-  const head = Math.floor(limit * 0.55);
-  const tail = limit - head;
-  return `${trimmed.slice(0, head)}\n\n…（略）…\n\n${trimmed.slice(-tail)}`;
+  // 只做空白压缩（避免成片空行把区块撑很高）。
+  // 不做长度截断：每步都能独立折叠，高度已经可控，截断只会把内容吃掉。
+  return raw.replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trimEnd();
 }
 /* 一个步骤块的结构（纯数据，渲染层据此增量更新 DOM） */
 function typingStepBlock(label, cot, tools = [], current = false) {

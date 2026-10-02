@@ -1283,13 +1283,9 @@ function renderTypingContentFrame() {
 function cotDisplayText(text) {
   const raw = String(text || '');
   if (!raw) return '';
-  const trimmed = raw.replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trimEnd();
-  const limit = 6000;
-  if (trimmed.length <= limit) return trimmed;
-  // 保留首尾、裁中间：只留尾部会让前面的思考内容「凭空消失」（看着像坍缩）
-  const head = Math.floor(limit * 0.55);
-  const tail = limit - head;
-  return `${trimmed.slice(0, head)}\n\n…（略）…\n\n${trimmed.slice(-tail)}`;
+  // 只做空白压缩（避免成片空行把区块撑很高）。
+  // 不做长度截断：每步都能独立折叠，高度已经可控，截断只会把内容吃掉。
+  return raw.replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trimEnd();
 }
 /* 一个步骤块的结构（纯数据，渲染层据此增量更新 DOM） */
 function typingStepBlock(label, cot, tools = [], current = false) {
