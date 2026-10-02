@@ -1820,8 +1820,17 @@ function initChatFollowTracking() {
   const chat = $('chat');
   if (!chat || chat.dataset.followBound === '1') return;
   chat.dataset.followBound = '1';
+  // 只有真实交互（触摸/滚轮/按键）之后的滚动才算「用户意图」。
+  // 只看 scroll 事件不行：流式增长触发浏览器滚动锚定、或我们自己的程序滚动，
+  // 都会派发 scroll，被当成用户操作后跟随就莫名停了。
+  let userInteractingUntil = 0;
+  const markInteraction = () => { userInteractingUntil = Date.now() + 600; };
+  ['wheel', 'touchstart', 'touchmove', 'pointerdown', 'mousedown', 'keydown'].forEach(event => {
+    chat.addEventListener(event, markInteraction, { passive: true });
+  });
   chat.addEventListener('scroll', () => {
     if (Date.now() < chatScrollSuppressedUntil) return;
+    if (Date.now() > userInteractingUntil) return;
     const distance = chat.scrollHeight - chat.scrollTop - chat.clientHeight;
     chatFollowLatest = distance <= 60;
   }, { passive: true });
@@ -1946,6 +1955,59 @@ function injectCotInlineCards(html, steps, trace) {
     return `<div class="cot-inline-tools">${tools.map(tool => cotToolHtml(tool, trace)).join('')}</div>`;
   });
 }
+/* 把整段正文按 Agent 步骤切开，让每一步的「思维链 → 正文 → 工具结果」连在一起。
+   这样工具卡落在它真正发生的位置，思维链也贴着各自那一段正文，而不是全部堆在消息顶部。
+   安全阀：只有当各步片段能拼回原正文时才启用（去掉空白后比较），否则返回 null 交给旧渲染。 */
+function rpgStepSegments(content, steps, checkpoints) {
+  const list = (Array.isArray(steps) ? steps : []).filter(step => step && (step.narrative || step.cot || step.tools?.length));
+  if (list.length < 2) return null;
+  if (!list.some(step => String(step.narrative || '').trim())) return null;
+  const merge = (a, b) => (typeof mergeRpgAgentNarrative === 'function' ? mergeRpgAgentNarrative(a, b) : (a ? `${a}\n\n${b}` : b));
+  const squeeze = text => String(text || '').replace(/\s+/g, '');
+  const ordered = serializeRpgCheckpoints(checkpoints);
+  const segments = [];
+  let text = '';
+  for (const step of list) {
+    const piece = String(step.narrative || '').trim();
+    const before = text;
+    if (piece) text = merge(text, piece);
+    // 只有真的续写了正文才产生一个可见段落；否则这一步只是「调了工具」
+    if (text !== before) {
+      segments.push({ start: before.length, end: text.length, label: String(step.label || ''), cot: String(step.cot || ''), tools: Array.isArray(step.tools) ? step.tools : [] });
+    } else if (segments.length && Array.isArray(step.tools) && step.tools.length) {
+      // 没有新正文的步骤：工具结果挂在上一段的末尾
+      segments[segments.length - 1].tools = segments[segments.length - 1].tools.concat(step.tools);
+    }
+  }
+  if (!segments.length) return null;
+  if (squeeze(text) !== squeeze(content)) return null;
+  // 把检查点按位置分配到所属段落（offset 是整段文本里的偏移）
+  segments.forEach(seg => { seg.checkpoints = []; });
+  ordered.forEach(checkpoint => {
+    const offset = Math.max(0, Math.min(text.length, Number(checkpoint.offset) || 0));
+    const hit = segments.find(seg => offset >= seg.start && offset <= seg.end) || segments[segments.length - 1];
+    hit.checkpoints.push({ ...checkpoint, offset: Math.max(0, offset - hit.start) });
+  });
+  return { segments, full: text };
+}
+/* 按步骤渲染消息：每段 = 思维链（可折叠）+ 正文 + 工具卡 */
+function rpgStepChainHtml(message) {
+  const parsed = rpgStepSegments(message.rawContent ?? message.content, message.agentSteps, message.checkpoints);
+  if (!parsed) return null;
+  const { segments } = parsed;
+  return segments.map(seg => {
+    const text = parsed.full.slice(seg.start, seg.end).trim();
+    const cot = seg.cot ? cotStepsHtml([{ label: seg.label || '这一步的思考', cot: seg.cot, tools: [] }], message.agentToolTrace) : '';
+    const body = text
+      ? renderRpgNarrativeWithCheckpoints(text, seg.checkpoints, { fromRaw: typeof message.rawContent === 'string' }).html
+      : '';
+    const tools = (seg.tools || []).length
+      ? `<div class="cot-inline-tools">${seg.tools.map(tool => cotToolHtml(tool, message.agentToolTrace)).join('')}</div>`
+      : '';
+    if (!body && !cot && !tools) return '';
+    return `<div class="rpg-step-chain">${cot || ''}${body || ''}${tools || ''}</div>`;
+  }).join('');
+}
 function cotStepsHtml(steps, trace) {
   const list = Array.isArray(steps) ? steps.filter(step => step && (step.label || step.cot || step.tools?.length)) : [];
   if (!list.length) return null;
@@ -2039,8 +2101,11 @@ function renderMessages() {
     }
     // AI 回复：RPG 是连续叙事；酒馆才按引号拆分「旁白行 + 角色气泡」。
     if (m.role === 'assistant') {
+      // 能按步骤拆开时，思维链与它对应的那一段正文要连在一起，
+      // 所以不再单独渲染顶部的思维链消息（否则会重复一份）。
+      const stepChain = mode === 'rpg' && !m._editing ? rpgStepChainHtml(m) : null;
       // 思维链独立呈现（旁白样式），不占用角色气泡
-      if (m.cot || m.agentSteps?.length) {
+      if (!stepChain && (m.cot || m.agentSteps?.length)) {
         // 优先按步骤内联（思维链与工具调用按时间顺序排）；没有步骤数据就整段显示
         const inner = cotStepsHtml(m.agentSteps, m.agentToolTrace) || esc(m.cot || '');
         const cotEl = document.createElement('div');
@@ -2057,6 +2122,9 @@ function renderMessages() {
           const cb = el.querySelector('[data-edit-cancel]');
           if (sb) sb.addEventListener('click', () => saveEdit(m));
           if (cb) cb.addEventListener('click', () => cancelEdit(m));
+        } else if (stepChain) {
+          el.innerHTML = `<div class="rpg-prose" data-tavern-rendered>${stepChain}</div>`;
+          if (!m._preview) attachMsgActions(el, m, m._opening ? { copy: true } : { regen: true, edit: true, copy: true, del: true });
         } else {
           const narrativeSource = m.rawContent ?? m.content;
           const marked = rpgNarrativeWithToolMarks(narrativeSource, m.agentSteps);
