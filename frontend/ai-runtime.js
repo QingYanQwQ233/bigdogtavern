@@ -937,9 +937,12 @@ async function requestRpgAgentReply(payload, targetScope) {
       const message = data?.choices?.[0]?.message || {};
       response = { content: message.content || '', cot: message.reasoning_content || '', calls: normalizeNativeToolCalls(message).map(parseNativeToolArguments), rawMessage: message };
     }
-    session.cot = appendRpgAgentCot(session.cot, {
-      label: `${finalOnly ? '最终步骤' : `步骤 ${step + 1}`}${(response.calls || []).length ? `（${response.calls.map(call => call.name || '工具').join('、')}）` : ''}`,
+    const stepLabel = `${finalOnly ? '最终步骤' : `步骤 ${step + 1}`}${(response.calls || []).length ? `（${response.calls.map(call => call.name || '工具').join('、')}）` : ''}`;
+    session.cot = appendRpgAgentCot(session.cot, { label: stepLabel, cot: response.cot });
+    appendRpgAgentStep(session, {
+      label: stepLabel,
       cot: response.cot,
+      tools: (response.calls || []).map(call => ({ name: call.name, args: call.arguments })),
     });
     const previousPreview = session.previewNarrative;
     publishRpgAgentStep(session, response, targetScope, finalOnly ? 'Agent 最终步骤已完成' : 'Agent 步骤已完成');
@@ -1042,9 +1045,12 @@ async function requestRpgCompatReply(payload, targetScope, session = createRpgAg
       const content = message.content || '';
       response = { content, cot: message.reasoning_content || '', calls: normalizeCompatToolCalls(processAIOutput(content).agentCalls, step) };
     }
-    session.cot = appendRpgAgentCot(session.cot, {
-      label: `${finalOnly ? '最终步骤' : `步骤 ${step + 1}`}${(response.calls || []).length ? `（${response.calls.map(call => call.name || '工具').join('、')}）` : ''}`,
+    const stepLabel = `${finalOnly ? '最终步骤' : `步骤 ${step + 1}`}${(response.calls || []).length ? `（${response.calls.map(call => call.name || '工具').join('、')}）` : ''}`;
+    session.cot = appendRpgAgentCot(session.cot, { label: stepLabel, cot: response.cot });
+    appendRpgAgentStep(session, {
+      label: stepLabel,
       cot: response.cot,
+      tools: (response.calls || []).map(call => ({ name: call.name, args: call.arguments })),
     });
     const previousPreview = session.previewNarrative;
     publishRpgAgentStep(session, response, targetScope, finalOnly ? '兼容 Agent 最终步骤已完成' : '兼容 Agent 步骤已完成');

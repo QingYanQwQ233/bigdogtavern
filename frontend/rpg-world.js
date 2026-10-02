@@ -74,6 +74,9 @@ function createRpgAgentSession(payload, targetScope) {
     events: [],
     accepted: [],
     toolTrace: [],
+    /* 每步的思维链与工具调用单独记录：渲染时要按「步骤 → 工具 → 步骤」的顺序摆，
+       靠一个拼好的 cot 字符串做不到（正文与工具之间的时间顺序会丢）。 */
+    steps: [],
     cot: '',
     previewNarrative: '',
     checkpoints: [],
@@ -146,6 +149,33 @@ function appendRpgAgentCot(previous, { label = '', cot = '' } = {}) {
   return `${previous ? `${previous}\n\n` : ''}${[head, body].filter(Boolean).join('\n')}`;
 }
 
+/* 记录一步：思维链 + 这一步请求的工具。工具结果由后续 toolTrace 补齐（按 name 匹配）。 */
+function appendRpgAgentStep(session, { label = '', cot = '', tools = [] } = {}) {
+  if (!session) return null;
+  const clean = text => String(text || '').trim();
+  const step = {
+    label: clean(label).slice(0, 60),
+    cot: clean(cot).slice(0, 4000),
+    tools: (Array.isArray(tools) ? tools : [])
+      .slice(0, 8)
+      .map(tool => ({ name: clean(tool?.name).slice(0, 40), args: tool?.args && typeof tool.args === 'object' ? tool.args : null })),
+  };
+  if (!Array.isArray(session.steps)) session.steps = [];
+  session.steps.push(step);
+  if (session.steps.length > 12) session.steps.splice(0, session.steps.length - 12);
+  return step;
+}
+/* 落库前的裁剪：只留渲染需要的字段，避免存档被思维链撑大。 */
+function serializeRpgAgentSteps(steps) {
+  return (Array.isArray(steps) ? steps : [])
+    .slice(0, 12)
+    .map(step => ({
+      label: String(step?.label || '').slice(0, 60),
+      cot: String(step?.cot || '').slice(0, 4000),
+      tools: (Array.isArray(step?.tools) ? step.tools : []).slice(0, 8).map(tool => ({ name: String(tool?.name || '').slice(0, 40) })),
+    }))
+    .filter(step => step.label || step.cot || step.tools.length);
+}
 function publishRpgAgentStep(session, response, targetScope, status = 'Agent 步骤完成') {
   appendRpgAgentPreview(session, response?.content || '');
   appendRpgAgentEvent(session, 'assistant.message', {

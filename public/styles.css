@@ -3959,3 +3959,16 @@ body[data-mode="rpg"] .composer {
   cursor: pointer;
 }
 .tcp-hint { margin: 10px 0 0; color: var(--muted); font-size: 12px; }
+
+/* 思维链「按步骤」内联：每步一块，工具调用跟在所属步骤下面。
+   字号/间距取设计刻度，颜色只用 muted，旁注不抢正文。 */
+.cot-body .cot-step + .cot-step { margin-top: 8px; }
+.cot-body .cot-step-head { color: var(--text); font-weight: 600; }
+.cot-body .cot-step-body { white-space: pre-wrap; }
+.cot-body .cot-tool {
+  margin-top: 4px;
+  padding-left: 8px;
+  border-left: 2px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
