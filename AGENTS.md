@@ -83,8 +83,9 @@
 - 常规提交前：`node scripts/run_checks.js`（含全部 `check_*.js`）
 - RPG/协议改动：至少 `check_rpg_protocol.js`、`check_runtime_roundtrip.js`、`check_rpg_agent.js`、`check_rpg_agent_compat.js`、`check_output_regex.js`、`check_frontend_state_guards.js`
 - UI/移动端改动：`check_ui_regions.js`、`check_ui_theme.js`、`check_message_window.js`、`check_webview_floor.js`，并用真实浏览器或 Playwright 验证关键路径
-- **交付前自验（硬性）**：除**只能真机验证**的项目（edge-to-edge / 系统栏、软键盘、系统权限、APK 安装与启动），其余一律**先用内置浏览器自验**再交付 —— 起本地服务、用 Playwright 走通功能路径，确认**无 console 报错**、关键交互（点选项、通知/灵动岛、弹层遮挡、按钮状态）实测通过。真机专属项由 AI 负责构建 + 安装后启动/崩溃检查，界面观感交用户验收。
+- **交付前自验（硬性）**：除**只能真机验证**的项目（edge-to-edge / 系统栏、软键盘、系统权限、APK 安装与启动），其余一律**先用内置浏览器自验**再交付 —— 起本地服务、用 Playwright 走通功能路径，确认**无 console 报错**、关键交互（点选项、通知/灵动岛、弹层遮挡、按钮状态）实测通过。真机专属项由 AI 负责构建 + 安装；**安装完不要自动启动 App**（用户自己决定何时打开），界面观感与真机走查交用户验收。
 - Android 改动：额外 `check_android_api.js`、`check_android_protocol.js`，并在真机或 GitHub Actions 上验证
+- **交付截图只用内置浏览器**（`browser_shot`）：它跑在自验服务上，能复现同样的视口。**不要截用户手机屏幕**（`screencap`），也不要在用户没要求时自动打开 App 或代跑真机操作 —— 真机是用户的设备，什么时候看由用户定。
 - 看到失败先按「复现 → 找调用链 → 证明根因 → 最小修复 → 回归检查」处理，**不要只在 UI 上吞掉错误或盲目重试**。
 
 ## 8. Android / Node 运行时约束
