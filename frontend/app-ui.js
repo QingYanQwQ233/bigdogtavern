@@ -1822,11 +1822,13 @@ function cotToolHtml(tool, trace) {
 function cotStepsHtml(steps, trace) {
   const list = Array.isArray(steps) ? steps.filter(step => step && (step.label || step.cot || step.tools?.length)) : [];
   if (!list.length) return null;
+  // 每一步一个独立的 <details>：可以单独展开/收起，默认收起也就不会把整块撑很高。
   return list.map(step => {
-    const head = step.label ? `<div class="cot-step-head">${esc(step.label)}</div>` : '';
-    const body = step.cot ? `<div class="cot-step-body">${esc(step.cot)}</div>` : '';
+    const label = esc(step.label || '思维链步骤');
+    const text = typeof cotDisplayText === 'function' ? cotDisplayText(step.cot) : String(step.cot || '');
+    const body = text ? `<div class="cot-step-body">${esc(text)}</div>` : '';
     const tools = (Array.isArray(step.tools) ? step.tools : []).map(tool => cotToolHtml(tool, trace)).join('');
-    return `<div class="cot-step">${head}${body}${tools}</div>`;
+    return `<details class="cot-step"><summary class="cot-step-head">${label}</summary><div class="cot-step-main">${body}${tools}</div></details>`;
   }).join('');
 }
 function renderMessages() {

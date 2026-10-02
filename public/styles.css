@@ -3963,7 +3963,16 @@ body[data-mode="rpg"] .composer {
 /* 思维链「按步骤」内联：每步一块，工具调用跟在所属步骤下面。
    字号/间距取设计刻度，颜色只用 muted，旁注不抢正文。 */
 .cot-body .cot-step + .cot-step { margin-top: 8px; }
-.cot-body .cot-step-head { color: var(--text); font-weight: 600; }
+.cot-body .cot-step-head {
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+.cot-body .cot-step-head::-webkit-details-marker { display: none; }
+.cot-body .cot-step-head::before { content: '▸'; margin-right: 4px; color: var(--muted); }
+.cot-body .cot-step[open] > .cot-step-head::before { content: '▾'; }
+.cot-body .cot-step-main { padding: 2px 0 0 12px; }
 .cot-body .cot-step-body { white-space: pre-wrap; overflow-wrap: anywhere; }
 /* 当前步：只做一个很轻的标识，别用重背景抢正文 */
 .cot-body .cot-step.is-current > .cot-step-head { color: var(--accent); }

@@ -1332,19 +1332,31 @@ function renderTypingCot(blocks) {
   list.forEach((block, index) => {
     let node = existing[index];
     if (!node || !node.classList.contains('cot-step')) {
-      node = document.createElement('div');
+      // 每一步一个独立 <details>：单独展开/收起，默认收起不撑高
+      node = document.createElement('details');
       node.className = 'cot-step';
+      const summary = document.createElement('summary');
+      summary.className = 'cot-step-head';
+      const main = document.createElement('div');
+      main.className = 'cot-step-main';
+      node.appendChild(summary);
+      node.appendChild(main);
       body.appendChild(node);
     }
-    const head = block.label ? `<div class="cot-step-head">${esc(block.label)}</div>` : '';
+    const summary = node.querySelector(':scope > .cot-step-head');
+    const main = node.querySelector(':scope > .cot-step-main');
+    if (!summary || !main) return;
+    const label = block.label || '思维链步骤';
+    // 只更新内容，不碰 summary 节点：details 的展开状态是 DOM 属性，重建就丢了
+    if (summary.textContent !== label) summary.textContent = label;
     const text = block.cot ? `<div class="cot-step-body">${esc(block.cot)}</div>` : '';
     const lines = block.tools.map(tool => `<div class="cot-tool">调用 ${esc(tool.name)}</div>`).join('');
-    const html = head + text + lines;
+    const html = text + lines;
     node.classList.toggle('is-current', !!block.current);
     // 内容没变就不写 DOM：写入会重排，也会让动画从头播
-    if (node._html !== html) {
-      node.innerHTML = html;
-      node._html = html;
+    if (main._html !== html) {
+      main.innerHTML = html;
+      main._html = html;
     }
   });
   existing.slice(list.length).forEach(node => node.remove());
