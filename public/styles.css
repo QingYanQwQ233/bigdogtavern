@@ -3972,3 +3972,18 @@ body[data-mode="rpg"] .composer {
   color: var(--muted);
   font-size: 12px;
 }
+/* 步骤块逐段出现：只动 opacity/transform，时长取动效刻度 */
+.cot-body .cot-step { animation: cot-step-in 150ms var(--motion-out) both; }
+.cot-body .cot-tool { animation: cot-tool-in 150ms var(--motion-out) both; }
+@keyframes cot-step-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes cot-tool-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cot-body .cot-step,
+  .cot-body .cot-tool { animation: none; }
+}

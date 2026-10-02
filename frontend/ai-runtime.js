@@ -1276,17 +1276,31 @@ function renderTypingContentFrame() {
 /* 流式期间的思维链：callAPIStream 里的 cot 是「当前这一步」的局部累积，
    只显示它就会出现「每次只看到一段、生成完才补齐」的现象。
    这里把已完成的步骤（session.cot）与正在生成的这段拼起来。 */
+/* 流式期间的思维链：按「已完成步骤 + 正在进行的这一步」渲染成块，
+   这样每段思维链都跟在它所属的步骤下面，而不是等回合结束才看到分段。 */
+function typingStepHtml(label, cot, tools = [], current = false) {
+  const head = label ? `<div class="cot-step-head">${esc(label)}</div>` : '';
+  const body = cot ? `<div class="cot-step-body">${esc(cot)}</div>` : '';
+  const lines = (Array.isArray(tools) ? tools : [])
+    .map(tool => `<div class="cot-tool">调用 ${esc(tool?.name || '工具')}</div>`)
+    .join('');
+  return `<div class="cot-step${current ? ' is-current' : ''}">${head}${body}${lines}</div>`;
+}
 function typingPreviewCot() {
   const session = activeRpgStreamSession
     || (typeof rpgAgentSession === 'object' && rpgAgentSession ? rpgAgentSession : null);
-  const done = String(session?.cot || '');
-  if (!done) {
-    // 第一步还没跑完时 session.cot 是空的，但它照样是「步骤 1」——
-    // 之前这里直接返回裸内容，于是第一段看不到标题。
-    return typingCot ? appendRpgAgentCot('', { label: '步骤 1', cot: typingCot }) : '';
+  const steps = Array.isArray(session?.steps) ? session.steps : [];
+  let html = steps.map(step => typingStepHtml(step.label, step.cot, step.tools)).join('');
+  const current = String(typingCot || '').trim();
+  if (current) {
+    // 正在生成的这一步：沿用「进行中」措辞，第一步则标「步骤 1」
+    html += typingStepHtml(steps.length ? '进行中' : '步骤 1', current, [], true);
+  } else if (!html) {
+    // 还没有任何可展示的内容时保留旧的整段投影，避免闪空
+    const done = String(session?.cot || '');
+    return done ? done : '';
   }
-  if (!typingCot) return done;
-  return appendRpgAgentCot(done, { label: '进行中', cot: typingCot });
+  return html;
 }
 
 /* 实时思维链：生成中就存在，但默认折叠，只有用户点开才看到推理内容。 */
@@ -1306,7 +1320,8 @@ function renderTypingCot(cot) {
   }
   let body = el.querySelector('.cot-body');
   if (!body) body = el.querySelector('.bubble');
-  if (body) body.textContent = cot;
+  // 内容由本文件的构造函数用 esc() 拼好，这里直接落 HTML（保留步骤分块结构）
+  if (body) body.innerHTML = cot;
 }
 
 function updateTypingContent(text, cot) {
