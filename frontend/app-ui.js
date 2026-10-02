@@ -2070,7 +2070,9 @@ function renderMessages() {
   if (mode === 'rpg') renderRPG(); // RPG 模式联动状态面板
   const msgs = curMessages();
   const pendingAssistantVisible = worldTurnPendingActive() && !!worldTurnPending.assistantMessage;
-  const preview = responsePreview && responsePreview.targetKey === activeConversationKey() && !pendingAssistantVisible ? [responsePreview] : [];
+  // RPG 流式期间由 #typing-msg 按步骤链渲染；如果这里再渲染 responsePreview，
+  // 就会「旧思维链块 + 新步骤块」两套并存 —— 表现为步骤重复、嵌套错乱、界面不统一。
+  const preview = mode !== 'rpg' && responsePreview && responsePreview.targetKey === activeConversationKey() && !pendingAssistantVisible ? [responsePreview] : [];
   const renderMsgs = preview.length ? [...msgs, ...preview] : msgs;
   const windowStart = renderMsgs.length > MESSAGE_RENDER_WINDOW_SIZE
     ? Math.max(0, renderMsgs.length - MESSAGE_RENDER_WINDOW_SIZE - messageRenderWindow.start)
