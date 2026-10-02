@@ -15555,8 +15555,12 @@ function chatScrollToBottomNow(chat) {
   if (typeof chat.scrollTo === 'function') chat.scrollTo({ top: chat.scrollHeight, behavior: 'instant' });
   else chat.scrollTop = chat.scrollHeight;
 }
+let chatUserInteractingUntil = 0;
+/* 用户是否正在操作聊天列表（触摸/滚轮/按键后 600ms 内）。 */
 function chatStickToBottom(chat = $('chat')) {
   if (!chat || !chatFollowLatest) return false;
+  // 用户正在操作：程序绝对不抢，哪怕 followLatest 还没更新
+  if (Date.now() <= chatUserInteractingUntil) return false;
   chatScrollToBottomNow(chat);
   return true;
 }
@@ -15569,8 +15573,7 @@ function initChatFollowTracking() {
   // 只有真实交互（触摸/滚轮/按键）之后的滚动才算「用户意图」。
   // 只看 scroll 事件不行：流式增长触发浏览器滚动锚定、或我们自己的程序滚动，
   // 都会派发 scroll，被当成用户操作后跟随就莫名停了。
-  let userInteractingUntil = 0;
-  const markInteraction = () => { userInteractingUntil = Date.now() + 600; };
+  const markInteraction = () => { chatUserInteractingUntil = Date.now() + 600; };
   ['wheel', 'touchstart', 'pointerdown', 'mousedown', 'keydown'].forEach(event => {
     chat.addEventListener(event, markInteraction, { passive: true });
   });
@@ -15582,7 +15585,7 @@ function initChatFollowTracking() {
   }, { passive: true });
   chat.addEventListener('wheel', () => { chatFollowLatest = false; }, { passive: true });
   chat.addEventListener('scroll', () => {
-    const interacting = Date.now() <= userInteractingUntil;
+    const interacting = Date.now() <= chatUserInteractingUntil;
     // 用户操作优先：程序每帧滚到底会不断刷新抑制窗口，
     // 如果这里无条件忽略，用户的滚动就永远落在抑制窗口里，跟随状态再也改不掉
     // （表现就是「人拉不过程序」）。所以用户正在操作时一律按他的位置判定。
