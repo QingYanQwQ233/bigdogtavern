@@ -7,7 +7,7 @@
   <link rel="manifest" href="manifest.json" />
   <title>Tavern · AI RP 框架演示</title>
   <link rel="icon" type="image/png" href="favicon.png" />
-  <link rel="stylesheet" href="styles.css?v=a8b9ecde" />
+  <link rel="stylesheet" href="styles.css?v=ad85e0b2" />
     <link rel="stylesheet" href="vendor/coloris/coloris.min.css" />
 </head>
 <body data-theme="vibrancy" data-layout="classic">
@@ -702,9 +702,25 @@
                 <input id="toast-fg" class="tavern-color-field" type="text" value="#f2f2f7" autocomplete="off" spellcheck="false" />
               </div>
             </div>
-            <div class="field">
-              <label for="toast-accent">强调色 <span class="hint-inline">边框与图标</span></label>
-              <input id="toast-accent" class="tavern-color-field" type="text" value="#77e6d5" autocomplete="off" spellcheck="false" />
+            <div class="field row2">
+              <div class="field">
+                <label for="toast-accent">普通提示 <span class="hint-inline">边框与图标</span></label>
+                <input id="toast-accent" class="tavern-color-field" type="text" value="#77e6d5" autocomplete="off" spellcheck="false" />
+              </div>
+              <div class="field">
+                <label for="toast-success-color">成功提示</label>
+                <input id="toast-success-color" class="tavern-color-field" type="text" value="#30d158" autocomplete="off" spellcheck="false" />
+              </div>
+            </div>
+            <div class="field row2">
+              <div class="field">
+                <label for="toast-warning-color">警告提示</label>
+                <input id="toast-warning-color" class="tavern-color-field" type="text" value="#ffd60a" autocomplete="off" spellcheck="false" />
+              </div>
+              <div class="field">
+                <label for="toast-error-color">错误提示</label>
+                <input id="toast-error-color" class="tavern-color-field" type="text" value="#ff453a" autocomplete="off" spellcheck="false" />
+              </div>
             </div>
             <div class="field row2">
               <div class="field">
@@ -1817,14 +1833,14 @@
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
   <script src="vendor/mapgen2.bundle.js"></script>
-  <script src="mapgen.js?v=a8b9ecde"></script>
+  <script src="mapgen.js?v=ad85e0b2"></script>
   <script src="vendor/coloris/coloris.min.js"></script>
-    <script src="app.js?v=a8b9ecde"></script>
+    <script src="app.js?v=ad85e0b2"></script>
   <script>
     // PWA：注册 service worker（仅 HTTPS / localhost 生效，套壳 APK 可用）
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js?v=a8b9ecde').catch(() => {});
+    navigator.serviceWorker.register('sw.js?v=ad85e0b2').catch(() => {});
       });
     }
   </script>

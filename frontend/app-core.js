@@ -72,7 +72,7 @@ const DEFAULT_SETTINGS = {
   history: 20, stream: true,
   promptCache: { cacheKey: '', includeUsage: false },
   firstMes: '',
-  toast: { bg: '#1c1c1e', fg: '#f2f2f7', accent: '#77e6d5', fontSize: 13, padding: 'normal', speed: 'normal', shape: 'pill', max: 2 },
+  toast: { bg: '#1c1c1e', fg: '#f2f2f7', accent: '#77e6d5', success: '#30d158', warning: '#ffd60a', error: '#ff453a', fontSize: 13, padding: 'normal', speed: 'normal', shape: 'pill', max: 2 },
 };
 
 /* 服务预设 / 界面偏好：从 public/data/_defaults.json 加载，代码不写死 */
@@ -234,6 +234,9 @@ function toastConfig() {
     bg: String(raw.bg || '#1c1c1e'),
     fg: String(raw.fg || '#f2f2f7'),
     accent: String(raw.accent || '#77e6d5'),
+    success: String(raw.success || '#30d158'),
+    warning: String(raw.warning || '#ffd60a'),
+    error: String(raw.error || '#ff453a'),
     fontSize: Number(raw.fontSize) || 13,
     padding: TOAST_PADDING[raw.padding] ? raw.padding : 'normal',
     speed: TOAST_DURATIONS[raw.speed] ? raw.speed : 'normal',
@@ -265,6 +268,11 @@ function applyToastTheme() {
   root.style.setProperty('--toast-pad-y', pad.y + 'px');
   root.style.setProperty('--toast-pad-x', pad.x + 'px');
   root.style.setProperty('--toast-radius', TOAST_SHAPE_RADIUS[cfg.shape] + 'px');
+  /* 每种提示类型一套色：文字/图标用实色，边框用同色低透明度 */
+  [['success', 0.55], ['warning', 0.55], ['error', 0.55]].forEach(([key, alpha]) => {
+    root.style.setProperty('--toast-' + key, cfg[key]);
+    root.style.setProperty('--toast-' + key + '-border', toastRgba(cfg[key], alpha, cfg[key]));
+  });
   root.style.setProperty('--toast-in', d.in + 'ms');
   root.style.setProperty('--toast-out', d.out + 'ms');
   root.style.setProperty('--toast-pulse', d.pulse + 'ms');
@@ -316,7 +324,7 @@ function showToast(message, options = {}) {
   // 按内容重绘图标 / 语义 / 计时。切换内容时复用同一个元素：
   // 否则「旧的还在淡出、新的已入场」两条胶囊会互相挤，看起来像抽搐。
   const paint = (text, nextKind, nextOptions = {}) => {
-    const iconText = nextKind === 'error' ? '⚠' : (nextKind === 'success' ? '✓' : '');
+    const iconText = nextKind === 'error' ? '⚠' : (nextKind === 'warning' ? '!' : (nextKind === 'success' ? '✓' : ''));
     if (iconText && nextOptions.icon !== false) {
       if (!iconEl) {
         iconEl = document.createElement('span');
@@ -593,8 +601,8 @@ function notify(message, options = {}) {
     if (appBusyToast) { appBusyToast.dismiss(); appBusyToast = null; }
     return text;
   }
-  const kind = level === 'error' ? 'error' : (level === 'success' ? 'success' : '');
-  const duration = options.duration ?? (kind === 'error' ? 8000 : 5000);
+  const kind = level === 'error' ? 'error' : (level === 'warning' ? 'warning' : (level === 'success' ? 'success' : ''));
+  const duration = options.duration ?? (kind === 'error' || kind === 'warning' ? 8000 : 5000);
   const busy = appBusyToast;
   appBusyToast = null;
   if (busy && busy.element && busy.element.isConnected) busy.update(text, { kind, duration, action: options.action });

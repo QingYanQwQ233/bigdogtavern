@@ -414,6 +414,9 @@ function fillToastForm() {
   $('toast-bg').value = cfg.bg;
   $('toast-fg').value = cfg.fg;
   $('toast-accent').value = cfg.accent;
+  $('toast-success-color').value = cfg.success;
+  $('toast-warning-color').value = cfg.warning;
+  $('toast-error-color').value = cfg.error;
   $('toast-font-size').value = String(cfg.fontSize);
   $('toast-padding').value = cfg.padding;
   $('toast-shape').value = cfg.shape;
@@ -426,6 +429,9 @@ function readToastForm(save = false) {
     bg: $('toast-bg').value,
     fg: $('toast-fg').value,
     accent: $('toast-accent').value,
+    success: $('toast-success-color').value,
+    warning: $('toast-warning-color').value,
+    error: $('toast-error-color').value,
     fontSize: Number($('toast-font-size').value) || 13,
     padding: $('toast-padding').value,
     shape: $('toast-shape').value,
@@ -454,8 +460,9 @@ function resetToastForm() {
 /* 测试：连发三条（普通 / 成功 / 错误），顺带验证同屏数量与动画速度。 */
 function testToastAppearance() {
   notify('普通提示：这是一条测试消息。');
-  setTimeout(() => notifyResult('成功提示：外观与动画测试。', true), 400);
-  setTimeout(() => notify('错误提示：这是错误样式。', { level: 'error' }), 800);
+  setTimeout(() => notify('成功提示：外观与动画测试。', { level: 'success' }), 400);
+  setTimeout(() => notify('警告提示：这是警告样式。', { level: 'warning' }), 800);
+  setTimeout(() => notify('错误提示：这是错误样式。', { level: 'error' }), 1200);
 }
 let uiTransparencySaveTimer = null;
 let uiTransparencySaveToken = 0;

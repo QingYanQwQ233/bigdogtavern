@@ -3650,9 +3650,12 @@ body[data-mode="rpg"] .composer {
   cursor: pointer;
 }
 .toast-action { border-color: rgba(255, 255, 255, 0.32); }
-.toast-error { border-color: rgba(var(--danger-rgb), 0.55); }
-.toast-error .toast-icon { color: var(--danger); }
-.toast-success { border-color: rgba(48, 209, 88, 0.45); }
+.toast-error { border-color: var(--toast-error-border, rgba(var(--danger-rgb), 0.55)); }
+.toast-error .toast-icon { color: var(--toast-error, var(--danger)); }
+.toast-success { border-color: var(--toast-success-border, rgba(48, 209, 88, 0.45)); }
+.toast-success .toast-icon { color: var(--toast-success, #30d158); }
+.toast-warning { border-color: var(--toast-warning-border, rgba(255, 214, 10, 0.55)); }
+.toast-warning .toast-icon { color: var(--toast-warning, #ffd60a); }
 .toast.toast-out {
   animation: toast-out var(--toast-out, 300ms) var(--motion-collapse) forwards;
   /* 与 height 一起收到 0：边距 / 内边距 / 上下边框都占高度，不收干净还是会跳 */
@@ -3845,3 +3848,40 @@ body[data-mode="rpg"] .composer {
   box-sizing: border-box;
 }
 .tavern-color-field:focus { outline: 1px solid var(--accent); outline-offset: 1px; }
+
+/* ─── 取色器（Coloris）外观对齐项目风格 ───
+   Coloris 自带的是浅色 shadcn 风格面板 + 方形预览块，与项目的深色圆角体系不一致，
+   这里统一成：面板用项目面板色/边框/圆角，预览块做成圆角小方块。 */
+.clr-picker {
+  background: var(--panel, #1c1c1e) !important;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.12)) !important;
+  border-radius: var(--radius, 10px) !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45) !important;
+}
+.clr-picker,
+.clr-picker input,
+.clr-picker button { font-family: var(--font-body) !important; }
+.clr-picker .clr-color,
+.clr-picker .clr-hue,
+.clr-picker .clr-alpha { border-radius: 8px !important; }
+.clr-picker .clr-swatches button { border-radius: 8px !important; border: 1px solid var(--line, rgba(255, 255, 255, 0.16)) !important; }
+.clr-picker .clr-swatches { border-top-color: var(--line, rgba(255, 255, 255, 0.12)) !important; }
+.clr-picker input {
+  border-radius: 8px !important;
+  border-color: var(--line, rgba(255, 255, 255, 0.12)) !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: var(--text, #f2f2f7) !important;
+}
+/* 字段旁的预览块：从“贴边方形”改成带描边的圆角方块，跟输入框同一套语言 */
+.clr-field button {
+  width: 28px !important;
+  height: 28px !important;
+  right: 8px !important;
+  margin: 0 !important;
+  border-radius: 8px !important;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.16)) !important;
+  box-shadow: none !important;
+}
+.clr-field button::after { display: none !important; }
+.clr-field input { padding-right: 40px !important; }
+.clr-field { width: 100%; }
