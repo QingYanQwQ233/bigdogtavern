@@ -1319,10 +1319,13 @@ function typingPreviewBlocks() {
         body = trimmed.slice(trimmed.indexOf(shown) + shown.length).replace(/^\s+/, '');
       }
     }
-    // 挂起的那一步若已有正文片段，用它作为「已经写出来的部分」更准
+    // 挂起的那一步并入「进行中」：它的思维链和正文都要带上，
+    // 只并正文会把这一步的 CoT 整段丢掉（第一步因此看起来「没被塞进思维链里」）。
     const pendingText = pendingStep ? String(pendingStep.narrative || '').trim() : '';
+    const pendingCot = pendingStep ? String(pendingStep.cot || '').trim() : '';
     if (pendingText && !body) body = pendingText;
-    blocks.push(typingStepBlock(steps.length ? '进行中' : '步骤 1', current, [], true, body));
+    const cotText = current || pendingCot;
+    blocks.push(typingStepBlock(steps.length ? '进行中' : '步骤 1', cotText, [], true, body));
   }
   if (!blocks.length) {
     const done = String(session?.cot || '');

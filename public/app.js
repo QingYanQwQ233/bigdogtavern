@@ -13586,10 +13586,13 @@ function typingPreviewBlocks() {
         body = trimmed.slice(trimmed.indexOf(shown) + shown.length).replace(/^\s+/, '');
       }
     }
-    // 挂起的那一步若已有正文片段，用它作为「已经写出来的部分」更准
+    // 挂起的那一步并入「进行中」：它的思维链和正文都要带上，
+    // 只并正文会把这一步的 CoT 整段丢掉（第一步因此看起来「没被塞进思维链里」）。
     const pendingText = pendingStep ? String(pendingStep.narrative || '').trim() : '';
+    const pendingCot = pendingStep ? String(pendingStep.cot || '').trim() : '';
     if (pendingText && !body) body = pendingText;
-    blocks.push(typingStepBlock(steps.length ? '进行中' : '步骤 1', current, [], true, body));
+    const cotText = current || pendingCot;
+    blocks.push(typingStepBlock(steps.length ? '进行中' : '步骤 1', cotText, [], true, body));
   }
   if (!blocks.length) {
     const done = String(session?.cot || '');
@@ -15565,9 +15568,16 @@ function initChatFollowTracking() {
   // 都会派发 scroll，被当成用户操作后跟随就莫名停了。
   let userInteractingUntil = 0;
   const markInteraction = () => { userInteractingUntil = Date.now() + 600; };
-  ['wheel', 'touchstart', 'touchmove', 'pointerdown', 'mousedown', 'keydown'].forEach(event => {
+  ['wheel', 'touchstart', 'pointerdown', 'mousedown', 'keydown'].forEach(event => {
     chat.addEventListener(event, markInteraction, { passive: true });
   });
+  // 手指一移动就当成「用户要自己控制」：不再依赖 scroll 事件是否落在交互窗口内，
+  // 从根上避免程序滚动把用户黏在底部。滚回底部时上面的 scroll 逻辑会恢复跟随。
+  chat.addEventListener('touchmove', () => {
+    markInteraction();
+    chatFollowLatest = false;
+  }, { passive: true });
+  chat.addEventListener('wheel', () => { chatFollowLatest = false; }, { passive: true });
   chat.addEventListener('scroll', () => {
     const interacting = Date.now() <= userInteractingUntil;
     // 用户操作优先：程序每帧滚到底会不断刷新抑制窗口，

@@ -1825,9 +1825,16 @@ function initChatFollowTracking() {
   // 都会派发 scroll，被当成用户操作后跟随就莫名停了。
   let userInteractingUntil = 0;
   const markInteraction = () => { userInteractingUntil = Date.now() + 600; };
-  ['wheel', 'touchstart', 'touchmove', 'pointerdown', 'mousedown', 'keydown'].forEach(event => {
+  ['wheel', 'touchstart', 'pointerdown', 'mousedown', 'keydown'].forEach(event => {
     chat.addEventListener(event, markInteraction, { passive: true });
   });
+  // 手指一移动就当成「用户要自己控制」：不再依赖 scroll 事件是否落在交互窗口内，
+  // 从根上避免程序滚动把用户黏在底部。滚回底部时上面的 scroll 逻辑会恢复跟随。
+  chat.addEventListener('touchmove', () => {
+    markInteraction();
+    chatFollowLatest = false;
+  }, { passive: true });
+  chat.addEventListener('wheel', () => { chatFollowLatest = false; }, { passive: true });
   chat.addEventListener('scroll', () => {
     const interacting = Date.now() <= userInteractingUntil;
     // 用户操作优先：程序每帧滚到底会不断刷新抑制窗口，
