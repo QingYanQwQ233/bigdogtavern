@@ -37,6 +37,7 @@ vm.runInContext(`
   setResponsePreview = text => previewFrames.push(String(text));
   setDebugTrace = () => {};
   rollWorldDice = async expr => [{ expr, rolls: [15], bonus: 0, total: 15 }];
+  rollDiceOnServer = async expr => [{ expr, rolls: [15], bonus: 0, total: 15 }];
 `, context);
 
 const compatDefinitions = vm.runInContext(`buildRpgNativeToolDefinitions({ mode: 'tool-candidate', tools: { 'dice.roll': { enabled: true, parameters: { type: 'object' } } } })`, context);
@@ -89,6 +90,7 @@ Promise.resolve(result).then(async value => {
     currentWorldCard = () => ({ rules: { checks: [{ id: 'insight', label: '洞察', roll: '1d20', target: 10, modifier: { bucket: 'attributes', id: 'insight' } }] } });
     currentWorldSave = { state: { player: { attributes: { insight: 6 } } } };
     rollWorldDice = async expr => [{ expr, rolls: [10], bonus: 0, total: 10 }];
+    rollDiceOnServer = async expr => [{ expr, rolls: [10], bonus: 0, total: 10 }];
     return executeRpgNativeToolCalls([
       { callId: 'check-2', name: 'rules.check', arguments: { ruleId: 'insight' } },
       { callId: 'roll-2', name: 'dice.roll', arguments: { expr: '1d20', modifier: { bucket: 'attributes', id: 'insight' } } },

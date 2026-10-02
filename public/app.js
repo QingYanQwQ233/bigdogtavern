@@ -12654,6 +12654,27 @@ function retrieveRpgAgentContext(query, scope = 'known', limit = 6, snapshot = n
   return { scope, query: wanted, matches: ranked.map(({ doc, score }) => ({ ...doc, score })) };
 }
 
+/* RPG 判定骰子必须由服务端掷。
+   客户端 Math.random 产生的骰面既不可复算也无法证明没被改，权威判定链一旦用了它，
+   「判定可信」就只是口头承诺。所以判定走 /api/dice（服务端 crypto.randomInt），
+   客户端只负责展示；服务端不可用时这一步直接失败并由 Guard 拦在提交前，绝不回退本地随机。
+   注意：普通正文里出现的 1d20 是文本展示，仍走 app-render 的本地 rollDiceIn，不在本约束内。 */
+async function rollDiceOnServer(expressions) {
+  const list = (Array.isArray(expressions) ? expressions : [expressions])
+    .map(item => String(item || '').trim())
+    .filter(Boolean);
+  if (!list.length) return [];
+  const resp = await fetch('/api/dice', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expressions: list }),
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data?.error || `判定服务不可用（HTTP ${resp.status}）`);
+  const rolls = Array.isArray(data?.rolls) ? data.rolls : [];
+  if (rolls.length !== list.length) throw new Error('判定服务返回的骰面不完整');
+  return rolls;
+}
 async function executeRpgNativeToolCalls(calls, profile, targetScope, snapshot = null, gate = {}) {
   const trace = [];
   const accepted = [];
@@ -12721,22 +12742,34 @@ async function executeRpgNativeToolCalls(calls, profile, targetScope, snapshot =
             result = { ok: false, error: '当前判定没有声明 modifiers，不能自行添加属性/技能修正' };
           } else {
             const checkFeedback = showRpgCheckAnimation(expr, gate.anchorOffset, gate.checkpoints);
-            // 先让浏览器绘制一次短判定动画，再把客户端随机结果交回模型。
+            // 先让浏览器绘制一次短判定动画，再向服务端要权威骰面并交回模型。
             if (checkFeedback) await new Promise(resolve => setTimeout(resolve, 320));
-            const rolls = await rollWorldDice(expr);
-            if (!rolls.length) throw new Error('expr 不是受支持的骰子表达式');
-            const resolution = buildRpgCheckResolution(proposal, rolls[0], snapshot);
-            result = {
-              ok: true,
-              rolls,
-              ...(proposal.modifierRule ? { modifierRule: cloneValue(proposal.modifierRule), modifier: proposal.modifier } : {}),
-              ...(Array.isArray(proposal.modifierRules) ? { modifierRules: cloneValue(proposal.modifierRules), modifier: rpgDynamicModifierTotal(proposal.modifierRules, snapshot) } : {}),
-              ...(resolution ? { resolution } : {}),
-            };
-            updateRpgCheckAnimation(checkFeedback, rolls[0], resolution);
-            finishRpgCheckAnimation(checkFeedback);
-            if (resolution) gate.checkProposal = null;
-            gate.diceUses += 1;
+            let rolls = [];
+            let diceError = '';
+            try {
+              rolls = await rollDiceOnServer(expr);
+            } catch (error) {
+              diceError = String(error?.message || '服务端判定不可用');
+            }
+            if (diceError) {
+              // 不回退本地随机：宁可这一步失败（Guard 会拦在提交前），也不要产生不可复算的骰面。
+              finishRpgCheckAnimation(checkFeedback);
+              result = { ok: false, error: `判定失败：${diceError}` };
+            } else {
+              if (!rolls.length) throw new Error('expr 不是受支持的骰子表达式');
+              const resolution = buildRpgCheckResolution(proposal, rolls[0], snapshot);
+              result = {
+                ok: true,
+                rolls,
+                ...(proposal.modifierRule ? { modifierRule: cloneValue(proposal.modifierRule), modifier: proposal.modifier } : {}),
+                ...(Array.isArray(proposal.modifierRules) ? { modifierRules: cloneValue(proposal.modifierRules), modifier: rpgDynamicModifierTotal(proposal.modifierRules, snapshot) } : {}),
+                ...(resolution ? { resolution } : {}),
+              };
+              updateRpgCheckAnimation(checkFeedback, rolls[0], resolution);
+              finishRpgCheckAnimation(checkFeedback);
+              if (resolution) gate.checkProposal = null;
+              gate.diceUses += 1;
+            }
           }
         }
       } else if (call.name === 'context.retrieve') {
