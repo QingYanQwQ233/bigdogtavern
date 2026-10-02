@@ -3963,6 +3963,24 @@ body[data-mode="rpg"] .composer {
 /* 思维链「按步骤」内联：每步一块，工具调用跟在所属步骤下面。
    字号/间距取设计刻度，颜色只用 muted，旁注不抢正文。 */
 .cot-step + .cot-step { margin-top: 4px; }
+/* 外层「思维链」：把整段的所有步骤收在一起，工具调用跟着各自的步骤走。
+   两级折叠 ——「思维链 → 步骤 N → 推理正文 / 工具调用」。 */
+.cot-chain { display: block; margin: 2px 0 6px; }
+.cot-chain > .cot-chain-head {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  list-style: none;
+}
+.cot-chain > .cot-chain-head::-webkit-details-marker { display: none; }
+.cot-chain > .cot-chain-head::before { content: '▸'; margin-right: 4px; color: var(--muted); }
+.cot-chain[open] > .cot-chain-head::before { content: '▾'; }
+.cot-chain-body { padding-left: 10px; }
+/* 步骤块本身不再重复画线；竖线由 .cot-step-main 提供 */
+.cot-chain .cot-step > .cot-step-main { border-left: 2px solid var(--line); }
+.cot-chain.is-empty { display: none; }
 .cot-step-head {
   color: var(--text);
   font-weight: 600;
@@ -3974,7 +3992,7 @@ body[data-mode="rpg"] .composer {
 .cot-step-head::-webkit-details-marker { display: none; }
 .cot-step-head::before { content: '▸'; margin-right: 4px; color: var(--muted); }
 .cot-step[open] > .cot-step-head::before { content: '▾'; }
-.cot-step-main { padding: 1px 0 0 6px; }
+.cot-step-main { padding: 1px 0 0 8px; border-left: 2px solid var(--line); }
 /* 步骤链（流式与正式消息同构）：每段 = 思维链 + 正文 + 工具行。
    外观沿用原版思维链（左竖线 + 弱色小字），不要卡片化。 */
 .typing-chain { display: flex; flex-direction: column; }
@@ -4002,9 +4020,6 @@ body[data-mode="rpg"] .composer {
   font-size: 12px;
   line-height: 1.45;
   color: var(--muted);
-  /* 原版的左竖线：思维链正文贴着一条细线，和叙事正文一眼可分 */
-  border-left: 2px solid var(--line);
-  padding-left: 8px;
   margin: 1px 0 2px;
 }
 /* 当前步：只做一个很轻的标识，别用重背景抢正文 */

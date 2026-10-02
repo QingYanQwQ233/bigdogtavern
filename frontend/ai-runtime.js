@@ -1375,8 +1375,17 @@ function renderTypingChain(blocks) {
     if (!seg || !seg.classList.contains('rpg-step-chain')) {
       seg = document.createElement('div');
       seg.className = 'rpg-step-chain';
+      const cotChain = document.createElement('details');
+      cotChain.className = 'cot-chain';
+      cotChain.open = true;
+      const chainHead = document.createElement('summary');
+      chainHead.className = 'cot-chain-head';
+      chainHead.textContent = '思维链';
+      const chainBody = document.createElement('div');
+      chainBody.className = 'cot-chain-body';
       const cot = document.createElement('details');
       cot.className = 'cot-step';
+      cot.open = true;
       const head = document.createElement('summary');
       head.className = 'cot-step-head';
       const main = document.createElement('div');
@@ -1388,20 +1397,26 @@ function renderTypingChain(blocks) {
       // 会退化成默认文案（WebView 显示「详情」），而且折叠标题也没了。
       cot.appendChild(head);
       cot.appendChild(main);
+      chainBody.appendChild(cot);
+      cotChain.appendChild(chainHead);
+      cotChain.appendChild(chainBody);
       const bodyNode = document.createElement('div');
       bodyNode.className = 'step-body rpg-prose';
-      seg.appendChild(cot);
+      seg.appendChild(cotChain);
       seg.appendChild(bodyNode);
       chain.appendChild(seg);
     }
-    const cot = seg.querySelector(':scope > .cot-step');
+    const cot = seg.querySelector(':scope > .cot-chain > .cot-chain-body > .cot-step');
+    const cotMain = seg.querySelector(':scope > .cot-chain > .cot-chain-body > .cot-step > .cot-step-main');
     const head = seg.querySelector('.cot-step-head');
     const text = seg.querySelector('.cot-step-body');
     const bodyEl = seg.querySelector(':scope > .step-body');
-    const tools = seg.querySelector(':scope > .cot-inline-tools');
+    const tools = cotMain ? cotMain.querySelector(':scope > .cot-inline-tools') : null;
     const label = block.label || '思维链步骤';
     if (head && head.textContent !== label) head.textContent = label;
     if (cot) cot.classList.toggle('is-current', !!block.current);
+    const cotChainEl = seg.querySelector(':scope > .cot-chain');
+    if (cotChainEl) cotChainEl.classList.toggle('is-empty', cot ? cot.classList.contains('is-empty') : true);
     seg.classList.toggle('is-current', !!block.current);
     if (text) {
       const cotText = block.cot || '';
@@ -1433,7 +1448,7 @@ function renderTypingChain(blocks) {
     if (!wantedTools.length) {
       if (tools) tools.remove();
     } else {
-      const box = tools || (() => { const d = document.createElement('div'); d.className = 'cot-inline-tools'; seg.appendChild(d); return d; })();
+      const box = tools || (() => { const d = document.createElement('div'); d.className = 'cot-inline-tools'; (cotMain || seg).appendChild(d); return d; })();
       const lines = Array.prototype.slice.call(box.children);
       wantedTools.forEach((line, i) => {
         let node = lines[i];

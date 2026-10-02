@@ -2019,26 +2019,24 @@ function rpgStepChainHtml(message) {
   const { segments } = parsed;
   return segments.map(seg => {
     const text = parsed.full.slice(seg.start, seg.end).trim();
-    const cot = seg.cot
-      ? cotStepsHtml([{ label: seg.label || '这一步的思考', cot: seg.cot, tools: [] }], message.agentToolTrace)
+    // 工具调用不再单独铺在正文后面，而是收进这一段的步骤里（跟随它所属的思维链步骤）。
+    const cot = seg.cot || (seg.tools || []).length
+      ? cotStepsHtml([{ label: seg.label || '这一步的思考', cot: seg.cot, tools: seg.tools || [] }], message.agentToolTrace)
       : (seg.label ? `<div class="cot-step-flat"><span class="cot-step-head">${esc(seg.label)}</span></div>` : '');
     const bodyHtml = text
       ? renderRpgNarrativeWithCheckpoints(text, seg.checkpoints, { fromRaw: typeof message.rawContent === 'string' }).html
       : '';
     const body = bodyHtml ? `<div class="step-body rpg-prose">${bodyHtml}</div>` : '';
-    const tools = (seg.tools || []).length
-      ? `<div class="cot-inline-tools">${seg.tools.map(tool => cotToolHtml(tool, message.agentToolTrace)).join('')}</div>`
-      : '';
-    if (!body && !cot && !tools) return '';
+    if (!body && !cot) return '';
     const cls = `rpg-step-chain${body ? '' : ' is-tool-only'}`;
-    return `<div class="${cls}">${cot || ''}${body || ''}${tools || ''}</div>`;
+    return `<div class="${cls}">${cot || ''}${body || ''}</div>`;
   }).join('');
 }
 function cotStepsHtml(steps, trace) {
   const list = Array.isArray(steps) ? steps.filter(step => step && (step.label || step.cot || step.tools?.length)) : [];
   if (!list.length) return null;
   // 每一步一个独立的 <details>：可以单独展开/收起，默认收起也就不会把整块撑很高。
-  return list.map(step => {
+  const inner = list.map(step => {
     const label = esc(step.label || '思维链步骤');
     const text = typeof cotDisplayText === 'function' ? cotDisplayText(step.cot) : String(step.cot || '');
     const body = text ? `<div class="cot-step-body">${esc(text)}</div>` : '';
@@ -2048,8 +2046,10 @@ function cotStepsHtml(steps, trace) {
       return `<div class="cot-step-flat"><span class="cot-step-head">${label}</span></div>`;
     }
     const tools = (Array.isArray(step.tools) ? step.tools : []).map(tool => cotToolHtml(tool, trace)).join('');
-    return `<details class="cot-step"><summary class="cot-step-head">${label}</summary><div class="cot-step-main">${body}${tools}</div></details>`;
+    return `<details class="cot-step" open><summary class="cot-step-head">${label}</summary><div class="cot-step-main">${body}${tools}</div></details>`;
   }).join('');
+  // 两级折叠：外层「思维链」把所有步骤收在一起，工具调用跟着它所属的步骤走。
+  return `<details class="cot-chain" open><summary class="cot-chain-head">思维链</summary><div class="cot-chain-body">${inner}</div></details>`;
 }
 function renderMessages() {
   const chat = $('chat');
