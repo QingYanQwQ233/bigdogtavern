@@ -3962,75 +3962,45 @@ body[data-mode="rpg"] .composer {
 
 /* 思维链「按步骤」内联：每步一块，工具调用跟在所属步骤下面。
    字号/间距取设计刻度，颜色只用 muted，旁注不抢正文。 */
-.cot-body .cot-step + .cot-step { margin-top: 8px; }
-.cot-body .cot-step-head {
+.cot-step + .cot-step { margin-top: 8px; }
+.cot-step-head {
   color: var(--text);
   font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.08em;
   cursor: pointer;
   list-style: none;
 }
-.cot-body .cot-step-head::-webkit-details-marker { display: none; }
-.cot-body .cot-step-head::before { content: '▸'; margin-right: 4px; color: var(--muted); }
-.cot-body .cot-step[open] > .cot-step-head::before { content: '▾'; }
-.cot-body .cot-step-main { padding: 2px 0 0 12px; }
+.cot-step-head::-webkit-details-marker { display: none; }
+.cot-step-head::before { content: '▸'; margin-right: 4px; color: var(--muted); }
+.cot-step[open] > .cot-step-head::before { content: '▾'; }
+.cot-step-main { padding: 2px 0 0 12px; }
 /* 步骤链（流式与正式消息同构）：每段 = 思维链 + 正文 + 工具行。
-   思维链和工具行是「元信息」，必须和正文在视觉上分层，不能糊成一片。 */
+   外观沿用原版思维链（左竖线 + 弱色小字），不要卡片化。 */
 .typing-chain { display: flex; flex-direction: column; }
 .rpg-step-chain { display: flex; flex-direction: column; }
-.rpg-step-chain + .rpg-step-chain { margin-top: 14px; }
-.rpg-step-chain .step-body { margin-top: 4px; }
-/* 思维链：独立的小卡片，左对齐一条竖线，缩进与正文区分开 */
-.rpg-step-chain .cot-step {
-  align-self: flex-start;
-  max-width: 100%;
-  margin-bottom: 4px;
-  padding: 4px 8px;
-  border: 1px solid var(--line);
-  border-left: 2px solid var(--line);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.03);
-  font-size: 12px;
-}
-.rpg-step-chain .cot-step-head {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-}
-.rpg-step-chain .cot-step[open] > .cot-step-head { color: var(--text); }
-.rpg-step-chain .cot-step-main { padding: 4px 0 0 0; }
-.rpg-step-chain .cot-step-body {
+.rpg-step-chain + .rpg-step-chain { margin-top: 10px; }
+.rpg-step-chain .step-body { margin-top: 2px; }
+.rpg-step-chain .cot-step { display: block; }
+.rpg-step-chain .cot-step.is-empty { display: none; }
+.rpg-step-chain .cot-step.is-current > .cot-step-head { color: var(--accent); }
+/* 流式更新时不要让浏览器自动调整滚动位置（会导致展开的思维链看起来在跳） */
+.cot-body, .cot-step-main { overflow-anchor: none; }
+/* 列表本身同理：内容每帧变长时不要自动挪动用户的滚动位置 */
+#chat { overflow-anchor: none; }
+.cot-tools { display: flex; flex-direction: column; }
+.cot-step-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   font-size: 12px;
   line-height: 1.5;
   color: var(--muted);
 }
-/* 工具结果：等宽 + 竖线，明确是「调用记录」而不是叙事 */
-.rpg-step-chain .cot-inline-tools {
-  align-self: flex-start;
-  max-width: 100%;
-  margin: 2px 0 0;
-  padding: 4px 8px;
-  border-left: 2px solid var(--line);
-  border-radius: 0 6px 6px 0;
-  background: rgba(255, 255, 255, 0.02);
-}
-.rpg-step-chain .cot-tool {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  color: var(--muted);
-}
-/* 还没产出思维链的步骤：不显示空卡片 */
-.rpg-step-chain .cot-step.is-empty { display: none; }
-.rpg-step-chain .cot-step.is-current > .cot-step-head { color: var(--accent); }
-/* 流式更新时不要让浏览器自动调整滚动位置（会导致展开的思维链看起来在跳） */
-.cot-body, .cot-body .cot-step-main { overflow-anchor: none; }
-.cot-body .cot-tools { display: flex; flex-direction: column; }
-.cot-body .cot-step-body { white-space: pre-wrap; overflow-wrap: anywhere; }
 /* 当前步：只做一个很轻的标识，别用重背景抢正文 */
-.cot-body .cot-step.is-current > .cot-step-head { color: var(--accent); }
+.cot-step.is-current > .cot-step-head { color: var(--accent); }
 /* 正文里内联的工具卡：和叙事段落区分开，但不打断阅读 */
 .rpg-prose .cot-inline-tools { margin: 8px 0; display: flex; flex-direction: column; gap: 4px; }
-.cot-body .cot-tool {
+.cot-tool {
   margin-top: 4px;
   padding-left: 8px;
   border-left: 2px solid var(--line);
@@ -4038,8 +4008,8 @@ body[data-mode="rpg"] .composer {
   font-size: 12px;
 }
 /* 步骤块逐段出现：只动 opacity/transform，时长取动效刻度 */
-.cot-body .cot-step { animation: cot-step-in 150ms var(--motion-out) both; }
-.cot-body .cot-tool { animation: cot-tool-in 150ms var(--motion-out) both; }
+.cot-step { animation: cot-step-in 150ms var(--motion-out) both; }
+.cot-tool { animation: cot-tool-in 150ms var(--motion-out) both; }
 @keyframes cot-step-in {
   from { opacity: 0; transform: translateY(2px); }
   to { opacity: 1; transform: none; }
@@ -4049,6 +4019,6 @@ body[data-mode="rpg"] .composer {
   to { opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .cot-body .cot-step,
-  .cot-body .cot-tool { animation: none; }
+  .cot-step,
+  .cot-tool { animation: none; }
 }
