@@ -1255,15 +1255,16 @@ function renderTypingContentFrame() {
       return;
     }
   }
-  renderTypingCot(typingPreviewBlocks());
-  const preview = mode === 'rpg' ? parseRpgOutput(typingText).narrative : typingText;
-  const target = t.querySelector(mode === 'rpg' ? '.rpg-prose' : '.bubble');
+  if (mode === 'rpg') {
+    // 思维链和正文合成一条链，结构同正式消息
+    renderTypingChain(typingPreviewBlocks());
+    chatStickToBottom($('chat'));
+    return;
+  }
+  const preview = typingText;
+  const target = t.querySelector('.bubble');
   if (!target) return;
-  // RPG 工具阶段还没有正文（协议块里没有 narrative）：保留占位，别把气泡清空。
-  if (mode === 'rpg' && !String(preview || '').trim()) return;
-  const rendered = mode === 'rpg'
-    ? renderRpgNarrativeWithCheckpoints(stripRpgNarrativeOptions(preview), rpgCheckAnimation?.checkpoints, { streaming: true })
-    : renderBubble(applyOutputRegex(preview));
+  const rendered = renderBubble(applyOutputRegex(preview));
   target.innerHTML = rendered.html;
   target.classList.toggle('md', rendered.md);
   // 只在用户本来就贴着底部时才跟随（用户往上翻时不抢滚动条）。
@@ -1283,10 +1284,11 @@ function cotDisplayText(text) {
   return raw.replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trimEnd();
 }
 /* 一个步骤块的结构（纯数据，渲染层据此增量更新 DOM） */
-function typingStepBlock(label, cot, tools = [], current = false) {
+function typingStepBlock(label, cot, tools = [], current = false, body = '') {
   return {
     label: String(label || ''),
     cot: cotDisplayText(cot),
+    body: String(body || ''),
     tools: (Array.isArray(tools) ? tools : []).map(tool => ({ name: String(tool?.name || '工具') })),
     current,
   };
@@ -1297,85 +1299,119 @@ function typingPreviewBlocks() {
   const session = activeRpgStreamSession
     || (typeof rpgAgentSession === 'object' && rpgAgentSession ? rpgAgentSession : null);
   const steps = Array.isArray(session?.steps) ? session.steps : [];
-  const blocks = steps.map(step => typingStepBlock(step.label, step.cot, step.tools));
+  const blocks = steps.map(step => typingStepBlock(step.label, step.cot, step.tools, false, step.narrative));
   const current = String(typingCot || '').trim();
-  if (current) {
-    // 正在生成的这一步：沿用「进行中」措辞，第一步则标「步骤 1」
-    blocks.push(typingStepBlock(steps.length ? '进行中' : '步骤 1', current, [], true));
+  if (current || typingText) {
+    // 当前这一步的正文 = 累积正文里「已完成步骤还没展示过」的剩余部分。
+    // 直接显示累积全文会把前几段重复一遍。
+    const full = rpgAgentNarrative(typeof typingText === 'string' ? typingText : '');
+    const shown = steps.map(step => String(step.narrative || '').trim()).filter(Boolean).join('');
+    let body = full;
+    if (shown) {
+      const squeeze = text => text.replace(/\s+/g, '');
+      const trimmed = full.trim();
+      if (squeeze(trimmed).startsWith(squeeze(shown))) {
+        body = trimmed.slice(trimmed.indexOf(shown) + shown.length).replace(/^\s+/, '');
+      }
+    }
+    blocks.push(typingStepBlock(steps.length ? '进行中' : '步骤 1', current, [], true, body));
+  }
+  if (!blocks.length) {
+    const done = String(session?.cot || '');
+    if (done) blocks.push(typingStepBlock('思维链', done, [], true, ''));
   }
   return blocks;
 }
 
-/* 实时思维链：生成中就存在，但默认折叠，只有用户点开才看到推理内容。
-   按索引复用已有步骤块，只在新步骤出现时追加 —— 这样入场动画只播一次，
-   内容更新也不会让整个区域重建（重建会闪）。 */
-function renderTypingCot(blocks) {
+/* 实时思维链 + 正文：生成过程中就按步骤成链，和回合结束后的正式消息结构一致。
+   每一步 = 思维链（可折叠）+ 该步正文 + 该步工具结果；正在生成的这一步标「进行中」。
+   已完成的段落只建一次、之后不再写 DOM（重建会让入场动画重播、还会重算滚动锚点）。 */
+function renderTypingChain(blocks) {
   const typing = $('typing-msg');
-  let el = $('typing-cot');
   const list = Array.isArray(blocks) ? blocks.filter(Boolean) : [];
-  if (!typing || !list.length) { if (el) el.remove(); return; }
-  if (!el) {
-    const wrap = document.createElement('div');
-    wrap.className = 'msg cot-msg typing-cot';
-    wrap.id = 'typing-cot';
-    wrap.innerHTML = '<div class="bubble"><details class="cot rpg-prose"><summary>思维链</summary><div class="cot-body"></div></details></div>';
-    typing.parentNode.insertBefore(wrap, typing);
-    // 注意：创建后必须继续往下填内容（并让 el 指向新节点）。
-    // 之前这里既 return 了、el 又还是 null，结果这个块永远停在空状态还抛错。
-    el = wrap;
+  if (!typing) return;
+  const host = typing.querySelector('.rpg-prose') || typing;
+  let chain = host.querySelector(':scope > .typing-chain');
+  if (!list.length) {
+    if (chain) chain.remove();
+    return;
   }
-  const body = el.querySelector('.cot-body') || el.querySelector('.bubble');
-  if (!body) return;
-  const existing = Array.prototype.slice.call(body.children);
+  if (!chain) {
+    chain = document.createElement('div');
+    chain.className = 'typing-chain';
+    host.appendChild(chain);
+  }
+  const existing = Array.prototype.slice.call(chain.children);
   list.forEach((block, index) => {
-    let node = existing[index];
-    if (!node || !node.classList.contains('cot-step')) {
-      // 每一步一个独立 <details>：单独展开/收起，默认收起不撑高
-      node = document.createElement('details');
-      node.className = 'cot-step';
-      const summary = document.createElement('summary');
-      summary.className = 'cot-step-head';
+    let seg = existing[index];
+    if (!seg || !seg.classList.contains('rpg-step-chain')) {
+      seg = document.createElement('div');
+      seg.className = 'rpg-step-chain';
+      const cot = document.createElement('details');
+      cot.className = 'cot-step';
+      const head = document.createElement('summary');
+      head.className = 'cot-step-head';
       const main = document.createElement('div');
       main.className = 'cot-step-main';
-      node.appendChild(summary);
-      node.appendChild(main);
-      body.appendChild(node);
+      const text = document.createElement('div');
+      text.className = 'cot-step-body';
+      main.appendChild(head);
+      main.appendChild(text);
+      cot.appendChild(main);
+      const bodyNode = document.createElement('div');
+      bodyNode.className = 'step-body rpg-prose';
+      seg.appendChild(cot);
+      seg.appendChild(bodyNode);
+      chain.appendChild(seg);
     }
-    const summary = node.querySelector(':scope > .cot-step-head');
-    const main = node.querySelector(':scope > .cot-step-main');
-    if (!summary || !main) return;
+    const cot = seg.querySelector(':scope > .cot-step');
+    const head = seg.querySelector('.cot-step-head');
+    const text = seg.querySelector('.cot-step-body');
+    const bodyEl = seg.querySelector(':scope > .step-body');
+    const tools = seg.querySelector(':scope > .cot-inline-tools');
     const label = block.label || '思维链步骤';
-    // 只更新内容，不碰 summary 节点：details 的展开状态是 DOM 属性，重建就丢了
-    if (summary.textContent !== label) summary.textContent = label;
-    node.classList.toggle('is-current', !!block.current);
-    // 正文用 textContent 更新：重建整块会让浏览器重算滚动锚点，长展开区看着就是文字在跳
-    // 注意变量名不能叫 body：本函数外层已有同名 const，会撞 TDZ
-    let textEl = main.querySelector(':scope > .cot-step-body');
-    if (block.cot) {
-      if (!textEl) { textEl = document.createElement('div'); textEl.className = 'cot-step-body'; main.appendChild(textEl); }
-      if (textEl.textContent !== block.cot) textEl.textContent = block.cot;
-    } else if (textEl) {
-      textEl.remove();
+    if (head && head.textContent !== label) head.textContent = label;
+    if (cot) cot.classList.toggle('is-current', !!block.current);
+    seg.classList.toggle('is-current', !!block.current);
+    if (text) {
+      const cotText = block.cot || '';
+      if (!cotText) {
+        cot.classList.add('is-empty');
+      } else {
+        cot.classList.remove('is-empty');
+        if (text.textContent !== cotText) text.textContent = cotText;
+      }
     }
-    // 工具行数量少、内容短，按行复用即可
-    const tools = main.querySelector(':scope > .cot-tools');
-    const wanted = block.tools.map(tool => `调用 ${tool.name}`);
-    if (!wanted.length) {
+    if (bodyEl) {
+      // 完成的段落只渲染一次；当前段落每帧都会变，跟着更新
+      if (block.current) {
+        if (bodyEl.dataset.raw !== block.body) {
+          bodyEl.dataset.raw = block.body;
+          bodyEl.innerHTML = block.body
+            ? renderRpgNarrativeWithCheckpoints(stripRpgNarrativeOptions(block.body), rpgCheckAnimation?.checkpoints, { streaming: true }).html
+            : '';
+        }
+      } else if (bodyEl.dataset.done !== '1') {
+        bodyEl.dataset.done = '1';
+        bodyEl.innerHTML = block.body ? renderBubble(applyOutputRegex(block.body)).html : '';
+      }
+    }
+    const wantedTools = block.tools.map(tool => `调用 ${tool.name}`);
+    if (!wantedTools.length) {
       if (tools) tools.remove();
     } else {
-      const box = tools || (() => { const d = document.createElement('div'); d.className = 'cot-tools'; main.appendChild(d); return d; })();
+      const box = tools || (() => { const d = document.createElement('div'); d.className = 'cot-inline-tools'; seg.appendChild(d); return d; })();
       const lines = Array.prototype.slice.call(box.children);
-      wanted.forEach((text, i) => {
-        let line = lines[i];
-        if (!line) { line = document.createElement('div'); line.className = 'cot-tool'; box.appendChild(line); }
-        if (line.textContent !== text) line.textContent = text;
+      wantedTools.forEach((line, i) => {
+        let node = lines[i];
+        if (!node) { node = document.createElement('div'); node.className = 'cot-tool'; box.appendChild(node); }
+        if (node.textContent !== line) node.textContent = line;
       });
-      lines.slice(wanted.length).forEach(line => line.remove());
+      lines.slice(wantedTools.length).forEach(node => node.remove());
     }
   });
   existing.slice(list.length).forEach(node => node.remove());
 }
-
 function updateTypingContent(text, cot) {
   typingText = text;
   if (typeof cot === 'string') typingCot = cot;
