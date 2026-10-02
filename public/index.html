@@ -7,7 +7,8 @@
   <link rel="manifest" href="manifest.json" />
   <title>Tavern · AI RP 框架演示</title>
   <link rel="icon" type="image/png" href="favicon.png" />
-  <link rel="stylesheet" href="styles.css?v=9c90b123" />
+  <link rel="stylesheet" href="styles.css?v=a8b9ecde" />
+    <link rel="stylesheet" href="vendor/coloris/coloris.min.css" />
 </head>
 <body data-theme="vibrancy" data-layout="classic">
   <canvas id="bg-fx" aria-hidden="true"></canvas>
@@ -694,33 +695,40 @@
             <div class="field row2">
               <div class="field">
                 <label for="toast-bg">背景色</label>
-                <input id="toast-bg" type="color" value="#1c1c1e" />
+                <input id="toast-bg" class="tavern-color-field" type="text" value="#1c1c1e" autocomplete="off" spellcheck="false" />
               </div>
               <div class="field">
                 <label for="toast-fg">文字色</label>
-                <input id="toast-fg" type="color" value="#f2f2f7" />
+                <input id="toast-fg" class="tavern-color-field" type="text" value="#f2f2f7" autocomplete="off" spellcheck="false" />
               </div>
             </div>
             <div class="field">
               <label for="toast-accent">强调色 <span class="hint-inline">边框与图标</span></label>
-              <input id="toast-accent" type="color" value="#77e6d5" />
+              <input id="toast-accent" class="tavern-color-field" type="text" value="#77e6d5" autocomplete="off" spellcheck="false" />
             </div>
             <div class="field row2">
               <div class="field">
                 <label for="toast-font-size">字体大小</label>
                 <select id="toast-font-size">
+                  <option value="10">10px</option>
+                  <option value="11">11px</option>
                   <option value="12">12px</option>
                   <option value="13">13px</option>
                   <option value="14">14px</option>
                   <option value="15">15px</option>
+                  <option value="16">16px</option>
+                  <option value="18">18px</option>
+                  <option value="20">20px</option>
                 </select>
               </div>
               <div class="field">
                 <label for="toast-padding">大小</label>
                 <select id="toast-padding">
+                  <option value="tight">很紧凑</option>
                   <option value="compact">紧凑</option>
                   <option value="normal">标准</option>
                   <option value="loose">宽松</option>
+                  <option value="loose2">很宽松</option>
                 </select>
               </div>
             </div>
@@ -730,15 +738,19 @@
                 <select id="toast-shape">
                   <option value="pill">胶囊</option>
                   <option value="round">圆角</option>
+                  <option value="soft">小圆角</option>
                   <option value="sharp">方角</option>
+                  <option value="square">直角</option>
                 </select>
               </div>
               <div class="field">
                 <label for="toast-speed">动画速度</label>
                 <select id="toast-speed">
+                  <option value="slowest">很慢</option>
                   <option value="slow">慢</option>
                   <option value="normal">标准</option>
                   <option value="fast">快</option>
+                  <option value="fastest">很快</option>
                 </select>
               </div>
             </div>
@@ -750,6 +762,9 @@
                 <option value="3">3</option>
                 <option value="4">4</option>
                 <option value="5">5</option>
+                <option value="6">6</option>
+                <option value="8">8</option>
+                <option value="10">10</option>
               </select>
             </div>
             <div class="chat-background-actions">
@@ -1802,13 +1817,14 @@
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
   <script src="vendor/mapgen2.bundle.js"></script>
-  <script src="mapgen.js?v=9c90b123"></script>
-  <script src="app.js?v=9c90b123"></script>
+  <script src="mapgen.js?v=a8b9ecde"></script>
+  <script src="vendor/coloris/coloris.min.js"></script>
+    <script src="app.js?v=a8b9ecde"></script>
   <script>
     // PWA：注册 service worker（仅 HTTPS / localhost 生效，套壳 APK 可用）
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js?v=9c90b123').catch(() => {});
+    navigator.serviceWorker.register('sw.js?v=a8b9ecde').catch(() => {});
       });
     }
   </script>

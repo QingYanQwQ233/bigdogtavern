@@ -3826,3 +3826,22 @@ body[data-mode="rpg"] .composer {
 .combo-toggle:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
 .combo-menu { top: calc(100% + 4px); }
 .combo-empty { color: var(--muted); cursor: default; }
+
+/* Coloris（第三方，public/vendor/coloris，MIT）：默认 z-index 只有 1000，
+   会被设置面板与灵动岛盖住，这里抬到最上层。
+   必须 !important：vendor 的 CSS 在 styles.css 之后加载，同权重时它的 1000 会赢。 */
+.clr-picker { z-index: 16500 !important; }
+/* 颜色字段沿用项目输入外观，与其它设置项一致 */
+.tavern-color-field {
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 13px;
+  box-sizing: border-box;
+}
+.tavern-color-field:focus { outline: 1px solid var(--accent); outline-offset: 1px; }

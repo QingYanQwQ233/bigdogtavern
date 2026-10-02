@@ -217,14 +217,16 @@ function raiseOverlay(el) {
 /* ─────────── 灵动岛（消息胶囊）外观 ───────────
    颜色 / 字号 / 内边距 / 样式 / 动画速度 / 同屏数量都由设置决定，
    统一落到 :root 的 CSS 变量上；档位取值都落在设计刻度内。 */
-const TOAST_PADDING = { compact: { y: 8, x: 12 }, normal: { y: 10, x: 16 }, loose: { y: 12, x: 20 } };
-const TOAST_SHAPE_RADIUS = { pill: 999, round: 16, sharp: 8 };
+const TOAST_PADDING = { tight: { y: 6, x: 10 }, compact: { y: 8, x: 12 }, normal: { y: 10, x: 16 }, loose: { y: 12, x: 20 }, loose2: { y: 16, x: 24 } };
+const TOAST_SHAPE_RADIUS = { pill: 999, round: 16, soft: 12, sharp: 8, square: 0 };
 const TOAST_SPEED_FACTOR = { slow: 1.6, normal: 1, fast: 0.6 };
 /* 定时器要比动画晚一步，否则动画会被截断。250/300 是入场/退场基准。 */
 const TOAST_DURATIONS = {
+  slowest: { in: 600, out: 800, clear: 1000, pulse: 600 },
   slow: { in: 400, out: 480, clear: 640, pulse: 400 },
   normal: { in: 250, out: 300, clear: 400, pulse: 250 },
   fast: { in: 150, out: 200, clear: 250, pulse: 150 },
+  fastest: { in: 100, out: 150, clear: 200, pulse: 100 },
 };
 function toastConfig() {
   const raw = (settings && settings.toast) || {};
@@ -236,7 +238,7 @@ function toastConfig() {
     padding: TOAST_PADDING[raw.padding] ? raw.padding : 'normal',
     speed: TOAST_DURATIONS[raw.speed] ? raw.speed : 'normal',
     shape: TOAST_SHAPE_RADIUS[raw.shape] !== undefined ? raw.shape : 'pill',
-    max: Math.max(1, Math.min(5, Number(raw.max) || 2)),
+    max: Math.max(1, Math.min(10, Number(raw.max) || 2)),
   };
 }
 function toastDurations() {

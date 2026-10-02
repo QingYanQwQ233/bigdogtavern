@@ -4191,6 +4191,28 @@ function bindEvents() {
     readSettingsForm();
     renderMessages();
   });
+  /* 颜色字段用 Coloris（内联在 public/vendor/coloris，MIT），不用原生取色器：
+     Android WebView 的原生取色器样式不可控、弹出位置也奇怪。 */
+  if (typeof Coloris === 'function') {
+    Coloris({
+      el: '.tavern-color-field',
+      themeMode: 'dark',
+      format: 'hex',
+      alpha: false,
+      swatches: ['#1c1c1e', '#f2f2f7', '#77e6d5', '#5d8bca', '#ff6b6b', '#ffd166', '#06d6a0', '#ef476f'],
+      onChange: () => readToastForm(true),
+      a11y: {
+        open: '打开取色器',
+        close: '关闭取色器',
+        clear: '清除颜色',
+        hueSlider: '色相',
+        alphaSlider: '透明度',
+        input: '颜色值',
+        format: '颜色格式',
+        swatch: '色板',
+      },
+    });
+  }
   $('btn-toast-test').addEventListener('click', testToastAppearance);
   $('btn-toast-reset').addEventListener('click', resetToastForm);
   $('btn-chat-background-upload').addEventListener('click', () => $('chat-background-file').click());
