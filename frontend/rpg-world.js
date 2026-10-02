@@ -158,7 +158,9 @@ function appendRpgAgentStep(session, { label = '', cot = '', tools = [], narrati
     cot: clean(cot).slice(0, 4000),
     // 该步产出的叙事片段：渲染时按「片段 → 工具卡 → 片段」串起来，
     // 骰子这类工具结果就能出现在叙事中途，而不是全挤在末尾。
-    narrative: clean(narrative).slice(0, 4000),
+    // 必须走 rpgAgentNarrative：原始 content 里带 toolCalls / 状态 JSON，
+    // 不剥掉就和最终正文对不上（自动插入会被安全阀挡下）。
+    narrative: clean(rpgAgentNarrative(narrative)).slice(0, 4000),
     tools: (Array.isArray(tools) ? tools : [])
       .slice(0, 8)
       .map(tool => ({ name: clean(tool?.name).slice(0, 40), args: tool?.args && typeof tool.args === 'object' ? tool.args : null })),

@@ -1827,18 +1827,31 @@ function cotToolHtml(tool, trace) {
 function rpgNarrativeWithToolMarks(content, steps) {
   const list = (Array.isArray(steps) ? steps : []).filter(step => step && (step.narrative || step.tools?.length));
   if (list.length < 2) return null;
-  const pieces = list.map(step => String(step.narrative || '').trim()).filter(Boolean);
-  if (!pieces.length) return null;
-  // 两侧都要去掉空白再比：标点/换行的排布在不同路径下会有差异，但那不影响内容一致
+  if (!list.some(step => String(step.narrative || '').trim())) return null;
+  // 用和 previewNarrative 完全相同的合并方式重建，才能和最终正文对齐
   const squeeze = text => String(text || '').replace(/\s+/g, '');
-  const joined = squeeze(pieces.join(''));
+  const rebuild = merge => {
+    let text = '';
+    const marks = [];
+    list.forEach((step, index) => {
+      const piece = String(step.narrative || '').trim();
+      if (!piece) return; // 这一步没产出叙事：位置无从谈起，不放卡
+      const before = text;
+      text = merge(text, piece);
+      if (text === before) return; // 没带来新内容，也不在这里放卡
+      // 只有真的续写了叙事，才把这一步的工具卡钉在它后面
+      if ((step.tools || []).length) marks.push({ index, after: text.length });
+    });
+    return { text, marks };
+  };
+  const { text: rebuilt, marks } = rebuild((a, b) => (typeof mergeRpgAgentNarrative === 'function' ? mergeRpgAgentNarrative(a, b) : (a ? `${a}\n\n${b}` : b)));
   const source = squeeze(content);
-  if (!source || !joined || joined !== source) return null;
-  let text = '';
-  list.forEach((step, index) => {
-    const piece = String(step.narrative || '').trim();
-    if (piece) text = text ? `${text}\n\n${piece}` : piece;
-    if ((step.tools || []).length) text += `\n\n%%COTTOOL${index}%%\n\n`;
+  if (!source || !squeeze(rebuilt) || squeeze(rebuilt) !== source) return null;
+  if (!marks.length) return null;
+  // 从后往前插标记，避免位置偏移
+  let text = rebuilt;
+  [...marks].sort((a, b) => b.after - a.after).forEach(mark => {
+    text = `${text.slice(0, mark.after)}\n\n%%COTTOOL${mark.index}%%\n\n${text.slice(mark.after)}`;
   });
   return text;
 }

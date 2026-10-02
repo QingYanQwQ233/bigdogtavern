@@ -661,8 +661,8 @@ function buildRpgPromptSections() {
       }
       pushSection('turn.side-effects', '【副作用边界】Markdown 叙事、NPC 台词、行动选项和普通文本中的骰子表达式都只是文本，不会自动执行骰子或改写状态；只有协议中通过服务端校验的结构化更新才可产生状态变化。');
       pushSection('turn.tool-candidates', agentProfile.mode === 'native'
-        ? '【Agent 步骤协议】每一步只做一件事：需要信息/判定时调用工具并等待真实结果；已有结果时继续叙事。只有同时存在风险、不确定性与后果才判定，顺序固定为 context.retrieve → rules.check → dice.roll → 状态候选。dice.roll 只写基础 1dN，修正必须原样引用已声明的属性/技能/runtime 数值，禁止猜值。最终一步不得再调用工具：输出 Markdown 正文与唯一状态标签，正文不要列行动选项。'
-        : '【Agent 兼容步骤协议】中间步骤可在唯一 <tavern_state_update> 的 toolCalls 中请求工具，然后等待真实结果；最终步骤必须删除 toolCalls，只输出 Markdown 正文与唯一状态标签。只有同时存在风险、不确定性与后果才按 context.retrieve → rules.check → dice.roll → 状态候选执行；dice.roll 只写基础 1dN，修正引用已声明数值。正文不要重复行动选项。');
+        ? '【Agent 步骤协议】每一步只做一件事，并且必须和叙事交织：需要判定/掷骰时，先把叙事写到「即将判定/掷骰」的那一刻，这段文字就是该步的正文，然后调用工具并等待真实结果；拿到结果后继续往下叙述后果，直到下一次需要工具或需要收尾。判断依据是结果，不要提前写出结果。只有同时存在风险、不确定性与后果才判定，顺序固定为 context.retrieve → rules.check → dice.roll → 状态候选。dice.roll 只写基础 1dN，修正必须原样引用已声明的属性/技能/runtime 数值，禁止猜值。最终一步不得再调用工具：续写正文与唯一状态标签，正文不要列行动选项。'
+        : '【Agent 兼容步骤协议】中间步骤可在唯一 <tavern_state_update> 的 toolCalls 中请求工具，然后等待真实结果；**请求工具前必须先叙述到「即将判定/掷骰」的那一刻**（这段正文与 toolCalls 一起提交），拿到结果后再续写后果。最终步骤必须删除 toolCalls，只输出 Markdown 正文与唯一状态标签。只有同时存在风险、不确定性与后果才按 context.retrieve → rules.check → dice.roll → 状态候选执行；dice.roll 只写基础 1dN，修正引用已声明数值。正文不要重复行动选项。');
       const npcPrompt = buildWorldNpcPromptPart();
       if (npcPrompt) pushSection('world.npcs', npcPrompt);
       const failurePrompt = buildWorldFailurePromptPart();

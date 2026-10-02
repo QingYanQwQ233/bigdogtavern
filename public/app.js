@@ -1183,7 +1183,9 @@ function appendRpgAgentStep(session, { label = '', cot = '', tools = [], narrati
     cot: clean(cot).slice(0, 4000),
     // 该步产出的叙事片段：渲染时按「片段 → 工具卡 → 片段」串起来，
     // 骰子这类工具结果就能出现在叙事中途，而不是全挤在末尾。
-    narrative: clean(narrative).slice(0, 4000),
+    // 必须走 rpgAgentNarrative：原始 content 里带 toolCalls / 状态 JSON，
+    // 不剥掉就和最终正文对不上（自动插入会被安全阀挡下）。
+    narrative: clean(rpgAgentNarrative(narrative)).slice(0, 4000),
     tools: (Array.isArray(tools) ? tools : [])
       .slice(0, 8)
       .map(tool => ({ name: clean(tool?.name).slice(0, 40), args: tool?.args && typeof tool.args === 'object' ? tool.args : null })),
@@ -8539,8 +8541,8 @@ function buildRpgPromptSections() {
       }
       pushSection('turn.side-effects', '【副作用边界】Markdown 叙事、NPC 台词、行动选项和普通文本中的骰子表达式都只是文本，不会自动执行骰子或改写状态；只有协议中通过服务端校验的结构化更新才可产生状态变化。');
       pushSection('turn.tool-candidates', agentProfile.mode === 'native'
-        ? '【Agent 步骤协议】每一步只做一件事：需要信息/判定时调用工具并等待真实结果；已有结果时继续叙事。只有同时存在风险、不确定性与后果才判定，顺序固定为 context.retrieve → rules.check → dice.roll → 状态候选。dice.roll 只写基础 1dN，修正必须原样引用已声明的属性/技能/runtime 数值，禁止猜值。最终一步不得再调用工具：输出 Markdown 正文与唯一状态标签，正文不要列行动选项。'
-        : '【Agent 兼容步骤协议】中间步骤可在唯一 <tavern_state_update> 的 toolCalls 中请求工具，然后等待真实结果；最终步骤必须删除 toolCalls，只输出 Markdown 正文与唯一状态标签。只有同时存在风险、不确定性与后果才按 context.retrieve → rules.check → dice.roll → 状态候选执行；dice.roll 只写基础 1dN，修正引用已声明数值。正文不要重复行动选项。');
+        ? '【Agent 步骤协议】每一步只做一件事，并且必须和叙事交织：需要判定/掷骰时，先把叙事写到「即将判定/掷骰」的那一刻，这段文字就是该步的正文，然后调用工具并等待真实结果；拿到结果后继续往下叙述后果，直到下一次需要工具或需要收尾。判断依据是结果，不要提前写出结果。只有同时存在风险、不确定性与后果才判定，顺序固定为 context.retrieve → rules.check → dice.roll → 状态候选。dice.roll 只写基础 1dN，修正必须原样引用已声明的属性/技能/runtime 数值，禁止猜值。最终一步不得再调用工具：续写正文与唯一状态标签，正文不要列行动选项。'
+        : '【Agent 兼容步骤协议】中间步骤可在唯一 <tavern_state_update> 的 toolCalls 中请求工具，然后等待真实结果；**请求工具前必须先叙述到「即将判定/掷骰」的那一刻**（这段正文与 toolCalls 一起提交），拿到结果后再续写后果。最终步骤必须删除 toolCalls，只输出 Markdown 正文与唯一状态标签。只有同时存在风险、不确定性与后果才按 context.retrieve → rules.check → dice.roll → 状态候选执行；dice.roll 只写基础 1dN，修正引用已声明数值。正文不要重复行动选项。');
       const npcPrompt = buildWorldNpcPromptPart();
       if (npcPrompt) pushSection('world.npcs', npcPrompt);
       const failurePrompt = buildWorldFailurePromptPart();
@@ -15501,18 +15503,31 @@ function cotToolHtml(tool, trace) {
 function rpgNarrativeWithToolMarks(content, steps) {
   const list = (Array.isArray(steps) ? steps : []).filter(step => step && (step.narrative || step.tools?.length));
   if (list.length < 2) return null;
-  const pieces = list.map(step => String(step.narrative || '').trim()).filter(Boolean);
-  if (!pieces.length) return null;
-  // 两侧都要去掉空白再比：标点/换行的排布在不同路径下会有差异，但那不影响内容一致
+  if (!list.some(step => String(step.narrative || '').trim())) return null;
+  // 用和 previewNarrative 完全相同的合并方式重建，才能和最终正文对齐
   const squeeze = text => String(text || '').replace(/\s+/g, '');
-  const joined = squeeze(pieces.join(''));
+  const rebuild = merge => {
+    let text = '';
+    const marks = [];
+    list.forEach((step, index) => {
+      const piece = String(step.narrative || '').trim();
+      if (!piece) return; // 这一步没产出叙事：位置无从谈起，不放卡
+      const before = text;
+      text = merge(text, piece);
+      if (text === before) return; // 没带来新内容，也不在这里放卡
+      // 只有真的续写了叙事，才把这一步的工具卡钉在它后面
+      if ((step.tools || []).length) marks.push({ index, after: text.length });
+    });
+    return { text, marks };
+  };
+  const { text: rebuilt, marks } = rebuild((a, b) => (typeof mergeRpgAgentNarrative === 'function' ? mergeRpgAgentNarrative(a, b) : (a ? `${a}\n\n${b}` : b)));
   const source = squeeze(content);
-  if (!source || !joined || joined !== source) return null;
-  let text = '';
-  list.forEach((step, index) => {
-    const piece = String(step.narrative || '').trim();
-    if (piece) text = text ? `${text}\n\n${piece}` : piece;
-    if ((step.tools || []).length) text += `\n\n%%COTTOOL${index}%%\n\n`;
+  if (!source || !squeeze(rebuilt) || squeeze(rebuilt) !== source) return null;
+  if (!marks.length) return null;
+  // 从后往前插标记，避免位置偏移
+  let text = rebuilt;
+  [...marks].sort((a, b) => b.after - a.after).forEach(mark => {
+    text = `${text.slice(0, mark.after)}\n\n%%COTTOOL${mark.index}%%\n\n${text.slice(mark.after)}`;
   });
   return text;
 }
