@@ -1266,14 +1266,9 @@ function renderTypingContentFrame() {
     : renderBubble(applyOutputRegex(preview));
   target.innerHTML = rendered.html;
   target.classList.toggle('md', rendered.md);
-  const chat = $('chat');
-  // 只在用户本来就在底部附近时才跟随：否则每帧强制拉到底会和用户滚动打架，
-  // 正文生成完、预览换成正式消息时又会跳一次，看起来就是「抽搐」。
-  if (chat && chat.scrollHeight - chat.scrollTop - chat.clientHeight < 120) {
-    // 必须 instant：样式里有 scroll-behavior: smooth，直接赋 scrollTop 会启动平滑动画，
-    // 下一帧又被打断，来回看就是「抽搐」。
-    chat.scrollTo({ top: chat.scrollHeight, behavior: 'instant' });
-  }
+  // 只在用户本来就贴着底部时才跟随（用户往上翻时不抢滚动条）。
+  // 必须 instant：样式里有 scroll-behavior: smooth，用平滑滚动会被下一帧打断，看着像抽搐。
+  chatStickToBottom($('chat'));
 }
 /* 流式期间的思维链：callAPIStream 里的 cot 是「当前这一步」的局部累积，
    只显示它就会出现「每次只看到一段、生成完才补齐」的现象。

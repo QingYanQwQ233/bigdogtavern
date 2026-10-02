@@ -13527,14 +13527,9 @@ function renderTypingContentFrame() {
     : renderBubble(applyOutputRegex(preview));
   target.innerHTML = rendered.html;
   target.classList.toggle('md', rendered.md);
-  const chat = $('chat');
-  // 只在用户本来就在底部附近时才跟随：否则每帧强制拉到底会和用户滚动打架，
-  // 正文生成完、预览换成正式消息时又会跳一次，看起来就是「抽搐」。
-  if (chat && chat.scrollHeight - chat.scrollTop - chat.clientHeight < 120) {
-    // 必须 instant：样式里有 scroll-behavior: smooth，直接赋 scrollTop 会启动平滑动画，
-    // 下一帧又被打断，来回看就是「抽搐」。
-    chat.scrollTo({ top: chat.scrollHeight, behavior: 'instant' });
-  }
+  // 只在用户本来就贴着底部时才跟随（用户往上翻时不抢滚动条）。
+  // 必须 instant：样式里有 scroll-behavior: smooth，用平滑滚动会被下一帧打断，看着像抽搐。
+  chatStickToBottom($('chat'));
 }
 /* 流式期间的思维链：callAPIStream 里的 cot 是「当前这一步」的局部累积，
    只显示它就会出现「每次只看到一段、生成完才补齐」的现象。
@@ -15490,6 +15485,17 @@ function resetMessageRenderWindow() {
   messageRenderWindow.preserveScroll = false;
 }
 
+/* 只在用户本来就贴着底部时才自动跟随。
+   用户往上翻的时候不抢滚动条 —— 否则每次渲染都把人拽回底部，没法安心看上文。
+   判断基于「离底距离」，所以用户自己拉回底部后会自然恢复跟随，不需要额外状态。 */
+function chatStickToBottom(chat = $('chat'), threshold = 120) {
+  if (!chat) return false;
+  const distance = chat.scrollHeight - chat.scrollTop - chat.clientHeight;
+  if (distance > threshold) return false;
+  if (typeof chat.scrollTo === 'function') chat.scrollTo({ top: chat.scrollHeight, behavior: 'instant' });
+  else chat.scrollTop = chat.scrollHeight;
+  return true;
+}
 function scrollChatToLatest(chat, conversationKey = activeConversationKey()) {
   const scroll = () => {
     if (!chat || chat.isConnected === false || activeConversationKey() !== conversationKey) return;
@@ -15768,7 +15774,7 @@ function addTyping() {
     ? '<div class="rpg-prose" data-tavern-rendered><span class="typing-hint">世界正在回应…</span></div>'
     : '<div class="bubble" data-tavern-rendered>正在思索…</div>';
   chat.appendChild(el);
-  chat.scrollTop = chat.scrollHeight;
+  chatStickToBottom(chat);
 }
 function removeTyping() {
   const t = $('typing-msg');
@@ -15926,7 +15932,7 @@ function addImagePending() {
   el.id = 'img-pending-msg';
   el.innerHTML = '<div class="bubble img-bubble pending-bubble">🖼 正在生成图片…</div>';
   chat.appendChild(el);
-  chat.scrollTop = chat.scrollHeight;
+  chatStickToBottom(chat);
 }
 function removeImagePending() {
   const t = $('img-pending-msg');

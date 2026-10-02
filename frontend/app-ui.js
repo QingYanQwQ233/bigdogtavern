@@ -1797,6 +1797,17 @@ function resetMessageRenderWindow() {
   messageRenderWindow.preserveScroll = false;
 }
 
+/* 只在用户本来就贴着底部时才自动跟随。
+   用户往上翻的时候不抢滚动条 —— 否则每次渲染都把人拽回底部，没法安心看上文。
+   判断基于「离底距离」，所以用户自己拉回底部后会自然恢复跟随，不需要额外状态。 */
+function chatStickToBottom(chat = $('chat'), threshold = 120) {
+  if (!chat) return false;
+  const distance = chat.scrollHeight - chat.scrollTop - chat.clientHeight;
+  if (distance > threshold) return false;
+  if (typeof chat.scrollTo === 'function') chat.scrollTo({ top: chat.scrollHeight, behavior: 'instant' });
+  else chat.scrollTop = chat.scrollHeight;
+  return true;
+}
 function scrollChatToLatest(chat, conversationKey = activeConversationKey()) {
   const scroll = () => {
     if (!chat || chat.isConnected === false || activeConversationKey() !== conversationKey) return;
@@ -2075,7 +2086,7 @@ function addTyping() {
     ? '<div class="rpg-prose" data-tavern-rendered><span class="typing-hint">世界正在回应…</span></div>'
     : '<div class="bubble" data-tavern-rendered>正在思索…</div>';
   chat.appendChild(el);
-  chat.scrollTop = chat.scrollHeight;
+  chatStickToBottom(chat);
 }
 function removeTyping() {
   const t = $('typing-msg');
@@ -2233,7 +2244,7 @@ function addImagePending() {
   el.id = 'img-pending-msg';
   el.innerHTML = '<div class="bubble img-bubble pending-bubble">🖼 正在生成图片…</div>';
   chat.appendChild(el);
-  chat.scrollTop = chat.scrollHeight;
+  chatStickToBottom(chat);
 }
 function removeImagePending() {
   const t = $('img-pending-msg');

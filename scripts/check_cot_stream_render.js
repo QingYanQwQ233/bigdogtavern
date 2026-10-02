@@ -45,6 +45,23 @@ if (!/overflow-anchor:\s*none/.test(styles)) {
   errors.push('styles.css 缺少 overflow-anchor: none（长思维链展开时会跳）');
 }
 
+// 4) 自动跟随必须走 chatStickToBottom：无条件滚到底会把正在翻看上文的用户拽回去
+const appUi = fs.readFileSync(path.join(root, 'frontend/app-ui.js'), 'utf8');
+// 只检查「这两个封装函数之外」的赋值：它们内部的那句是合法兜底
+const isolated = ['chatStickToBottom', 'scrollChatToLatest'].reduce((text, name) => {
+  const at = text.indexOf(`function ${name}(`);
+  if (at < 0) return text;
+  const end = text.indexOf('\nfunction ', at + 1);
+  return text.slice(0, at) + text.slice(end > 0 ? end : undefined);
+}, appUi);
+const unconditional = isolated.match(/chat\.scrollTop\s*=\s*chat\.scrollHeight/g) || [];
+if (unconditional.length) {
+  errors.push(`app-ui.js 有 ${unconditional.length} 处无条件把聊天滚到底（应用 chatStickToBottom / scrollChatToLatest）`);
+}
+if (!/function chatStickToBottom/.test(appUi)) {
+  errors.push('app-ui.js 缺少 chatStickToBottom（自动跟随必须在用户贴底时才进行）');
+}
+
 if (errors.length) {
   console.error('[FAIL] check_cot_stream_render');
   errors.forEach(error => console.error('  - ' + error));
