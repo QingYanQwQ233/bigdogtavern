@@ -13630,8 +13630,10 @@ function renderTypingChain(blocks) {
       main.className = 'cot-step-main';
       const text = document.createElement('div');
       text.className = 'cot-step-body';
-      main.appendChild(head);
       main.appendChild(text);
+      // summary 必须是 details 的直接子节点：放进 div 里 <details> 不认，
+      // 会退化成默认文案（WebView 显示「详情」），而且折叠标题也没了。
+      cot.appendChild(head);
       cot.appendChild(main);
       const bodyNode = document.createElement('div');
       bodyNode.className = 'step-body rpg-prose';
@@ -15567,16 +15569,13 @@ function initChatFollowTracking() {
     chat.addEventListener(event, markInteraction, { passive: true });
   });
   chat.addEventListener('scroll', () => {
-    if (Date.now() < chatScrollSuppressedUntil) return;
+    const interacting = Date.now() <= userInteractingUntil;
+    // 用户操作优先：程序每帧滚到底会不断刷新抑制窗口，
+    // 如果这里无条件忽略，用户的滚动就永远落在抑制窗口里，跟随状态再也改不掉
+    // （表现就是「人拉不过程序」）。所以用户正在操作时一律按他的位置判定。
+    if (!interacting) return;
     const distance = chat.scrollHeight - chat.scrollTop - chat.clientHeight;
-    // 到底了就恢复跟随：这一步不需要交互证明，否则用户「甩」到底部（惯性滚动
-    // 结束时早已超出交互窗口）之后就一直不跟了。
-    if (distance <= 60) {
-      chatFollowLatest = true;
-      return;
-    }
-    if (Date.now() > userInteractingUntil) return;
-    chatFollowLatest = false;
+    chatFollowLatest = distance <= 60;
   }, { passive: true });
 }
 function scrollChatToLatest(chat, conversationKey = activeConversationKey()) {

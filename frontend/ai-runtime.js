@@ -1363,8 +1363,10 @@ function renderTypingChain(blocks) {
       main.className = 'cot-step-main';
       const text = document.createElement('div');
       text.className = 'cot-step-body';
-      main.appendChild(head);
       main.appendChild(text);
+      // summary 必须是 details 的直接子节点：放进 div 里 <details> 不认，
+      // 会退化成默认文案（WebView 显示「详情」），而且折叠标题也没了。
+      cot.appendChild(head);
       cot.appendChild(main);
       const bodyNode = document.createElement('div');
       bodyNode.className = 'step-body rpg-prose';
