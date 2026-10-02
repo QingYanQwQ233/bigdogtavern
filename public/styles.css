@@ -3616,6 +3616,11 @@ body[data-mode="rpg"] .composer {
   /* 宽度平滑伸缩、退场时高度与占位一起收敛（否则移除的瞬间下方的胶囊会跳） */
   transition:
      width var(--toast-in, 250ms) var(--motion-out),
+     font-size var(--toast-out, 300ms) var(--motion-out),
+     border-radius var(--toast-out, 300ms) var(--motion-out),
+     background-color var(--toast-out, 300ms) var(--motion-out),
+     color var(--toast-out, 300ms) var(--motion-out),
+     border-color var(--toast-out, 300ms) var(--motion-out),
     height var(--toast-out, 300ms) var(--motion-collapse),
     margin-bottom var(--toast-out, 300ms) var(--motion-collapse),
     padding-top var(--toast-out, 300ms) var(--motion-collapse),

@@ -3,9 +3,9 @@
  */
 // Bump this when the shell changes so an old broken cache is retired on the
 // next load. API/data requests are never handled by this worker.
-const ASSET_VERSION = 'ad85e0b2';
+const ASSET_VERSION = '97a250b3';
 const CACHE = 'tavern-' + ASSET_VERSION;
-const SHELL = ['/', '/index.html', '/styles.css', '/mapgen.js?v=' + ASSET_VERSION, '/app.js?v=' + ASSET_VERSION, '/vendor/marked.min.js', '/vendor/purify.min.js', '/vendor/mapgen2.bundle.js', '/manifest.json'];
+const SHELL = ['/', '/index.html', '/styles.css', '/mapgen.js?v=' + ASSET_VERSION, '/app.js?v=' + ASSET_VERSION, '/vendor/marked.min.js', '/vendor/purify.min.js', '/vendor/mapgen2.bundle.js', '/vendor/coloris/coloris.min.js', '/vendor/coloris/coloris.min.css', '/manifest.json'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -46,6 +46,9 @@ self.addEventListener('fetch', (e) => {
         caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
         return res;
       })
-      .catch(() => caches.match(e.request).then((hit) => hit || caches.match('/')))
+      /* 注意：这里不能拿 '/' 兜底。脚本/样式请求若返回 index.html，
+        浏览器会报 "Unexpected token '<'"（表现为第三方库失效），
+         而且错误现场很难和“文件不存在”区分开。命中缓存就返回，否则明确失败。 */
+      .catch(() => caches.match(e.request).then((hit) => hit || new Response('', { status: 504, statusText: 'Offline' })))
   );
 });

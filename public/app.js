@@ -13954,15 +13954,43 @@ function chatBackgroundFromSettings() {
 /* 透明度独立保存，切换主题或移除背景时保留用户选择。 */
 /* ─────────── 消息（灵动岛）外观设置 ─────────── */
 let toastSaveTimer = null;
+/* 规范化颜色：支持 #rgb / #rrggbb，统一小写；非法返回 ''（由调用方决定兜底）。 */
+function normalizeHexColor(value) {
+  const text = String(value || '').trim();
+  const m = text.match(/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (!m) return '';
+  let hex = m[1].toLowerCase();
+  if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+  return '#' + hex;
+}
+const TOAST_COLOR_FIELDS = [
+  ['toast-bg', 'bg'],
+  ['toast-fg', 'fg'],
+  ['toast-accent', 'accent'],
+  ['toast-success-color', 'success'],
+  ['toast-warning-color', 'warning'],
+  ['toast-error-color', 'error'],
+];
+/* 写值时必须派发 input：Coloris 靠这个事件刷新旁边的预览块，
+   只改 input.value 的话，设置页看起来“没恢复”。 */
+/* Coloris 只在自身交互时刷新旁边的预览块；程序化写值它不会跟着变，
+   于是会出现“输入框变了、色块没变”的假同步（恢复默认时最明显）。 */
+function syncColorPreview(id, value) {
+  if (!value) return;
+  const btn = $(id)?.closest('.clr-field')?.querySelector('button');
+  if (btn) btn.style.backgroundColor = value;
+}
+function setColorField(id, value) {
+  const el = $(id);
+  if (!el) return;
+  el.value = value;
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  syncColorPreview(id, value);
+}
 function fillToastForm() {
   if (!$('toast-bg')) return;
   const cfg = toastConfig();
-  $('toast-bg').value = cfg.bg;
-  $('toast-fg').value = cfg.fg;
-  $('toast-accent').value = cfg.accent;
-  $('toast-success-color').value = cfg.success;
-  $('toast-warning-color').value = cfg.warning;
-  $('toast-error-color').value = cfg.error;
+  TOAST_COLOR_FIELDS.forEach(([id, key]) => setColorField(id, cfg[key]));
   $('toast-font-size').value = String(cfg.fontSize);
   $('toast-padding').value = cfg.padding;
   $('toast-shape').value = cfg.shape;
@@ -13971,13 +13999,23 @@ function fillToastForm() {
 }
 function readToastForm(save = false) {
   if (!$('toast-bg')) return;
+  const previous = Object.assign({}, toastConfig());
+  const colors = {};
+  let invalid = null;
+  TOAST_COLOR_FIELDS.forEach(([id, key]) => {
+    const hex = normalizeHexColor($(id).value);
+    if (hex) {
+      colors[key] = hex;
+      syncColorPreview(id, hex);
+    } else {
+      // 空值/乱写一律回落到原值，避免把空颜色存进设置（那会让字段看起来是空的）
+      invalid = invalid || key;
+      colors[key] = previous[key];
+      setColorField(id, previous[key]);
+    }
+  });
   settings.toast = {
-    bg: $('toast-bg').value,
-    fg: $('toast-fg').value,
-    accent: $('toast-accent').value,
-    success: $('toast-success-color').value,
-    warning: $('toast-warning-color').value,
-    error: $('toast-error-color').value,
+    ...colors,
     fontSize: Number($('toast-font-size').value) || 13,
     padding: $('toast-padding').value,
     shape: $('toast-shape').value,
@@ -13989,19 +14027,20 @@ function readToastForm(save = false) {
   toastSaveTimer = setTimeout(async () => {
     let saved = false;
     try { saved = await saveSettings(); } catch (error) { console.warn('[Tavern] 消息外观保存失败:', error.message); }
+    // 保存结果要弹出来（灵动岛）：静默只适用于“只写消息栏”的次要提示
     notify(saved ? '消息外观已保存。' : '已应用，但设置保存失败。', {
       slot: 'toast-status',
       slotClass: saved ? 'hint' : 'hint err',
       level: saved ? 'success' : 'error',
-      silent: saved,
     });
   }, save ? 0 : 400);
+  return invalid;
 }
 function resetToastForm() {
   settings.toast = JSON.parse(JSON.stringify(DEFAULT_SETTINGS.toast));
-  fillToastForm();
+  fillToastForm();          // 表单 + Coloris 预览块一起回默认
   applyToastTheme();
-  readToastForm(true);
+  readToastForm(true);       // 再走一次读写，保证设置与表单完全一致
 }
 /* 测试：连发三条（普通 / 成功 / 错误），顺带验证同屏数量与动画速度。 */
 function testToastAppearance() {
