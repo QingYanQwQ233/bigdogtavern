@@ -1795,6 +1795,9 @@ function renderEditBubble(m, className = 'bubble edit-bubble') {
 function resetMessageRenderWindow() {
   messageRenderWindow.start = 0;
   messageRenderWindow.preserveScroll = false;
+  // 只有这里（新消息落地）才强制贴底。
+  // 生成结束、刷新列表等其他渲染一律不动用户的位置，否则看到一半就被拽回底部。
+  messageRenderWindow.stickToLatest = true;
 }
 
 /* 只在用户本来就贴着底部时才自动跟随。
@@ -1895,9 +1898,19 @@ function renderMessages() {
   const previousScrollTop = chat.scrollTop;
   const preserveScroll = messageRenderWindow.preserveScroll;
   messageRenderWindow.preserveScroll = false;
+  // 列表重建会让 scrollTop 归零，光靠高度差折算还会差几十像素。
+  // 这里记住「第一条可见消息」的视口位置，渲染后把它对回去，用户就完全看不出动过。
+  const scrollAnchor = (() => {
+    const chatTop = chat.getBoundingClientRect().top;
+    const items = Array.prototype.slice.call(chat.querySelectorAll('.msg'));
+    const index = items.findIndex(el => el.getBoundingClientRect().bottom > chatTop + 1);
+    if (index < 0 || !items[index]) return null;
+    return { index, top: items[index].getBoundingClientRect().top };
+  })();
   const conversationKey = activeConversationKey();
   if (messageRenderWindow.key !== conversationKey) {
-    messageRenderWindow = { key: conversationKey, start: 0, preserveScroll: false };
+    // 切换会话：贴底是预期行为
+    messageRenderWindow = { key: conversationKey, start: 0, preserveScroll: false, stickToLatest: true };
   }
   syncConversationResetButton();
   renderDebugTerminal();
@@ -2045,8 +2058,22 @@ function renderMessages() {
     }
     chat.appendChild(el);
   }
-  if (preserveScroll) chat.scrollTop = Math.max(0, chat.scrollHeight - previousScrollHeight + previousScrollTop);
-  else scrollChatToLatest(chat, conversationKey);
+  const stick = messageRenderWindow.stickToLatest === true;
+  messageRenderWindow.stickToLatest = false;
+  // 列表是重建的（chat.innerHTML 被清空），scrollTop 已经归零，
+  // 所以「不动用户位置」必须显式还原，不能什么都不做 —— 否则会跳到顶部/底部。
+  const wasAtBottom = previousScrollHeight - previousScrollTop - chat.clientHeight <= 120;
+  if (preserveScroll) {
+    chat.scrollTop = Math.max(0, chat.scrollHeight - previousScrollHeight + previousScrollTop);
+  } else if (stick || wasAtBottom) {
+    scrollChatToLatest(chat, conversationKey);
+  } else {
+    // 生成结束 / 列表刷新：用户在看上面，把他放回原来的位置
+    const items = Array.prototype.slice.call(chat.querySelectorAll('.msg'));
+    const anchor = scrollAnchor ? items[scrollAnchor.index] : null;
+    if (anchor) chat.scrollTop += anchor.getBoundingClientRect().top - scrollAnchor.top;
+    else chat.scrollTop = Math.max(0, chat.scrollHeight - previousScrollHeight + previousScrollTop);
+  }
 }
 
 function pushMessage(role, content, extra) {

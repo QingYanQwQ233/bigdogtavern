@@ -159,7 +159,7 @@ let worldImportOpener = null;
 // ponytail: 仅在超长会话窗口化，保留“加载更早消息”入口；短会话继续走原渲染路径。
 const MESSAGE_RENDER_WINDOW_SIZE = 120;
 const MESSAGE_RENDER_WINDOW_STEP = 80;
-let messageRenderWindow = { key: '', start: 0, preserveScroll: false };
+let messageRenderWindow = { key: '', start: 0, preserveScroll: false, stickToLatest: false };
 let theme = FIXED_THEME;
 // ST（酒馆）模式已移除，应用固定为 RPG 单模式。LS_MODE 已无读取方，
 // 旧存档里的 'tavern' 一并改写，避免留下一个指向已删除模式的化石值。
