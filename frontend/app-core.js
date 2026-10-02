@@ -72,6 +72,7 @@ const DEFAULT_SETTINGS = {
   history: 20, stream: true,
   promptCache: { cacheKey: '', includeUsage: false },
   firstMes: '',
+  toast: { bg: '#1c1c1e', fg: '#f2f2f7', accent: '#77e6d5', fontSize: 13, padding: 'normal', speed: 'normal', shape: 'pill', max: 2 },
 };
 
 /* 服务预设 / 界面偏好：从 public/data/_defaults.json 加载，代码不写死 */
@@ -213,7 +214,62 @@ function raiseOverlay(el) {
   if (el.parentElement !== target) target.appendChild(el);
   return el;
 }
+/* ─────────── 灵动岛（消息胶囊）外观 ───────────
+   颜色 / 字号 / 内边距 / 样式 / 动画速度 / 同屏数量都由设置决定，
+   统一落到 :root 的 CSS 变量上；档位取值都落在设计刻度内。 */
+const TOAST_PADDING = { compact: { y: 8, x: 12 }, normal: { y: 10, x: 16 }, loose: { y: 12, x: 20 } };
+const TOAST_SHAPE_RADIUS = { pill: 999, round: 16, sharp: 8 };
+const TOAST_SPEED_FACTOR = { slow: 1.6, normal: 1, fast: 0.6 };
+/* 定时器要比动画晚一步，否则动画会被截断。250/300 是入场/退场基准。 */
+const TOAST_DURATIONS = {
+  slow: { in: 400, out: 480, clear: 640, pulse: 400 },
+  normal: { in: 250, out: 300, clear: 400, pulse: 250 },
+  fast: { in: 150, out: 200, clear: 250, pulse: 150 },
+};
+function toastConfig() {
+  const raw = (settings && settings.toast) || {};
+  return {
+    bg: String(raw.bg || '#1c1c1e'),
+    fg: String(raw.fg || '#f2f2f7'),
+    accent: String(raw.accent || '#77e6d5'),
+    fontSize: Number(raw.fontSize) || 13,
+    padding: TOAST_PADDING[raw.padding] ? raw.padding : 'normal',
+    speed: TOAST_DURATIONS[raw.speed] ? raw.speed : 'normal',
+    shape: TOAST_SHAPE_RADIUS[raw.shape] !== undefined ? raw.shape : 'pill',
+    max: Math.max(1, Math.min(5, Number(raw.max) || 2)),
+  };
+}
+function toastDurations() {
+  return TOAST_DURATIONS[toastConfig().speed] || TOAST_DURATIONS.normal;
+}
+/* #rrggbb -> rgba(r, g, b, a)；解析失败时返回兜底色（背景仍可读）。 */
+function toastRgba(hex, alpha, fallback) {
+  const m = String(hex || '').trim().match(/^#([0-9a-f]{6})$/i);
+  if (!m) return fallback;
+  const n = parseInt(m[1], 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+function applyToastTheme() {
+  const cfg = toastConfig();
+  const pad = TOAST_PADDING[cfg.padding];
+  const root = document.documentElement;
+  if (!root) return;
+  const d = toastDurations();
+  root.style.setProperty('--toast-bg', toastRgba(cfg.bg, 0.92, 'rgba(28, 28, 30, 0.92)'));
+  root.style.setProperty('--toast-border', toastRgba(cfg.accent, 0.45, 'rgba(255, 255, 255, 0.12)'));
+  root.style.setProperty('--toast-accent', cfg.accent);
+  root.style.setProperty('--toast-fg', cfg.fg);
+  root.style.setProperty('--toast-font-size', cfg.fontSize + 'px');
+  root.style.setProperty('--toast-pad-y', pad.y + 'px');
+  root.style.setProperty('--toast-pad-x', pad.x + 'px');
+  root.style.setProperty('--toast-radius', TOAST_SHAPE_RADIUS[cfg.shape] + 'px');
+  root.style.setProperty('--toast-in', d.in + 'ms');
+  root.style.setProperty('--toast-out', d.out + 'ms');
+  root.style.setProperty('--toast-pulse', d.pulse + 'ms');
+}
 function showToast(message, options = {}) {
+  // 每次弹出前同步一次外观：设置改完立刻生效，不必等重启。
+  applyToastTheme();
   raiseOverlay($('toast-host'));
   const host = $('toast-host');
   if (!host || !message) return null;
@@ -221,7 +277,7 @@ function showToast(message, options = {}) {
   Array.prototype.slice.call(host.children).forEach(k => {
     if (k.classList.contains('toast-out')) k.remove(); // 已退场中的：直接清掉，避免和新胶囊抢位置
   });
-  if (host.children.length >= 2) {
+  if (host.children.length >= toastConfig().max) {
     const oldest = host.firstElementChild;
     if (typeof oldest._dismiss === 'function') oldest._dismiss();
     else oldest.remove();
@@ -253,7 +309,7 @@ function showToast(message, options = {}) {
       toast.style.marginBottom = (-gap) + 'px';
     });
     // 要比退场动画（300ms）晚一步，确保动画播完再摘
-    setTimeout(() => toast.remove(), 400);
+    setTimeout(() => toast.remove(), toastDurations().clear);
   };
   // 按内容重绘图标 / 语义 / 计时。切换内容时复用同一个元素：
   // 否则「旧的还在淡出、新的已入场」两条胶囊会互相挤，看起来像抽搐。
@@ -317,7 +373,7 @@ function showToast(message, options = {}) {
         toast.style.width = '';
         toast.style.height = '';
         sizeClearTimer = null;
-      }, 320);
+      }, toastDurations().clear);
     }
     body.style.opacity = ''; // .toast-msg 的 transition 会把它淡回来
     // 文字没变就不放脉冲：快速连发同一条提示时，反复动一下反而像在抽
@@ -325,7 +381,7 @@ function showToast(message, options = {}) {
       toast.classList.remove('is-updating');
       void toast.offsetWidth;
       toast.classList.add('is-updating');
-      setTimeout(() => toast.classList.remove('is-updating'), 250);
+      setTimeout(() => toast.classList.remove('is-updating'), toastDurations().pulse);
     }
     return handle;
   };
@@ -369,7 +425,7 @@ function showToast(message, options = {}) {
       toast.style.height = '';
       toast.style.marginBottom = '';
       sizeClearTimer = null;
-    }, 320);
+    }, toastDurations().clear);
   }
   // 紧跟着上一条出现时改用轻快的淡入（在 paint 之后加，否则会被 className 覆盖）
   const now = Date.now();

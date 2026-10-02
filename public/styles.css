@@ -3596,15 +3596,15 @@ body[data-mode="rpg"] .composer {
   gap: 10px;
   width: fit-content;
   max-width: 100%;
-  padding: 10px 16px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(28, 28, 30, 0.92);
+  padding: var(--toast-pad-y, 10px) var(--toast-pad-x, 16px);
+  border-radius: var(--toast-radius, 999px);
+  border: 1px solid var(--toast-border, rgba(255, 255, 255, 0.12));
+  background: var(--toast-bg, rgba(28, 28, 30, 0.92));
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.26);
-  color: var(--text);
-  font-size: 13px;
+  color: var(--toast-fg, var(--text));
+  font-size: var(--toast-font-size, 13px);
   line-height: 1.5;
   box-sizing: border-box;
   transform-origin: top center;
@@ -3612,18 +3612,18 @@ body[data-mode="rpg"] .composer {
   white-space: nowrap;
   overflow: hidden;
   /* 入场带一点回弹（0.34,1.56 是轻微 overshoot），比纯 ease-out 更有“弹出来”的手感 */
-  animation: toast-in 250ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation: toast-in var(--toast-in, 250ms) cubic-bezier(0.34, 1.56, 0.64, 1) both;
   /* 宽度平滑伸缩、退场时高度与占位一起收敛（否则移除的瞬间下方的胶囊会跳） */
   transition:
-    width 250ms var(--motion-out),
-    height 300ms var(--motion-collapse),
-    margin-bottom 300ms var(--motion-collapse),
-    padding-top 300ms var(--motion-collapse),
-    padding-bottom 300ms var(--motion-collapse),
-    border-top-width 300ms var(--motion-collapse),
-    border-bottom-width 300ms var(--motion-collapse);
+     width var(--toast-in, 250ms) var(--motion-out),
+    height var(--toast-out, 300ms) var(--motion-collapse),
+    margin-bottom var(--toast-out, 300ms) var(--motion-collapse),
+    padding-top var(--toast-out, 300ms) var(--motion-collapse),
+    padding-bottom var(--toast-out, 300ms) var(--motion-collapse),
+    border-top-width var(--toast-out, 300ms) var(--motion-collapse),
+    border-bottom-width var(--toast-out, 300ms) var(--motion-collapse);
 }
-.toast-icon { flex: none; font-size: 14px; }
+.toast-icon { flex: none; font-size: 14px; color: var(--toast-accent, currentColor); }
 .toast-msg { min-width: 0; overflow: hidden; text-overflow: ellipsis; transition: opacity 150ms var(--motion-out); }
 /* 单行放不下（长报错等）时改用宽条多行：宽度恒定，因此没有“过渡中重排”的拖动。
    圆角必须从 999px 退到 16px，否则两端文字会被胶囊弧线压住。 */
@@ -3631,11 +3631,12 @@ body[data-mode="rpg"] .composer {
   width: 100%;
   white-space: normal;
   align-items: flex-start;
-  border-radius: 16px;
+  /* 两端文字会被弧线压住，多行时必须退到较小的圆角 */
+  border-radius: min(var(--toast-radius, 16px), 16px);
 }
 .toast.is-multiline .toast-msg { overflow: visible; text-overflow: clip; }
 /* 同一条胶囊换了内容（例如「正在获取模型列表…」→结果）时轻轻脉冲一下，表达状态变化 */
-.toast.is-updating .toast-msg { animation: toast-msg-in 250ms var(--motion-out); }
+.toast.is-updating .toast-msg { animation: toast-msg-in var(--toast-pulse, 250ms) var(--motion-out); }
 .toast-close,
 .toast-action {
   flex: none;
@@ -3653,7 +3654,7 @@ body[data-mode="rpg"] .composer {
 .toast-error .toast-icon { color: var(--danger); }
 .toast-success { border-color: rgba(48, 209, 88, 0.45); }
 .toast.toast-out {
-  animation: toast-out 300ms var(--motion-collapse) forwards;
+  animation: toast-out var(--toast-out, 300ms) var(--motion-collapse) forwards;
   /* 与 height 一起收到 0：边距 / 内边距 / 上下边框都占高度，不收干净还是会跳 */
   padding-top: 0;
   padding-bottom: 0;
@@ -3673,7 +3674,7 @@ body[data-mode="rpg"] .composer {
   from { opacity: 0; transform: translateY(2px); }
 }
 /* 紧跟在另一条后面的胶囊：不走回弹（叠加 overshoot 会“一下一下地跳”），改干净快速的淡入 */
-.toast.is-quick { animation: toast-in-quick 200ms var(--motion-out) both; }
+.toast.is-quick { animation: toast-in-quick var(--toast-in, 200ms) var(--motion-out) both; }
 @keyframes toast-in-quick {
   from { opacity: 0; transform: translateY(-6px); }
 }

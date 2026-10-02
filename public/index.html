@@ -7,7 +7,7 @@
   <link rel="manifest" href="manifest.json" />
   <title>Tavern · AI RP 框架演示</title>
   <link rel="icon" type="image/png" href="favicon.png" />
-  <link rel="stylesheet" href="styles.css?v=02cfc81d" />
+  <link rel="stylesheet" href="styles.css?v=9c90b123" />
 </head>
 <body data-theme="vibrancy" data-layout="classic">
   <canvas id="bg-fx" aria-hidden="true"></canvas>
@@ -681,10 +681,84 @@
         <button class="st-tab" id="st-tab-ui" role="tab" aria-selected="false" aria-controls="st-panel-ui" data-st="ui">界面</button>
         <button class="st-tab" id="st-tab-image" role="tab" aria-selected="false" aria-controls="st-panel-image" data-st="image">文生图</button>
         <button class="st-tab" id="st-tab-gen" role="tab" aria-selected="false" aria-controls="st-panel-gen" data-st="gen">AI 工坊</button>
+        <button class="st-tab" id="st-tab-msg" role="tab" aria-selected="false" aria-controls="st-panel-msg" data-st="msg">消息</button>
       </div>
 
       <div class="modal-body">
         <!-- ── Tab 连接 ── -->
+        <div id="st-panel-msg" class="hidden" role="tabpanel" aria-labelledby="st-tab-msg">
+          <section class="chat-background-settings" aria-labelledby="toast-appearance-heading">
+            <div class="chat-background-heading">
+              <h3 id="toast-appearance-heading">消息外观</h3>
+            </div>
+            <div class="field row2">
+              <div class="field">
+                <label for="toast-bg">背景色</label>
+                <input id="toast-bg" type="color" value="#1c1c1e" />
+              </div>
+              <div class="field">
+                <label for="toast-fg">文字色</label>
+                <input id="toast-fg" type="color" value="#f2f2f7" />
+              </div>
+            </div>
+            <div class="field">
+              <label for="toast-accent">强调色 <span class="hint-inline">边框与图标</span></label>
+              <input id="toast-accent" type="color" value="#77e6d5" />
+            </div>
+            <div class="field row2">
+              <div class="field">
+                <label for="toast-font-size">字体大小</label>
+                <select id="toast-font-size">
+                  <option value="12">12px</option>
+                  <option value="13">13px</option>
+                  <option value="14">14px</option>
+                  <option value="15">15px</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="toast-padding">大小</label>
+                <select id="toast-padding">
+                  <option value="compact">紧凑</option>
+                  <option value="normal">标准</option>
+                  <option value="loose">宽松</option>
+                </select>
+              </div>
+            </div>
+            <div class="field row2">
+              <div class="field">
+                <label for="toast-shape">样式</label>
+                <select id="toast-shape">
+                  <option value="pill">胶囊</option>
+                  <option value="round">圆角</option>
+                  <option value="sharp">方角</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="toast-speed">动画速度</label>
+                <select id="toast-speed">
+                  <option value="slow">慢</option>
+                  <option value="normal">标准</option>
+                  <option value="fast">快</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label for="toast-max">同屏数量 <span class="hint-inline">超出时最早的自动退场</span></label>
+              <select id="toast-max">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+              </select>
+            </div>
+            <div class="chat-background-actions">
+              <button id="btn-toast-test" class="btn gold small" type="button">测试提示</button>
+              <button id="btn-toast-reset" class="ghost-btn" type="button">恢复默认外观</button>
+            </div>
+            <p id="toast-status" class="hint" role="status" aria-live="polite">修改即时生效并自动保存。</p>
+          </section>
+        </div>
         <div id="st-panel-conn" role="tabpanel" aria-labelledby="st-tab-conn">
           <div class="field">
             <label for="s-preset">服务预设</label>
@@ -1728,13 +1802,13 @@
   <script src="vendor/marked.min.js"></script>
   <script src="vendor/purify.min.js"></script>
   <script src="vendor/mapgen2.bundle.js"></script>
-  <script src="mapgen.js?v=02cfc81d"></script>
-  <script src="app.js?v=02cfc81d"></script>
+  <script src="mapgen.js?v=9c90b123"></script>
+  <script src="app.js?v=9c90b123"></script>
   <script>
     // PWA：注册 service worker（仅 HTTPS / localhost 生效，套壳 APK 可用）
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js?v=02cfc81d').catch(() => {});
+    navigator.serviceWorker.register('sw.js?v=9c90b123').catch(() => {});
       });
     }
   </script>

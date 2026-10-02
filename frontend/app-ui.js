@@ -406,6 +406,57 @@ function chatBackgroundFromSettings() {
 }
 
 /* 透明度独立保存，切换主题或移除背景时保留用户选择。 */
+/* ─────────── 消息（灵动岛）外观设置 ─────────── */
+let toastSaveTimer = null;
+function fillToastForm() {
+  if (!$('toast-bg')) return;
+  const cfg = toastConfig();
+  $('toast-bg').value = cfg.bg;
+  $('toast-fg').value = cfg.fg;
+  $('toast-accent').value = cfg.accent;
+  $('toast-font-size').value = String(cfg.fontSize);
+  $('toast-padding').value = cfg.padding;
+  $('toast-shape').value = cfg.shape;
+  $('toast-speed').value = cfg.speed;
+  $('toast-max').value = String(cfg.max);
+}
+function readToastForm(save = false) {
+  if (!$('toast-bg')) return;
+  settings.toast = {
+    bg: $('toast-bg').value,
+    fg: $('toast-fg').value,
+    accent: $('toast-accent').value,
+    fontSize: Number($('toast-font-size').value) || 13,
+    padding: $('toast-padding').value,
+    shape: $('toast-shape').value,
+    speed: $('toast-speed').value,
+    max: Number($('toast-max').value) || 2,
+  };
+  applyToastTheme(); // 即时预览
+  clearTimeout(toastSaveTimer);
+  toastSaveTimer = setTimeout(async () => {
+    let saved = false;
+    try { saved = await saveSettings(); } catch (error) { console.warn('[Tavern] 消息外观保存失败:', error.message); }
+    notify(saved ? '消息外观已保存。' : '已应用，但设置保存失败。', {
+      slot: 'toast-status',
+      slotClass: saved ? 'hint' : 'hint err',
+      level: saved ? 'success' : 'error',
+      silent: saved,
+    });
+  }, save ? 0 : 400);
+}
+function resetToastForm() {
+  settings.toast = JSON.parse(JSON.stringify(DEFAULT_SETTINGS.toast));
+  fillToastForm();
+  applyToastTheme();
+  readToastForm(true);
+}
+/* 测试：连发三条（普通 / 成功 / 错误），顺带验证同屏数量与动画速度。 */
+function testToastAppearance() {
+  notify('普通提示：这是一条测试消息。');
+  setTimeout(() => notifyResult('成功提示：外观与动画测试。', true), 400);
+  setTimeout(() => notify('错误提示：这是错误样式。', { level: 'error' }), 800);
+}
 let uiTransparencySaveTimer = null;
 let uiTransparencySaveToken = 0;
 
@@ -675,6 +726,7 @@ function fillSettingsForm() {
   fillUiThemeForm();
   fillChatBackgroundForm();
   fillUiTransparencyForm();
+  fillToastForm();
   fillPromptCacheForm();
   renderEffectiveParameters();
 }
@@ -4085,6 +4137,10 @@ function bindEvents() {
   let uiThemeSaveTimer = null;
   $('settings-modal').addEventListener('input', e => {
     if (!e.target.closest) return;
+    if (e.target.closest('#st-panel-msg')) {
+      readToastForm();
+      return;
+    }
     if (e.target.closest('#ui-transparency-settings')) {
       if (e.target.id === 'ui-transparency-amount') readUiTransparencyForm();
       return;
@@ -4108,6 +4164,10 @@ function bindEvents() {
     }
   });
   $('settings-modal').addEventListener('change', e => {
+    if (e.target.closest && e.target.closest('#st-panel-msg')) {
+      readToastForm(true);
+      return;
+    }
     if (e.target.closest && e.target.closest('#ui-transparency-settings')) {
       readUiTransparencyForm(true);
       return;
@@ -4131,6 +4191,8 @@ function bindEvents() {
     readSettingsForm();
     renderMessages();
   });
+  $('btn-toast-test').addEventListener('click', testToastAppearance);
+  $('btn-toast-reset').addEventListener('click', resetToastForm);
   $('btn-chat-background-upload').addEventListener('click', () => $('chat-background-file').click());
   $('chat-background-file').addEventListener('change', e => {
     const file = e.target.files && e.target.files[0];
