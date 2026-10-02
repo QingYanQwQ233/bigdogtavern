@@ -1800,20 +1800,36 @@ function resetMessageRenderWindow() {
   messageRenderWindow.stickToLatest = true;
 }
 
-/* 只在用户本来就贴着底部时才自动跟随。
-   用户往上翻的时候不抢滚动条 —— 否则每次渲染都把人拽回底部，没法安心看上文。
-   判断基于「离底距离」，所以用户自己拉回底部后会自然恢复跟随，不需要额外状态。 */
-function chatStickToBottom(chat = $('chat'), threshold = 120) {
-  if (!chat) return false;
-  const distance = chat.scrollHeight - chat.scrollTop - chat.clientHeight;
-  if (distance > threshold) return false;
+/* 自动跟随最新内容。
+   是否跟随由 chatFollowLatest 决定，而它只被「用户自己的滚动」改写 —— 这样流式增长
+   不会把自己误判成「用户在看上面」。 */
+function chatScrollToBottomNow(chat) {
+  if (!chat) return;
+  chatScrollSuppressedUntil = Date.now() + 120;
   if (typeof chat.scrollTo === 'function') chat.scrollTo({ top: chat.scrollHeight, behavior: 'instant' });
   else chat.scrollTop = chat.scrollHeight;
+}
+function chatStickToBottom(chat = $('chat')) {
+  if (!chat || !chatFollowLatest) return false;
+  chatScrollToBottomNow(chat);
   return true;
+}
+/* 监听用户滚动：程序滚动有抑制窗口，其余都视为用户意图。
+   用户停在底部 → 恢复跟随；用户往上翻 → 停止跟随。 */
+function initChatFollowTracking() {
+  const chat = $('chat');
+  if (!chat || chat.dataset.followBound === '1') return;
+  chat.dataset.followBound = '1';
+  chat.addEventListener('scroll', () => {
+    if (Date.now() < chatScrollSuppressedUntil) return;
+    const distance = chat.scrollHeight - chat.scrollTop - chat.clientHeight;
+    chatFollowLatest = distance <= 60;
+  }, { passive: true });
 }
 function scrollChatToLatest(chat, conversationKey = activeConversationKey()) {
   const scroll = () => {
     if (!chat || chat.isConnected === false || activeConversationKey() !== conversationKey) return;
+    chatScrollSuppressedUntil = Date.now() + 120;
     if (typeof chat.scrollTo === 'function') chat.scrollTo({ top: chat.scrollHeight, behavior: 'instant' });
     else chat.scrollTop = chat.scrollHeight;
   };
@@ -1825,11 +1841,34 @@ function scrollChatToLatest(chat, conversationKey = activeConversationKey()) {
 }
 
 /* 一步的工具行：名字来自 agentSteps，骰面来自已落库的 agentToolTrace（按 name 匹配）。 */
+/* 一步工具的结果摘要：让思维链里能看到「调用了什么、返回了什么」，
+   而不是只有一行「调用了 X」。 */
+function cotToolSummary(name, result) {
+  if (!result || typeof result !== 'object') return '';
+  const roll = Array.isArray(result.rolls) ? result.rolls[0] : null;
+  if (roll?.expr) {
+    const total = roll.total !== undefined ? ` = ${roll.total}` : '';
+    const target = result.target !== undefined ? ` · 目标 ${result.target}` : '';
+    const outcome = result.outcome || result.result || '';
+    return `${roll.expr}${total}${target}${outcome ? ` · ${outcome}` : ''}`;
+  }
+  if (result.kind === 'rules.check' || result.ruleId) {
+    const parts = [result.ruleId || '规则判定'];
+    if (result.requiresRoll) parts.push('需要掷骰');
+    if (result.difficulty !== undefined) parts.push(`难度 ${result.difficulty}`);
+    return parts.join(' · ');
+  }
+  if (Array.isArray(result.entries) || Array.isArray(result.hits) || Array.isArray(result.items)) {
+    const list = result.entries || result.hits || result.items;
+    return `命中 ${list.length} 条`;
+  }
+  if (typeof result.summary === 'string' && result.summary) return result.summary;
+  return '';
+}
 function cotToolHtml(tool, trace) {
   const hit = (Array.isArray(trace) ? trace : []).find(item => item?.name === tool?.name && item?.result);
-  const roll = hit?.result?.rolls?.[0];
-  const detail = roll?.expr ? ` · ${roll.expr} = ${roll.total}` : '';
-  return `<div class="cot-tool">调用 ${esc(tool?.name || '工具')}${esc(detail)}</div>`;
+  const detail = cotToolSummary(tool?.name, hit?.result);
+  return `<div class="cot-tool">调用 ${esc(tool?.name || '工具')}${detail ? ` · ${esc(detail)}` : ''}</div>`;
 }
 /* 有 agentSteps 就按「步骤 → 工具 → 步骤」的时间顺序摆；
    拿不到就回退整段思维链（老存档、老消息照旧能看）。 */
@@ -1862,11 +1901,38 @@ function rpgNarrativeWithToolMarks(content, steps) {
   const source = squeeze(content);
   if (!source || !squeeze(rebuilt) || squeeze(rebuilt) !== source) return null;
   if (!marks.length) return null;
+  // 标记位置吸附到最近的句尾/换行：按片段长度算出来的位置可能落在句子中间，
+  // 直接把卡片插进去就会出现「…一根毛」+卡+「刺。」这种断裂。
+  const snapToBoundary = at => {
+    const window = 60;
+    const from = Math.max(0, at - window);
+    const to = Math.min(rebuilt.length, at + window);
+    const slice = rebuilt.slice(from, to);
+    const clause = /[。！？…”」』\n]/g;
+    let best = -1;
+    let bestDistance = Infinity;
+    let match;
+    while ((match = clause.exec(slice)) !== null) {
+      const index = from + match.index;
+      if (index < at - window || index > at + window) continue;
+      const distance = Math.abs(index - at);
+      // 优先取起点之后的边界：把卡片放在整句之后更自然
+      if (index < at && distance > 20) continue;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = index + match[0].length;
+      }
+    }
+    return best > 0 ? best : at;
+  };
   // 从后往前插标记，避免位置偏移
   let text = rebuilt;
-  [...marks].sort((a, b) => b.after - a.after).forEach(mark => {
-    text = `${text.slice(0, mark.after)}\n\n%%COTTOOL${mark.index}%%\n\n${text.slice(mark.after)}`;
-  });
+  [...marks]
+    .map(mark => ({ index: mark.index, after: snapToBoundary(mark.after) }))
+    .sort((a, b) => b.after - a.after)
+    .forEach(mark => {
+      text = `${text.slice(0, mark.after)}\n\n%%COTTOOL${mark.index}%%\n\n${text.slice(mark.after)}`;
+    });
   return text;
 }
 /* 渲染后把标记换成工具卡（标记可能被包进 <p>，所以带标签一起清） */
@@ -2062,11 +2128,12 @@ function renderMessages() {
   messageRenderWindow.stickToLatest = false;
   // 列表是重建的（chat.innerHTML 被清空），scrollTop 已经归零，
   // 所以「不动用户位置」必须显式还原，不能什么都不做 —— 否则会跳到顶部/底部。
-  const wasAtBottom = previousScrollHeight - previousScrollTop - chat.clientHeight <= 120;
+  initChatFollowTracking();
   if (preserveScroll) {
     chat.scrollTop = Math.max(0, chat.scrollHeight - previousScrollHeight + previousScrollTop);
-  } else if (stick || wasAtBottom) {
-    scrollChatToLatest(chat, conversationKey);
+  } else if (stick || chatFollowLatest) {
+    chatScrollToBottomNow(chat);
+    chatFollowLatest = true;
   } else {
     // 生成结束 / 列表刷新：用户在看上面，把他放回原来的位置
     const items = Array.prototype.slice.call(chat.querySelectorAll('.msg'));

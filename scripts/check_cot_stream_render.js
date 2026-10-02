@@ -48,7 +48,7 @@ if (!/overflow-anchor:\s*none/.test(styles)) {
 // 4) 自动跟随必须走 chatStickToBottom：无条件滚到底会把正在翻看上文的用户拽回去
 const appUi = fs.readFileSync(path.join(root, 'frontend/app-ui.js'), 'utf8');
 // 只检查「这两个封装函数之外」的赋值：它们内部的那句是合法兜底
-const isolated = ['chatStickToBottom', 'scrollChatToLatest'].reduce((text, name) => {
+const isolated = ['chatScrollToBottomNow', 'chatStickToBottom', 'scrollChatToLatest'].reduce((text, name) => {
   const at = text.indexOf(`function ${name}(`);
   if (at < 0) return text;
   const end = text.indexOf('\nfunction ', at + 1);

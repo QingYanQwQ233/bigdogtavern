@@ -160,6 +160,12 @@ let worldImportOpener = null;
 const MESSAGE_RENDER_WINDOW_SIZE = 120;
 const MESSAGE_RENDER_WINDOW_STEP = 80;
 let messageRenderWindow = { key: '', start: 0, preserveScroll: false, stickToLatest: false };
+// 是否跟在最新内容后面。只由「用户自己滚动」改变：
+//   用户往上翻 → false（不抢滚动条）；用户滚回底部 → true（恢复跟随）。
+// 不能用「离底距离」判断：流式增长时距离本来就会变大，会被误判成用户在看上面。
+let chatFollowLatest = true;
+// 程序性滚动的抑制窗口：滚动是我们自己发起的时候，不能在 scroll 事件里当成用户操作
+let chatScrollSuppressedUntil = 0;
 let theme = FIXED_THEME;
 // ST（酒馆）模式已移除，应用固定为 RPG 单模式。LS_MODE 已无读取方，
 // 旧存档里的 'tavern' 一并改写，避免留下一个指向已删除模式的化石值。
