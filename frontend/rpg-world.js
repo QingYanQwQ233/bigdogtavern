@@ -150,12 +150,15 @@ function appendRpgAgentCot(previous, { label = '', cot = '' } = {}) {
 }
 
 /* 记录一步：思维链 + 这一步请求的工具。工具结果由后续 toolTrace 补齐（按 name 匹配）。 */
-function appendRpgAgentStep(session, { label = '', cot = '', tools = [] } = {}) {
+function appendRpgAgentStep(session, { label = '', cot = '', tools = [], narrative = '' } = {}) {
   if (!session) return null;
   const clean = text => String(text || '').trim();
   const step = {
     label: clean(label).slice(0, 60),
     cot: clean(cot).slice(0, 4000),
+    // 该步产出的叙事片段：渲染时按「片段 → 工具卡 → 片段」串起来，
+    // 骰子这类工具结果就能出现在叙事中途，而不是全挤在末尾。
+    narrative: clean(narrative).slice(0, 4000),
     tools: (Array.isArray(tools) ? tools : [])
       .slice(0, 8)
       .map(tool => ({ name: clean(tool?.name).slice(0, 40), args: tool?.args && typeof tool.args === 'object' ? tool.args : null })),
@@ -172,9 +175,10 @@ function serializeRpgAgentSteps(steps) {
     .map(step => ({
       label: String(step?.label || '').slice(0, 60),
       cot: String(step?.cot || '').slice(0, 4000),
+      narrative: String(step?.narrative || '').slice(0, 4000),
       tools: (Array.isArray(step?.tools) ? step.tools : []).slice(0, 8).map(tool => ({ name: String(tool?.name || '').slice(0, 40) })),
     }))
-    .filter(step => step.label || step.cot || step.tools.length);
+    .filter(step => step.label || step.cot || step.narrative || step.tools.length);
 }
 function publishRpgAgentStep(session, response, targetScope, status = 'Agent 步骤完成') {
   appendRpgAgentPreview(session, response?.content || '');

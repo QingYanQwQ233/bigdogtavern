@@ -942,6 +942,7 @@ async function requestRpgAgentReply(payload, targetScope) {
     appendRpgAgentStep(session, {
       label: stepLabel,
       cot: response.cot,
+      narrative: response.content,
       tools: (response.calls || []).map(call => ({ name: call.name, args: call.arguments })),
     });
     const previousPreview = session.previewNarrative;
@@ -1050,6 +1051,7 @@ async function requestRpgCompatReply(payload, targetScope, session = createRpgAg
     appendRpgAgentStep(session, {
       label: stepLabel,
       cot: response.cot,
+      narrative: response.content,
       tools: (response.calls || []).map(call => ({ name: call.name, args: call.arguments })),
     });
     const previousPreview = session.previewNarrative;

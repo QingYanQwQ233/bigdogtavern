@@ -3976,6 +3976,8 @@ body[data-mode="rpg"] .composer {
 .cot-body .cot-step-body { white-space: pre-wrap; overflow-wrap: anywhere; }
 /* 当前步：只做一个很轻的标识，别用重背景抢正文 */
 .cot-body .cot-step.is-current > .cot-step-head { color: var(--accent); }
+/* 正文里内联的工具卡：和叙事段落区分开，但不打断阅读 */
+.rpg-prose .cot-inline-tools { margin: 8px 0; display: flex; flex-direction: column; gap: 4px; }
 .cot-body .cot-tool {
   margin-top: 4px;
   padding-left: 8px;
