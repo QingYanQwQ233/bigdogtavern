@@ -4191,10 +4191,35 @@ ${buildPlayerSnapshotLines(save.player?.snapshot, world) || '（本存档没有�
 【必须遵守】严格依据世界卡、玩家快照、起始地点、在场 NPC 与规则生成。正文末尾必须输出唯一的 <tavern_state_update> JSON 更新块，protocol=tavern.rpg.turn、version=1、baseRevision=${save.revision}、updates=[]，并提供恰好 4 个具体行动选项（彼此不同、具体可执行、纯自然语言）。` });
     beginDebugRequest(save, payload, { label: '开场候选', kind: 'opening-plan', commandId: traceCommandId });
     let reply;
-    if (payload.body.stream) reply = (await callAPIStream(payload)).content;
-    else reply = (await callAPI(payload))?.choices?.[0]?.message?.content;
+    let replyCot = '';
+    if (payload.body.stream) {
+      const streamResult = await callAPIStream(payload);
+      reply = streamResult.content;
+      replyCot = String(streamResult.cot || '');
+    } else {
+      const message = (await callAPI(payload))?.choices?.[0]?.message;
+      reply = message?.content;
+      replyCot = String(message?.reasoning_content || '');
+    }
     const processed = processAIOutput(reply || '');
-    if (!processed.content || !processed.options || processed.options.length !== 4) throw new Error('AI 未返回合规的开场正文与 4 个选项');
+    if (!processed.content || !processed.options || processed.options.length !== 4) {
+      // 思考型模型（如 deepseek-flash）可能把整个输出预算都用在推理上，
+      // 正文一个字都写不出来。这时报「未返回合规」会让人以为是协议问题，
+      // 实际是预算不够 —— 明确点出来。
+      const replyText = String(reply || '').trim();
+      if (!replyText && replyCot.trim()) {
+        throw new Error('模型把输出预算全用在「思考」上了（正文为空、推理约 ' + replyCot.length + ' 字）。请到「设置 → 连接」把「回复 Token 上限」调大（建议 8000 以上）后重试。');
+      }
+      if (replyText) {
+        // 正文有了、尾部的 <tavern_state_update>（含 4 个选项）却没出来 ——
+        // 思考型模型很容易在写完长正文后被输出上限截断。指出真正的原因。
+        const missingBlock = !/<tavern_state_update>/.test(replyText);
+        throw new Error('开场正文已生成，但' + (missingBlock
+          ? '末尾的 <tavern_state_update> 与 4 个行动选项没有输出'
+          : '行动选项不是 4 个') + '（正文约 ' + replyText.length + ' 字）。多半是输出上限被「思考」占用后截断了：请到「设置 → 连接」把「回复 Token 上限」调大（建议 16000 以上），或换用思考更短的模型后重试。');
+      }
+      throw new Error('AI 未返回合规的开场正文与 4 个选项');
+    }
     const commandId = 'candidate-' + uid();
     setDebugTrace(save, { commandId, status: '开场候选已收到', output: String(reply || '') });
     const response = await fetch('/api/world-saves/' + encodeURIComponent(save.id) + '/opening-candidate', {
@@ -13222,6 +13247,13 @@ async function requestRpgAgentReply(payload, targetScope) {
       return { reply: combineRpgAgentReply({ previewNarrative: previousPreview }, response.content), cot: session.cot, nativeCalls: accepted, toolTrace, session };
     }
     if (!response.calls.length) {
+      // 思考型模型可能把输出预算全烧在推理上，正文一个字没有。
+      // 静默「完成」会让界面显示空回复（看起来像正文丢了），必须明确报错。
+      if (!String(response.content || '').trim() && String(response.cot || '').trim()) {
+        session.status = 'error';
+        appendRpgAgentEvent(session, 'turn.error', { reason: 'reasoning_budget_exhausted' });
+        throw new Error('模型把输出预算全用在「思考」上了（正文为空、推理约 ' + String(response.cot || '').length + ' 字）。请到「设置 → 连接」把「回复 Token 上限」调大（建议 8000 以上）后重试。');
+      }
       session.status = 'complete';
       appendRpgAgentEvent(session, 'turn.complete', { contentChars: String(response.content || '').length });
       syncRpgAgentDebug(session, targetScope, 'Agent 已完成');
@@ -13331,6 +13363,13 @@ async function requestRpgCompatReply(payload, targetScope, session = createRpgAg
       return { reply: combineRpgAgentReply({ previewNarrative: previousPreview }, response.content), cot: session.cot, nativeCalls: accepted, toolTrace, session };
     }
     if (!response.calls.length) {
+      // 思考型模型可能把输出预算全烧在推理上，正文一个字没有。
+      // 静默「完成」会让界面显示空回复（看起来像正文丢了），必须明确报错。
+      if (!String(response.content || '').trim() && String(response.cot || '').trim()) {
+        session.status = 'error';
+        appendRpgAgentEvent(session, 'turn.error', { reason: 'reasoning_budget_exhausted' });
+        throw new Error('模型把输出预算全用在「思考」上了（正文为空、推理约 ' + String(response.cot || '').length + ' 字）。请到「设置 → 连接」把「回复 Token 上限」调大（建议 8000 以上）后重试。');
+      }
       session.status = 'complete';
       appendRpgAgentEvent(session, 'turn.complete', { contentChars: String(response.content || '').length });
       syncRpgAgentDebug(session, targetScope, 'Agent 已完成');
