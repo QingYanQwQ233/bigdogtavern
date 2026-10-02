@@ -1830,9 +1830,15 @@ function initChatFollowTracking() {
   });
   chat.addEventListener('scroll', () => {
     if (Date.now() < chatScrollSuppressedUntil) return;
-    if (Date.now() > userInteractingUntil) return;
     const distance = chat.scrollHeight - chat.scrollTop - chat.clientHeight;
-    chatFollowLatest = distance <= 60;
+    // 到底了就恢复跟随：这一步不需要交互证明，否则用户「甩」到底部（惯性滚动
+    // 结束时早已超出交互窗口）之后就一直不跟了。
+    if (distance <= 60) {
+      chatFollowLatest = true;
+      return;
+    }
+    if (Date.now() > userInteractingUntil) return;
+    chatFollowLatest = false;
   }, { passive: true });
 }
 function scrollChatToLatest(chat, conversationKey = activeConversationKey()) {
@@ -2245,7 +2251,9 @@ function addTyping() {
   el.id = 'typing-msg';
   el.innerHTML = mode === 'rpg'
     // 占位单独包一层：正文一开始流式渲染就会被整块替换，呼吸效果随之停止。
-    ? '<div class="rpg-prose" data-tavern-rendered><span class="typing-hint">世界正在回应…</span></div>'
+    // RPG 正文由步骤链负责渲染，这里给空容器即可：
+    // 留提示文案会和「思维链 + 正文」并列出现，看着像多了一块。
+    ? '<div class="rpg-prose" data-tavern-rendered></div>'
     : '<div class="bubble" data-tavern-rendered>正在思索…</div>';
   chat.appendChild(el);
   chatStickToBottom(chat);

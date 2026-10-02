@@ -1298,7 +1298,12 @@ function typingStepBlock(label, cot, tools = [], current = false, body = '') {
 function typingPreviewBlocks() {
   const session = activeRpgStreamSession
     || (typeof rpgAgentSession === 'object' && rpgAgentSession ? rpgAgentSession : null);
-  const steps = Array.isArray(session?.steps) ? session.steps : [];
+  const allSteps = Array.isArray(session?.steps) ? session.steps : [];
+  // 最后一步可能还在生成中：它的正文是「累积到一半的文本」。
+  // 如果当成已完成来渲染，就会出现「正文A还在写，骰子结果已经钉在下面」——
+  // 卡片把还没写完的段落顶走。所以最后一步并入「进行中」，等它真正结束（下一步开始）再定稿。
+  const steps = allSteps.length > 1 ? allSteps.slice(0, -1) : [];
+  const pendingStep = allSteps.length > 1 ? allSteps[allSteps.length - 1] : null;
   const blocks = steps.map(step => typingStepBlock(step.label, step.cot, step.tools, false, step.narrative));
   const current = String(typingCot || '').trim();
   if (current || typingText) {
@@ -1314,6 +1319,9 @@ function typingPreviewBlocks() {
         body = trimmed.slice(trimmed.indexOf(shown) + shown.length).replace(/^\s+/, '');
       }
     }
+    // 挂起的那一步若已有正文片段，用它作为「已经写出来的部分」更准
+    const pendingText = pendingStep ? String(pendingStep.narrative || '').trim() : '';
+    if (pendingText && !body) body = pendingText;
     blocks.push(typingStepBlock(steps.length ? '进行中' : '步骤 1', current, [], true, body));
   }
   if (!blocks.length) {
