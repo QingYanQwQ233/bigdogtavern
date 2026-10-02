@@ -1550,7 +1550,7 @@ async function completeLastTurnOptions() {
     const payload = { baseUrl: settings.baseUrl, apiKey: settings.apiKey, body: { model: base.model } };
     const repaired = await repairRpgOutput(payload, String(turn.content || ''), { min: target, max: target }, activeConversationScope(), [], '本回合缺少行动选项，需要按契约补全');
     const repairedPayload = extractRpgRepairPayload(repaired);
-    const options = normalizeRpgOptions(repairedPayload?.options, rules);
+    const options = normalizeRpgOptions(repairedPayload, rules);
     if (!options.length) throw new Error('模型未返回可用的行动选项');
     const idx = (currentWorldSave.turns || []).indexOf(turn);
     if (idx < 0) throw new Error('回合已变化，请重试');
@@ -7044,9 +7044,16 @@ function worldOptionRules() {
 }
 
 function normalizeRpgOptions(value, rules = worldOptionRules()) {
-  const source = Array.isArray(value)
-    ? value
-    : (value && typeof value === 'object' && Array.isArray(value.options) ? value.options : []);
+  // 兼容模型常见的同义字段名：协议要求 options，但实测有模型输出 actions/choices。
+  // 语义一致，没必要因此让整个回合失败。
+  const pickList = obj => {
+    if (!obj || typeof obj !== 'object') return null;
+    for (const key of ['options', 'actions', 'actionOptions', 'choices', 'suggestions']) {
+      if (Array.isArray(obj[key])) return obj[key];
+    }
+    return null;
+  };
+  const source = Array.isArray(value) ? value : (pickList(value) || []);
   const max = Number.isInteger(rules?.max) ? Math.max(0, rules.max) : 4;
   const seen = new Set();
   return source.map(item => {
@@ -7528,7 +7535,7 @@ function processAIOutput(reply) {
     content: applyOutputRegex(rawContent),
     rawContent,
     options: (() => {
-      const options = normalizeRpgOptions(update?.options);
+      const options = normalizeRpgOptions(update);
       return options.length ? options : null;
     })(),
     createEntities: update?.createEntities || null,
@@ -7884,7 +7891,7 @@ function applyRpgUpdate(payload) {
   };
   upsertObjectives('goals', upd.goals);
   upsertObjectives('leads', upd.leads);
-  const normalizedOptions = normalizeRpgOptions(upd.options);
+  const normalizedOptions = normalizeRpgOptions(upd);
   const options = normalizedOptions.length ? normalizedOptions : null;
   const createEntities = Array.isArray(upd.createEntities) ? cloneValue(upd.createEntities) : null;
   const eventMemory = worldModeActive() && Array.isArray(upd.eventMemory) ? cloneValue(upd.eventMemory) : null;

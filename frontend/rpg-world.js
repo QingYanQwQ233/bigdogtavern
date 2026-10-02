@@ -519,7 +519,7 @@ async function completeLastTurnOptions() {
     const payload = { baseUrl: settings.baseUrl, apiKey: settings.apiKey, body: { model: base.model } };
     const repaired = await repairRpgOutput(payload, String(turn.content || ''), { min: target, max: target }, activeConversationScope(), [], '本回合缺少行动选项，需要按契约补全');
     const repairedPayload = extractRpgRepairPayload(repaired);
-    const options = normalizeRpgOptions(repairedPayload?.options, rules);
+    const options = normalizeRpgOptions(repairedPayload, rules);
     if (!options.length) throw new Error('模型未返回可用的行动选项');
     const idx = (currentWorldSave.turns || []).indexOf(turn);
     if (idx < 0) throw new Error('回合已变化，请重试');

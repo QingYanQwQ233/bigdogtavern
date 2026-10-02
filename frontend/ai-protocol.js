@@ -8,9 +8,16 @@ function worldOptionRules() {
 }
 
 function normalizeRpgOptions(value, rules = worldOptionRules()) {
-  const source = Array.isArray(value)
-    ? value
-    : (value && typeof value === 'object' && Array.isArray(value.options) ? value.options : []);
+  // 兼容模型常见的同义字段名：协议要求 options，但实测有模型输出 actions/choices。
+  // 语义一致，没必要因此让整个回合失败。
+  const pickList = obj => {
+    if (!obj || typeof obj !== 'object') return null;
+    for (const key of ['options', 'actions', 'actionOptions', 'choices', 'suggestions']) {
+      if (Array.isArray(obj[key])) return obj[key];
+    }
+    return null;
+  };
+  const source = Array.isArray(value) ? value : (pickList(value) || []);
   const max = Number.isInteger(rules?.max) ? Math.max(0, rules.max) : 4;
   const seen = new Set();
   return source.map(item => {
@@ -492,7 +499,7 @@ function processAIOutput(reply) {
     content: applyOutputRegex(rawContent),
     rawContent,
     options: (() => {
-      const options = normalizeRpgOptions(update?.options);
+      const options = normalizeRpgOptions(update);
       return options.length ? options : null;
     })(),
     createEntities: update?.createEntities || null,
@@ -848,7 +855,7 @@ function applyRpgUpdate(payload) {
   };
   upsertObjectives('goals', upd.goals);
   upsertObjectives('leads', upd.leads);
-  const normalizedOptions = normalizeRpgOptions(upd.options);
+  const normalizedOptions = normalizeRpgOptions(upd);
   const options = normalizedOptions.length ? normalizedOptions : null;
   const createEntities = Array.isArray(upd.createEntities) ? cloneValue(upd.createEntities) : null;
   const eventMemory = worldModeActive() && Array.isArray(upd.eventMemory) ? cloneValue(upd.eventMemory) : null;
