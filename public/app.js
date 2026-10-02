@@ -5854,7 +5854,7 @@ function renderWorldSidebarPanels() {
         }
         const actionAvailabilityError = rpgRuntimeActionAvailabilityError(runtimeAction, runtime, input);
         if (actionAvailabilityError) { status.textContent = rpgRuntimeActionUnavailableStatus(actionAvailabilityError); return; }
-        const text = `【世界卡动作:${runtimeAction.id}】${runtimeAction.label}${values.length ? `\n${values.join('；')}` : ''}`;
+        const text = `${runtimeAction.label}${values.length ? `\n${values.join('；')}` : ''}`;
         submit.disabled = true;
         status.textContent = '已提交，等待 AI…';
         try {
