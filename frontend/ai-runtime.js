@@ -1253,7 +1253,7 @@ function renderTypingContentFrame() {
       return;
     }
   }
-  renderTypingCot(typingPreviewCot());
+  renderTypingCot(typingPreviewBlocks());
   const preview = mode === 'rpg' ? parseRpgOutput(typingText).narrative : typingText;
   const target = t.querySelector(mode === 'rpg' ? '.rpg-prose' : '.bubble');
   if (!target) return;
@@ -1276,38 +1276,46 @@ function renderTypingContentFrame() {
 /* 流式期间的思维链：callAPIStream 里的 cot 是「当前这一步」的局部累积，
    只显示它就会出现「每次只看到一段、生成完才补齐」的现象。
    这里把已完成的步骤（session.cot）与正在生成的这段拼起来。 */
-/* 流式期间的思维链：按「已完成步骤 + 正在进行的这一步」渲染成块，
-   这样每段思维链都跟在它所属的步骤下面，而不是等回合结束才看到分段。 */
-function typingStepHtml(label, cot, tools = [], current = false) {
-  const head = label ? `<div class="cot-step-head">${esc(label)}</div>` : '';
-  const body = cot ? `<div class="cot-step-body">${esc(cot)}</div>` : '';
-  const lines = (Array.isArray(tools) ? tools : [])
-    .map(tool => `<div class="cot-tool">调用 ${esc(tool?.name || '工具')}</div>`)
-    .join('');
-  return `<div class="cot-step${current ? ' is-current' : ''}">${head}${body}${lines}</div>`;
+/* 思维链文本清理：去掉大段空行、砍掉过长尾巴。
+   工具阶段的原文里常有成片换行，直接渲染会撑出一整屏空白还把滚动条拉出来。 */
+function cotDisplayText(text) {
+  const raw = String(text || '');
+  if (!raw) return '';
+  const trimmed = raw.replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trimEnd();
+  return trimmed.length > 3000 ? '…' + trimmed.slice(-3000) : trimmed;
 }
-function typingPreviewCot() {
+/* 一个步骤块的结构（纯数据，渲染层据此增量更新 DOM） */
+function typingStepBlock(label, cot, tools = [], current = false) {
+  return {
+    label: String(label || ''),
+    cot: cotDisplayText(cot),
+    tools: (Array.isArray(tools) ? tools : []).map(tool => ({ name: String(tool?.name || '工具') })),
+    current,
+  };
+}
+/* 流式期间的思维链：按「已完成步骤 + 正在进行的这一步」给出块数组。
+   返回结构而不是 HTML —— 渲染层要能按索引复用 DOM，否则每帧重建会让入场动画反复重播（表现为疯狂闪烁）。 */
+function typingPreviewBlocks() {
   const session = activeRpgStreamSession
     || (typeof rpgAgentSession === 'object' && rpgAgentSession ? rpgAgentSession : null);
   const steps = Array.isArray(session?.steps) ? session.steps : [];
-  let html = steps.map(step => typingStepHtml(step.label, step.cot, step.tools)).join('');
+  const blocks = steps.map(step => typingStepBlock(step.label, step.cot, step.tools));
   const current = String(typingCot || '').trim();
   if (current) {
     // 正在生成的这一步：沿用「进行中」措辞，第一步则标「步骤 1」
-    html += typingStepHtml(steps.length ? '进行中' : '步骤 1', current, [], true);
-  } else if (!html) {
-    // 还没有任何可展示的内容时保留旧的整段投影，避免闪空
-    const done = String(session?.cot || '');
-    return done ? done : '';
+    blocks.push(typingStepBlock(steps.length ? '进行中' : '步骤 1', current, [], true));
   }
-  return html;
+  return blocks;
 }
 
-/* 实时思维链：生成中就存在，但默认折叠，只有用户点开才看到推理内容。 */
-function renderTypingCot(cot) {
+/* 实时思维链：生成中就存在，但默认折叠，只有用户点开才看到推理内容。
+   按索引复用已有步骤块，只在新步骤出现时追加 —— 这样入场动画只播一次，
+   内容更新也不会让整个区域重建（重建会闪）。 */
+function renderTypingCot(blocks) {
   const typing = $('typing-msg');
   let el = $('typing-cot');
-  if (!typing || !cot) { if (el) el.remove(); return; }
+  const list = Array.isArray(blocks) ? blocks.filter(Boolean) : [];
+  if (!typing || !list.length) { if (el) el.remove(); return; }
   if (!el) {
     const wrap = document.createElement('div');
     wrap.className = 'msg cot-msg typing-cot';
@@ -1318,10 +1326,28 @@ function renderTypingCot(cot) {
     // 之前这里既 return 了、el 又还是 null，结果这个块永远停在空状态还抛错。
     el = wrap;
   }
-  let body = el.querySelector('.cot-body');
-  if (!body) body = el.querySelector('.bubble');
-  // 内容由本文件的构造函数用 esc() 拼好，这里直接落 HTML（保留步骤分块结构）
-  if (body) body.innerHTML = cot;
+  const body = el.querySelector('.cot-body') || el.querySelector('.bubble');
+  if (!body) return;
+  const existing = Array.prototype.slice.call(body.children);
+  list.forEach((block, index) => {
+    let node = existing[index];
+    if (!node || !node.classList.contains('cot-step')) {
+      node = document.createElement('div');
+      node.className = 'cot-step';
+      body.appendChild(node);
+    }
+    const head = block.label ? `<div class="cot-step-head">${esc(block.label)}</div>` : '';
+    const text = block.cot ? `<div class="cot-step-body">${esc(block.cot)}</div>` : '';
+    const lines = block.tools.map(tool => `<div class="cot-tool">调用 ${esc(tool.name)}</div>`).join('');
+    const html = head + text + lines;
+    node.classList.toggle('is-current', !!block.current);
+    // 内容没变就不写 DOM：写入会重排，也会让动画从头播
+    if (node._html !== html) {
+      node.innerHTML = html;
+      node._html = html;
+    }
+  });
+  existing.slice(list.length).forEach(node => node.remove());
 }
 
 function updateTypingContent(text, cot) {
