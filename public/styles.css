@@ -3825,3 +3825,8 @@ body[data-mode="rpg"] .composer {
 .combo-toggle:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
 .combo-menu { top: calc(100% + 4px); }
 .combo-empty { color: var(--muted); cursor: default; }
+
+/* 思维链「按步骤」显示：每步一块，块间留一个刻度间距。 */
+.cot-body .cot-step + .cot-step { margin-top: 8px; }
+.cot-body .cot-step-head { color: var(--text); font-weight: 600; }
+.cot-body .cot-step-body { white-space: pre-wrap; }
