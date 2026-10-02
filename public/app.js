@@ -13592,7 +13592,10 @@ function typingPreviewBlocks() {
     const pendingCot = pendingStep ? String(pendingStep.cot || '').trim() : '';
     if (pendingText && !body) body = pendingText;
     const cotText = current || pendingCot;
-    blocks.push(typingStepBlock(steps.length ? '进行中' : '步骤 1', cotText, [], true, body));
+    const pendingLabel = pendingStep && pendingStep.label
+      ? `${pendingStep.label} · 进行中`
+      : (steps.length ? '进行中' : '步骤 1');
+    blocks.push(typingStepBlock(pendingLabel, cotText, [], true, body));
   }
   if (!blocks.length) {
     const done = String(session?.cot || '');
@@ -15731,11 +15734,20 @@ function rpgStepSegments(content, steps, checkpoints) {
     const before = text;
     if (piece) text = merge(text, piece);
     // 只有真的续写了正文才产生一个可见段落；否则这一步只是「调了工具」
+    const stepCot = String(step.cot || '');
+    const stepTools = Array.isArray(step.tools) ? step.tools : [];
     if (text !== before) {
-      segments.push({ start: before.length, end: text.length, label: String(step.label || ''), cot: String(step.cot || ''), tools: Array.isArray(step.tools) ? step.tools : [] });
-    } else if (segments.length && Array.isArray(step.tools) && step.tools.length) {
-      // 没有新正文的步骤：工具结果挂在上一段的末尾
-      segments[segments.length - 1].tools = segments[segments.length - 1].tools.concat(step.tools);
+      segments.push({ start: before.length, end: text.length, label: String(step.label || ''), cot: stepCot, tools: stepTools });
+    } else if (stepCot.trim() || stepTools.length) {
+      // 没有新正文的步骤也要留一个段：否则「步骤 2（dice.roll）」这类
+      // 纯工具步会被整段丢掉（表现为「步骤直接丢失」）。
+      // 若它前面有段，工具仍挂在上一段末尾，保持「叙事 → 工具 → 叙事」的视觉顺序。
+      const prev = segments[segments.length - 1];
+      if (prev && prev.end === text.length && !stepCot.trim()) {
+        prev.tools = prev.tools.concat(stepTools);
+      } else {
+        segments.push({ start: before.length, end: text.length, label: String(step.label || ''), cot: stepCot, tools: stepTools });
+      }
     }
   }
   if (!segments.length) return null;

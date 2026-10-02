@@ -3962,7 +3962,7 @@ body[data-mode="rpg"] .composer {
 
 /* 思维链「按步骤」内联：每步一块，工具调用跟在所属步骤下面。
    字号/间距取设计刻度，颜色只用 muted，旁注不抢正文。 */
-.cot-step + .cot-step { margin-top: 8px; }
+.cot-step + .cot-step { margin-top: 4px; }
 .cot-step-head {
   color: var(--text);
   font-weight: 600;
@@ -3974,13 +3974,13 @@ body[data-mode="rpg"] .composer {
 .cot-step-head::-webkit-details-marker { display: none; }
 .cot-step-head::before { content: '▸'; margin-right: 4px; color: var(--muted); }
 .cot-step[open] > .cot-step-head::before { content: '▾'; }
-.cot-step-main { padding: 2px 0 0 12px; }
+.cot-step-main { padding: 1px 0 0 6px; }
 /* 步骤链（流式与正式消息同构）：每段 = 思维链 + 正文 + 工具行。
    外观沿用原版思维链（左竖线 + 弱色小字），不要卡片化。 */
 .typing-chain { display: flex; flex-direction: column; }
 .rpg-step-chain { display: flex; flex-direction: column; }
-.rpg-step-chain + .rpg-step-chain { margin-top: 10px; }
-.rpg-step-chain .step-body { margin-top: 2px; }
+.rpg-step-chain + .rpg-step-chain { margin-top: 4px; }
+.rpg-step-chain .step-body { margin-top: 0; }
 .rpg-step-chain .cot-step { display: block; }
 /* 只调了工具、没有正文的步骤：思维链给个更弱的观感，别和有正文的步骤抢注意力 */
 .rpg-step-chain.is-tool-only > .cot-step > .cot-step-head { color: var(--muted); font-weight: 500; }
@@ -4000,15 +4000,19 @@ body[data-mode="rpg"] .composer {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.45;
   color: var(--muted);
+  /* 原版的左竖线：思维链正文贴着一条细线，和叙事正文一眼可分 */
+  border-left: 2px solid var(--line);
+  padding-left: 8px;
+  margin: 1px 0 2px;
 }
 /* 当前步：只做一个很轻的标识，别用重背景抢正文 */
 .cot-step.is-current > .cot-step-head { color: var(--accent); }
 /* 正文里内联的工具卡：和叙事段落区分开，但不打断阅读 */
 .rpg-prose .cot-inline-tools { margin: 8px 0; display: flex; flex-direction: column; gap: 4px; }
 .cot-tool {
-  margin-top: 4px;
+  margin-top: 2px;
   padding-left: 8px;
   border-left: 2px solid var(--line);
   color: var(--muted);

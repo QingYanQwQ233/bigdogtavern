@@ -1325,7 +1325,10 @@ function typingPreviewBlocks() {
     const pendingCot = pendingStep ? String(pendingStep.cot || '').trim() : '';
     if (pendingText && !body) body = pendingText;
     const cotText = current || pendingCot;
-    blocks.push(typingStepBlock(steps.length ? '进行中' : '步骤 1', cotText, [], true, body));
+    const pendingLabel = pendingStep && pendingStep.label
+      ? `${pendingStep.label} · 进行中`
+      : (steps.length ? '进行中' : '步骤 1');
+    blocks.push(typingStepBlock(pendingLabel, cotText, [], true, body));
   }
   if (!blocks.length) {
     const done = String(session?.cot || '');
