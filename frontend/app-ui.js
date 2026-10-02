@@ -675,7 +675,6 @@ function fillSettingsForm() {
   fillUiThemeForm();
   fillChatBackgroundForm();
   fillUiTransparencyForm();
-  fillCotDisplayForm();
   fillPromptCacheForm();
   renderEffectiveParameters();
 }
@@ -1544,59 +1543,6 @@ function scrollChatToLatest(chat, conversationKey = activeConversationKey()) {
   });
 }
 
-/* 把思维链按「── 标签 ──」切成步骤块；没有分隔符时返回单步。 */
-function parseCotSteps(cot) {
-  const text = String(cot || '');
-  const lines = text.split('\n');
-  const steps = [];
-  let current = null;
-  for (const line of lines) {
-    const head = line.match(/^\s*──\s*(.+?)\s*──\s*$/);
-    if (head) {
-      current = { label: head[1], body: [] };
-      steps.push(current);
-      continue;
-    }
-    if (current) current.body.push(line);
-    else if (line.trim()) {
-      current = { label: '', body: [line] };
-      steps.push(current);
-    }
-  }
-  return steps
-    .map(step => ({ label: step.label, body: step.body.join('\n').trim() }))
-    .filter(step => step.label || step.body);
-}
-function cotBodyHtml(cot) {
-  if (settings.cotDisplayMode !== 'inline') return esc(cot);
-  const steps = parseCotSteps(cot);
-  if (steps.length < 2) return esc(cot);
-  return steps.map(step => `<div class="cot-step">${step.label ? `<div class="cot-step-head">${esc(step.label)}</div>` : ''}${step.body ? `<div class="cot-step-body">${esc(step.body)}</div>` : ''}</div>`).join('');
-}
-function fillCotDisplayForm() {
-  const el = $('cot-display-mode');
-  if (!el) return;
-  el.value = settings.cotDisplayMode === 'inline' ? 'inline' : 'grouped';
-}
-function readCotDisplayForm() {
-  const el = $('cot-display-mode');
-  if (!el) return;
-  settings.cotDisplayMode = el.value === 'inline' ? 'inline' : 'grouped';
-  renderMessages();
-  saveSettings().then(saved => {
-    const retry = $('btn-cot-display-retry');
-    if (retry) retry.hidden = !!saved;
-    notify(saved ? '思维链显示方式已保存。' : '已应用，但设置保存失败。', {
-      slot: 'cot-display-status',
-      slotClass: saved ? 'hint' : 'hint err',
-      level: saved ? 'success' : 'error',
-      silent: saved,
-    });
-  }).catch(() => {
-    const retry = $('btn-cot-display-retry');
-    if (retry) retry.hidden = false;
-  });
-}
 function renderMessages() {
   const chat = $('chat');
   const previousScrollHeight = chat.scrollHeight;
@@ -1672,7 +1618,7 @@ function renderMessages() {
       if (m.cot) {
         const cotEl = document.createElement('div');
         cotEl.className = 'msg cot-msg';
-        cotEl.innerHTML = `<div class="bubble"><details class="cot rpg-prose"><summary>思维链</summary><div class="cot-body">${cotBodyHtml(m.cot)}</div></details></div>`;
+        cotEl.innerHTML = `<div class="bubble"><details class="cot rpg-prose"><summary>思维链</summary><div class="cot-body">${esc(m.cot)}</div></details></div>`;
         chat.appendChild(cotEl);
       }
       if (mode === 'rpg') {
@@ -4162,10 +4108,6 @@ function bindEvents() {
     }
   });
   $('settings-modal').addEventListener('change', e => {
-    if (e.target.closest && e.target.closest('#cot-display-settings')) {
-      readCotDisplayForm();
-      return;
-    }
     if (e.target.closest && e.target.closest('#ui-transparency-settings')) {
       readUiTransparencyForm(true);
       return;
