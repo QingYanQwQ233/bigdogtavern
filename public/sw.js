@@ -3,9 +3,9 @@
  */
 // Bump this when the shell changes so an old broken cache is retired on the
 // next load. API/data requests are never handled by this worker.
-const ASSET_VERSION = '97a250b3';
+const ASSET_VERSION = 'd0dfa6fa';
 const CACHE = 'tavern-' + ASSET_VERSION;
-const SHELL = ['/', '/index.html', '/styles.css', '/mapgen.js?v=' + ASSET_VERSION, '/app.js?v=' + ASSET_VERSION, '/vendor/marked.min.js', '/vendor/purify.min.js', '/vendor/mapgen2.bundle.js', '/vendor/coloris/coloris.min.js', '/vendor/coloris/coloris.min.css', '/manifest.json'];
+const SHELL = ['/', '/index.html', '/styles.css', '/mapgen.js?v=' + ASSET_VERSION, '/app.js?v=' + ASSET_VERSION, '/vendor/marked.min.js', '/vendor/purify.min.js', '/vendor/mapgen2.bundle.js', '/manifest.json'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

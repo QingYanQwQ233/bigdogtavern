@@ -3838,12 +3838,13 @@ body[data-mode="rpg"] .composer {
 /* Coloris（第三方，public/vendor/coloris，MIT）：默认 z-index 只有 1000，
    会被设置面板与灵动岛盖住，这里抬到最上层。
    必须 !important：vendor 的 CSS 在 styles.css 之后加载，同权重时它的 1000 会赢。 */
-.clr-picker { z-index: 16500 !important; }
-/* 颜色字段沿用项目输入外观，与其它设置项一致 */
+/* ─── 颜色字段 + 自绘取色面板 ───
+   不用原生 input[type=color]，也不引第三方库：自绘面板无外部依赖，
+   不会被 service worker 的离线兜底或加载时序影响。 */
 .tavern-color-field {
   width: 100%;
   min-height: 36px;
-  padding: 8px 12px;
+  padding: 8px 40px 8px 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.06);
@@ -3853,40 +3854,108 @@ body[data-mode="rpg"] .composer {
   box-sizing: border-box;
 }
 .tavern-color-field:focus { outline: 1px solid var(--accent); outline-offset: 1px; }
+.color-field-wrap { position: relative; }
+.color-field-swatch {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  transform: translateY(-50%);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #000;
+  cursor: pointer;
+}
+.color-field-swatch:focus { outline: 1px solid var(--accent); outline-offset: 1px; }
 
-/* ─── 取色器（Coloris）外观对齐项目风格 ───
-   Coloris 自带的是浅色 shadcn 风格面板 + 方形预览块，与项目的深色圆角体系不一致，
-   这里统一成：面板用项目面板色/边框/圆角，预览块做成圆角小方块。 */
-.clr-picker {
-  background: var(--panel, #1c1c1e) !important;
-  border: 1px solid var(--line, rgba(255, 255, 255, 0.12)) !important;
-  border-radius: var(--radius, 10px) !important;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45) !important;
+.tcp { position: fixed; inset: 0; z-index: 17000; }
+.tcp[hidden] { display: none; }
+.tcp-veil { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.45); }
+.tcp-panel {
+  position: absolute;
+  left: 50%;
+  bottom: calc(16px + var(--safe-bottom, 0px));
+  width: min(320px, calc(100vw - 32px));
+  padding: 12px;
+  transform: translateX(-50%);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  box-sizing: border-box;
+  font-family: var(--font-body);
 }
-.clr-picker,
-.clr-picker input,
-.clr-picker button { font-family: var(--font-body) !important; }
-.clr-picker .clr-color,
-.clr-picker .clr-hue,
-.clr-picker .clr-alpha { border-radius: 8px !important; }
-.clr-picker .clr-swatches button { border-radius: 8px !important; border: 1px solid var(--line, rgba(255, 255, 255, 0.16)) !important; }
-.clr-picker .clr-swatches { border-top-color: var(--line, rgba(255, 255, 255, 0.12)) !important; }
-.clr-picker input {
-  border-radius: 8px !important;
-  border-color: var(--line, rgba(255, 255, 255, 0.12)) !important;
-  background: rgba(255, 255, 255, 0.06) !important;
-  color: var(--text, #f2f2f7) !important;
+.tcp-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.tcp-preview {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
 }
-/* 字段旁的预览块：从“贴边方形”改成带描边的圆角方块，跟输入框同一套语言 */
-.clr-field button {
-  width: 28px !important;
-  height: 28px !important;
-  right: 8px !important;
-  margin: 0 !important;
-  border-radius: 8px !important;
-  border: 1px solid var(--line, rgba(255, 255, 255, 0.16)) !important;
-  box-shadow: none !important;
+.tcp-hex {
+  flex: 1;
+  min-width: 0;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-size: 13px;
+  box-sizing: border-box;
 }
-.clr-field button::after { display: none !important; }
-.clr-field input { padding-right: 40px !important; }
-.clr-field { width: 100%; }
+.tcp-done {
+  flex: none;
+  min-height: 36px;
+  padding: 8px 16px;
+  border: 1px solid rgba(var(--accent-rgb), 0.5);
+  border-radius: 8px;
+  background: rgba(var(--accent-rgb), 0.16);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.tcp-sv {
+  position: relative;
+  height: 140px;
+  border-radius: 8px;
+  background:
+    linear-gradient(to top, #000, rgba(0, 0, 0, 0)),
+    linear-gradient(to right, #fff, rgba(255, 255, 255, 0));
+  overflow: hidden;
+  touch-action: none;
+}
+.tcp-hue {
+  position: relative;
+  height: 12px;
+  margin-top: 10px;
+  border-radius: 6px;
+  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+  touch-action: none;
+}
+.tcp-dot,
+.tcp-hue-dot {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  transform: translate(-50%, -50%);
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+.tcp-swatches { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.tcp-swatches button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.tcp-hint { margin: 10px 0 0; color: var(--muted); font-size: 12px; }

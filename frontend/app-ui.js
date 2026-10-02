@@ -427,18 +427,187 @@ const TOAST_COLOR_FIELDS = [
 ];
 /* 写值时必须派发 input：Coloris 靠这个事件刷新旁边的预览块，
    只改 input.value 的话，设置页看起来“没恢复”。 */
-/* Coloris 只在自身交互时刷新旁边的预览块；程序化写值它不会跟着变，
-   于是会出现“输入框变了、色块没变”的假同步（恢复默认时最明显）。 */
+/* ─────────── 自绘取色面板 ───────────
+   拖动过程只改内存中的设置并即时预览，不写盘、不弹提示；
+   点「完成」或点面板外才落盘并弹一次结果 —— 否则连续拖动会一直刷屏。 */
+const COLOR_SWATCHES = ['#1c1c1e', '#f2f2f7', '#77e6d5', '#5d8bca', '#ff6b6b', '#ffd166', '#06d6a0', '#ef476f'];
+let colorPickerState = { open: false, fieldId: null, h: 0, s: 1, v: 1 };
+
+function hsvToHex(h, s, v) {
+  const f = n => {
+    const k = (n + h / 60) % 6;
+    const value = v - v * s * Math.max(0, Math.min(k, 4 - k, 1));
+    return Math.round(value * 255).toString(16).padStart(2, '0');
+  };
+  return '#' + f(5) + f(3) + f(1);
+}
+function hexToHsv(hex) {
+  const m = String(hex || '').match(/^#([0-9a-f]{6})$/i);
+  if (!m) return { h: 0, s: 0, v: 1 };
+  const n = parseInt(m[1], 16);
+  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  let h = 0;
+  if (d) {
+    if (max === r) h = 60 * (((g - b) / d) % 6);
+    else if (max === g) h = 60 * ((b - r) / d + 2);
+    else h = 60 * ((r - g) / d + 4);
+  }
+  if (h < 0) h += 360;
+  return { h, s: max ? d / max : 0, v: max };
+}
+/* 给字段套一层容器 + 右侧色块按钮（点击打开面板） */
+function wrapColorField(id) {
+  const el = $(id);
+  if (!el || el.closest('.color-field-wrap')) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'color-field-wrap';
+  el.parentNode.insertBefore(wrap, el);
+  wrap.appendChild(el);
+  const swatch = document.createElement('button');
+  swatch.type = 'button';
+  swatch.className = 'color-field-swatch';
+  swatch.setAttribute('aria-label', '选择颜色');
+  swatch.addEventListener('click', () => openColorPicker(id));
+  wrap.appendChild(swatch);
+  syncColorPreview(id, normalizeHexColor(el.value));
+}
+function initColorPicker() {
+  if ($('tcp')) return;
+  const host = document.createElement('div');
+  host.id = 'tcp';
+  host.className = 'tcp';
+  host.hidden = true;
+  host.innerHTML = `
+    <div class="tcp-veil" data-tcp="close"></div>
+    <div class="tcp-panel" role="dialog" aria-label="选择颜色" aria-modal="true">
+      <div class="tcp-head">
+        <span class="tcp-preview" aria-hidden="true"></span>
+        <input id="tcp-hex" class="tcp-hex" type="text" autocomplete="off" spellcheck="false" aria-label="颜色值（十六进制）" />
+        <button id="tcp-done" class="tcp-done" type="button">完成</button>
+      </div>
+      <div class="tcp-sv" id="tcp-sv"><div class="tcp-dot" id="tcp-dot"></div></div>
+      <div class="tcp-hue" id="tcp-hue"><div class="tcp-hue-dot" id="tcp-hue-dot"></div></div>
+      <div class="tcp-swatches" id="tcp-swatches"></div>
+      <p class="tcp-hint">拖动选择颜色，完成后保存。也可直接输入十六进制值。</p>
+    </div>`;
+  document.body.appendChild(host);
+  const swatches = host.querySelector('#tcp-swatches');
+  COLOR_SWATCHES.forEach(color => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.style.backgroundColor = color;
+    b.setAttribute('aria-label', '色板 ' + color);
+    b.addEventListener('click', () => {
+      const hsv = hexToHsv(color);
+      colorPickerState.h = hsv.h;
+      colorPickerState.s = hsv.s;
+      colorPickerState.v = hsv.v;
+      paintColorPicker();
+    });
+    swatches.appendChild(b);
+  });
+  host.addEventListener('click', e => {
+    if (e.target.dataset && e.target.dataset.tcp === 'close') closeColorPicker(true);
+  });
+  host.querySelector('#tcp-done').addEventListener('click', () => closeColorPicker(true));
+  host.querySelector('#tcp-hex').addEventListener('change', () => {
+    const hex = normalizeHexColor($('tcp-hex').value);
+    if (!hex) { paintColorPicker(); return; }
+    const hsv = hexToHsv(hex);
+    colorPickerState.h = hsv.h;
+    colorPickerState.s = hsv.s;
+    colorPickerState.v = hsv.v;
+    paintColorPicker();
+  });
+  bindColorPickerDrag(host.querySelector('#tcp-sv'), (x, y, rect) => {
+    colorPickerState.s = rect.width ? Math.min(1, Math.max(0, x / rect.width)) : 0;
+    colorPickerState.v = rect.height ? 1 - Math.min(1, Math.max(0, y / rect.height)) : 1;
+  });
+  bindColorPickerDrag(host.querySelector('#tcp-hue'), (x, y, rect) => {
+    colorPickerState.h = rect.width ? Math.min(359.9, Math.max(0, (x / rect.width) * 360)) : 0;
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && colorPickerState.open) closeColorPicker(false);
+  });
+}
+function bindColorPickerDrag(surface, apply) {
+  if (!surface) return;
+  const onMove = e => {
+    const rect = surface.getBoundingClientRect();
+    apply(e.clientX - rect.left, e.clientY - rect.top, rect);
+    paintColorPicker();
+  };
+  surface.addEventListener('pointerdown', e => {
+    surface.setPointerCapture?.(e.pointerId);
+    onMove(e);
+    e.preventDefault();
+  });
+  surface.addEventListener('pointermove', e => {
+    if (e.buttons === 0 && e.pointerType === 'mouse') return;
+    if (!surface.hasPointerCapture?.(e.pointerId) && e.pointerType === 'mouse' && e.buttons !== 1) return;
+    onMove(e);
+  });
+  surface.addEventListener('pointerup', e => surface.releasePointerCapture?.(e.pointerId));
+}
+function paintColorPicker() {
+  const host = $('tcp');
+  if (!host) return;
+  const hex = hsvToHex(colorPickerState.h, colorPickerState.s, colorPickerState.v);
+  const sv = $('tcp-sv');
+  if (sv) sv.style.background = `linear-gradient(to top, #000, rgba(0,0,0,0)), linear-gradient(to right, #fff, rgba(255,255,255,0)), hsl(${colorPickerState.h}, 100%, 50%)`;
+  const dot = $('tcp-dot');
+  if (dot) { dot.style.left = (colorPickerState.s * 100) + '%'; dot.style.top = ((1 - colorPickerState.v) * 100) + '%'; }
+  const hueDot = $('tcp-hue-dot');
+  if (hueDot) hueDot.style.left = ((colorPickerState.h / 360) * 100) + '%';
+  if ($('tcp-hex')) $('tcp-hex').value = hex;
+  const preview = host.querySelector('.tcp-preview');
+  if (preview) preview.style.backgroundColor = hex;
+  // 实时预览（只改内存 + CSS 变量）：不写盘、不弹提示
+  if (colorPickerState.fieldId) {
+    const key = (TOAST_COLOR_FIELDS.find(([id]) => id === colorPickerState.fieldId) || [])[1];
+    if (key) {
+      settings.toast = Object.assign({}, settings.toast, { [key]: hex });
+      setColorField(colorPickerState.fieldId, hex);
+      applyToastTheme();
+    }
+  }
+}
+function openColorPicker(fieldId) {
+  initColorPicker();
+  const host = $('tcp');
+  if (!host) return;
+  colorPickerState.open = true;
+  colorPickerState.fieldId = fieldId;
+  const hsv = hexToHsv(normalizeHexColor($(fieldId)?.value) || '#000000');
+  colorPickerState.h = hsv.h;
+  colorPickerState.s = hsv.s;
+  colorPickerState.v = hsv.v;
+  host.hidden = false;
+  paintColorPicker();
+}
+/* commit=true 才落盘并弹提示（拖动过程不弹，避免刷屏） */
+function closeColorPicker(commit) {
+  const host = $('tcp');
+  colorPickerState.open = false;
+  if (host) host.hidden = true;
+  const fieldId = colorPickerState.fieldId;
+  colorPickerState.fieldId = null;
+  if (commit && fieldId) readToastForm(true);
+}
+/* 字段旁的色块要跟输入框保持一致；程序化写值不会自动刷新它，
+   否则会出现“输入框变了、色块没变”的假同步（恢复默认、取色完时最明显）。 */
 function syncColorPreview(id, value) {
   if (!value) return;
-  const btn = $(id)?.closest('.clr-field')?.querySelector('button');
+  const btn = $(id)?.closest('.color-field-wrap')?.querySelector('.color-field-swatch');
   if (btn) btn.style.backgroundColor = value;
 }
 function setColorField(id, value) {
   const el = $(id);
   if (!el) return;
   el.value = value;
-  el.dispatchEvent(new Event('input', { bubbles: true }));
+  // 注意：这里不派发 input/change —— 面板的 input 监听会因此触发“防抖保存 + 提示”，
+  // 拖动取色时就会一直刷屏。程序化同步只改值 + 色块。
   syncColorPreview(id, value);
 }
 function fillToastForm() {
@@ -4237,28 +4406,11 @@ function bindEvents() {
     readSettingsForm();
     renderMessages();
   });
-  /* 颜色字段用 Coloris（内联在 public/vendor/coloris，MIT），不用原生取色器：
-     Android WebView 的原生取色器样式不可控、弹出位置也奇怪。 */
-  if (typeof Coloris === 'function') {
-    Coloris({
-      el: '.tavern-color-field',
-      themeMode: 'dark',
-      format: 'hex',
-      alpha: false,
-      swatches: ['#1c1c1e', '#f2f2f7', '#77e6d5', '#5d8bca', '#ff6b6b', '#ffd166', '#06d6a0', '#ef476f'],
-      onChange: () => readToastForm(true),
-      a11y: {
-        open: '打开取色器',
-        close: '关闭取色器',
-        clear: '清除颜色',
-        hueSlider: '色相',
-        alphaSlider: '透明度',
-        input: '颜色值',
-        format: '颜色格式',
-        swatch: '色板',
-      },
-    });
-  }
+  /* 颜色字段：自绘取色面板（不用原生 input[type=color]，也不引第三方库）。
+     之前用第三方库时，真机上遇到过“库没加载出来 → 字段看起来是空的”，
+     自绘版本没有外部文件依赖，也就不存在加载时序问题。 */
+  TOAST_COLOR_FIELDS.forEach(([id]) => wrapColorField(id));
+  initColorPicker();
   $('btn-toast-test').addEventListener('click', testToastAppearance);
   $('btn-toast-reset').addEventListener('click', resetToastForm);
   $('btn-chat-background-upload').addEventListener('click', () => $('chat-background-file').click());

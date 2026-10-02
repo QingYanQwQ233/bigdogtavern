@@ -19,6 +19,9 @@ const ALLOW = new Set([
   'rpg-factions', // 由 renderRPG 按需动态创建
   'cm-preset', 'cm-lore', // 角色卡绑定下拉：父面板已移除，引用点自带 null 守护（待清理）
   'api-status', // 顶部状态条：引用点自带 null 守护
+  'tcp', 'tcp-hex', 'tcp-sv', 'tcp-dot', 'tcp-hue', 'tcp-hue-dot', 'tcp-swatches', 'tcp-done',
+  // 自绘取色面板：整个面板按需动态创建（首次打开时插入 body），
+  // 所有引用点都在 initColorPicker 之后，或自带存在性判断。
 ]);
 
 const files = fs.readdirSync(path.join(root, 'frontend')).filter(f => f.endsWith('.js'));
