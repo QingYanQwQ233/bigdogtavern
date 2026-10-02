@@ -3973,6 +3973,9 @@ body[data-mode="rpg"] .composer {
 .cot-body .cot-step-head::before { content: '▸'; margin-right: 4px; color: var(--muted); }
 .cot-body .cot-step[open] > .cot-step-head::before { content: '▾'; }
 .cot-body .cot-step-main { padding: 2px 0 0 12px; }
+/* 流式更新时不要让浏览器自动调整滚动位置（会导致展开的思维链看起来在跳） */
+.cot-body, .cot-body .cot-step-main { overflow-anchor: none; }
+.cot-body .cot-tools { display: flex; flex-direction: column; }
 .cot-body .cot-step-body { white-space: pre-wrap; overflow-wrap: anywhere; }
 /* 当前步：只做一个很轻的标识，别用重背景抢正文 */
 .cot-body .cot-step.is-current > .cot-step-head { color: var(--accent); }

@@ -1284,7 +1284,12 @@ function cotDisplayText(text) {
   const raw = String(text || '');
   if (!raw) return '';
   const trimmed = raw.replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trimEnd();
-  return trimmed.length > 3000 ? '…' + trimmed.slice(-3000) : trimmed;
+  const limit = 6000;
+  if (trimmed.length <= limit) return trimmed;
+  // 保留首尾、裁中间：只留尾部会让前面的思考内容「凭空消失」（看着像坍缩）
+  const head = Math.floor(limit * 0.55);
+  const tail = limit - head;
+  return `${trimmed.slice(0, head)}\n\n…（略）…\n\n${trimmed.slice(-tail)}`;
 }
 /* 一个步骤块的结构（纯数据，渲染层据此增量更新 DOM） */
 function typingStepBlock(label, cot, tools = [], current = false) {
@@ -1351,14 +1356,30 @@ function renderTypingCot(blocks) {
     const label = block.label || '思维链步骤';
     // 只更新内容，不碰 summary 节点：details 的展开状态是 DOM 属性，重建就丢了
     if (summary.textContent !== label) summary.textContent = label;
-    const text = block.cot ? `<div class="cot-step-body">${esc(block.cot)}</div>` : '';
-    const lines = block.tools.map(tool => `<div class="cot-tool">调用 ${esc(tool.name)}</div>`).join('');
-    const html = text + lines;
     node.classList.toggle('is-current', !!block.current);
-    // 内容没变就不写 DOM：写入会重排，也会让动画从头播
-    if (main._html !== html) {
-      main.innerHTML = html;
-      main._html = html;
+    // 正文用 textContent 更新：重建整块会让浏览器重算滚动锚点，长展开区看着就是文字在跳
+    // 注意变量名不能叫 body：本函数外层已有同名 const，会撞 TDZ
+    let textEl = main.querySelector(':scope > .cot-step-body');
+    if (block.cot) {
+      if (!textEl) { textEl = document.createElement('div'); textEl.className = 'cot-step-body'; main.appendChild(textEl); }
+      if (textEl.textContent !== block.cot) textEl.textContent = block.cot;
+    } else if (textEl) {
+      textEl.remove();
+    }
+    // 工具行数量少、内容短，按行复用即可
+    const tools = main.querySelector(':scope > .cot-tools');
+    const wanted = block.tools.map(tool => `调用 ${tool.name}`);
+    if (!wanted.length) {
+      if (tools) tools.remove();
+    } else {
+      const box = tools || (() => { const d = document.createElement('div'); d.className = 'cot-tools'; main.appendChild(d); return d; })();
+      const lines = Array.prototype.slice.call(box.children);
+      wanted.forEach((text, i) => {
+        let line = lines[i];
+        if (!line) { line = document.createElement('div'); line.className = 'cot-tool'; box.appendChild(line); }
+        if (line.textContent !== text) line.textContent = text;
+      });
+      lines.slice(wanted.length).forEach(line => line.remove());
     }
   });
   existing.slice(list.length).forEach(node => node.remove());
