@@ -153,7 +153,7 @@ function publishRpgAgentStep(session, response, targetScope, status = 'Agent 步
     calls: (response?.calls || []).map(call => call.name),
   });
   if (session.previewNarrative && session.targetKey === activeConversationKey()) {
-    setResponsePreview(session.previewNarrative, null, session.targetKey, session.checkpoints);
+    setResponsePreview(session.previewNarrative, null, session.targetKey, session.checkpoints, session.cot);
   }
   setDebugTrace(targetScope, {
     status,

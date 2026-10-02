@@ -1112,7 +1112,7 @@ function publishRpgAgentStep(session, response, targetScope, status = 'Agent 步
     calls: (response?.calls || []).map(call => call.name),
   });
   if (session.previewNarrative && session.targetKey === activeConversationKey()) {
-    setResponsePreview(session.previewNarrative, null, session.targetKey, session.checkpoints);
+    setResponsePreview(session.previewNarrative, null, session.targetKey, session.checkpoints, session.cot);
   }
   setDebugTrace(targetScope, {
     status,
@@ -15900,7 +15900,7 @@ async function requestReply() {
     console.debug('[Tavern] ← 响应', reply);
     if (cot) console.debug('[Tavern] 🧠 思维链', cot);
     // 正文先从临时节点升级为可见预览；后续选项/协议/状态提交继续等待。
-    setResponsePreview(mode === 'rpg' && rpgAgentSession?.previewNarrative ? rpgAgentSession.previewNarrative : reply, rpgResolvedCheck, targetKey, rpgAgentSession?.checkpoints);
+    setResponsePreview(mode === 'rpg' && rpgAgentSession?.previewNarrative ? rpgAgentSession.previewNarrative : reply, rpgResolvedCheck, targetKey, rpgAgentSession?.checkpoints, rpgAgentSession?.cot);
     // RPG 模式：统一正则处理（```rpg``` 状态/掷骰），剔除 rpg 块
     let processed = processAIOutput(reply);
     // 已通过执行器校验的原生工具候选先转换为内部协议；模型正文里的重复 patch 不能覆盖它。
@@ -15942,7 +15942,7 @@ async function requestReply() {
             reply = mergeRepairedReply(originalNarrativeReply, repairedReply, 'rpg');
             processed = preserveValidRpgRepairFields(originalProcessed, processAIOutput(reply), optionRules);
             if (processed.patch) processed.patch = normalizeRpgPatch(processed.patch);
-            setResponsePreview(rpgAgentSession?.previewNarrative || reply, rpgResolvedCheck, targetKey, rpgAgentSession?.checkpoints);
+            setResponsePreview(rpgAgentSession?.previewNarrative || reply, rpgResolvedCheck, targetKey, rpgAgentSession?.checkpoints, rpgAgentSession?.cot);
           } catch (error) {
             console.warn('[Tavern] RPG 协议修复失败:', error.message);
             setDebugTrace(targetScope, { status: `RPG 协议修复失败（第${attempt}次）`, error: String(error.message || '协议修复失败') });
