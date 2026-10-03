@@ -133,7 +133,9 @@ WorldSave(saveId, worldId, worldVersion, revision)
 
 移动端不改变这五级归属，但把同级管理器收敛为“父级列表 → 子级详情”的钻取流程；列表和详情顶部都固定显示返回条，详情返回只回到上一级，嵌套的预设条目与世界书条目继续使用各自的二级返回；玩家设定页先显示设定列表，再从顶部按钮进入记忆条目。
 
-`ui.layout:"custom"` 仍是完整扩展的兼容模式：它接管 RPG 的三级工作区；默认保留一级应用导航，但可由 `ui.shell.navigation:"hide"` / `ui.shell.topbar:"hide"` 在当前世界工作区隐藏。浏览器全屏后会连应用级导航一起隐藏；Esc 按 `ui.shell.escape` 统一退出沉浸、返回世界库或保持不变（`none`）。需要局部接管时使用 `ui.regions`；旧卡的 `ui.slots` 继续有效，并会映射为同名区域的 `decorate` / `hide` 策略。
+`ui.layout:"custom"` 仍是完整扩展的兼容模式：它接管 RPG 的三级工作区；默认保留一级应用导航，但可由 `ui.shell.navigation:"hide"` / `ui.shell.topbar:"hide"` 在当前世界工作区隐藏。浏览器全屏后会连应用级导航一起隐藏；Esc 按 `ui.shell.escape` 统一退出沉浸、返回世界库或保持不变（`none`）。
+
+`ui.shell.orientation`（`any` / `portrait` / `landscape`）声明这张卡需要的屏幕方向：进入世界卡时由宿主下发，退出时恢复系统默认。Android 上走原生桥切换 Activity 方向（`SENSOR_LANDSCAPE` / `SENSOR_PORTRAIT` / `UNSPECIFIED`）；纯浏览器等无桥环境按系统默认走，不报错。横版视觉小说类卡应声明 `landscape`。需要局部接管时使用 `ui.regions`；旧卡的 `ui.slots` 继续有效，并会映射为同名区域的 `decorate` / `hide` 策略。
 
 `layout` 仍接受旧卡的自定义标识（例如 `world-desk`），但只有 `host`、`immersive`、`custom` 会触发当前宿主布局策略；未知标识按宿主布局处理，不会阻断旧世界卡导入。
 
