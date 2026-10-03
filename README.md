@@ -207,6 +207,13 @@ Agent 模式、最大步骤数和工具开关可在世界卡编辑器中按卡�
 
 世界卡仍可通过 `ui.extension` 声明自己的前端，但新卡不再依赖宿主的物品、任务等侧栏面板；`ui.sidebar` 可读取当前存档的 runtime 投影，runtime 变量/集合/动作由世界卡声明并进入新的最小回合契约。`runtime.actions.<id>` 配合 `layout: "actions"` 可直接生成卡内动作表单，输入会作为世界回合的 action intent 交给 AI 决定并提交效果；动作的 `availability` 会在动作表单和 Agent 工具候选阶段先行检查，零库存等条件不足时按钮会禁用、AI 会收到不可用结果；服务端仍作原子校验，不存在或当前不可用的物品/技能不会被执行。动作还可声明 `check: { sides, target, modifiers }`：技能/物品等有风险动作必须先以同一 `actionId` 完成客户端掷骰并由服务端复核，判定失败不产生状态变化；无 `check` 的日常动作直接执行。
 世界卡可通过 `ui.extension` 声明自己的 HTML/CSS/JS 前端，消息、选项和输入仍复用当前 Agent 回合；`TavernExtension.choose()` 提交玩家行动，卡内前端可只读读取 runtime，状态统一由 AI 回合通过世界卡声明的 Typed Patch 更新，避免出现第二套未保存 MVU 状态。`data-tavern-messages`、`data-tavern-options`、`data-tavern-input` 等标记仍可用于自定义界面，沉浸布局仍支持全屏、Esc 和返回世界库。
+
+自定义界面与宿主之间只有一条数据通道：**卡内声明容器，宿主桥填充内容**。
+
+- `data-tavern-messages`：宿主把当前回合的消息渲染进来（`<article>`）；
+- `data-tavern-options`：宿主把行动选项填成 `button.tavern-option` 并自己绑定点击（走 `TavernExtension.choose`）。卡内只负责样式与显隐，**不要重建容器 DOM**，否则会顶掉宿主的按钮与点击处理；
+- `data-tavern-input`：卡内表单提交由桥接管，等价于在宿主的输入框发一条行动；
+- `ui.shell` 可声明 `navigation` / `topbar` / `fullscreen` / `escape`，以及 `orientation: "any" | "portrait" | "landscape"`：进入世界卡时由宿主统一下发屏幕方向，退出时恢复系统默认，浏览器等无桥环境按系统默认走。
 GEN 3.2 增加 `ui.extension.surfaces:['setup','play']`：创建存档时可由卡自己的 HTML/CSS/JS 接管开局配置，服务端先建立 `planning` 存档，再通过 `TavernExtension.setup.get/patch/commit/cancel` 保存草稿、提交 Schema 校验后的玩家快照并进入原生开场规划；需显式声明 `write.setup`，草稿与最终状态只属于当前 WorldSave。旧卡未声明 `setup` 时继续使用宿主建角表单。
 世界卡还可以声明 `ui.entryGate`，在“建立新存档”真正创建前显示卡片自定义的内容警告；取消会回到世界库，确认后才进入玩家建角。`fullscreen: true` 会在确认点击的用户手势内请求浏览器全屏，权限被浏览器拒绝时自动降级为普通沉浸布局。
 Agent 回合还会保存受限的工具 Guard trace，并在 receipt 中记录每个工具的通过 / 拒绝结果；服务端会校验工具阶段顺序（`observe → decide → guard → commit`），成功的 `dice.roll` 必须先有同回合通过的 `rules.check`，状态/记忆候选只能在判定阶段之后提交。trace 只用于诊断，不能绕过服务端 Typed Patch、规则和 CAS 校验。
@@ -252,6 +259,7 @@ RPG 世界卡当前验收 AI 回合闭环、客户端骰子、Agent 阶段顺序
 开局扩展面板的 planning 存档、草稿修订和提交可用 `node scripts/check_world_setup_surface.js` 验收。
 脚本兼容实验室示例见 `docs/demo-script-compat-world.tavern-world.json`：导入后可直接点击 EJS、MVU、JS 三个面板验收，说明见同名 `.md` 文件。
 自定义 UI 演示卡见 `docs/demo-custom-ui-world.tavern-world.json`：导入后由 `ui.layout:"custom"` + `ui.shell` 接管宿主 RPG 区域、应用导航和顶栏，并提供唯一消息流、自定义选项/输入、MVU/Action、AI 终端、回合状态回执、浏览器全屏、Esc 和返回世界库按钮，说明见 `docs/demo-custom-ui-world.md`。
+横版视觉小说（galgame）模板卡见 `docs/demo-galgame-visual-novel.tavern-world.json`：`ui.layout:"custom"` 配合 `ui.shell.orientation:"landscape"` 把 RPG 工作区整页接管成 16:9 横版，内联 SVG 背景与立绘、打字机逐句对话、点击推进、回想面板，AI 写出的叙事会自动切句进队；换美术只需改卡内 `BG` / `CHARS` 两张表。
 开局配置演示卡见 `docs/demo-setup-surface-world.tavern-world.json`：导入后直接体验卡内角色创建、草稿保存、提交后进入原生开场规划，以及正式游玩页的自定义消息/选项/输入；说明见 `docs/demo-setup-surface-world.md`。
 手机端管理页采用父子钻取：先进入预设/正则/世界书/记忆/世界库列表，再进入详情；列表和详情顶部都保留返回条，详情返回只回到上一级，预设条目和世界书条目也有独立的二级返回，不再把两个层级并列堆在小屏幕上。
 
@@ -293,6 +301,7 @@ docs/                          数据结构、世界卡与 Android 文档
 - 分层 Prompt、知识权限、长期事件记忆和记忆诊断；
 - 文生图、PWA、Android 套壳与本地调试终端；
 - 世界卡草稿、版本发布、导入导出和旧 RPG 会话迁移。
+- 世界卡可声明屏幕方向（`ui.shell.orientation`）与自定义界面容器契约；附横版视觉小说模板卡。
 
 ### 本版本可直接验收的闭环
 
