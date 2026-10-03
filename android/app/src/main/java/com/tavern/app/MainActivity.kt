@@ -19,6 +19,7 @@ import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.content.pm.ActivityInfo
 import android.webkit.JavascriptInterface
 import android.widget.FrameLayout
 import android.widget.Toast
@@ -243,6 +244,18 @@ class MainActivity : Activity() {
                 return true
             }
             return writeDownload(request)
+        }
+
+        /** 世界卡声明的屏幕方向（ui.shell.orientation）：any / portrait / landscape。
+         *  由宿主页面在进入 / 退出世界卡时调用；卡内 iframe 是 sandbox，读不到本桥。 */
+        @JavascriptInterface
+        fun setOrientation(mode: String) {
+            val target = when (mode) {
+                "landscape" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                "portrait" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                else -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
+            runOnUiThread { if (requestedOrientation != target) requestedOrientation = target }
         }
     }
 

@@ -2799,11 +2799,12 @@ function setWorldCustomLayout(enabled) {
   const active = Boolean(enabled);
   document.body.classList.toggle('world-custom-layout', active);
   document.body.dataset.uiSurface = active ? 'world-card' : 'host';
-  const shell = active ? worldUiShell() : { navigation: 'show', topbar: 'show' };
+  const shell = active ? worldUiShell() : { navigation: 'show', topbar: 'show', orientation: 'any' };
   document.body.classList.toggle('world-shell-navigation-hidden', active && shell.navigation === 'hide');
   document.body.classList.toggle('world-shell-topbar-hidden', active && shell.topbar === 'hide');
   document.body.dataset.worldShellNavigation = active ? shell.navigation : 'show';
   document.body.dataset.worldShellTopbar = active ? shell.topbar : 'show';
+  applyWorldOrientation(active ? shell.orientation : 'any');
 }
 function setWorldSetupExtensionMode(enabled) {
   const active = Boolean(enabled);
@@ -2829,6 +2830,7 @@ function closeWorldSetupExtension() {
 function exitWorldImmersiveMode() {
   worldImmersiveSession = false;
   document.body.classList.remove('world-immersive');
+  applyWorldOrientation('any');
   const syncExtensionContext = () => { if (worldExtensionState.iframe) postWorldExtensionContext(); };
   if (document.fullscreenElement && document.exitFullscreen) return document.exitFullscreen().catch(() => {}).finally(syncExtensionContext);
   syncExtensionContext();
@@ -2837,6 +2839,7 @@ function exitWorldImmersiveMode() {
 function enterWorldImmersiveMode(gate = {}) {
   worldImmersiveSession = true;
   document.body.classList.add('world-immersive');
+  applyWorldOrientation(worldUiShell().orientation);
   if (gate.fullscreen !== true || document.fullscreenElement || !document.documentElement.requestFullscreen) return Promise.resolve(false);
   return document.documentElement.requestFullscreen().then(() => true).catch(() => false);
 }
@@ -4564,6 +4567,7 @@ const WORLD_UI_REGION_MODES = new Set(['decorate', 'replace', 'append', 'hide'])
 const WORLD_UI_REGION_FALLBACKS = new Set(['host', 'empty']);
 const WORLD_UI_SHELL_MODES = new Set(['show', 'hide']);
 const WORLD_UI_ESCAPE_MODES = new Set(['fullscreen', 'world', 'none']);
+const WORLD_UI_ORIENTATIONS = new Set(['any', 'portrait', 'landscape']);
 const WORLD_UI_COMPONENT_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const WORLD_UI_THEME_TOKEN_RE = /^[a-z][a-z0-9-]{0,40}$/;
 let appliedWorldThemeTokens = new Set();
@@ -4606,14 +4610,25 @@ function worldUiThemeTokens(world = currentWorldCard()) {
 function worldUiShell(world = currentWorldCard()) {
   const shell = world?.ui?.shell;
   if (!shell || typeof shell !== 'object' || Array.isArray(shell)) return {
-    navigation: 'show', topbar: 'show', fullscreen: true, escape: 'fullscreen',
+    navigation: 'show', topbar: 'show', fullscreen: true, escape: 'fullscreen', orientation: 'any',
   };
   return {
     navigation: WORLD_UI_SHELL_MODES.has(shell.navigation) ? shell.navigation : 'show',
     topbar: WORLD_UI_SHELL_MODES.has(shell.topbar) ? shell.topbar : 'show',
     fullscreen: shell.fullscreen !== false,
     escape: WORLD_UI_ESCAPE_MODES.has(shell.escape) ? shell.escape : 'fullscreen',
+    orientation: WORLD_UI_ORIENTATIONS.has(shell.orientation) ? shell.orientation : 'any',
   };
+}
+
+/** 把世界卡声明的屏幕方向交给宿主壳（Android 上走 TavernAndroid 桥）。
+ *  纯浏览器里没有桥，保持系统默认，不报错。 */
+function applyWorldOrientation(mode) {
+  const next = WORLD_UI_ORIENTATIONS.has(mode) ? mode : 'any';
+  document.body.dataset.worldShellOrientation = next;
+  const bridge = globalThis.TavernAndroid;
+  if (!bridge || typeof bridge.setOrientation !== 'function') return;
+  try { bridge.setOrientation(next); } catch (error) { /* 桥不可用时忽略 */ }
 }
 
 function applyWorldUiTheme() {

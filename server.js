@@ -1558,16 +1558,18 @@ function validateWorldUiRegions(value) {
   }
   return null;
 }
+const WORLD_UI_ORIENTATIONS = new Set(['any', 'portrait', 'landscape']);
 function validateWorldUiShell(value) {
   if (value === undefined || value === null) return null;
   if (!value || typeof value !== 'object' || Array.isArray(value)) return 'ui.shell 必须是对象';
-  const allowed = new Set(['navigation', 'topbar', 'fullscreen', 'escape']);
+  const allowed = new Set(['navigation', 'topbar', 'fullscreen', 'escape', 'orientation']);
   if (Object.keys(value).some(key => !allowed.has(key))) return 'ui.shell 含有未声明字段';
   for (const key of ['navigation', 'topbar']) {
     if (value[key] !== undefined && !WORLD_UI_SHELL_MODES.has(value[key])) return `ui.shell.${key} 必须是 show 或 hide`;
   }
   if (value.fullscreen !== undefined && typeof value.fullscreen !== 'boolean') return 'ui.shell.fullscreen 无效';
   if (value.escape !== undefined && !WORLD_UI_ESCAPE_MODES.has(value.escape)) return 'ui.shell.escape 不受支持';
+  if (value.orientation !== undefined && !WORLD_UI_ORIENTATIONS.has(value.orientation)) return 'ui.shell.orientation 不受支持';
   return null;
 }
 function validateWorldUi(value) {

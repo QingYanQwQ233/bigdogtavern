@@ -1,299 +1,300 @@
 {
- "spec": "tavern_world_package",
- "specVersion": 2,
- "exportedAt": "2026-10-02T00:00:00.000Z",
- "manifest": {
-  "packageId": "world-galgame-visual-novel",
-  "appContractVersion": 1,
-  "worldVersion": 1,
-  "worldSchemaVersion": 1,
-  "title": "雪线列车 · 视觉小说模板",
-  "author": "Tavern Demo",
-  "license": null,
-  "contentHash": "sha256:be6d8751838259aad129b1211169d0766da710fceee7fc27e3cc90e8e6dfcc85",
-  "hashScope": "canonical-json(content,assets)",
-  "capabilities": {
-   "ui": {
-    "layout": "custom",
-    "regions": 8,
-    "shell": {
-     "navigation": "hide",
-     "topbar": "hide",
-     "fullscreen": true,
-     "escape": "fullscreen"
-    },
-    "extension": true
-   },
-   "runtime": false,
-   "agent": true,
-   "regexes": 0
-  },
-  "references": {
-   "lorebooks": 1,
-   "presets": 0,
-   "assets": 0
-  },
-  "privacy": {
-   "excludes": [
-    "settings",
-    "user",
-    "worldSaves"
-   ],
-   "redactedPaths": []
-  },
-  "executableContent": {
-   "html": true,
-   "scripts": true,
-   "regexTriggers": 0,
-   "executedDuringExport": false
-  },
-  "warnings": []
- },
- "content": {
-  "world": {
-   "schemaVersion": 1,
-   "id": "world-galgame-visual-novel",
-   "version": 1,
-   "title": "雪线列车 · 视觉小说模板",
-   "summary": "把 RPG 工作区整页接管成横版 galgame：16:9 全屏背景、左右立绘、居中限宽对话框、打字机、点击推进、回想。AI 写出的叙事会自动逐句进队播放。",
-   "coverImage": null,
-   "tags": [
-    "视觉小说",
-    "galgame",
-    "自定义 UI",
-    "立绘",
-    "打字机"
-   ],
-   "playerCreation": {
-    "mode": "custom",
-    "title": "你叫什么名字？",
-    "description": "视觉小说只需要一个称呼，其余交给剧情。",
-    "fields": [
-     {
-      "id": "name",
-      "label": "称呼",
-      "type": "text",
-      "required": true,
-      "maxLength": 40,
-      "default": "旅人"
-     }
-    ],
-    "attributes": [],
-    "skills": [],
-    "resources": [],
-    "traits": [],
-    "choices": [],
-    "initialInventory": []
-   },
-   "turnContract": {},
-   "failure": {},
-   "ending": {},
-   "conflicts": [],
-   "time": {
-    "unit": "天",
-    "start": 1,
-    "turnAdvance": 0.5
-   },
-   "events": [],
-   "start": {
-    "locationId": "snow-road",
-    "openingMode": "static",
-    "opening": "**雪停了。**\n\n林道两旁的落叶松挂满白霜，车辙在弯道处断了。两匹马倒在路中央，货一件没少，人却不见了。",
-    "options": [
-     "查看马身上的箭伤",
-     "沿着林间小路追进去",
-     "先记下现场，赶往镇上报信"
-    ]
-   },
-   "lorebookIds": [
-    "default"
-   ],
-   "rpgPresetName": "",
-   "sessionSetup": {
-    "title": "视觉小说设置",
-    "fields": []
-   },
-   "npcIds": [],
-   "factionIds": [],
-   "factions": [],
-   "itemIds": [],
-   "questTemplateIds": [],
-   "locations": [
-    {
-     "id": "snow-road",
-     "name": "雪夜林道",
-     "type": "wilderness",
-     "summary": "北大道弯道，两匹死马与一车未动过的货。"
-    },
-    {
-     "id": "tavern",
-     "name": "酒馆内景",
-     "type": "facility",
-     "summary": "炉火、麦酒味，和压低声音说话的人。"
-    },
-    {
-     "id": "cave",
-     "name": "地下暗河",
-     "type": "dungeon",
-     "summary": "废矿深处，水声盖住了脚步。"
-    }
-   ],
-   "ui": {
-    "schemaVersion": 1,
-    "layout": "custom",
-    "shell": {
-     "navigation": "hide",
-     "topbar": "hide",
-     "fullscreen": true,
-     "escape": "fullscreen"
-    },
-    "regions": {
-     "topbar": {
-      "mode": "hide"
-     },
-     "sidebar.left": {
-      "mode": "hide"
-     },
-     "sidebar.right": {
-      "mode": "hide"
-     },
-     "narrative": {
-      "mode": "hide"
-     },
-     "options": {
-      "mode": "hide"
-     },
-     "input": {
-      "mode": "hide"
-     },
-     "status": {
-      "mode": "hide"
-     },
-     "overlay": {
-      "mode": "hide"
-     }
-    },
-    "extension": {
-     "enabled": true,
-     "immersive": true,
-     "title": "雪线列车 · 视觉小说（横版）",
-     "maxHeight": 800,
-     "timeoutMs": 3000,
-     "actionNarrates": false,
-     "permissions": [
-      "read.public",
-      "read.save",
-      "write.runtime",
-      "tool.call"
-     ],
-     "mvu": {},
-     "html": "<div class=\"vn\" id=\"vn-root\">\n  <div class=\"vn-bg\" id=\"vn-bg\"></div>\n  <div class=\"vn-vignette\"></div>\n\n  <div class=\"vn-stage\" id=\"vn-stage\">\n    <img class=\"vn-sprite\" id=\"vn-sprite-l\" alt=\"\">\n    <img class=\"vn-sprite vn-sprite-c\" id=\"vn-sprite-c\" alt=\"\">\n    <img class=\"vn-sprite vn-sprite-r\" id=\"vn-sprite-r\" alt=\"\">\n  </div>\n\n  <div class=\"vn-hud\">\n    <span class=\"vn-chip\"><i></i><b data-tavern-bind=\"save.name\">旅人</b></span>\n    <span class=\"vn-chip\" id=\"vn-loc\" data-tavern-bind=\"save.state.locationId\">雪原</span>\n    <span class=\"vn-chip vn-chip-dim\" id=\"vn-queue\">0 句待播</span>\n    <button class=\"vn-hud-btn\" type=\"button\" id=\"vn-auto\">自动 ▸</button>\n    <button class=\"vn-hud-btn\" type=\"button\" id=\"vn-log\">回想</button>\n    <button class=\"vn-hud-btn\" type=\"button\" id=\"vn-exit\">返回世界库</button>\n  </div>\n\n  <div class=\"vn-dialog\" id=\"vn-dialog\">\n    <div class=\"vn-name\" id=\"vn-name\"></div>\n    <p class=\"vn-text\" id=\"vn-text\"></p>\n    <div class=\"vn-advance\" id=\"vn-advance\">▼</div>\n  </div>\n\n  <div class=\"vn-choices\" id=\"vn-choices\" data-tavern-options hidden></div>\n\n  <form class=\"vn-input\" data-tavern-input id=\"vn-input\">\n    <input id=\"vn-free\" type=\"text\" placeholder=\"或者，写下你自己的行动…\" autocomplete=\"off\">\n    <button type=\"submit\" data-tavern-submit>发送</button>\n  </form>\n\n  <div class=\"vn-log\" id=\"vn-log-panel\" hidden>\n    <header><b>回想</b><button type=\"button\" id=\"vn-log-close\">关闭</button></header>\n    <div class=\"vn-log-body\" id=\"vn-log-body\"></div>\n  </div>\n</div>",
-     "css": ".vn{position:relative;height:100vh;min-height:420px;overflow:hidden;background:#05070c;color:#f2f5fa;\n  font-family:system-ui,-apple-system,\"PingFang SC\",\"Noto Sans CJK SC\",sans-serif;user-select:none}\n.vn-bg{position:absolute;inset:0;background-size:cover;background-position:center;transition:opacity .45s ease}\n.vn-vignette{position:absolute;inset:0;pointer-events:none;\n  background:radial-gradient(ellipse at 50% 38%,transparent 38%,rgba(0,0,0,.55) 100%)}\n\n/* 横版：立绘分列左右，居中偏下 */\n.vn-stage{position:absolute;inset:0;pointer-events:none}\n.vn-sprite{position:absolute;bottom:118px;height:74vh;max-height:640px;width:auto;opacity:0;\n  transition:opacity .35s ease,transform .35s ease;transform:translateY(14px);\n  filter:drop-shadow(0 14px 28px rgba(0,0,0,.55))}\n.vn-sprite.show{opacity:1;transform:translateY(0)}\n.vn-sprite-l{left:4%}\n.vn-sprite-c{left:50%;margin-left:-160px;transform:translateY(14px) scale(1.02)}\n.vn-sprite-r{right:4%}\n\n.vn-hud{position:absolute;top:12px;left:16px;right:16px;display:flex;gap:8px;align-items:center;z-index:5}\n.vn-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:999px;\n  background:rgba(8,12,20,.6);border:1px solid rgba(255,255,255,.14);\n  backdrop-filter:blur(8px);font-size:12px;letter-spacing:.04em}\n.vn-chip b{font-weight:600}\n.vn-chip i{width:6px;height:6px;border-radius:50%;background:#4fd6c8;display:inline-block}\n.vn-chip-dim{opacity:.6}\n.vn-hud-spacer{flex:1}\n.vn-hud-btn{padding:5px 13px;border-radius:999px;cursor:pointer;\n  background:rgba(8,12,20,.6);border:1px solid rgba(255,255,255,.16);color:#e8eef8;\n  font-size:12px;backdrop-filter:blur(8px)}\n.vn-hud-btn:hover{background:rgba(30,44,64,.8)}\n\n/* 横版对话框：居中、限宽、贴底 */\n.vn-dialog{position:absolute;left:50%;transform:translateX(-50%);width:min(92%,1080px);\n  bottom:86px;z-index:4;min-height:110px;\n  background:linear-gradient(180deg,rgba(8,12,22,.84),rgba(6,9,16,.93));\n  border:1px solid rgba(255,255,255,.14);border-radius:12px;\n  padding:16px 22px 22px;backdrop-filter:blur(12px);box-shadow:0 18px 44px rgba(0,0,0,.5)}\n.vn-name{position:absolute;top:-13px;left:18px;padding:3px 14px;border-radius:999px;\n  background:linear-gradient(135deg,#3a6ea5,#5b7fa6);font-size:13px;font-weight:700;letter-spacing:.06em;\n  box-shadow:0 6px 16px rgba(0,0,0,.4)}\n.vn-name:empty{display:none}\n.vn-text{margin:4px 0 0;font-size:16.5px;line-height:1.9;letter-spacing:.02em;min-height:3.6em;white-space:pre-wrap}\n.vn-advance{position:absolute;right:20px;bottom:6px;color:#8fb6e0;font-size:14px;\n  animation:vn-bob 1.4s ease-in-out infinite;opacity:0}\n.vn-advance.on{opacity:1}\n@keyframes vn-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(4px)}}\n\n.vn-choices{position:absolute;left:50%;transform:translateX(-50%);width:min(92%,1080px);bottom:92px;z-index:6;\n  display:flex;flex-direction:column;gap:9px}\n.vn-choices[hidden]{display:none}\n.vn-choice{padding:12px 18px;border-radius:10px;cursor:pointer;text-align:left;\n  background:rgba(10,16,26,.86);border:1px solid rgba(255,255,255,.18);color:#eef3fb;\n  font-size:14.5px;line-height:1.5;backdrop-filter:blur(10px);transition:all .18s ease}\n.vn-choice:hover{background:rgba(46,86,132,.9);border-color:#7fb0e8;transform:translateX(6px)}\n\n.vn-input{position:absolute;left:50%;transform:translateX(-50%);width:min(92%,1080px);bottom:34px;\n  display:flex;gap:8px;z-index:4}\n.vn-input input{flex:1;padding:10px 14px;border-radius:9px;font-size:13.5px;\n  background:rgba(8,12,20,.8);border:1px solid rgba(255,255,255,.14);color:#eaf0f8}\n.vn-input input:focus{outline:none;border-color:#5b8fd0}\n.vn-input button{padding:10px 22px;border-radius:9px;border:none;cursor:pointer;\n  background:linear-gradient(135deg,#3a6ea5,#4f8fd0);color:#fff;font-size:13.5px;font-weight:600}\n\n.vn-log{position:absolute;left:50%;transform:translateX(-50%);top:6%;bottom:6%;width:min(88%,920px);z-index:9;\n  border-radius:14px;padding:16px;background:rgba(6,9,16,.97);border:1px solid rgba(255,255,255,.16);overflow:auto}\n.vn-log[hidden]{display:none}\n.vn-log header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}\n.vn-log header button{padding:4px 12px;border-radius:8px;cursor:pointer;\n  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);color:#dfe7f2;font-size:12px}\n.vn-log-item{margin-bottom:12px;font-size:13.5px;line-height:1.7;color:#c8d4e4}\n.vn-log-item b{color:#8fb6e0;display:block;font-size:12px;margin-bottom:2px;letter-spacing:.05em}\n\n/* 竖屏降级：立绘收窄、对话框全宽 */\n@media (orientation:portrait){\n  .vn-sprite{height:52vh;bottom:190px}\n  .vn-sprite-l{left:-6%}\n  .vn-sprite-r{right:-6%}\n  .vn-dialog,.vn-choices,.vn-input{width:94%}\n  .vn-text{font-size:15.5px}\n}",
-     "js": "(()=>{const start=function(){\nconst root=document.getElementById('vn-root');if(!root)return;\nconst bgEl=document.getElementById('vn-bg'),nameEl=document.getElementById('vn-name'),\ntextEl=document.getElementById('vn-text'),advEl=document.getElementById('vn-advance'),\nchoicesEl=document.getElementById('vn-choices'),queueEl=document.getElementById('vn-queue'),\nlocEl=document.getElementById('vn-loc');\nconst sprites={l:document.getElementById('vn-sprite-l'),c:document.getElementById('vn-sprite-c'),r:document.getElementById('vn-sprite-r')};\n\n/* ── 素材表：换真图时把 SVG data-URI 换成图片 URL 即可 ── */\nconst BG={'雪夜林道':'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%271280%27%20height%3D%27720%27%20viewBox%3D%270%200%201280%20720%27%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%27g%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%270%27%20y2%3D%271%27%3E%0A%3Cstop%20offset%3D%270%27%20stop-color%3D%27%230d1b2a%27%2F%3E%3Cstop%20offset%3D%270.55%27%20stop-color%3D%27%231b3a52%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%232e5f70%27%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%271280%27%20height%3D%27720%27%20fill%3D%27url%28%23g%29%27%2F%3E%0A%3Cg%20fill%3D%27%230a1420%27%20opacity%3D%270.85%27%3E%0A%3Cpolygon%20points%3D%270%2C720%20120%2C300%20190%2C720%27%2F%3E%3Cpolygon%20points%3D%27150%2C720%20300%2C240%20420%2C720%27%2F%3E%0A%3Cpolygon%20points%3D%27380%2C720%20520%2C320%20620%2C720%27%2F%3E%3Cpolygon%20points%3D%27600%2C720%20760%2C260%20900%2C720%27%2F%3E%0A%3Cpolygon%20points%3D%27860%2C720%201010%2C300%201130%2C720%27%2F%3E%3Cpolygon%20points%3D%271080%2C720%201200%2C340%201280%2C720%27%2F%3E%0A%3C%2Fg%3E%0A%3Cg%20fill%3D%27%237fd1e0%27%20opacity%3D%270.5%27%3E%3Ccircle%20cx%3D%27180%27%20cy%3D%27120%27%20r%3D%273%27%2F%3E%3Ccircle%20cx%3D%27320%27%20cy%3D%2790%27%20r%3D%272%27%2F%3E%3Ccircle%20cx%3D%27470%27%20cy%3D%27150%27%20r%3D%273%27%2F%3E%0A%3Ccircle%20cx%3D%27640%27%20cy%3D%2780%27%20r%3D%272%27%2F%3E%3Ccircle%20cx%3D%27800%27%20cy%3D%27130%27%20r%3D%273%27%2F%3E%3Ccircle%20cx%3D%27950%27%20cy%3D%27100%27%20r%3D%272%27%2F%3E%3Ccircle%20cx%3D%271100%27%20cy%3D%27160%27%20r%3D%273%27%2F%3E%3C%2Fg%3E%0A%3Crect%20y%3D%27600%27%20width%3D%271280%27%20height%3D%27120%27%20fill%3D%27%23e8f4f8%27%20opacity%3D%270.92%27%2F%3E%0A%3Cpath%20d%3D%27M0%2C600%20Q320%2C570%20640%2C600%20T1280%2C595%20L1280%2C620%20L0%2C620%20Z%27%20fill%3D%27%23ffffff%27%20opacity%3D%270.6%27%2F%3E%0A%3C%2Fsvg%3E','酒馆内景':'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%271280%27%20height%3D%27720%27%20viewBox%3D%270%200%201280%20720%27%3E%0A%3Cdefs%3E%3CradialGradient%20id%3D%27h%27%20cx%3D%270.5%27%20cy%3D%270.42%27%20r%3D%270.62%27%3E%0A%3Cstop%20offset%3D%270%27%20stop-color%3D%27%23ffcf8a%27%2F%3E%3Cstop%20offset%3D%270.5%27%20stop-color%3D%27%238a5a2b%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%231a0f08%27%2F%3E%3C%2FradialGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%271280%27%20height%3D%27720%27%20fill%3D%27url%28%23h%29%27%2F%3E%0A%3Cg%20fill%3D%27%23120a05%27%20opacity%3D%270.9%27%3E%0A%3Crect%20x%3D%2770%27%20y%3D%2790%27%20width%3D%27220%27%20height%3D%27330%27%20rx%3D%2710%27%2F%3E%3Crect%20x%3D%27990%27%20y%3D%27120%27%20width%3D%27220%27%20height%3D%27300%27%20rx%3D%2710%27%2F%3E%0A%3Crect%20x%3D%27360%27%20y%3D%2760%27%20width%3D%27150%27%20height%3D%27120%27%20rx%3D%278%27%2F%3E%3Crect%20x%3D%27770%27%20y%3D%2770%27%20width%3D%27150%27%20height%3D%27110%27%20rx%3D%278%27%2F%3E%0A%3C%2Fg%3E%0A%3Ccircle%20cx%3D%27430%27%20cy%3D%27620%27%20r%3D%2734%27%20fill%3D%27%23ffb347%27%20opacity%3D%270.55%27%2F%3E%0A%3Ccircle%20cx%3D%27860%27%20cy%3D%27640%27%20r%3D%2728%27%20fill%3D%27%23ffb347%27%20opacity%3D%270.45%27%2F%3E%0A%3Crect%20y%3D%27560%27%20width%3D%271280%27%20height%3D%27160%27%20fill%3D%27%232a170c%27%2F%3E%0A%3Crect%20y%3D%27556%27%20width%3D%271280%27%20height%3D%278%27%20fill%3D%27%233d2413%27%2F%3E%0A%3C%2Fsvg%3E','地下暗河':'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%271280%27%20height%3D%27720%27%20viewBox%3D%270%200%201280%20720%27%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%27c%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%270.3%27%20y2%3D%271%27%3E%0A%3Cstop%20offset%3D%270%27%20stop-color%3D%27%2305060a%27%2F%3E%3Cstop%20offset%3D%270.6%27%20stop-color%3D%27%2312202e%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%231d3b46%27%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%271280%27%20height%3D%27720%27%20fill%3D%27url%28%23c%29%27%2F%3E%0A%3Cpath%20d%3D%27M0%2C0%20Q180%2C220%2060%2C420%20Q10%2C520%200%2C720%20L0%2C0%20Z%27%20fill%3D%27%23080a10%27%2F%3E%0A%3Cpath%20d%3D%27M1280%2C0%20Q1090%2C200%201200%2C400%20Q1260%2C520%201280%2C720%20L1280%2C0%20Z%27%20fill%3D%27%23080a10%27%2F%3E%0A%3Cpath%20d%3D%27M0%2C120%20Q300%2C60%20560%2C140%20Q820%2C220%201280%2C150%20L1280%2C0%20L0%2C0%20Z%27%20fill%3D%27%23070910%27%20opacity%3D%270.9%27%2F%3E%0A%3Cg%20fill%3D%27%234fd6c8%27%20opacity%3D%270.45%27%3E%3Cellipse%20cx%3D%27300%27%20cy%3D%27470%27%20rx%3D%2770%27%20ry%3D%2716%27%2F%3E%3Cellipse%20cx%3D%27980%27%20cy%3D%27520%27%20rx%3D%2760%27%20ry%3D%2714%27%2F%3E%3C%2Fg%3E%0A%3Cg%20fill%3D%27%232b6f8a%27%20opacity%3D%270.5%27%3E%3Crect%20x%3D%27250%27%20y%3D%27620%27%20width%3D%27780%27%20height%3D%27100%27%20rx%3D%2720%27%2F%3E%3C%2Fg%3E%0A%3C%2Fsvg%3E'};\nconst CHARS={\n '你':{src:'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27420%27%20height%3D%27620%27%20viewBox%3D%270%200%20420%20620%27%3E%3Cg%20transform%3D%27translate%28210%2C0%29%20scale%281%2C1%29%20translate%28-210%2C0%29%27%3E%3Cellipse%20cx%3D%27210%27%20cy%3D%27600%27%20rx%3D%27190%27%20ry%3D%2730%27%20fill%3D%27%23000%27%20opacity%3D%270.28%27%2F%3E%3Cpath%20d%3D%27M210%2C120%20C150%2C120%20118%2C170%20118%2C232%20C118%2C286%20150%2C322%20210%2C322%20C270%2C322%20302%2C286%20302%2C232%20C302%2C170%20270%2C120%20210%2C120%20Z%27%20fill%3D%27%232f3b4d%27%2F%3E%3Cpath%20d%3D%27M210%2C120%20C168%2C120%20138%2C150%20130%2C196%20C160%2C176%20262%2C176%20292%2C196%20C284%2C150%20252%2C120%20210%2C120%20Z%27%20fill%3D%27%235b7fa6%27%20opacity%3D%270.9%27%2F%3E%3Cpath%20d%3D%27M96%2C620%20C96%2C430%20140%2C336%20210%2C336%20C280%2C336%20324%2C430%20324%2C620%20Z%27%20fill%3D%27%232f3b4d%27%2F%3E%3Cpath%20d%3D%27M210%2C336%20C168%2C336%20140%2C368%20130%2C410%20L290%2C410%20C280%2C368%20252%2C336%20210%2C336%20Z%27%20fill%3D%27%235b7fa6%27%20opacity%3D%270.75%27%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E',slot:'l',color:'#5b7fa6'},\n '希尔达':{src:'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27420%27%20height%3D%27620%27%20viewBox%3D%270%200%20420%20620%27%3E%3Cg%20transform%3D%27translate%28210%2C0%29%20scale%28-1%2C1%29%20translate%28-210%2C0%29%27%3E%3Cellipse%20cx%3D%27210%27%20cy%3D%27600%27%20rx%3D%27190%27%20ry%3D%2730%27%20fill%3D%27%23000%27%20opacity%3D%270.28%27%2F%3E%3Cpath%20d%3D%27M210%2C120%20C150%2C120%20118%2C170%20118%2C232%20C118%2C286%20150%2C322%20210%2C322%20C270%2C322%20302%2C286%20302%2C232%20C302%2C170%20270%2C120%20210%2C120%20Z%27%20fill%3D%27%234a2b3a%27%2F%3E%3Cpath%20d%3D%27M210%2C120%20C168%2C120%20138%2C150%20130%2C196%20C160%2C176%20262%2C176%20292%2C196%20C284%2C150%20252%2C120%20210%2C120%20Z%27%20fill%3D%27%23c96b8a%27%20opacity%3D%270.9%27%2F%3E%3Cpath%20d%3D%27M96%2C620%20C96%2C430%20140%2C336%20210%2C336%20C280%2C336%20324%2C430%20324%2C620%20Z%27%20fill%3D%27%234a2b3a%27%2F%3E%3Cpath%20d%3D%27M210%2C336%20C168%2C336%20140%2C368%20130%2C410%20L290%2C410%20C280%2C368%20252%2C336%20210%2C336%20Z%27%20fill%3D%27%23c96b8a%27%20opacity%3D%270.75%27%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E',slot:'r',color:'#c96b8a'},\n '贡德伦':{src:'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27420%27%20height%3D%27620%27%20viewBox%3D%270%200%20420%20620%27%3E%3Cg%20transform%3D%27translate%28210%2C0%29%20scale%281%2C1%29%20translate%28-210%2C0%29%27%3E%3Cellipse%20cx%3D%27210%27%20cy%3D%27600%27%20rx%3D%27190%27%20ry%3D%2730%27%20fill%3D%27%23000%27%20opacity%3D%270.28%27%2F%3E%3Cpath%20d%3D%27M210%2C120%20C150%2C120%20118%2C170%20118%2C232%20C118%2C286%20150%2C322%20210%2C322%20C270%2C322%20302%2C286%20302%2C232%20C302%2C170%20270%2C120%20210%2C120%20Z%27%20fill%3D%27%233b3020%27%2F%3E%3Cpath%20d%3D%27M210%2C120%20C168%2C120%20138%2C150%20130%2C196%20C160%2C176%20262%2C176%20292%2C196%20C284%2C150%20252%2C120%20210%2C120%20Z%27%20fill%3D%27%23c9a227%27%20opacity%3D%270.9%27%2F%3E%3Cpath%20d%3D%27M96%2C620%20C96%2C430%20140%2C336%20210%2C336%20C280%2C336%20324%2C430%20324%2C620%20Z%27%20fill%3D%27%233b3020%27%2F%3E%3Cpath%20d%3D%27M210%2C336%20C168%2C336%20140%2C368%20130%2C410%20L290%2C410%20C280%2C368%20252%2C336%20210%2C336%20Z%27%20fill%3D%27%23c9a227%27%20opacity%3D%270.75%27%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E',slot:'c',color:'#c9a227'}\n};\n\nconst state={queue:[],typed:false,timer:0,auto:false,log:[],bg:'雪夜林道',shown:{}};\nconst sleep=ms=>new Promise(r=>setTimeout(r,ms));\n\nfunction setBg(name){if(!BG[name]||state.bg===name)return;state.bg=name;bgEl.style.opacity='0';\n  setTimeout(()=>{bgEl.style.backgroundImage=`url(\"${BG[name]}\")`;bgEl.style.opacity='1';},220);}\n\nfunction setSprite(who){\n  const d=CHARS[who];if(!d)return;\n  const el=sprites[d.slot];if(!el)return;\n  Object.keys(sprites).forEach(k=>{if(k!==d.slot)sprites[k].classList.remove('show');});\n  if(el.getAttribute('src')!==d.src){el.setAttribute('src',d.src);el.classList.remove('show');}\n  requestAnimationFrame(()=>el.classList.add('show'));\n  state.shown={[d.slot]:who};\n}\n\nfunction pushLine(line){\n  line=String(line==null?'':line);\n  if(!line.trim())return;\n  state.log.push(line);\n  const m=line.match(/^([^：:\\n]{1,8})[：:](.*)$/s);\n  const hasName=m&&CHARS[m[1].trim()];\n  state.queue.push({who:hasName?m[1].trim():'',text:(hasName?m[2]:line).trim()});\n  const body=document.getElementById('vn-log-body');\n  if(body){const d=document.createElement('div');d.className='vn-log-item';\n    d.innerHTML=(hasName?`<b>${m[1].trim()}</b>`:'')+escapeHtml((hasName?m[2]:line).trim());\n    body.appendChild(d);body.scrollTop=body.scrollHeight;}\n  paintQueue();\n}\nfunction escapeHtml(s){return String(s).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'\"'}[c]));}\nfunction paintQueue(){if(queueEl)queueEl.textContent=state.queue.length?`${state.queue.length} 句待播`:'已播完';}\n\n/* 把一段 AI 叙事/Markdown 切成句子（galgame 的“逐句”来源） */\nfunction splitSentences(text){\n  return String(text==null?'':text)\n    .replace(/```[\\s\\S]*?```/g,' ')\n    .replace(/^#{1,6}\\s*/gm,'').replace(/^[-*+]\\s+/gm,'').replace(/^>\\s*/gm,'')\n    .replace(/\\*\\*(.+?)\\*\\*/g,'$1').replace(/[*_`]/g,'')\n    .split(/(?<=[。！？!?…])\\s*|\\n{2,}/)\n    .map(s=>s.trim()).filter(s=>s.length>1);\n}\n\n/* 打字机 */\nfunction typeLine(line){\n  state.typed=false;advEl.classList.remove('on');\n  nameEl.textContent=line.who||'';nameEl.style.background=line.who&&CHARS[line.who]\n    ?`linear-gradient(135deg,${CHARS[line.who].color},#2b3d55)`:'';\n  if(line.who)setSprite(line.who);\n  const chars=[...line.text];let i=0;textEl.textContent='';\n  clearInterval(state.timer);\n  state.timer=setInterval(()=>{\n    textEl.textContent+=chars[i++]||'';\n    if(i>=chars.length){clearInterval(state.timer);state.typed=true;advEl.classList.add('on');\n      paintQueue();\n      if(state.auto)setTimeout(()=>{if(state.auto)next();},900);}\n  },26);\n}\n\nfunction next(){\n  if(!state.typed&&textEl.textContent){ // 正在打字 → 先补全\n    clearInterval(state.timer);state.typed=true;advEl.classList.add('on');\n    return;\n  }\n  if(!state.queue.length){return;}\n  typeLine(state.queue.shift());paintQueue();\n}\n\n/* ── 示例文本（导入后立刻就能看）── */\nconst OPENING=[\n '雪停了。林道两旁的落叶松挂满白霜，脚步声被雪吞掉，安静得不太正常。',\n '你：车辙到这里就断了。拉车的两匹马倒在路中央，货却一件没少。',\n '希尔达：「……别碰它们。」她从树后走出来，手套上全是血，「箭是从林子深处射的，射得极准。」',\n '贡德伦：「旅人，你总算追上了。」矮人蹲在车板旁敲了敲封蜡的木箱，「这车货，比两匹马的命值钱。」'\n];\n\nfunction boot(){\n  bgEl.style.backgroundImage=`url(\"${BG[state.bg]}\")`;\n  OPENING.forEach(pushLine);\n  paintQueue();\n  next();\n}\n\n/* ── 桥接 ── */\nroot.addEventListener('click',e=>{\n  if(e.target.closest('button')||e.target.closest('input')||e.target.closest('.vn-choice'))return;\n  if(choicesEl&&!choicesEl.hidden)return;\n  if(e.target.closest('.vn-log'))return;\n  next();\n});\ndocument.getElementById('vn-auto')?.addEventListener('click',e=>{\n  state.auto=!state.auto;e.target.textContent=state.auto?'自动 ❚❚':'自动 ▸';if(state.auto)next();\n});\ndocument.getElementById('vn-log')?.addEventListener('click',()=>{\n  document.getElementById('vn-log-panel').hidden=false;\n});\ndocument.getElementById('vn-log-close')?.addEventListener('click',()=>{\n  document.getElementById('vn-log-panel').hidden=true;\n});\ndocument.getElementById('vn-exit')?.addEventListener('click',()=>{\n  try{TavernExtension.exitWorld();}catch(err){}\n});\n\n/* 把宿主消息流里的新叙事接进来（AI 写的内容 → 逐句播放） */\nconst seen=new WeakSet();\nfunction ingest(){\n  const stream=document.querySelector('[data-tavern-messages]');\n  if(!stream)return;\n  stream.querySelectorAll('p,li,h1,h2,h3,blockquote').forEach(node=>{\n    if(seen.has(node))return;\n    const t=node.textContent.trim();\n    if(!t||t.length<2)return;\n    seen.add(node);\n    const isNew=!state.queue.length; // 队列空时说明是新一回合的内容\n    if(isNew)splitSentences(t).forEach(s=>pushLine(s));\n  });\n  if(!state.queue.length){const nodes=[...stream.querySelectorAll('p,li')];\n    if(nodes.length&&!state.bootstrapped){state.bootstrapped=true;}}\n}\n\n/* 选项：AI 给出时显示，点击即提交 */\nfunction paintChoices(){\n  const box=document.querySelector('[data-tavern-options]');\n  if(!box||!choicesEl)return;\n  const items=[...box.querySelectorAll('button,li,a')]\n    .map(el=>el.textContent.trim()).filter(Boolean);\n  if(!items.length){choicesEl.hidden=true;choicesEl.innerHTML='';return;}\n  if(choicesEl.dataset.sig===items.join('|'))return;\n  choicesEl.dataset.sig=items.join('|');\n  choicesEl.innerHTML=items.map((t,i)=>`<button class=\"vn-choice\" type=\"button\" data-i=\"${i}\">${escapeHtml(t)}</button>`).join('');\n  choicesEl.hidden=false;\n  choicesEl.querySelectorAll('.vn-choice').forEach(btn=>{\n    btn.addEventListener('click',()=>{\n      const src=box.querySelectorAll('button,li,a')[Number(btn.dataset.i)];\n      if(src)src.click();\n      choicesEl.hidden=true;choicesEl.dataset.sig='';\n    });\n  });\n}\n\nwindow.addEventListener('tavern-context',event=>{\n  const d=event.detail||{};\n  const loc=d.save&&d.save.state&&d.save.state.locationId;\n  if(locEl&&loc)locEl.textContent=String(loc);\n  if(/洞穴|矿|地底|矿坑/.test(String(loc||'')))setBg('地下暗河');\n  else if(/酒馆|客栈|旅店|屋内/.test(String(loc||'')))setBg('酒馆内景');\n  else setBg('雪夜林道');\n});\nTavernExtension.on&&TavernExtension.on('turn.commit',()=>{setTimeout(ingest,260);});\nTavernExtension.on&&TavernExtension.on('agent.complete',()=>{setTimeout(ingest,260);});\nsetInterval(()=>{ingest();paintChoices();},900);\n\nboot();\n}\nif(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',start);}\nelse{start();}\n})();"
-    }
-   },
-   "source": {
-    "format": "native",
+  "spec": "tavern_world_package",
+  "specVersion": 2,
+  "exportedAt": "2026-10-02T00:00:00.000Z",
+  "manifest": {
+    "packageId": "world-galgame-visual-novel",
+    "appContractVersion": 1,
+    "worldVersion": 1,
+    "worldSchemaVersion": 1,
+    "title": "雪线列车 · 视觉小说模板",
     "author": "Tavern Demo",
-    "license": null
-   },
-   "setting": {
-    "premise": "北境边地，王国的手已经伸不到这里。真正说话算数的是矮人矿工行会和悬赏榜。",
-    "geography": "北大道从石头城通往边境小镇凡戴尔，中途是连片雪林；岔路尽头有一座废弃矿坑。",
-    "society": "行会与悬赏榜维持秩序；嚼齿部族的地精专抢人不抢货。",
-    "magic": "魔法是真的，但远：能施法的人要价高得吓人，也从不往这种地方来。",
-    "currentSituation": "近两月商路不太平，失踪的不只是货，还有人。雪刚停。"
-   },
-   "rules": {
-    "hard": [],
-    "soft": [
-     "叙事要写成一段一段可读的正文，不要列条目。",
-     "对白用「角色名：」开头，这样卡内会切立绘。"
-    ]
-   },
-   "npcs": [
-    {
-     "id": "syl",
-     "name": "希尔达",
-     "role": "猎人",
-     "description": "话少，手套上总有血。追着失踪案一路往北。",
-     "desires": [
-      "找出失踪的人去了哪"
-     ],
-     "fears": [
-      "又一次来晚了"
-     ]
+    "license": null,
+    "contentHash": "sha256:d9fd55053bcc8111ef8220925316397fb14fc23f7df802238291a7d2dee560fd",
+    "hashScope": "canonical-json(content,assets)",
+    "capabilities": {
+      "ui": {
+        "layout": "custom",
+        "regions": 8,
+        "shell": {
+          "navigation": "hide",
+          "topbar": "hide",
+          "fullscreen": true,
+          "escape": "fullscreen"
+        },
+        "extension": true
+      },
+      "runtime": false,
+      "agent": true,
+      "regexes": 0
     },
-    {
-     "id": "dwarf",
-     "name": "贡德伦",
-     "role": "矮人勘矿者",
-     "description": "说话像凿石头，认钱认理。这车货的雇主。",
-     "desires": [
-      "把货送到凡戴尔"
-     ],
-     "fears": [
-      "矿脉被人先一步挖空"
-     ]
-    }
-   ],
-   "runtime": {
-    "version": 1,
-    "variables": [],
-    "collections": [],
-    "actions": []
-   },
-   "agent": {
-    "protocol": "tavern.rpg.agent",
-    "version": 1,
-    "mode": "native",
-    "maxSteps": 3,
-    "tools": {}
-   },
-   "regexes": []
+    "references": {
+      "lorebooks": 1,
+      "presets": 0,
+      "assets": 0
+    },
+    "privacy": {
+      "excludes": [
+        "settings",
+        "user",
+        "worldSaves"
+      ],
+      "redactedPaths": []
+    },
+    "executableContent": {
+      "html": true,
+      "scripts": true,
+      "regexTriggers": 0,
+      "executedDuringExport": false
+    },
+    "warnings": []
   },
-  "lorebooks": {
-   "default": {
-    "name": "雪线列车 · 设定",
-    "entries": [
-     {
-      "id": "lb-road",
-      "comment": "北大道",
-      "keys": [
-       "北大道",
-       "林道",
-       "凡戴尔"
+  "content": {
+    "world": {
+      "schemaVersion": 1,
+      "id": "world-galgame-visual-novel",
+      "version": 1,
+      "title": "雪线列车 · 视觉小说模板",
+      "summary": "把 RPG 工作区整页接管成横版 galgame：16:9 全屏背景、左右立绘、居中限宽对话框、打字机、点击推进、回想。AI 写出的叙事会自动逐句进队播放。",
+      "coverImage": null,
+      "tags": [
+        "视觉小说",
+        "galgame",
+        "自定义 UI",
+        "立绘",
+        "打字机"
       ],
-      "content": "北大道连接北方石头城与边境小镇凡戴尔。近两月不太平，丢的不只是货，还有人。",
-      "enabled": true,
-      "insertion_order": 100
-     },
-     {
-      "id": "lb-hilda",
-      "comment": "希尔达",
-      "keys": [
-       "希尔达",
-       "猎人"
+      "playerCreation": {
+        "mode": "custom",
+        "title": "你叫什么名字？",
+        "description": "视觉小说只需要一个称呼，其余交给剧情。",
+        "fields": [
+          {
+            "id": "name",
+            "label": "称呼",
+            "type": "text",
+            "required": true,
+            "maxLength": 40,
+            "default": "旅人"
+          }
+        ],
+        "attributes": [],
+        "skills": [],
+        "resources": [],
+        "traits": [],
+        "choices": [],
+        "initialInventory": []
+      },
+      "turnContract": {},
+      "failure": {},
+      "ending": {},
+      "conflicts": [],
+      "time": {
+        "unit": "天",
+        "start": 1,
+        "turnAdvance": 0.5
+      },
+      "events": [],
+      "start": {
+        "locationId": "snow-road",
+        "openingMode": "static",
+        "opening": "**雪停了。**\n\n林道两旁的落叶松挂满白霜，车辙在弯道处断了。两匹马倒在路中央，货一件没少，人却不见了。",
+        "options": [
+          "查看马身上的箭伤",
+          "沿着林间小路追进去",
+          "先记下现场，赶往镇上报信"
+        ]
+      },
+      "lorebookIds": [
+        "default"
       ],
-      "content": "希尔达是追着失踪案北上的猎人，话少，手套上常有血。对旅人保持着审慎的信任。",
-      "enabled": true,
-      "insertion_order": 100
-     },
-     {
-      "id": "lb-dwarf",
-      "comment": "贡德伦",
-      "keys": [
-       "贡德伦",
-       "矮人"
+      "rpgPresetName": "",
+      "sessionSetup": {
+        "title": "视觉小说设置",
+        "fields": []
+      },
+      "npcIds": [],
+      "factionIds": [],
+      "factions": [],
+      "itemIds": [],
+      "questTemplateIds": [],
+      "locations": [
+        {
+          "id": "snow-road",
+          "name": "雪夜林道",
+          "type": "wilderness",
+          "summary": "北大道弯道，两匹死马与一车未动过的货。"
+        },
+        {
+          "id": "tavern",
+          "name": "酒馆内景",
+          "type": "facility",
+          "summary": "炉火、麦酒味，和压低声音说话的人。"
+        },
+        {
+          "id": "cave",
+          "name": "地下暗河",
+          "type": "dungeon",
+          "summary": "废矿深处，水声盖住了脚步。"
+        }
       ],
-      "content": "贡德伦是矮人勘矿者，雇旅人护送补给车。开口就是钱和货，但从不拖欠。",
-      "enabled": true,
-      "insertion_order": 100
-     }
-    ]
-   }
+      "ui": {
+        "schemaVersion": 1,
+        "layout": "custom",
+        "shell": {
+          "navigation": "hide",
+          "topbar": "hide",
+          "fullscreen": true,
+          "escape": "fullscreen",
+          "orientation": "landscape"
+        },
+        "regions": {
+          "topbar": {
+            "mode": "hide"
+          },
+          "sidebar.left": {
+            "mode": "hide"
+          },
+          "sidebar.right": {
+            "mode": "hide"
+          },
+          "narrative": {
+            "mode": "hide"
+          },
+          "options": {
+            "mode": "hide"
+          },
+          "input": {
+            "mode": "hide"
+          },
+          "status": {
+            "mode": "hide"
+          },
+          "overlay": {
+            "mode": "hide"
+          }
+        },
+        "extension": {
+          "enabled": true,
+          "immersive": true,
+          "title": "雪线列车 · 视觉小说（横版）",
+          "maxHeight": 800,
+          "timeoutMs": 3000,
+          "actionNarrates": false,
+          "permissions": [
+            "read.public",
+            "read.save",
+            "write.runtime",
+            "tool.call"
+          ],
+          "mvu": {},
+          "html": "<div class=\"vn\" id=\"vn-root\">\n  <div class=\"vn-bg\" id=\"vn-bg\"></div>\n  <div class=\"vn-vignette\"></div>\n\n  <div class=\"vn-stage\" id=\"vn-stage\">\n    <img class=\"vn-sprite\" id=\"vn-sprite-l\" alt=\"\">\n    <img class=\"vn-sprite vn-sprite-c\" id=\"vn-sprite-c\" alt=\"\">\n    <img class=\"vn-sprite vn-sprite-r\" id=\"vn-sprite-r\" alt=\"\">\n  </div>\n\n  <div class=\"vn-hud\">\n    <span class=\"vn-chip\"><i></i><b data-tavern-bind=\"save.name\">旅人</b></span>\n    <span class=\"vn-chip\" id=\"vn-loc\" data-tavern-bind=\"save.state.locationId\">雪原</span>\n    <span class=\"vn-chip vn-chip-dim\" id=\"vn-queue\">0 句待播</span>\n    <button class=\"vn-hud-btn\" type=\"button\" id=\"vn-auto\">自动 ▸</button>\n    <button class=\"vn-hud-btn\" type=\"button\" id=\"vn-log\">回想</button>\n    <button class=\"vn-hud-btn\" type=\"button\" id=\"vn-exit\">返回世界库</button>\n  </div>\n\n  <div class=\"vn-dialog\" id=\"vn-dialog\">\n    <div class=\"vn-name\" id=\"vn-name\"></div>\n    <p class=\"vn-text\" id=\"vn-text\"></p>\n    <div class=\"vn-advance\" id=\"vn-advance\">▼</div>\n  </div>\n\n  <div class=\"vn-choices\" id=\"vn-choices\" data-tavern-options hidden></div>\n\n  <form class=\"vn-input\" data-tavern-input id=\"vn-input\">\n    <input id=\"vn-free\" type=\"text\" placeholder=\"或者，写下你自己的行动…\" autocomplete=\"off\">\n    <button type=\"submit\" data-tavern-submit>发送</button>\n  </form>\n\n  <div class=\"vn-log\" id=\"vn-log-panel\" hidden>\n    <header><b>回想</b><button type=\"button\" id=\"vn-log-close\">关闭</button></header>\n    <div class=\"vn-log-body\" id=\"vn-log-body\"></div>\n  </div>\n</div>",
+          "css": ".vn{position:relative;height:100vh;min-height:420px;overflow:hidden;background:#05070c;color:#f2f5fa;\n  font-family:system-ui,-apple-system,\"PingFang SC\",\"Noto Sans CJK SC\",sans-serif;user-select:none}\n.vn-bg{position:absolute;inset:0;background-size:cover;background-position:center;transition:opacity .45s ease}\n.vn-vignette{position:absolute;inset:0;pointer-events:none;\n  background:radial-gradient(ellipse at 50% 38%,transparent 38%,rgba(0,0,0,.55) 100%)}\n\n/* 横版：立绘分列左右，居中偏下 */\n.vn-stage{position:absolute;inset:0;pointer-events:none}\n.vn-sprite{position:absolute;bottom:118px;height:74vh;max-height:640px;width:auto;opacity:0;\n  transition:opacity .35s ease,transform .35s ease;transform:translateY(14px);\n  filter:drop-shadow(0 14px 28px rgba(0,0,0,.55))}\n.vn-sprite.show{opacity:1;transform:translateY(0)}\n.vn-sprite-l{left:4%}\n.vn-sprite-c{left:50%;margin-left:-160px;transform:translateY(14px) scale(1.02)}\n.vn-sprite-r{right:4%}\n\n.vn-hud{position:absolute;top:12px;left:16px;right:16px;display:flex;gap:8px;align-items:center;z-index:5}\n.vn-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:999px;\n  background:rgba(8,12,20,.6);border:1px solid rgba(255,255,255,.14);\n  backdrop-filter:blur(8px);font-size:12px;letter-spacing:.04em}\n.vn-chip b{font-weight:600}\n.vn-chip i{width:6px;height:6px;border-radius:50%;background:#4fd6c8;display:inline-block}\n.vn-chip-dim{opacity:.6}\n.vn-hud-spacer{flex:1}\n.vn-hud-btn{padding:5px 13px;border-radius:999px;cursor:pointer;\n  background:rgba(8,12,20,.6);border:1px solid rgba(255,255,255,.16);color:#e8eef8;\n  font-size:12px;backdrop-filter:blur(8px)}\n.vn-hud-btn:hover{background:rgba(30,44,64,.8)}\n\n/* 横版对话框：居中、限宽、贴底 */\n.vn-dialog{position:absolute;left:50%;transform:translateX(-50%);width:min(92%,1080px);\n  bottom:86px;z-index:4;min-height:110px;\n  background:linear-gradient(180deg,rgba(8,12,22,.84),rgba(6,9,16,.93));\n  border:1px solid rgba(255,255,255,.14);border-radius:12px;\n  padding:16px 22px 22px;backdrop-filter:blur(12px);box-shadow:0 18px 44px rgba(0,0,0,.5)}\n.vn-name{position:absolute;top:-13px;left:18px;padding:3px 14px;border-radius:999px;\n  background:linear-gradient(135deg,#3a6ea5,#5b7fa6);font-size:13px;font-weight:700;letter-spacing:.06em;\n  box-shadow:0 6px 16px rgba(0,0,0,.4)}\n.vn-name:empty{display:none}\n.vn-text{margin:4px 0 0;font-size:16.5px;line-height:1.9;letter-spacing:.02em;min-height:3.6em;white-space:pre-wrap}\n.vn-advance{position:absolute;right:20px;bottom:6px;color:#8fb6e0;font-size:14px;\n  animation:vn-bob 1.4s ease-in-out infinite;opacity:0}\n.vn-advance.on{opacity:1}\n@keyframes vn-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(4px)}}\n\n.vn-choices{position:absolute;left:50%;transform:translateX(-50%);width:min(92%,1080px);bottom:92px;z-index:6;\n  display:flex;flex-direction:column;gap:9px}\n.vn-choices[hidden]{display:none}\n.vn-choice{padding:12px 18px;border-radius:10px;cursor:pointer;text-align:left;\n  background:rgba(10,16,26,.86);border:1px solid rgba(255,255,255,.18);color:#eef3fb;\n  font-size:14.5px;line-height:1.5;backdrop-filter:blur(10px);transition:all .18s ease}\n.vn-choice:hover{background:rgba(46,86,132,.9);border-color:#7fb0e8;transform:translateX(6px)}\n\n.vn-input{position:absolute;left:50%;transform:translateX(-50%);width:min(92%,1080px);bottom:34px;\n  display:flex;gap:8px;z-index:4}\n.vn-input input{flex:1;padding:10px 14px;border-radius:9px;font-size:13.5px;\n  background:rgba(8,12,20,.8);border:1px solid rgba(255,255,255,.14);color:#eaf0f8}\n.vn-input input:focus{outline:none;border-color:#5b8fd0}\n.vn-input button{padding:10px 22px;border-radius:9px;border:none;cursor:pointer;\n  background:linear-gradient(135deg,#3a6ea5,#4f8fd0);color:#fff;font-size:13.5px;font-weight:600}\n\n.vn-log{position:absolute;left:50%;transform:translateX(-50%);top:6%;bottom:6%;width:min(88%,920px);z-index:9;\n  border-radius:14px;padding:16px;background:rgba(6,9,16,.97);border:1px solid rgba(255,255,255,.16);overflow:auto}\n.vn-log[hidden]{display:none}\n.vn-log header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}\n.vn-log header button{padding:4px 12px;border-radius:8px;cursor:pointer;\n  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);color:#dfe7f2;font-size:12px}\n.vn-log-item{margin-bottom:12px;font-size:13.5px;line-height:1.7;color:#c8d4e4}\n.vn-log-item b{color:#8fb6e0;display:block;font-size:12px;margin-bottom:2px;letter-spacing:.05em}\n\n/* 竖屏降级：立绘收窄、对话框全宽 */\n@media (orientation:portrait){\n  .vn-sprite{height:52vh;bottom:190px}\n  .vn-sprite-l{left:-6%}\n  .vn-sprite-r{right:-6%}\n  .vn-dialog,.vn-choices,.vn-input{width:94%}\n  .vn-text{font-size:15.5px}\n}",
+          "js": "(()=>{const start=function(){\nconst root=document.getElementById('vn-root');if(!root)return;\nconst bgEl=document.getElementById('vn-bg'),nameEl=document.getElementById('vn-name'),\ntextEl=document.getElementById('vn-text'),advEl=document.getElementById('vn-advance'),\nchoicesEl=document.getElementById('vn-choices'),queueEl=document.getElementById('vn-queue'),\nlocEl=document.getElementById('vn-loc');\nconst sprites={l:document.getElementById('vn-sprite-l'),c:document.getElementById('vn-sprite-c'),r:document.getElementById('vn-sprite-r')};\n\n/* ── 素材表：换真图时把 SVG data-URI 换成图片 URL 即可 ── */\nconst BG={'雪夜林道':'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%271280%27%20height%3D%27720%27%20viewBox%3D%270%200%201280%20720%27%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%27g%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%270%27%20y2%3D%271%27%3E%0A%3Cstop%20offset%3D%270%27%20stop-color%3D%27%230d1b2a%27%2F%3E%3Cstop%20offset%3D%270.55%27%20stop-color%3D%27%231b3a52%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%232e5f70%27%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%271280%27%20height%3D%27720%27%20fill%3D%27url%28%23g%29%27%2F%3E%0A%3Cg%20fill%3D%27%230a1420%27%20opacity%3D%270.85%27%3E%0A%3Cpolygon%20points%3D%270%2C720%20120%2C300%20190%2C720%27%2F%3E%3Cpolygon%20points%3D%27150%2C720%20300%2C240%20420%2C720%27%2F%3E%0A%3Cpolygon%20points%3D%27380%2C720%20520%2C320%20620%2C720%27%2F%3E%3Cpolygon%20points%3D%27600%2C720%20760%2C260%20900%2C720%27%2F%3E%0A%3Cpolygon%20points%3D%27860%2C720%201010%2C300%201130%2C720%27%2F%3E%3Cpolygon%20points%3D%271080%2C720%201200%2C340%201280%2C720%27%2F%3E%0A%3C%2Fg%3E%0A%3Cg%20fill%3D%27%237fd1e0%27%20opacity%3D%270.5%27%3E%3Ccircle%20cx%3D%27180%27%20cy%3D%27120%27%20r%3D%273%27%2F%3E%3Ccircle%20cx%3D%27320%27%20cy%3D%2790%27%20r%3D%272%27%2F%3E%3Ccircle%20cx%3D%27470%27%20cy%3D%27150%27%20r%3D%273%27%2F%3E%0A%3Ccircle%20cx%3D%27640%27%20cy%3D%2780%27%20r%3D%272%27%2F%3E%3Ccircle%20cx%3D%27800%27%20cy%3D%27130%27%20r%3D%273%27%2F%3E%3Ccircle%20cx%3D%27950%27%20cy%3D%27100%27%20r%3D%272%27%2F%3E%3Ccircle%20cx%3D%271100%27%20cy%3D%27160%27%20r%3D%273%27%2F%3E%3C%2Fg%3E%0A%3Crect%20y%3D%27600%27%20width%3D%271280%27%20height%3D%27120%27%20fill%3D%27%23e8f4f8%27%20opacity%3D%270.92%27%2F%3E%0A%3Cpath%20d%3D%27M0%2C600%20Q320%2C570%20640%2C600%20T1280%2C595%20L1280%2C620%20L0%2C620%20Z%27%20fill%3D%27%23ffffff%27%20opacity%3D%270.6%27%2F%3E%0A%3C%2Fsvg%3E','酒馆内景':'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%271280%27%20height%3D%27720%27%20viewBox%3D%270%200%201280%20720%27%3E%0A%3Cdefs%3E%3CradialGradient%20id%3D%27h%27%20cx%3D%270.5%27%20cy%3D%270.42%27%20r%3D%270.62%27%3E%0A%3Cstop%20offset%3D%270%27%20stop-color%3D%27%23ffcf8a%27%2F%3E%3Cstop%20offset%3D%270.5%27%20stop-color%3D%27%238a5a2b%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%231a0f08%27%2F%3E%3C%2FradialGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%271280%27%20height%3D%27720%27%20fill%3D%27url%28%23h%29%27%2F%3E%0A%3Cg%20fill%3D%27%23120a05%27%20opacity%3D%270.9%27%3E%0A%3Crect%20x%3D%2770%27%20y%3D%2790%27%20width%3D%27220%27%20height%3D%27330%27%20rx%3D%2710%27%2F%3E%3Crect%20x%3D%27990%27%20y%3D%27120%27%20width%3D%27220%27%20height%3D%27300%27%20rx%3D%2710%27%2F%3E%0A%3Crect%20x%3D%27360%27%20y%3D%2760%27%20width%3D%27150%27%20height%3D%27120%27%20rx%3D%278%27%2F%3E%3Crect%20x%3D%27770%27%20y%3D%2770%27%20width%3D%27150%27%20height%3D%27110%27%20rx%3D%278%27%2F%3E%0A%3C%2Fg%3E%0A%3Ccircle%20cx%3D%27430%27%20cy%3D%27620%27%20r%3D%2734%27%20fill%3D%27%23ffb347%27%20opacity%3D%270.55%27%2F%3E%0A%3Ccircle%20cx%3D%27860%27%20cy%3D%27640%27%20r%3D%2728%27%20fill%3D%27%23ffb347%27%20opacity%3D%270.45%27%2F%3E%0A%3Crect%20y%3D%27560%27%20width%3D%271280%27%20height%3D%27160%27%20fill%3D%27%232a170c%27%2F%3E%0A%3Crect%20y%3D%27556%27%20width%3D%271280%27%20height%3D%278%27%20fill%3D%27%233d2413%27%2F%3E%0A%3C%2Fsvg%3E','地下暗河':'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%271280%27%20height%3D%27720%27%20viewBox%3D%270%200%201280%20720%27%3E%0A%3Cdefs%3E%3ClinearGradient%20id%3D%27c%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%270.3%27%20y2%3D%271%27%3E%0A%3Cstop%20offset%3D%270%27%20stop-color%3D%27%2305060a%27%2F%3E%3Cstop%20offset%3D%270.6%27%20stop-color%3D%27%2312202e%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%231d3b46%27%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%0A%3Crect%20width%3D%271280%27%20height%3D%27720%27%20fill%3D%27url%28%23c%29%27%2F%3E%0A%3Cpath%20d%3D%27M0%2C0%20Q180%2C220%2060%2C420%20Q10%2C520%200%2C720%20L0%2C0%20Z%27%20fill%3D%27%23080a10%27%2F%3E%0A%3Cpath%20d%3D%27M1280%2C0%20Q1090%2C200%201200%2C400%20Q1260%2C520%201280%2C720%20L1280%2C0%20Z%27%20fill%3D%27%23080a10%27%2F%3E%0A%3Cpath%20d%3D%27M0%2C120%20Q300%2C60%20560%2C140%20Q820%2C220%201280%2C150%20L1280%2C0%20L0%2C0%20Z%27%20fill%3D%27%23070910%27%20opacity%3D%270.9%27%2F%3E%0A%3Cg%20fill%3D%27%234fd6c8%27%20opacity%3D%270.45%27%3E%3Cellipse%20cx%3D%27300%27%20cy%3D%27470%27%20rx%3D%2770%27%20ry%3D%2716%27%2F%3E%3Cellipse%20cx%3D%27980%27%20cy%3D%27520%27%20rx%3D%2760%27%20ry%3D%2714%27%2F%3E%3C%2Fg%3E%0A%3Cg%20fill%3D%27%232b6f8a%27%20opacity%3D%270.5%27%3E%3Crect%20x%3D%27250%27%20y%3D%27620%27%20width%3D%27780%27%20height%3D%27100%27%20rx%3D%2720%27%2F%3E%3C%2Fg%3E%0A%3C%2Fsvg%3E'};\nconst CHARS={\n '你':{src:'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27420%27%20height%3D%27620%27%20viewBox%3D%270%200%20420%20620%27%3E%3Cg%20transform%3D%27translate%28210%2C0%29%20scale%281%2C1%29%20translate%28-210%2C0%29%27%3E%3Cellipse%20cx%3D%27210%27%20cy%3D%27600%27%20rx%3D%27190%27%20ry%3D%2730%27%20fill%3D%27%23000%27%20opacity%3D%270.28%27%2F%3E%3Cpath%20d%3D%27M210%2C120%20C150%2C120%20118%2C170%20118%2C232%20C118%2C286%20150%2C322%20210%2C322%20C270%2C322%20302%2C286%20302%2C232%20C302%2C170%20270%2C120%20210%2C120%20Z%27%20fill%3D%27%232f3b4d%27%2F%3E%3Cpath%20d%3D%27M210%2C120%20C168%2C120%20138%2C150%20130%2C196%20C160%2C176%20262%2C176%20292%2C196%20C284%2C150%20252%2C120%20210%2C120%20Z%27%20fill%3D%27%235b7fa6%27%20opacity%3D%270.9%27%2F%3E%3Cpath%20d%3D%27M96%2C620%20C96%2C430%20140%2C336%20210%2C336%20C280%2C336%20324%2C430%20324%2C620%20Z%27%20fill%3D%27%232f3b4d%27%2F%3E%3Cpath%20d%3D%27M210%2C336%20C168%2C336%20140%2C368%20130%2C410%20L290%2C410%20C280%2C368%20252%2C336%20210%2C336%20Z%27%20fill%3D%27%235b7fa6%27%20opacity%3D%270.75%27%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E',slot:'l',color:'#5b7fa6'},\n '希尔达':{src:'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27420%27%20height%3D%27620%27%20viewBox%3D%270%200%20420%20620%27%3E%3Cg%20transform%3D%27translate%28210%2C0%29%20scale%28-1%2C1%29%20translate%28-210%2C0%29%27%3E%3Cellipse%20cx%3D%27210%27%20cy%3D%27600%27%20rx%3D%27190%27%20ry%3D%2730%27%20fill%3D%27%23000%27%20opacity%3D%270.28%27%2F%3E%3Cpath%20d%3D%27M210%2C120%20C150%2C120%20118%2C170%20118%2C232%20C118%2C286%20150%2C322%20210%2C322%20C270%2C322%20302%2C286%20302%2C232%20C302%2C170%20270%2C120%20210%2C120%20Z%27%20fill%3D%27%234a2b3a%27%2F%3E%3Cpath%20d%3D%27M210%2C120%20C168%2C120%20138%2C150%20130%2C196%20C160%2C176%20262%2C176%20292%2C196%20C284%2C150%20252%2C120%20210%2C120%20Z%27%20fill%3D%27%23c96b8a%27%20opacity%3D%270.9%27%2F%3E%3Cpath%20d%3D%27M96%2C620%20C96%2C430%20140%2C336%20210%2C336%20C280%2C336%20324%2C430%20324%2C620%20Z%27%20fill%3D%27%234a2b3a%27%2F%3E%3Cpath%20d%3D%27M210%2C336%20C168%2C336%20140%2C368%20130%2C410%20L290%2C410%20C280%2C368%20252%2C336%20210%2C336%20Z%27%20fill%3D%27%23c96b8a%27%20opacity%3D%270.75%27%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E',slot:'r',color:'#c96b8a'},\n '贡德伦':{src:'data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27420%27%20height%3D%27620%27%20viewBox%3D%270%200%20420%20620%27%3E%3Cg%20transform%3D%27translate%28210%2C0%29%20scale%281%2C1%29%20translate%28-210%2C0%29%27%3E%3Cellipse%20cx%3D%27210%27%20cy%3D%27600%27%20rx%3D%27190%27%20ry%3D%2730%27%20fill%3D%27%23000%27%20opacity%3D%270.28%27%2F%3E%3Cpath%20d%3D%27M210%2C120%20C150%2C120%20118%2C170%20118%2C232%20C118%2C286%20150%2C322%20210%2C322%20C270%2C322%20302%2C286%20302%2C232%20C302%2C170%20270%2C120%20210%2C120%20Z%27%20fill%3D%27%233b3020%27%2F%3E%3Cpath%20d%3D%27M210%2C120%20C168%2C120%20138%2C150%20130%2C196%20C160%2C176%20262%2C176%20292%2C196%20C284%2C150%20252%2C120%20210%2C120%20Z%27%20fill%3D%27%23c9a227%27%20opacity%3D%270.9%27%2F%3E%3Cpath%20d%3D%27M96%2C620%20C96%2C430%20140%2C336%20210%2C336%20C280%2C336%20324%2C430%20324%2C620%20Z%27%20fill%3D%27%233b3020%27%2F%3E%3Cpath%20d%3D%27M210%2C336%20C168%2C336%20140%2C368%20130%2C410%20L290%2C410%20C280%2C368%20252%2C336%20210%2C336%20Z%27%20fill%3D%27%23c9a227%27%20opacity%3D%270.75%27%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E',slot:'c',color:'#c9a227'}\n};\n\nconst state={queue:[],typed:false,timer:0,auto:false,log:[],bg:'雪夜林道',shown:{}};\nconst sleep=ms=>new Promise(r=>setTimeout(r,ms));\n\nfunction setBg(name){if(!BG[name]||state.bg===name)return;state.bg=name;bgEl.style.opacity='0';\n  setTimeout(()=>{bgEl.style.backgroundImage=`url(\"${BG[name]}\")`;bgEl.style.opacity='1';},220);}\n\nfunction setSprite(who){\n  const d=CHARS[who];if(!d)return;\n  const el=sprites[d.slot];if(!el)return;\n  Object.keys(sprites).forEach(k=>{if(k!==d.slot)sprites[k].classList.remove('show');});\n  if(el.getAttribute('src')!==d.src){el.setAttribute('src',d.src);el.classList.remove('show');}\n  requestAnimationFrame(()=>el.classList.add('show'));\n  state.shown={[d.slot]:who};\n}\n\nfunction pushLine(line){\n  line=String(line==null?'':line);\n  if(!line.trim())return;\n  state.log.push(line);\n  const m=line.match(/^([^：:\\n]{1,8})[：:](.*)$/s);\n  const hasName=m&&CHARS[m[1].trim()];\n  state.queue.push({who:hasName?m[1].trim():'',text:(hasName?m[2]:line).trim()});\n  const body=document.getElementById('vn-log-body');\n  if(body){const d=document.createElement('div');d.className='vn-log-item';\n    d.innerHTML=(hasName?`<b>${m[1].trim()}</b>`:'')+escapeHtml((hasName?m[2]:line).trim());\n    body.appendChild(d);body.scrollTop=body.scrollHeight;}\n  paintQueue();\n}\nfunction escapeHtml(s){return String(s).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'\"'}[c]));}\nfunction paintQueue(){if(queueEl)queueEl.textContent=state.queue.length?`${state.queue.length} 句待播`:'已播完';}\n\n/* 把一段 AI 叙事/Markdown 切成句子（galgame 的“逐句”来源） */\nfunction splitSentences(text){\n  return String(text==null?'':text)\n    .replace(/```[\\s\\S]*?```/g,' ')\n    .replace(/^#{1,6}\\s*/gm,'').replace(/^[-*+]\\s+/gm,'').replace(/^>\\s*/gm,'')\n    .replace(/\\*\\*(.+?)\\*\\*/g,'$1').replace(/[*_`]/g,'')\n    .split(/(?<=[。！？!?…])\\s*|\\n{2,}/)\n    .map(s=>s.trim()).filter(s=>s.length>1);\n}\n\n/* 打字机 */\nfunction typeLine(line){\n  state.typed=false;advEl.classList.remove('on');\n  nameEl.textContent=line.who||'';nameEl.style.background=line.who&&CHARS[line.who]\n    ?`linear-gradient(135deg,${CHARS[line.who].color},#2b3d55)`:'';\n  if(line.who)setSprite(line.who);\n  const chars=[...line.text];let i=0;textEl.textContent='';\n  clearInterval(state.timer);\n  state.timer=setInterval(()=>{\n    textEl.textContent+=chars[i++]||'';\n    if(i>=chars.length){clearInterval(state.timer);state.typed=true;advEl.classList.add('on');\n      paintQueue();\n      if(state.auto)setTimeout(()=>{if(state.auto)next();},900);}\n  },26);\n}\n\nfunction next(){\n  if(!state.typed&&textEl.textContent){ // 正在打字 → 先补全\n    clearInterval(state.timer);state.typed=true;advEl.classList.add('on');\n    return;\n  }\n  if(!state.queue.length){return;}\n  typeLine(state.queue.shift());paintQueue();\n}\n\n/* ── 示例文本（导入后立刻就能看）── */\nconst OPENING=[\n '雪停了。林道两旁的落叶松挂满白霜，脚步声被雪吞掉，安静得不太正常。',\n '你：车辙到这里就断了。拉车的两匹马倒在路中央，货却一件没少。',\n '希尔达：「……别碰它们。」她从树后走出来，手套上全是血，「箭是从林子深处射的，射得极准。」',\n '贡德伦：「旅人，你总算追上了。」矮人蹲在车板旁敲了敲封蜡的木箱，「这车货，比两匹马的命值钱。」'\n];\n\nfunction boot(){\n  bgEl.style.backgroundImage=`url(\"${BG[state.bg]}\")`;\n  OPENING.forEach(pushLine);\n  paintQueue();\n  next();\n}\n\n/* ── 桥接 ── */\nroot.addEventListener('click',e=>{\n  if(e.target.closest('button')||e.target.closest('input')||e.target.closest('.vn-choice'))return;\n  if(choicesEl&&!choicesEl.hidden)return;\n  if(e.target.closest('.vn-log'))return;\n  next();\n});\ndocument.getElementById('vn-auto')?.addEventListener('click',e=>{\n  state.auto=!state.auto;e.target.textContent=state.auto?'自动 ❚❚':'自动 ▸';if(state.auto)next();\n});\ndocument.getElementById('vn-log')?.addEventListener('click',()=>{\n  document.getElementById('vn-log-panel').hidden=false;\n});\ndocument.getElementById('vn-log-close')?.addEventListener('click',()=>{\n  document.getElementById('vn-log-panel').hidden=true;\n});\ndocument.getElementById('vn-exit')?.addEventListener('click',()=>{\n  try{TavernExtension.exitWorld();}catch(err){}\n});\n\n/* 把宿主消息流里的新叙事接进来（AI 写的内容 → 逐句播放） */\nconst seen=new WeakSet();\nfunction ingest(){\n  const stream=document.querySelector('[data-tavern-messages]');\n  if(!stream)return;\n  stream.querySelectorAll('p,li,h1,h2,h3,blockquote').forEach(node=>{\n    if(seen.has(node))return;\n    const t=node.textContent.trim();\n    if(!t||t.length<2)return;\n    seen.add(node);\n    const isNew=!state.queue.length; // 队列空时说明是新一回合的内容\n    if(isNew)splitSentences(t).forEach(s=>pushLine(s));\n  });\n  if(!state.queue.length){const nodes=[...stream.querySelectorAll('p,li')];\n    if(nodes.length&&!state.bootstrapped){state.bootstrapped=true;}}\n}\n\n/* 选项：AI 给出时显示，点击即提交 */\nfunction paintChoices(){\n  const box=document.querySelector('[data-tavern-options]');\n  if(!box||!choicesEl)return;\n  const items=[...box.querySelectorAll('button,li,a')]\n    .map(el=>el.textContent.trim()).filter(Boolean);\n  if(!items.length){choicesEl.hidden=true;choicesEl.innerHTML='';return;}\n  if(choicesEl.dataset.sig===items.join('|'))return;\n  choicesEl.dataset.sig=items.join('|');\n  choicesEl.innerHTML=items.map((t,i)=>`<button class=\"vn-choice\" type=\"button\" data-i=\"${i}\">${escapeHtml(t)}</button>`).join('');\n  choicesEl.hidden=false;\n  choicesEl.querySelectorAll('.vn-choice').forEach(btn=>{\n    btn.addEventListener('click',()=>{\n      const src=box.querySelectorAll('button,li,a')[Number(btn.dataset.i)];\n      if(src)src.click();\n      choicesEl.hidden=true;choicesEl.dataset.sig='';\n    });\n  });\n}\n\nwindow.addEventListener('tavern-context',event=>{\n  const d=event.detail||{};\n  const loc=d.save&&d.save.state&&d.save.state.locationId;\n  if(locEl&&loc)locEl.textContent=String(loc);\n  if(/洞穴|矿|地底|矿坑/.test(String(loc||'')))setBg('地下暗河');\n  else if(/酒馆|客栈|旅店|屋内/.test(String(loc||'')))setBg('酒馆内景');\n  else setBg('雪夜林道');\n});\nTavernExtension.on&&TavernExtension.on('turn.commit',()=>{setTimeout(ingest,260);});\nTavernExtension.on&&TavernExtension.on('agent.complete',()=>{setTimeout(ingest,260);});\nsetInterval(()=>{ingest();paintChoices();},900);\n\nboot();\n}\nif(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',start);}\nelse{start();}\n})();"
+        }
+      },
+      "source": {
+        "format": "native",
+        "author": "Tavern Demo",
+        "license": null
+      },
+      "setting": {
+        "premise": "北境边地，王国的手已经伸不到这里。真正说话算数的是矮人矿工行会和悬赏榜。",
+        "geography": "北大道从石头城通往边境小镇凡戴尔，中途是连片雪林；岔路尽头有一座废弃矿坑。",
+        "society": "行会与悬赏榜维持秩序；嚼齿部族的地精专抢人不抢货。",
+        "magic": "魔法是真的，但远：能施法的人要价高得吓人，也从不往这种地方来。",
+        "currentSituation": "近两月商路不太平，失踪的不只是货，还有人。雪刚停。"
+      },
+      "rules": {
+        "hard": [],
+        "soft": [
+          "叙事要写成一段一段可读的正文，不要列条目。",
+          "对白用「角色名：」开头，这样卡内会切立绘。"
+        ]
+      },
+      "npcs": [
+        {
+          "id": "syl",
+          "name": "希尔达",
+          "role": "猎人",
+          "description": "话少，手套上总有血。追着失踪案一路往北。",
+          "desires": [
+            "找出失踪的人去了哪"
+          ],
+          "fears": [
+            "又一次来晚了"
+          ]
+        },
+        {
+          "id": "dwarf",
+          "name": "贡德伦",
+          "role": "矮人勘矿者",
+          "description": "说话像凿石头，认钱认理。这车货的雇主。",
+          "desires": [
+            "把货送到凡戴尔"
+          ],
+          "fears": [
+            "矿脉被人先一步挖空"
+          ]
+        }
+      ],
+      "runtime": {
+        "version": 1,
+        "variables": [],
+        "collections": [],
+        "actions": []
+      },
+      "agent": {
+        "protocol": "tavern.rpg.agent",
+        "version": 1,
+        "mode": "native",
+        "maxSteps": 3,
+        "tools": {}
+      },
+      "regexes": []
+    },
+    "lorebooks": {
+      "default": {
+        "name": "雪线列车 · 设定",
+        "entries": [
+          {
+            "id": "lb-road",
+            "comment": "北大道",
+            "keys": [
+              "北大道",
+              "林道",
+              "凡戴尔"
+            ],
+            "content": "北大道连接北方石头城与边境小镇凡戴尔。近两月不太平，丢的不只是货，还有人。",
+            "enabled": true,
+            "insertion_order": 100
+          },
+          {
+            "id": "lb-hilda",
+            "comment": "希尔达",
+            "keys": [
+              "希尔达",
+              "猎人"
+            ],
+            "content": "希尔达是追着失踪案北上的猎人，话少，手套上常有血。对旅人保持着审慎的信任。",
+            "enabled": true,
+            "insertion_order": 100
+          },
+          {
+            "id": "lb-dwarf",
+            "comment": "贡德伦",
+            "keys": [
+              "贡德伦",
+              "矮人"
+            ],
+            "content": "贡德伦是矮人勘矿者，雇旅人护送补给车。开口就是钱和货，但从不拖欠。",
+            "enabled": true,
+            "insertion_order": 100
+          }
+        ]
+      }
+    },
+    "presets": {}
   },
-  "presets": {}
- },
- "assets": []
+  "assets": []
 }
