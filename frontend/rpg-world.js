@@ -5394,6 +5394,8 @@ function worldExtensionSrcdoc(extension, nonce, themeTokens = {}) {
 }
 
 function postWorldExtensionContext() {
+  // 走到这里说明世界卡与存档都已就绪：顺带把卡声明的屏幕方向下发一次（原生侧幂等，重复调用无副作用）
+  applyWorldOrientation(worldUiShell().orientation);
   const iframe = worldExtensionState.iframe;
   if (!iframe?.contentWindow) return;
   iframe.contentWindow.postMessage({ channel: WORLD_EXTENSION_CHANNEL, version: 1, nonce: worldExtensionState.nonce, type: 'context', context: worldExtensionContext() }, '*');
